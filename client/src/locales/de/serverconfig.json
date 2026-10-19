@@ -1256,7 +1256,7 @@
   "sandboxSettings": {
     "time": {
       "DayLength": {
-        "label": "Tageslänge:",
+        "label": "Tageslänge (in echter Zeit)",
         "description": "How long a day lasts.",
         "options": {
           "1": {
@@ -1284,58 +1284,58 @@
             "label": "5 Stunden"
           },
           "9": {
-            "label": "12 Stunden"
+            "label": "6 Stunden"
           },
           "10": {
-            "label": "Echtzeit"
+            "label": "7 Stunden"
           },
           "11": {
-            "label": "8 stunden"
+            "label": "8 Stunden"
           },
           "12": {
-            "label": "9 stunden"
+            "label": "9 Stunden"
           },
           "13": {
-            "label": "10 stunden"
+            "label": "10 Stunden"
           },
           "14": {
-            "label": "11 stunden"
+            "label": "11 Stunden"
           },
           "15": {
-            "label": "12 stunden"
+            "label": "12 Stunden"
           },
           "16": {
-            "label": "13 stunden"
+            "label": "13 Stunden"
           },
           "17": {
-            "label": "14 stunden"
+            "label": "14 Stunden"
           },
           "18": {
-            "label": "15 stunden"
+            "label": "15 Stunden"
           },
           "19": {
-            "label": "16 stunden"
+            "label": "16 Stunden"
           },
           "20": {
-            "label": "17 stunden"
+            "label": "17 Stunden"
           },
           "21": {
-            "label": "18 stunden"
+            "label": "18 Stunden"
           },
           "22": {
-            "label": "19 stunden"
+            "label": "19 Stunden"
           },
           "23": {
-            "label": "20 stunden"
+            "label": "20 Stunden"
           },
           "24": {
-            "label": "21 stunden"
+            "label": "21 Stunden"
           },
           "25": {
-            "label": "22 stunden"
+            "label": "22 Stunden"
           },
           "26": {
-            "label": "23 stunden"
+            "label": "23 Stunden"
           },
           "27": {
             "label": "Echtzeit"
@@ -1343,11 +1343,11 @@
         }
       },
       "StartYear": {
-        "label": "Startjahr:",
+        "label": "Startjahr",
         "description": "Which year the game starts in."
       },
       "StartMonth": {
-        "label": "Startmonat:",
+        "label": "Startmonat",
         "description": "Which month the game starts in (1=Jan, 12=Dec).",
         "options": {
           "1": {
@@ -1389,11 +1389,11 @@
         }
       },
       "StartDay": {
-        "label": "Starttag:",
+        "label": "Starttag",
         "description": "Which day of the month the game starts on."
       },
       "StartTime": {
-        "label": "Startzeit:",
+        "label": "Startstunde",
         "description": "What time of day the game starts.",
         "options": {
           "1": {
@@ -1428,7 +1428,7 @@
     },
     "population": {
       "Zombies": {
-        "label": "Zombie Anzahl:",
+        "label": "Zombie-Anzahl",
         "description": "Initial zombie population level. Also sets Population Multiplier in Advanced Zombie Options.",
         "options": {
           "1": {
@@ -1452,7 +1452,7 @@
         }
       },
       "Distribution": {
-        "label": "Zombie Verteilung:",
+        "label": "Zombie-Verteilung",
         "description": "How zombies are distributed across the map.",
         "options": {
           "1": {
@@ -1464,11 +1464,11 @@
         }
       },
       "ZombieVoronoiNoise": {
-        "label": "Randomize Distribution",
+        "label": "Ungleichmäßige Zombieverteilung",
         "description": "Apply randomization to zombie distribution."
       },
       "ZombieRespawn": {
-        "label": "Zombie Rückkehr Zeitraum:",
+        "label": "Zombie-Respawn-Zeitraum",
         "description": "How frequently new zombies are added to the world.",
         "options": {
           "1": {
@@ -1504,15 +1504,15 @@
         "description": "Canned and dried food, beverages."
       },
       "LiteratureLootNew": {
-        "label": "Literatur",
+        "label": "Andere Literatur",
         "description": "All readable items including books, fliers, and newspapers."
       },
       "SkillBookLoot": {
-        "label": "Skill Book Loot",
+        "label": "Fähigkeiten-Bücher",
         "description": "Books that provide skill XP multipliers."
       },
       "RecipeResourceLoot": {
-        "label": "Recipe Loot",
+        "label": "Rezeptressourcen",
         "description": "Items that teach recipes."
       },
       "MedicalLootNew": {
@@ -1580,7 +1580,7 @@
         "description": "Everything else. Also affects foraging in Town/Road zones."
       },
       "RollsMultiplier": {
-        "label": "Wurf-Multiplikator [!]",
+        "label": "Wurf-Multiplikator",
         "description": "Multiplier for loot table rolls. Higher values may affect performance. NOT recommended to change."
       },
       "RemoveStoryLoot": {
@@ -1608,13 +1608,13 @@
         "description": "Player constructions near containers prevent loot respawn."
       },
       "SeenHoursPreventLootRespawn": {
-        "label": "Beute-Gesehen-Verhinderungszeit:",
+        "label": "\"Beute gesehen\"-Sperrzeit",
         "description": "Hours a zone must be unvisited before loot respawns. 0 = disabled."
       }
     },
     "lootRarity": {
       "InsaneLootFactor": {
-        "label": "Beutefaktor unfassbar selten",
+        "label": "Beutefaktor Absurd Selten",
         "description": "Spawn rate for Insane rarity items."
       },
       "ExtremeLootFactor": {
@@ -1664,80 +1664,113 @@
     },
     "environment": {
       "DayNightCycle": {
-        "label": "Day/Night Cycle",
+        "label": "Tag-Nacht-Zyklus",
         "description": "Whether time of day changes naturally.",
         "options": {
           "1": {
             "label": "Normal"
           },
           "2": {
-            "label": "Endless Day"
+            "label": "Immer Tag"
           },
           "3": {
-            "label": "Endless Night"
+            "label": "Immer Nacht"
           }
         }
       },
       "ClimateCycle": {
-        "label": "Weather Cycle",
+        "label": "Klimazyklus",
         "description": "Whether weather changes or remains fixed.",
         "options": {
           "1": {
             "label": "Normal"
           },
           "2": {
-            "label": "No Weather"
+            "label": "Kein Wetter"
           },
           "3": {
-            "label": "Endless Rain"
+            "label": "Immer Regen"
           },
           "4": {
-            "label": "Endless Storm"
+            "label": "Immer Sturm"
           },
           "5": {
-            "label": "Endless Snow"
+            "label": "Immer Schnee"
           },
           "6": {
-            "label": "Endless Blizzard"
+            "label": "Immer Schneesturm"
           }
         }
       },
       "FogCycle": {
-        "label": "Fog Cycle",
+        "label": "Nebelzyklus",
         "description": "Whether fog occurs naturally.",
         "options": {
           "1": {
             "label": "Normal"
           },
           "2": {
-            "label": "No Fog"
+            "label": "Kein Nebel"
           },
           "3": {
-            "label": "Endless Fog"
+            "label": "Immer Nebel"
           }
         }
       },
       "WaterShut": {
-        "label": "Wasserausfall:",
+        "label": "Wasserausfall",
         "description": "When plumbing fixtures stop being infinite water sources.",
         "options": {
           "1": {
             "label": "Sofort"
           },
           "2": {
-            "label": "0-30 Tage"
+            "label": "0 - 30 Tage"
           },
           "3": {
-            "label": "0-2 Monate"
+            "label": "0 - 2 Monate"
           },
           "4": {
-            "label": "0-6 Monate"
+            "label": "0 - 6 Monate"
           },
           "5": {
-            "label": "0-1 Jahr"
+            "label": "0 - 1 Jahr"
           },
           "6": {
-            "label": "0-5 Jahre"
+            "label": "0 - 5 Jahre"
+          },
+          "7": {
+            "label": "2 - 6 Monate"
+          },
+          "8": {
+            "label": "6 - 12 Monate"
+          },
+          "9": {
+            "label": "Deaktiviert"
+          }
+        }
+      },
+      "ElecShut": {
+        "label": "Stromausfall",
+        "description": "When the world's electricity turns off.",
+        "options": {
+          "1": {
+            "label": "Sofort"
+          },
+          "2": {
+            "label": "14-30 Tage"
+          },
+          "3": {
+            "label": "14 Tage - 2 Monate"
+          },
+          "4": {
+            "label": "14 Tage - 6 Monate"
+          },
+          "5": {
+            "label": "14 Tage - 1 Jahr"
+          },
+          "6": {
+            "label": "14 Tage - 5 Jahre"
           },
           "7": {
             "label": "2-6 Monate"
@@ -1750,39 +1783,6 @@
           }
         }
       },
-      "ElecShut": {
-        "label": "Stromausfall:",
-        "description": "When the world's electricity turns off.",
-        "options": {
-          "1": {
-            "label": "Instant"
-          },
-          "2": {
-            "label": "14 - 30 Days"
-          },
-          "3": {
-            "label": "14 Days - 2 Months"
-          },
-          "4": {
-            "label": "14 Days - 6 Months"
-          },
-          "5": {
-            "label": "14 Days - 1 Year"
-          },
-          "6": {
-            "label": "14 Days - 5 Years"
-          },
-          "7": {
-            "label": "2 - 6 Months"
-          },
-          "8": {
-            "label": "6 - 12 Months"
-          },
-          "9": {
-            "label": "Disabled"
-          }
-        }
-      },
       "AlarmDecay": {
         "label": "Alarmbatterie-Abnutzung",
         "description": "How long alarm batteries last after power shuts off.",
@@ -1791,19 +1791,19 @@
             "label": "Sofort"
           },
           "2": {
-            "label": "0-30 Tage"
+            "label": "0 - 30 Tage"
           },
           "3": {
-            "label": "0-2 Monate"
+            "label": "0 - 2 Monate"
           },
           "4": {
-            "label": "0-6 Monate"
+            "label": "0 - 6 Monate"
           },
           "5": {
-            "label": "0-1 Jahr"
+            "label": "0 - 1 Jahr"
           },
           "6": {
-            "label": "0-5 Jahre"
+            "label": "0 - 5 Jahre"
           },
           "7": {
             "label": "2-6 Monate"
@@ -1817,11 +1817,11 @@
         }
       },
       "WaterShutModifier": {
-        "label": "Water Shutoff Modifier",
+        "label": "Wasserabschaltung-Modifikator",
         "description": "Fine-tune water shutoff timing in days."
       },
       "ElecShutModifier": {
-        "label": "Electricity Shutoff Modifier",
+        "label": "Stromabschaltung-Modifikator",
         "description": "Fine-tune electricity shutoff timing in days."
       },
       "AlarmDecayModifier": {
@@ -1829,7 +1829,7 @@
         "description": "Fine-tune alarm battery decay timing in days."
       },
       "Temperature": {
-        "label": "Temperatur:",
+        "label": "Temperatur",
         "description": "Global temperature setting.",
         "options": {
           "1": {
@@ -1850,7 +1850,7 @@
         }
       },
       "Rain": {
-        "label": "Regen:",
+        "label": "Regen",
         "description": "How often it rains.",
         "options": {
           "1": {
@@ -1871,7 +1871,7 @@
         }
       },
       "ErosionSpeed": {
-        "label": "Erosionsgeschwindigkeit:",
+        "label": "Erosionsgeschwindigkeit",
         "description": "How fast nature reclaims the world.",
         "options": {
           "1": {
@@ -1892,11 +1892,11 @@
         }
       },
       "ErosionDays": {
-        "label": "Erosionstage:",
+        "label": "Erosionstage",
         "description": "Custom erosion days. 0 = use Erosion Speed option."
       },
       "MaxFogIntensity": {
-        "label": "Maximale Nebelintensität:",
+        "label": "Maximale Nebelintensität",
         "description": "Maximum intensity of fog.",
         "options": {
           "1": {
@@ -1914,7 +1914,7 @@
         }
       },
       "MaxRainFxIntensity": {
-        "label": "Maximale Regeneffekt Intensität:",
+        "label": "Maximale Regeneffekt-Intensität",
         "description": "Maximum intensity of rain effects.",
         "options": {
           "1": {
@@ -1929,11 +1929,11 @@
         }
       },
       "EnableSnowOnGround": {
-        "label": "Schnee auf dem Boden:",
+        "label": "Schnee auf dem Boden",
         "description": "Whether snow accumulates on the ground."
       },
       "NightDarkness": {
-        "label": "Dunkelheit während der Nacht:",
+        "label": "Dunkelheit während der Nacht",
         "description": "Ambient lighting level at night.",
         "options": {
           "1": {
@@ -1972,7 +1972,7 @@
         }
       },
       "TimeSinceApo": {
-        "label": "Vergangene Monate seit Beginn der Apokalypse:",
+        "label": "Vergangene Monate seit Beginn der Apokalypse",
         "description": "How long after the apocalypse the game begins. Affects erosion and food spoilage.",
         "options": {
           "1": {
@@ -2023,7 +2023,7 @@
     },
     "survival": {
       "StatsDecrease": {
-        "label": "Lebensmittelverderb:",
+        "label": "Statusrückgang",
         "description": "How fast hunger, thirst, and fatigue decrease.",
         "options": {
           "1": {
@@ -2044,11 +2044,11 @@
         }
       },
       "Nutrition": {
-        "label": "Ernährung:",
+        "label": "Ernährung",
         "description": "Food nutrition affects player weight and condition."
       },
       "FoodRotSpeed": {
-        "label": "Lebensmittelverderb:",
+        "label": "Lebensmittel verderben",
         "description": "How fast food spoils.",
         "options": {
           "1": {
@@ -2069,7 +2069,7 @@
         }
       },
       "FridgeFactor": {
-        "label": "Kühlwirkung:",
+        "label": "Kühlwirkung",
         "description": "How effective fridges are at preserving food.",
         "options": {
           "1": {
@@ -2093,19 +2093,19 @@
         }
       },
       "StarterKit": {
-        "label": "Startausrüstung:",
+        "label": "Startausrüstung",
         "description": "Spawn with chips, water bottle, backpack, bat, and hammer."
       },
       "CharacterFreePoints": {
-        "label": "Freie Eigenschaftspunkte:",
+        "label": "Freie Eigenschaftspunkte",
         "description": "Extra free points during character creation."
       },
       "BoneFracture": {
-        "label": "Knochenbruch:",
+        "label": "Knochenbruch",
         "description": "Survivors can get broken limbs from impacts, falls, etc."
       },
       "InjurySeverity": {
-        "label": "Verletzungsgrad:",
+        "label": "Verletzungsgrad",
         "description": "Impact of injuries and healing time.",
         "options": {
           "1": {
@@ -2120,7 +2120,7 @@
         }
       },
       "EndRegen": {
-        "label": "Lebensmittelverderb:",
+        "label": "Ausdauer-Regeneration",
         "description": "Recovery from tiredness after actions.",
         "options": {
           "1": {
@@ -2141,11 +2141,11 @@
         }
       },
       "HoursForCorpseRemoval": {
-        "label": "Entfernungszeit der Leichen:",
+        "label": "Zeit bis zum Verschwinden der Leichen",
         "description": "Hours before zombie corpses disappear. 0 = no maggots spawn."
       },
       "DecayingCorpseHealthImpact": {
-        "label": "Gesundheitswirkung verfaulender Leichen:",
+        "label": "Gesundheitsauswirkung von verfaulenden Leichen",
         "description": "Impact of nearby decaying bodies on health/emotions.",
         "options": {
           "1": {
@@ -2161,7 +2161,7 @@
             "label": "Hoch"
           },
           "5": {
-            "label": "Verrückt"
+            "label": "Absurd hoch"
           }
         }
       },
@@ -2209,7 +2209,7 @@
         }
       },
       "DaysForRottenFoodRemoval": {
-        "label": "Verdorbene-Nahrungsmittel-Entfernung:",
+        "label": "Verdorbene Nahrungsmittel entfernen",
         "description": "Days before rotten food is removed. -1 = never."
       },
       "AllClothesUnlocked": {
@@ -2217,7 +2217,7 @@
         "description": "Select from every clothing item during character creation."
       },
       "EnableTaintedWaterText": {
-        "label": "Aktivieren Sie den Tooltip „Verdorbenes Wasser“.",
+        "label": "Tooltip \"Verunreinigtes Wasser\" aktivieren",
         "description": "Show warning marking tainted water."
       },
       "EnablePoisoning": {
@@ -2225,10 +2225,10 @@
         "description": "Whether poison can be added to food.",
         "options": {
           "1": {
-            "label": "Richtig"
+            "label": "Ja"
           },
           "2": {
-            "label": "Falsch"
+            "label": "Nein"
           },
           "3": {
             "label": "Nur die Bleichmittelvergiftung ist deaktiviert"
@@ -2336,7 +2336,7 @@
         "description": "Max hours of fuel for campfires, wood stoves, etc."
       },
       "Alarm": {
-        "label": "Hausalarm:",
+        "label": "Häufigkeit von Hausalarmen",
         "description": "Frequency of residential alarms.",
         "options": {
           "1": {
@@ -2360,7 +2360,7 @@
         }
       },
       "LockedHouses": {
-        "label": "Hausalarm:",
+        "label": "Häufigkeit von verschlossenen Häusern",
         "description": "Frequency of locked houses.",
         "options": {
           "1": {
@@ -2384,7 +2384,7 @@
         }
       },
       "Helicopter": {
-        "label": "Helikopter:",
+        "label": "Helikopter",
         "description": "Helicopter frequency.",
         "options": {
           "1": {
@@ -2402,7 +2402,7 @@
         }
       },
       "MetaEvent": {
-        "label": "Meta-Event:",
+        "label": "Meta-Event",
         "description": "Distant gunshots, screams, etc.",
         "options": {
           "1": {
@@ -2417,7 +2417,7 @@
         }
       },
       "SleepingEvent": {
-        "label": "Schlaf-Event:",
+        "label": "Schlaf-Event",
         "description": "Events that happen while sleeping.",
         "options": {
           "1": {
@@ -2432,7 +2432,7 @@
         }
       },
       "NatureAbundance": {
-        "label": "Ernteertrag",
+        "label": "Natur Ausbeute",
         "description": "Governs abundance of wild foods, medicinal plants, etc.",
         "options": {
           "1": {
@@ -2453,7 +2453,7 @@
         }
       },
       "FishAbundance": {
-        "label": "Ernteertrag",
+        "label": "Fischreichtum",
         "description": "Governs abundance of fish.",
         "options": {
           "1": {
@@ -2474,7 +2474,7 @@
         }
       },
       "AnnotatedMapChance": {
-        "label": "Kommentierte Karten:",
+        "label": "Chance auf Karten mit Anmerkungen",
         "description": "Chance of finding maps annotated with local features.",
         "options": {
           "1": {
@@ -2498,27 +2498,27 @@
         }
       },
       "ConstructionBonusPoints": {
-        "label": "Spieler-Baukonstruktions-Stärke:",
+        "label": "Spieler-Baukonstruktions-Stärke",
         "description": "Extra points for carpentry/metalworking constructions."
       },
       "GeneratorSpawning": {
-        "label": "Generator-Spawn:",
+        "label": "Generatoren",
         "description": "How many generators spawn in the world.",
         "options": {
           "1": {
-            "label": "Extrem selten"
+            "label": "Nie (nicht empfohlen)"
           },
           "2": {
-            "label": "Selten"
+            "label": "Absurd Selten"
           },
           "3": {
             "label": "Manchmal"
           },
           "4": {
-            "label": "Oft"
+            "label": "Selten"
           },
           "5": {
-            "label": "Sehr oft"
+            "label": "Normal"
           },
           "6": {
             "label": "Häufig"
@@ -2529,23 +2529,23 @@
         }
       },
       "GeneratorFuelConsumption": {
-        "label": "Generator-Krafstoffverbrauch:",
+        "label": "Generator-Krafstoffverbrauch",
         "description": "How fast generators consume fuel."
       },
       "AllowExteriorGenerator": {
-        "label": "Generatoren im Außenbereich:",
+        "label": "Generatoren funktionieren im Außenbereich",
         "description": "Generators can be placed outdoors and inside tents."
       },
       "GeneratorTileRange": {
-        "label": "Generator Tile Range",
+        "label": "Generator-Reichweite (in Kacheln)",
         "description": "Horizontal range of generators in tiles."
       },
       "GeneratorVerticalPowerRange": {
-        "label": "Generator Vertical Range",
+        "label": "Generator-Reichweite (vertikal)",
         "description": "Vertical range of generators in floors."
       },
       "CompostTime": {
-        "label": "Kompostzeit:",
+        "label": "Kompostzeit",
         "description": "How long composting takes.",
         "options": {
           "1": {
@@ -2575,7 +2575,7 @@
         }
       },
       "AttackBlockMovements": {
-        "label": "Nahkampf Bewegungsunterbrechung:",
+        "label": "Nahkampf-Bewegungsunterbrechung",
         "description": "Player can't move while performing melee attacks."
       },
       "WorldItemRemovalList": {
@@ -2593,11 +2593,11 @@
     },
     "combat": {
       "MultiHitZombies": {
-        "label": "Waffen Mehrfachtreffer:",
+        "label": "Waffen Mehrfachtreffer",
         "description": "A melee weapon can hit multiple zombies in one swing."
       },
       "RearVulnerability": {
-        "label": "Rückseiten Verwundbarkeit:",
+        "label": "Verwundbarkeit im Rückenbereich",
         "description": "Zombies take more damage when attacked from behind.",
         "options": {
           "1": {
@@ -2638,11 +2638,11 @@
     },
     "vehicles": {
       "EnableVehicles": {
-        "label": "Fahrzeuge aktivieren:",
+        "label": "Fahrzeuge aktivieren",
         "description": "Whether vehicles spawn and can be used."
       },
       "CarSpawnRate": {
-        "label": "Fahrzeug-Spawn Rate:",
+        "label": "Fahrzeug-Spawn-Rate",
         "description": "How many vehicles spawn.",
         "options": {
           "1": {
@@ -2667,7 +2667,7 @@
         "description": "All vehicles are automatic and easy to start."
       },
       "InitialGas": {
-        "label": "Start-Tankfüllung:",
+        "label": "Start-Tankfüllung",
         "description": "How full the gas tank of discovered vehicles will be.",
         "options": {
           "1": {
@@ -2707,7 +2707,7 @@
         "description": "The chance, as a percentage, that individual gas pumps will initially have no fuel."
       },
       "LockedCar": {
-        "label": "Abgesperrte Fahrzeuge:",
+        "label": "Verschlossene Fahrzeuge",
         "description": "Chance of vehicle doors being locked.",
         "options": {
           "1": {
@@ -2731,11 +2731,11 @@
         }
       },
       "CarGasConsumption": {
-        "label": "Benzinverbrauch:",
+        "label": "Benzinverbrauch",
         "description": "Rate of fuel consumption in vehicles."
       },
       "CarGeneralCondition": {
-        "label": "Allgemeinzustand:",
+        "label": "Allgemeinzustand",
         "description": "Initial condition of discovered vehicles.",
         "options": {
           "1": {
@@ -2756,7 +2756,7 @@
         }
       },
       "CarDamageOnImpact": {
-        "label": "Beschädigungen bei Aufprall:",
+        "label": "Fahrzeug-Beschädigungen beim Aufprall",
         "description": "Damage vehicles take from collisions.",
         "options": {
           "1": {
@@ -2777,7 +2777,7 @@
         }
       },
       "DamageToPlayerFromHitByACar": {
-        "label": "Schaden am Spieler durch einen Autounfall:",
+        "label": "Schaden am Spieler durch einen Autounfall",
         "description": "How much damage players receive from vehicle impacts.",
         "options": {
           "1": {
@@ -2798,11 +2798,11 @@
         }
       },
       "TrafficJam": {
-        "label": "Fahrzeugwracks:",
+        "label": "Fahrzeugwracks",
         "description": "Whether traffic jams spawn on roads."
       },
       "CarAlarm": {
-        "label": "Autoalarm:",
+        "label": "Fahrzeugalarm-Häufigkeit",
         "description": "Chance of vehicles having active alarms.",
         "options": {
           "1": {
@@ -2826,15 +2826,15 @@
         }
       },
       "PlayerDamageFromCrash": {
-        "label": "Spielerschaden durch Unfall:",
+        "label": "Spielerschaden durch Unfall",
         "description": "If the player can get injured from being in a car accident."
       },
       "SirenShutoffHours": {
-        "label": "Sirenenabschaltzeit:",
+        "label": "Sirenenabschaltzeit",
         "description": "Hours before vehicle siren batteries die. 0 = instant."
       },
       "ChanceHasGas": {
-        "label": "Kraftstoff-Chance:",
+        "label": "Kraftstoff-Chance",
         "description": "The chance of finding a vehicle with gas in its tank.",
         "options": {
           "1": {
@@ -2953,22 +2953,22 @@
         "description": "Speed at which animals age.",
         "options": {
           "1": {
-            "label": "Sehr schnell"
+            "label": "Ultra schnell"
           },
           "2": {
-            "label": "Schnell"
+            "label": "Sehr schnell"
           },
           "3": {
-            "label": "Normal"
+            "label": "Schnell"
           },
           "4": {
             "label": "Normal"
           },
           "5": {
-            "label": "Slow"
+            "label": "Langsam"
           },
           "6": {
-            "label": "Very Slow"
+            "label": "Sehr langsam"
           }
         }
       },
@@ -3088,7 +3088,7 @@
         "description": "If true, animal calls will attract nearby zombies."
       },
       "AnimalTrackChance": {
-        "label": "Animal Track Chance",
+        "label": "Chance für Tierspuren",
         "description": "The chance of animals leaving tracks.",
         "options": {
           "1": {
@@ -3112,7 +3112,7 @@
         }
       },
       "AnimalPathChance": {
-        "label": "Animal Path Chance",
+        "label": "Chance für Tierpfade",
         "description": "The chance of creating a path for animals to be hunted.",
         "options": {
           "1": {
@@ -3144,28 +3144,28 @@
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Landwirtschaft-Multiplikator",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Wachstumsrate (Farming)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Sehr niedrig"
+            "label": "Sehr schnell"
           },
           "2": {
-            "label": "Niedrig"
+            "label": "Schnell"
           },
           "3": {
             "label": "Normal"
           },
           "4": {
-            "label": "Hoch"
+            "label": "Langsam"
           },
           "5": {
-            "label": "Sehr hoch"
+            "label": "Sehr langsam"
           }
         }
       },
       "PlantResilience": {
-        "label": "Pflanzen Belastbarkeit:",
+        "label": "Pflanzen-Widerstandsfähigkeit",
         "description": "How tough crops are.",
         "options": {
           "1": {
@@ -3215,7 +3215,7 @@
         "description": "Restrict crop growth to appropriate seasons."
       },
       "PlaceDirtAboveground": {
-        "label": "Farmen nicht auf Bodenebene [!]",
+        "label": "Farmen nicht auf Bodenebene",
         "description": "Allow placing dirt on built floors above ground."
       },
       "FarmingSpeedNew": {
@@ -3227,17 +3227,17 @@
         "description": "Multiplier for number of crops harvested."
       },
       "ClayLakeChance": {
-        "label": "Clay Lake Chance",
+        "label": "Chance für Lehmvorkommen bei Seen",
         "description": "Chance of finding clay when digging near lakes."
       },
       "ClayRiverChance": {
-        "label": "Clay River Chance",
+        "label": "Chance für Lehmvorkommen bei Flüssen",
         "description": "Chance of finding clay when digging near rivers."
       }
     },
     "world": {
       "SurvivorHouseChance": {
-        "label": "Generierte Häuser:",
+        "label": "Chance für Generierte Häuser",
         "description": "Chance of finding survivor-modified houses.",
         "options": {
           "1": {
@@ -3264,7 +3264,7 @@
         }
       },
       "VehicleStoryChance": {
-        "label": "Zufällige Fahrzeug Geschichten Chance:",
+        "label": "Wahrscheinlichkeit für Straßenereignisse",
         "description": "Chance of finding story-decorated vehicles.",
         "options": {
           "1": {
@@ -3320,7 +3320,7 @@
     },
     "zombieLore": {
       "Speed": {
-        "label": "Geschwindigkeit:",
+        "label": "Geschwindigkeit",
         "description": "How fast zombies move.",
         "options": {
           "1": {
@@ -3338,7 +3338,7 @@
         }
       },
       "Strength": {
-        "label": "Stärke-Multiplikator",
+        "label": "Stärke",
         "description": "How strong zombies are.",
         "options": {
           "1": {
@@ -3356,7 +3356,7 @@
         }
       },
       "Toughness": {
-        "label": "Härte:",
+        "label": "Härte",
         "description": "How tough zombies are to kill.",
         "options": {
           "1": {
@@ -3374,7 +3374,7 @@
         }
       },
       "Transmission": {
-        "label": "Übertragungswege:",
+        "label": "Übertragungswege",
         "description": "How the zombie infection spreads.",
         "options": {
           "1": {
@@ -3392,7 +3392,7 @@
         }
       },
       "Mortality": {
-        "label": "Infektions-Sterblichkeit:",
+        "label": "Infektions-Sterblichkeit",
         "description": "How deadly the infection is.",
         "options": {
           "1": {
@@ -3419,7 +3419,7 @@
         }
       },
       "Cognition": {
-        "label": "Kenntnisse:",
+        "label": "Kenntnisse",
         "description": "What zombies can interact with.",
         "options": {
           "1": {
@@ -3437,7 +3437,7 @@
         }
       },
       "Memory": {
-        "label": "Gedächtnis:",
+        "label": "Gedächtnis",
         "description": "How long zombies remember where they last saw a target.",
         "options": {
           "1": {
@@ -3461,7 +3461,7 @@
         }
       },
       "Sight": {
-        "label": "Sicht:",
+        "label": "Sehvermögen",
         "description": "How far zombies can see targets.",
         "options": {
           "1": {
@@ -3482,7 +3482,7 @@
         }
       },
       "Hearing": {
-        "label": "Hören:",
+        "label": "Hörvermögen",
         "description": "How well zombies can hear sounds.",
         "options": {
           "1": {
@@ -3511,11 +3511,11 @@
         "description": "Zombies that weren't chasing a player will not thump constructions."
       },
       "ThumpOnConstruction": {
-        "label": "Schaden an Konstruktionen:",
+        "label": "Schaden an Konstruktionen",
         "description": "Zombies thump player-built structures."
       },
       "ActiveOnly": {
-        "label": "Tag/Nacht Aktivität:",
+        "label": "Tag/Nacht-Aktivität der Zombies",
         "description": "Zombies active during specific times.",
         "options": {
           "1": {
@@ -3530,11 +3530,11 @@
         }
       },
       "TriggerHouseAlarm": {
-        "label": "Zombie-Hausalarm-Auslösen:",
+        "label": "Zombie-Hausalarm-Auslösen",
         "description": "Whether zombies can randomly trigger house alarms."
       },
       "ZombiesDragDown": {
-        "label": "Herunterziehen:",
+        "label": "Herunterziehen",
         "description": "Multiple zombies can pull player to ground."
       },
       "ZombiesCrawlersDragDown": {
@@ -3577,20 +3577,20 @@
         }
       },
       "PlayerSpawnZombieRemoval": {
-        "label": "Spawn Zone Clear",
+        "label": "Spieler-Spawnbereich",
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Im Gebäude und drumherum"
           },
           "2": {
-            "label": "Small"
+            "label": "Im Gebäude"
           },
           "3": {
-            "label": "Medium"
+            "label": "Im Raum"
           },
           "4": {
-            "label": "Large"
+            "label": "Zombies können überall spawnen"
           },
           "5": {
             "label": "Very Large"
@@ -3598,15 +3598,15 @@
         }
       },
       "FenceThumpersRequired": {
-        "label": "Zombies To Damage Fences",
+        "label": "Zombies die Zäune beschädigen",
         "description": "Minimum zombies needed to damage a fence."
       },
       "FenceDamageMultiplier": {
-        "label": "Fence Damage Multiplier",
+        "label": "Zaunschaden-Multiplikator",
         "description": "Multiplier for damage zombies do to fences."
       },
       "DoorOpeningPercentage": {
-        "label": "Random Door Opening Amount",
+        "label": "Rate zufälliger Türöffnung",
         "description": "Percentage of zombies that can open doors when cognition allows it."
       },
       "CrawlUnderVehicle": {
@@ -3637,11 +3637,11 @@
         }
       },
       "SprinterPercentage": {
-        "label": "Random Sprinter Amount",
+        "label": "Zufällige Sprinter-Anzahl",
         "description": "Percentage of sprinter zombies when Speed is set to Random."
       },
       "Reanimate": {
-        "label": "Reanimierungszeit:",
+        "label": "Reanimierungszeit",
         "description": "Dead zombies can get back up after being killed.",
         "options": {
           "1": {
@@ -3829,7 +3829,7 @@
         "description": "XP multiplier for Foraging skill."
       },
       "Fitness": {
-        "label": "Fitness-Multiplikator:",
+        "label": "Fitness-Multiplikator",
         "description": "XP multiplier for Fitness skill."
       },
       "Strength": {
@@ -3837,7 +3837,7 @@
         "description": "XP multiplier for Strength skill."
       },
       "FlintKnapping": {
-        "label": "Feuersteinbearbeitung-Multiplikator",
+        "label": "Steinbearbeitung-Multiplikator",
         "description": "XP multiplier for Knapping skill."
       },
       "Carving": {
@@ -3853,7 +3853,7 @@
         "description": "XP multiplier for Butchering skill."
       },
       "Glassmaking": {
-        "label": "Glassmaking XP",
+        "label": "Glasherstellungs-Multiplikator",
         "description": "XP multiplier for Glassmaking skill."
       },
       "Husbandry": {
@@ -3865,7 +3865,7 @@
         "description": "XP multiplier for Spear skill."
       },
       "Masonry": {
-        "label": "Maurerei-Multiplikator",
+        "label": "Maurerhandwerk-Multiplikator",
         "description": "XP multiplier for Masonry skill."
       },
       "Pottery": {
@@ -3897,29 +3897,29 @@
     },
     "basement": {
       "SpawnFrequency": {
-        "label": "Basement Spawn Frequency",
+        "label": "Häufigkeit von Kellern",
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Nie"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extrem selten"
           },
           "3": {
-            "label": "Rare"
+            "label": "Selten"
           },
           "4": {
-            "label": "Sometimes"
+            "label": "Manchmal"
           },
           "5": {
-            "label": "Often"
+            "label": "Oft"
           },
           "6": {
-            "label": "Very Often"
+            "label": "Sehr oft"
           },
           "7": {
-            "label": "Always"
+            "label": "Immer"
           }
         }
       }

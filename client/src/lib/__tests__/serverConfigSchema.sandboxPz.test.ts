@@ -21,7 +21,7 @@ import {
 // breaks the key shape or the data fails here, not silently in the UI.
 
 const META_EVENT = SANDBOX_SCHEMA.find((s) => s.key === 'MetaEvent')!
-const DAY_NIGHT_CYCLE = SANDBOX_SCHEMA.find((s) => s.key === 'DayNightCycle')!
+const ALARM_DECAY_MODIFIER = SANDBOX_SCHEMA.find((s) => s.key === 'AlarmDecayModifier')!
 
 describe('sandboxPz translated accessors (PZ-sourced label/option-label fallback)', () => {
   afterEach(() => {
@@ -55,8 +55,10 @@ describe('sandboxPz translated accessors (PZ-sourced label/option-label fallback
   })
 
   it('falls back to English per-key when the active language\'s PZ translation is itself incomplete', async () => {
-    // DayNightCycle has no German entry in PZ's own DE/Sandbox.json (a real,
-    // partial-coverage gap, not a synthetic one). de/sandboxPz.json still
+    // AlarmDecayModifier has no German entry in PZ's own DE/Sandbox.json (a
+    // real gap, not a synthetic one: the game reuses AlarmDecay's label for
+    // it and DE ships no dedicated string -- see the extractor's
+    // sharedLabelOptionNames). de/sandboxPz.json still
     // carries a key for it (localeParity requires every locale to match
     // en's key set), but its VALUE is the schema's own English text, written
     // in explicitly at extraction time rather than left absent -- same
@@ -66,8 +68,7 @@ describe('sandboxPz translated accessors (PZ-sourced label/option-label fallback
     // show English everywhere", the same property the INI proof-of-mechanism
     // test pins.
     await i18n.changeLanguage('de')
-    expect(getSandboxSettingLabel(DAY_NIGHT_CYCLE)).toBe('Day/Night Cycle')
-    expect(getSandboxSettingOptionLabel(DAY_NIGHT_CYCLE, 1)).toBe('Normal')
+    expect(getSandboxSettingLabel(ALARM_DECAY_MODIFIER)).toBe('Alarm Decay Modifier')
     // MetaEvent DOES have full German coverage -- confirms the fallback
     // above is genuinely per-setting, not every German lookup missing.
     expect(getSandboxSettingLabel(META_EVENT)).not.toBe('Meta Events')

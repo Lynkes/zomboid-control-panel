@@ -222,18 +222,18 @@
       }
     },
     "ZombieMigrate": {
-      "label": "Migración De Zombis"
+      "label": "Migración de zombis"
     }
   },
   "loot": {
     "LootItemRemovalList": {
-      "label": "Lista De Eliminación De Botín"
+      "label": "Lista de eliminación de objetos de botín"
     },
     "FoodLootNew": {
-      "label": "Comida Perecedera"
+      "label": "Comida perecedera"
     },
     "CannedFoodLootNew": {
-      "label": "Comida No Perecedera"
+      "label": "Comida no perecedera"
     },
     "LiteratureLootNew": {
       "label": "Literatura"
@@ -242,19 +242,19 @@
       "label": "Libros de habilidades"
     },
     "RecipeResourceLoot": {
-      "label": "Recursos de recetas"
+      "label": "Recetas"
     },
     "MedicalLootNew": {
-      "label": "Médicos"
+      "label": "Médico"
     },
     "SurvivalGearsLootNew": {
-      "label": "Elementos De Supervivencia"
+      "label": "Elementos de supervivencia"
     },
     "WeaponLootNew": {
-      "label": "Armas Cuerpo A Cuerpo"
+      "label": "Armas cuerpo a cuerpo"
     },
     "RangedWeaponLootNew": {
-      "label": "Armas De Larga Distancia"
+      "label": "Armas de larga distancia"
     },
     "AmmoLootNew": {
       "label": "Munición"
@@ -278,7 +278,7 @@
       "label": "Recuerdos"
     },
     "CookwareLootNew": {
-      "label": "Utensilios De Cocina"
+      "label": "Utensilios de cocina"
     },
     "MaterialLootNew": {
       "label": "Materiales"
@@ -293,66 +293,66 @@
       "label": "Otros"
     },
     "RollsMultiplier": {
-      "label": "Multiplicador De Tiradas [!]"
+      "label": "Multiplicador de tiradas [!]"
     },
     "RemoveStoryLoot": {
-      "label": "Eliminar Botín De Historia No Deseado"
+      "label": "Eliminar botín no deseado de historias"
     },
     "RemoveZombieLoot": {
-      "label": "Eliminar Botín De Zombis No Deseado"
+      "label": "Eliminar botín no deseado de los zombis"
     },
     "ZombiePopLootEffect": {
-      "label": "Efecto De Botín Por Población Zombi"
+      "label": "Efecto de la población de zombis sobre el botín"
     },
     "HoursForLootRespawn": {
-      "label": "Horas Para Reaparición De Botín"
+      "label": "Horas para la reaparición del botín"
     },
     "MaxItemsForLootRespawn": {
-      "label": "Máximo De Objetos Para Reaparición"
+      "label": "Máximo de objetos para la reaparición del botín"
     },
     "ConstructionPreventsLootRespawn": {
-      "label": "La Construcción Evita La Reaparición De Botín"
+      "label": "Las construcciones impiden la reaparición del botín"
     },
     "SeenHoursPreventLootRespawn": {
-      "label": "Horas para reaparición de loot"
+      "label": "Horas desde la última visita que impiden la reaparición del botín"
     }
   },
   "lootRarity": {
     "InsaneLootFactor": {
-      "label": "Factor De Botín Extremadamente Raro"
+      "label": "Factor de botín demencialmente raro"
     },
     "ExtremeLootFactor": {
-      "label": "Factor De Botín Muy Raro"
+      "label": "Factor de botín extremadamente raro"
     },
     "RareLootFactor": {
-      "label": "Factor De Botín Raro"
+      "label": "Factor de botín raro"
     },
     "NormalLootFactor": {
-      "label": "Factor De Botín Normal"
+      "label": "Factor de botín normal"
     },
     "CommonLootFactor": {
-      "label": "Factor De Botín Común"
+      "label": "Factor de botín común"
     },
     "AbundantLootFactor": {
-      "label": "Factor De Botín Abundante"
+      "label": "Factor de botín abundante"
     },
     "MaximumLooted": {
-      "label": "Probabilidad Máxima De Edificio Saqueado"
+      "label": "Probabilidad máxima de edificio saqueado"
     },
     "DaysUntilMaximumLooted": {
-      "label": "Días Hasta La Probabilidad Máxima De Saqueo"
+      "label": "Días hasta la probabilidad máxima de edificio saqueado"
     },
     "RuralLooted": {
-      "label": "Multiplicador De Probabilidad De Saqueo En Áreas Rurales"
+      "label": "Multiplicador de probabilidad de edificios rurales saqueados"
     },
     "MaximumDiminishedLoot": {
-      "label": "Porcentaje Máximo De Botín Reducido"
+      "label": "Porcentaje máximo de reducción del botín"
     },
     "DaysUntilMaximumDiminishedLoot": {
-      "label": "Días Hasta Botín Reducido Máximo"
+      "label": "Días hasta la reducción máxima del botín"
     },
     "MaximumLootedBuildingRooms": {
-      "label": "Máximo de Habitaciones Saqueadas en un Edificio"
+      "label": "Máximo de habitaciones saqueadas por edificio"
     }
   },
   "environment": {
@@ -363,47 +363,47 @@
           "label": "Normal"
         },
         "2": {
-          "label": "Día Infinito"
+          "label": "Día infinito"
         },
         "3": {
-          "label": "Noche Infinita"
+          "label": "Noche infinita"
         }
       }
     },
     "ClimateCycle": {
-      "label": "Ciclo Climático",
+      "label": "Ciclo climático",
       "options": {
         "1": {
           "label": "Normal"
         },
         "2": {
-          "label": "Sin Clima"
+          "label": "Sin clima"
         },
         "3": {
-          "label": "Lluvia Infinita"
+          "label": "Lluvia infinita"
         },
         "4": {
-          "label": "Tormenta Infinita"
+          "label": "Tormenta infinita"
         },
         "5": {
-          "label": "Nieve Infinita"
+          "label": "Nieve infinita"
         },
         "6": {
-          "label": "Ventisca Infinita"
+          "label": "Ventisca infinita"
         }
       }
     },
     "FogCycle": {
-      "label": "Ciclo de Niebla",
+      "label": "Ciclo de niebla",
       "options": {
         "1": {
           "label": "Normal"
         },
         "2": {
-          "label": "Sin Niebla"
+          "label": "Sin niebla"
         },
         "3": {
-          "label": "Niebla Infinita"
+          "label": "Niebla infinita"
         }
       }
     },
@@ -472,7 +472,7 @@
       }
     },
     "AlarmDecay": {
-      "label": "Decadencia De La Alarma",
+      "label": "Descarga de la batería de las alarmas",
       "options": {
         "1": {
           "label": "Instantáneo"
@@ -491,15 +491,6 @@
         },
         "6": {
           "label": "0 - 5 años"
-        },
-        "7": {
-          "label": "2 - 6 meses"
-        },
-        "8": {
-          "label": "6 - 12 meses"
-        },
-        "9": {
-          "label": "Desactivado"
         }
       }
     },
@@ -696,7 +687,7 @@
   },
   "survival": {
     "StatsDecrease": {
-      "label": "Deterioro de la comida",
+      "label": "Reducción de estados",
       "options": {
         "1": {
           "label": "Muy rápido"
@@ -785,7 +776,7 @@
       }
     },
     "EndRegen": {
-      "label": "Deterioro de la comida",
+      "label": "Regeneración de resistencia",
       "options": {
         "1": {
           "label": "Muy rápido"
@@ -828,7 +819,7 @@
       }
     },
     "ZombieHealthImpact": {
-      "label": "Impacto De Salud Por Zombis"
+      "label": "Impacto de salud por zombis"
     },
     "BloodLevel": {
       "label": "Nivel de sangre",
@@ -905,22 +896,22 @@
       }
     },
     "MuscleStrainFactor": {
-      "label": "Factor De Tensión Muscular"
+      "label": "Factor de fatiga muscular"
     },
     "DiscomfortFactor": {
       "label": "Factor de incomodidad"
     },
     "WoundInfectionFactor": {
-      "label": "Factor De Daño Por Infección De Heridas"
+      "label": "Factor de daño por infección de heridas"
     },
     "NoBlackClothes": {
-      "label": "Sin Ropa Negra"
+      "label": "Sin ropa negra"
     },
     "EasyClimbing": {
-      "label": "Escalada Fácil"
+      "label": "Escalada fácil"
     },
     "NegativeTraitsPenalty": {
-      "label": "Penalización Por Rasgos Negativos",
+      "label": "Penalización por rasgos negativos",
       "options": {
         "1": {
           "label": "Ninguna"
@@ -937,22 +928,22 @@
       }
     },
     "MinutesPerPage": {
-      "label": "Minutos Por Página De Libro De Habilidades"
+      "label": "Minutos por página de libro de habilidades"
     },
     "LiteratureCooldown": {
-      "label": "Días De Enfriamiento Para Literatura"
+      "label": "Días de enfriamiento para literatura"
     },
     "LevelForMediaXPCutoff": {
-      "label": "Nivel Máximo De XP Por Medios"
+      "label": "Nivel Máximo de XP por medios"
     },
     "LevelForDismantleXPCutoff": {
-      "label": "Nivel Máximo De XP Por Desmantelar"
+      "label": "Nivel máximo de XP por desmantelar"
     },
     "BloodSplatLifespanDays": {
-      "label": "Duración De Salpicaduras De Sangre (Días)"
+      "label": "Duración de salpicaduras de sangre (Días)"
     },
     "MetaKnowledge": {
-      "label": "Conocimiento Meta De Medios",
+      "label": "Conocimiento meta de medios",
       "options": {
         "1": {
           "label": "Totalmente revelado"
@@ -966,7 +957,7 @@
       }
     },
     "SeeNotLearntRecipe": {
-      "label": "Ver Recetas No Conocidas"
+      "label": "Ver recetas no conocidas"
     },
     "LightBulbLifespan": {
       "label": "Duración de las bombillas"
@@ -998,7 +989,7 @@
       }
     },
     "LockedHouses": {
-      "label": "Alarmas en las casas",
+      "label": "Frecuencia de casas cerradas",
       "options": {
         "1": {
           "label": "Nunca"
@@ -1066,10 +1057,10 @@
       }
     },
     "NatureAbundance": {
-      "label": "Abundancia De Agricultura",
+      "label": "Abundancia de la naturaleza",
       "options": {
         "1": {
-          "label": "Muy Pobre"
+          "label": "Muy pobre"
         },
         "2": {
           "label": "Pobre"
@@ -1081,15 +1072,15 @@
           "label": "Abundante"
         },
         "5": {
-          "label": "Muy Abundante"
+          "label": "Muy abundante"
         }
       }
     },
     "FishAbundance": {
-      "label": "Abundancia De Agricultura",
+      "label": "Abundancia de pesca",
       "options": {
         "1": {
-          "label": "Muy Pobre"
+          "label": "Muy pobre"
         },
         "2": {
           "label": "Pobre"
@@ -1101,7 +1092,7 @@
           "label": "Abundante"
         },
         "5": {
-          "label": "Muy Abundante"
+          "label": "Muy abundante"
         }
       }
     },
@@ -1164,10 +1155,10 @@
       "label": "Generador operativo en exteriores"
     },
     "GeneratorTileRange": {
-      "label": "Rango de Baldosas del Generador"
+      "label": "Rango de baldosas del generador"
     },
     "GeneratorVerticalPowerRange": {
-      "label": "Rango Vertical del Generador"
+      "label": "Rango vertical del generador"
     },
     "CompostTime": {
       "label": "Tiempo de compostaje",
@@ -1233,19 +1224,19 @@
       "label": "Probabilidad de daño al usar armas de fuego"
     },
     "FirearmNoiseMultiplier": {
-      "label": "Multiplicador De Ruido De Armas De Fuego"
+      "label": "Multiplicador de ruido de armas de fuego"
     },
     "FirearmJamMultiplier": {
-      "label": "Multiplicador De Atascos De Armas De Fuego"
+      "label": "Multiplicador de atascos de armas de fuego"
     },
     "FirearmMoodleMultiplier": {
-      "label": "Multiplicador De Estado De Ánimo Para Armas De Fuego"
+      "label": "Multiplicador de estado de ánimo para armas de fuego"
     },
     "FirearmWeatherMultiplier": {
-      "label": "Multiplicador De Clima Para Armas De Fuego"
+      "label": "Multiplicador de clima para armas de fuego"
     },
     "FirearmHeadGearEffect": {
-      "label": "Efecto De Protección En La Precisión"
+      "label": "Efecto de protección en la precisión"
     }
   },
   "vehicles": {
@@ -1299,16 +1290,16 @@
       }
     },
     "FuelStationGasInfinite": {
-      "label": "Bombas De Gasolina Infinitas"
+      "label": "Bombas de gasolina infinitas"
     },
     "FuelStationGasMin": {
-      "label": "Cantidad Mínima Inicial De Gasolina"
+      "label": "Cantidad mínima inicial de gasolina"
     },
     "FuelStationGasMax": {
-      "label": "Cantidad Máxima Inicial De Gasolina"
+      "label": "Cantidad máxima inicial de gasolina"
     },
     "FuelStationGasEmptyChance": {
-      "label": "Probabilidad Inicial De Bombas Vacías"
+      "label": "Probabilidad inicial de bombas vacías"
     },
     "LockedCar": {
       "label": "Frecuencia de vehículos cerrados",
@@ -1463,12 +1454,12 @@
       "label": "Multiplicador de atracción de zombis"
     },
     "SirenEffectsZombies": {
-      "label": "Las Sirenas Atraen Zombis"
+      "label": "Las sirenas atraen zombis"
     }
   },
   "animals": {
     "AnimalStatsModifier": {
-      "label": "Velocidad De Reducción De Estadísticas",
+      "label": "Velocidad de reducción de estadísticas",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1486,12 +1477,12 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalMetaStatsModifier": {
-      "label": "Velocidad De Reducción De Metadatos",
+      "label": "Velocidad de reducción de estadísticas en metadatos",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1509,12 +1500,12 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalPregnancyTime": {
-      "label": "Duración Del Embarazo",
+      "label": "Duración del embarazo",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1532,35 +1523,35 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalAgeModifier": {
-      "label": "Velocidad De Envejecimiento",
+      "label": "Velocidad de envejecimiento",
       "options": {
         "1": {
-          "label": "Muy Rápido"
+          "label": "Ultrarrápido"
         },
         "2": {
-          "label": "Rápido"
+          "label": "Muy Rápido"
         },
         "3": {
-          "label": "Normal"
+          "label": "Rápido"
         },
         "4": {
           "label": "Normal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Lento"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalMilkIncModifier": {
-      "label": "Velocidad De Producción De Leche",
+      "label": "Velocidad de producción de leche",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1578,12 +1569,12 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalWoolIncModifier": {
-      "label": "Velocidad De Producción De Lana",
+      "label": "Velocidad de producción de lana",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1601,27 +1592,27 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalRanchChance": {
-      "label": "Probabilidad De Aparición De Animales",
+      "label": "Probabilidad de aparición de animales",
       "options": {
         "1": {
           "label": "Nunca"
         },
         "2": {
-          "label": "Extremadamente Rara"
+          "label": "Muy raro"
         },
         "3": {
           "label": "Rara"
         },
         "4": {
-          "label": "A Veces"
+          "label": "A veces"
         },
         "5": {
-          "label": "Frecuente"
+          "label": "A menudo"
         },
         "6": {
           "label": "Muy Frecuente"
@@ -1632,16 +1623,16 @@
       }
     },
     "AnimalGrassRegrowTime": {
-      "label": "Tiempo De Regeneración De Pasto"
+      "label": "Tiempo de regeneración de pasto"
     },
     "AnimalMetaPredator": {
-      "label": "Depredador Meta"
+      "label": "Depredador meta"
     },
     "AnimalMatingSeason": {
-      "label": "Temporada De Reproducción"
+      "label": "Temporada de reproducción"
     },
     "AnimalEggHatch": {
-      "label": "Tiempo De Incubación",
+      "label": "Tiempo de incubación",
       "options": {
         "1": {
           "label": "Ultrarrápido"
@@ -1659,12 +1650,12 @@
           "label": "Lento"
         },
         "6": {
-          "label": "Muy Lento"
+          "label": "Muy lento"
         }
       }
     },
     "AnimalSoundAttractZombies": {
-      "label": "Sonidos De Animales Atraen Zombis"
+      "label": "Sonidos de animales atraen zombis"
     },
     "AnimalTrackChance": {
       "label": "Probabilidad de huellas de animales",
@@ -1690,7 +1681,7 @@
       }
     },
     "AnimalPathChance": {
-      "label": "Probabilidad de sendas de animales",
+      "label": "Probabilidad de pasos de animales",
       "options": {
         "1": {
           "label": "Nunca"
@@ -1713,28 +1704,28 @@
       }
     },
     "MaximumRatIndex": {
-      "label": "Índice Máximo De Plagas"
+      "label": "Índice máximo de alimañas"
     },
     "DaysUntilMaximumRatIndex": {
-      "label": "Días Hasta El Índice Máximo De Plagas"
+      "label": "Días hasta alcanzar el índice máximo de alimañas"
     },
     "Farming": {
-      "label": "Multiplicador De Agricultura",
+      "label": "Velocidad de cultivo (Farming)",
       "options": {
         "1": {
-          "label": "Muy bajo"
+          "label": "Muy rápido"
         },
         "2": {
-          "label": "Bajo"
+          "label": "Rápido"
         },
         "3": {
           "label": "Normal"
         },
         "4": {
-          "label": "Alto"
+          "label": "Lento"
         },
         "5": {
-          "label": "Muy alto"
+          "label": "Muy lento"
         }
       }
     },
@@ -1762,7 +1753,7 @@
       "label": "Abundancia de la agricultura",
       "options": {
         "1": {
-          "label": "Muy Pobre"
+          "label": "Muy pobre"
         },
         "2": {
           "label": "Pobre"
@@ -1774,24 +1765,24 @@
           "label": "Abundante"
         },
         "5": {
-          "label": "Muy Abundante"
+          "label": "Muy abundante"
         }
       }
     },
     "KillInsideCrops": {
-      "label": "Matar Cultivos Cultivados En Interiores"
+      "label": "Los cultivos de interior mueren"
     },
     "PlantGrowingSeasons": {
-      "label": "Temporadas De Crecimiento De Plantas"
+      "label": "Temporadas de crecimiento de plantas"
     },
     "PlaceDirtAboveground": {
-      "label": "Granjas Fuera Del Nivel Del Suelo [!]"
+      "label": "Granjas fuera del nivel del suelo [!]"
     },
     "FarmingSpeedNew": {
-      "label": "Velocidad De Agricultura"
+      "label": "Velocidad de agricultura"
     },
     "FarmingAmountNew": {
-      "label": "Abundancia De Agricultura"
+      "label": "Abundancia de agricultura"
     },
     "ClayLakeChance": {
       "label": "Probabilidad de Arcilla - Lago"
@@ -1823,12 +1814,12 @@
           "label": "Muy frecuentemente"
         },
         "7": {
-          "label": "Siempre Intenta"
+          "label": "Siempre intenta"
         }
       }
     },
     "VehicleStoryChance": {
-      "label": "Posibilidad de historias de vehículos al azar",
+      "label": "Posibilidad de historias aleatorias en carretera",
       "options": {
         "1": {
           "label": "Nunca"
@@ -1849,12 +1840,12 @@
           "label": "Muy frecuentemente"
         },
         "7": {
-          "label": "Siempre Intenta"
+          "label": "Siempre intenta"
         }
       }
     },
     "ZoneStoryChance": {
-      "label": "Historias aleatorias por zonas",
+      "label": "Historias aleatorias de zona",
       "options": {
         "1": {
           "label": "Nunca"
@@ -1875,7 +1866,7 @@
           "label": "Muy frecuentemente"
         },
         "7": {
-          "label": "Siempre Intenta"
+          "label": "Siempre intenta"
         }
       }
     }
@@ -1885,7 +1876,7 @@
       "label": "Velocidad",
       "options": {
         "1": {
-          "label": "Velocistas"
+          "label": "Corredores"
         },
         "2": {
           "label": "Tambaleantes veloces"
@@ -1899,7 +1890,7 @@
       }
     },
     "Strength": {
-      "label": "Multiplicador De Fuerza",
+      "label": "Fuerza",
       "options": {
         "1": {
           "label": "Superhumano"
@@ -2031,7 +2022,7 @@
           "label": "Aleatoria"
         },
         "5": {
-          "label": "Aleatorio entre Normal y Pobre"
+          "label": "Aleatorio entre Normal y Mala"
         }
       }
     },
@@ -2051,12 +2042,12 @@
           "label": "Aleatoria"
         },
         "5": {
-          "label": "Aleatorio entre Normal y Pobre"
+          "label": "Aleatorio entre Normal y Mala"
         }
       }
     },
     "SpottedLogic": {
-      "label": "Nuevo Sistema De Sigilo"
+      "label": "Nuevo sistema de sigilo"
     },
     "ThumpNoChasing": {
       "label": "Ataques ambientales"
@@ -2085,22 +2076,22 @@
       "label": "Derribo"
     },
     "ZombiesCrawlersDragDown": {
-      "label": "Arrastre De Zombis Reptantes"
+      "label": "Los reptantes pueden derribarte"
     },
     "ZombiesFenceLunge": {
       "label": "Embestida en la valla"
     },
     "ZombiesArmorFactor": {
-      "label": "Factor De Armadura De Zombis"
+      "label": "Factor de armadura de zombis"
     },
     "ZombiesMaxDefense": {
-      "label": "Defensa Máxima De Armadura De Zombis"
+      "label": "Defensa máxima de la armadura de los zombis"
     },
     "ChanceOfAttachedWeapon": {
-      "label": "Probabilidad De Armas Adjuntas"
+      "label": "Probabilidad de arma incrustada"
     },
     "ZombiesFallDamage": {
-      "label": "Multiplicador De Daño Por Caída De Zombis"
+      "label": "Multiplicador del daño por caída de los zombis"
     },
     "DisableFakeDead": {
       "label": "Reanimación de falsos zombis muertos",
@@ -2117,33 +2108,30 @@
       }
     },
     "PlayerSpawnZombieRemoval": {
-      "label": "Spawn Zone Clear",
+      "label": "Zona de aparición del jugador",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Dentro del edificio y alrededor"
         },
         "2": {
-          "label": "Small"
+          "label": "Dentro del edificio"
         },
         "3": {
-          "label": "Medium"
+          "label": "Dentro de la habitación"
         },
         "4": {
-          "label": "Large"
-        },
-        "5": {
-          "label": "Very Large"
+          "label": "Los zombis pueden aparecer en cualquier lugar"
         }
       }
     },
     "FenceThumpersRequired": {
-      "label": "Zombis Para Dañar Vallas"
+      "label": "Zombis para dañar vallas"
     },
     "FenceDamageMultiplier": {
-      "label": "Multiplicador de Daño a Vallas"
+      "label": "Multiplicador de daño a vallas"
     },
     "DoorOpeningPercentage": {
-      "label": "Random Door Opening Amount"
+      "label": "Porcentaje de zombis que pueden abrir puertas"
     },
     "CrawlUnderVehicle": {
       "label": "Arrastrarse debajo del vehículo",
@@ -2172,7 +2160,7 @@
       }
     },
     "SprinterPercentage": {
-      "label": "Random Sprinter Amount"
+      "label": "Porcentaje de zombis corredores"
     },
     "Reanimate": {
       "label": "Tiempo de reanimación",
@@ -2230,7 +2218,7 @@
       "label": "Tamaño de la horda"
     },
     "RallyGroupSizeVariance": {
-      "label": "Varianza Del Tamaño De Grupos De Reunión"
+      "label": "Variación del tamaño de la horda"
     },
     "RallyTravelDistance": {
       "label": "Distancia de recorrido para formar una horda"
@@ -2242,120 +2230,120 @@
       "label": "Radio de unión de la horda"
     },
     "ZombiesCountBeforeDelete": {
-      "label": "Cantidad De Zombis Antes De Borrar"
+      "label": "Número de zombis antes de eliminarlos"
     }
   },
   "xpMultipliers": {
     "Global": {
-      "label": "Multiplicador Global"
+      "label": "Multiplicador global"
     },
     "GlobalToggle": {
-      "label": "Usar Multiplicador Global"
+      "label": "Usar multiplicador global"
     },
     "Sprinting": {
-      "label": "Multiplicador De Carrera"
+      "label": "Multiplicador de Carrera"
     },
     "Lightfoot": {
-      "label": "Multiplicador De Pies Ligeros"
+      "label": "Multiplicador de Pies ligeros"
     },
     "Nimble": {
-      "label": "Multiplicador De Destreza"
+      "label": "Multiplicador de Destreza"
     },
     "Sneak": {
-      "label": "Multiplicador De Sigilo"
+      "label": "Multiplicador de Sigilo"
     },
     "Axe": {
-      "label": "Multiplicador De Hacha"
+      "label": "Multiplicador de Hacha"
     },
     "Blunt": {
-      "label": "Multiplicador De Armas Largas Contundentes "
+      "label": "Multiplicador de Armas largas contundentes"
     },
     "SmallBlade": {
-      "label": "Multiplicador De Armas de Hoja Corta"
+      "label": "Multiplicador de Armas de hoja corta"
     },
     "LongBlade": {
-      "label": "Multiplicador De Armas de Hoja Larga"
+      "label": "Multiplicador de Armas de hoja larga"
     },
     "SmallBlunt": {
-      "label": "Multiplicador De Armas Cortas Contundentes "
+      "label": "Multiplicador de Armas cortas contundentes"
     },
     "Aiming": {
-      "label": "Multiplicador De Puntería"
+      "label": "Multiplicador de Puntería"
     },
     "Reloading": {
-      "label": "Multiplicador De Recarga"
+      "label": "Multiplicador de Recarga"
     },
     "Fishing": {
-      "label": "Multiplicador De Pesca"
+      "label": "Multiplicador de Pesca"
     },
     "Trapping": {
-      "label": "Multiplicador De Trampas"
+      "label": "Multiplicador de Trampas"
     },
     "Woodwork": {
-      "label": "Multiplicador De Carpintería"
+      "label": "Multiplicador de Carpintería"
     },
     "Cooking": {
-      "label": "Multiplicador De Cocina"
+      "label": "Multiplicador de Cocina"
     },
     "Farming": {
-      "label": "Multiplicador De Agricultura"
+      "label": "Multiplicador de Agricultura"
     },
     "Doctor": {
-      "label": "Multiplicador De Primeros Auxilios"
+      "label": "Multiplicador de Primeros auxilios"
     },
     "Electricity": {
-      "label": "Multiplicador De Electricidad"
+      "label": "Multiplicador ae Electrónica"
     },
     "MetalWelding": {
-      "label": "Multiplicador De Metalistería"
+      "label": "Multiplicador de Metalistería"
     },
     "Mechanics": {
-      "label": "Multiplicador De Mecánica"
+      "label": "Multiplicador de Mecánica"
     },
     "Tailoring": {
-      "label": "Multiplicador De Sastrería"
+      "label": "Multiplicador de Sastrería"
     },
     "Maintenance": {
-      "label": "Multiplicador De Mantenimiento"
+      "label": "Multiplicador de Mantenimiento"
     },
     "PlantScavenging": {
-      "label": "Multiplicador De Recolección"
+      "label": "Multiplicador de Rebuscar"
     },
     "Fitness": {
-      "label": "Multiplicador De Estado Físico"
+      "label": "Multiplicador de Estado físico"
     },
     "Strength": {
-      "label": "Multiplicador De Fuerza"
+      "label": "Multiplicador de Fuerza"
     },
     "FlintKnapping": {
-      "label": "Multiplicador De Labrar Piedra"
+      "label": "Multiplicador de Labrar piedra"
     },
     "Carving": {
-      "label": "Multiplicador De Tallar"
+      "label": "Multiplicador de Tallar"
     },
     "Tracking": {
-      "label": "Multiplicador De Rastrear"
+      "label": "Multiplicador de Rastreo"
     },
     "Butchering": {
-      "label": "Multiplicador De Carnicería"
+      "label": "Multiplicador de Carnicería"
     },
     "Glassmaking": {
       "label": "Multiplicador de Cristalería"
     },
     "Husbandry": {
-      "label": "Multiplicador De Cuidado Animal"
+      "label": "Multiplicador de Cuidado animal"
     },
     "Spear": {
-      "label": "Multiplicador De Lanza"
+      "label": "Multiplicador de Lanza"
     },
     "Masonry": {
-      "label": "Multiplicador De Albañilería"
+      "label": "Multiplicador de Albañilería"
     },
     "Pottery": {
-      "label": "Multiplicador De Alfarería"
+      "label": "Multiplicador de Alfarería"
     },
     "Blacksmith": {
-      "label": "Multiplicador De Herrería"
+      "label": "Multiplicador de Herrería"
     }
   },
   "map": {
@@ -2369,33 +2357,33 @@
       "label": "Todo conocido al inicio"
     },
     "MapNeedsLight": {
-      "label": "Luz Necesaria Para Leer El Mapa"
+      "label": "Luz necesaria para leer el mapa"
     }
   },
   "basement": {
     "SpawnFrequency": {
-      "label": "Basement Spawn Frequency",
+      "label": "Frecuencia de aparición de sótanos",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Nunca"
         },
         "2": {
-          "label": "Very Rare"
+          "label": "Extremadamente raro"
         },
         "3": {
-          "label": "Rare"
+          "label": "Raro"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "A veces"
         },
         "5": {
-          "label": "Often"
+          "label": "A menudo"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Muy frecuente"
         },
         "7": {
-          "label": "Always"
+          "label": "Siempre"
         }
       }
     }

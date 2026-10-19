@@ -1,29 +1,42 @@
 {
   "_provenance": {
     "pzAppId": "108600",
-    "pzBuildId": "24909800",
-    "extractedAt": "2026-08-27",
+    "pzBuildId": "25485521",
+    "extractedAt": "2026-10-19",
     "sources": {
+      "translationKeys": "projectzomboid.jar: zombie.SandboxOptions (+ ZombieLore/MultiplierConfig/ZombieConfig/Map/Basement) constructors, via javap",
       "defaults": "media/lua/shared/Sandbox/Apocalypse.lua",
-      "optionLabelsEn": "media/lua/shared/Translate/EN/Sandbox.json",
-      "optionLabelsDe": "media/lua/shared/Translate/DE/Sandbox.json",
-      "optionLabelsEs": "media/lua/shared/Translate/ES/Sandbox.json",
-      "optionLabelsFr": "media/lua/shared/Translate/FR/Sandbox.json",
-      "optionLabelsZhCN": "media/lua/shared/Translate/CN/Sandbox.json"
+      "optionLabels.en": "media/lua/shared/Translate/EN/Sandbox.json",
+      "optionLabels.de": "media/lua/shared/Translate/DE/Sandbox.json",
+      "optionLabels.es": "media/lua/shared/Translate/ES/Sandbox.json",
+      "optionLabels.fr": "media/lua/shared/Translate/FR/Sandbox.json",
+      "optionLabels.zh-CN": "media/lua/shared/Translate/CN/Sandbox.json",
+      "optionLabels.zh-TW": "media/lua/shared/Translate/CH/Sandbox.json",
+      "optionLabels.pt-BR": "media/lua/shared/Translate/PTBR/Sandbox.json",
+      "optionLabels.uk": "media/lua/shared/Translate/UA/Sandbox.json"
     },
-    "note": "Paths are relative to the PZ Steam install root. ht has no PZ translation and carries no per-language entry here. Scope: only SANDBOX_SCHEMA select-type entries with a resolved, trustworthy PZ option-group match. 2 select-type entries had no resolvable PZ option group and are intentionally excluded: zombieLore.PlayerSpawnZombieRemoval, basement.SpawnFrequency. 1 more resolved but PZ's own reference is known-stale and intentionally excluded (see knownStalePzReferences below for each one's evidence): animals.AnimalAgeModifier.",
-    "knownStalePzReferences": {
-      "animals.AnimalAgeModifier": "PZ's own Sandbox_AnimalAgeModifier_option* has only 3 entries (Very Fast/Fast/Normal). Every sibling Animal*Modifier setting (AnimalStatsModifier, AnimalMetaStatsModifier, AnimalPregnancyTime, AnimalMilkIncModifier, AnimalWoolIncModifier, AnimalEggHatch) correctly matches the fuller 6-item AnimalSpeed-family scale (Ultra Fast..Very Slow) content-for-content, and AnimalAgeModifier's own description (\"Speed at which animals age\") fits that same family -- PZ's reference here looks stale/vestigial, not our schema. Confirmed with the operator during the 2026-08-26 enum audit; filed for a live-game check, not asserted as fact."
-    },
-    "2026-09-18Addendum": "Two hand-applied corrections, both cross-checked against a SEPARATE, bytecode-level extraction of zombie.SandboxOptions's own constructor (server/__fixtures__/pzSandboxOptions.json, via scripts/jar-audit/extract-sandbox-options.mjs) rather than this fixture's own translation-file technique -- applied here because this fixture's own extractor script is not present in this repo to regenerate it, and leaving it disagreeing with SANDBOX_SCHEMA would just make this gate fail on a correct schema. (1) world.VehicleStoryChance and world.ZoneStoryChance each gained a 7th options entry (\"Always Tries\", matching world.SurvivorHouseChance's own translated option 7 verbatim): bytecode reads `newEnumOption(\"VehicleStoryChance\", 7, 3)` / `newEnumOption(\"ZoneStoryChance\", 7, 3)` directly (numChoices=7), but neither field has its own Sandbox_<key>_optionN override in the EN translate file, so this fixture's translation-based technique undercounted at 6. (2) environment.AlarmDecay was trimmed from 9 options down to the real 6: bytecode reads `newEnumOption(\"AlarmDecay\", 6, 2)` (numChoices=6), but this fixture's technique apparently matched AlarmDecay against the same shared frequency-label translation group as the neighbouring WaterShut/ElecShut settings (which genuinely ARE `newEnumOption(..., 9, 2)`, 9 choices, bytecode-confirmed) -- values 7-9 (\"2 - 6 Months\"/\"6 - 12 Months\"/\"Disabled\") are not valid for AlarmDecay and B42's real sandbox loader rejects them.",
-    "settingCount": 80
+    "note": "Paths are relative to the PZ Steam install root. ht and ar have no PZ translation (PZ's AR is Argentinian Spanish) and carry no per-language column here. Option rows are 1..numChoices as the jar declares it (newEnumOption(name, numChoices, default)), labelled from the translation key the jar assigns. Scope: only SANDBOX_SCHEMA select-type entries whose PZ option strings exist in EN. 0 select-type entries have none and are intentionally excluded: (none). 0 more resolved but PZ's own reference is known-stale and intentionally excluded (see knownStalePzReferences below for each one's evidence): (none).",
+    "knownStalePzReferences": {},
+    "settingCount": 83
   },
   "settings": {
     "time.DayLength": {
       "key": "DayLength",
       "category": "time",
       "section": "settings",
+      "pzLabelKey": "DayLength",
+      "pzOptionsKey": "DayLength",
       "default": 4,
+      "labels": {
+        "en": "Day Length (in real time)",
+        "de": "Tageslänge (in echter Zeit)",
+        "es": "Duración del día",
+        "fr": "Durée d'une journée (en temps réel)",
+        "zh-CN": "一天长度",
+        "zh-TW": "每日長度",
+        "pt-BR": "Duração do Dia (em tempo real)",
+        "uk": "ТРИВАЛІСТЬ ДНЯ:"
+      },
       "options": [
         {
           "value": 1,
@@ -32,7 +45,9 @@
           "es": "15 Minutos",
           "fr": "15 minutes",
           "zh-CN": "15 分钟",
-          "ht": null
+          "zh-TW": "15 分鐘",
+          "pt-BR": "15 Minutos",
+          "uk": "15 хвилин"
         },
         {
           "value": 2,
@@ -41,7 +56,9 @@
           "es": "30 Minutos",
           "fr": "30 minutes",
           "zh-CN": "30 分钟",
-          "ht": null
+          "zh-TW": "30 分鐘",
+          "pt-BR": "30 Minutos",
+          "uk": "30 хвилин"
         },
         {
           "value": 3,
@@ -50,7 +67,9 @@
           "es": "1 Hora",
           "fr": "1 heure",
           "zh-CN": "1 小时",
-          "ht": null
+          "zh-TW": "1 小時",
+          "pt-BR": "1 Hora",
+          "uk": "1 год"
         },
         {
           "value": 4,
@@ -59,7 +78,9 @@
           "es": "1 Hora, 30 Minutos",
           "fr": "1 heure 30 minutes",
           "zh-CN": "1 小时 30 分钟",
-          "ht": null
+          "zh-TW": "1 小時 30 分鐘",
+          "pt-BR": "1 Hora e 30 Minutos",
+          "uk": "2 години"
         },
         {
           "value": 5,
@@ -68,7 +89,9 @@
           "es": "2 Horas",
           "fr": "2 heures",
           "zh-CN": "2 小时",
-          "ht": null
+          "zh-TW": "2 小時",
+          "pt-BR": "2 Horas",
+          "uk": "2 години"
         },
         {
           "value": 6,
@@ -77,7 +100,9 @@
           "es": "3 Horas",
           "fr": "3 heures",
           "zh-CN": "3 小时",
-          "ht": null
+          "zh-TW": "3 小時",
+          "pt-BR": "3 Horas",
+          "uk": "3 години"
         },
         {
           "value": 7,
@@ -86,7 +111,9 @@
           "es": "4 Horas",
           "fr": "4 heures",
           "zh-CN": "4 小时",
-          "ht": null
+          "zh-TW": "4 小時",
+          "pt-BR": "4 Horas",
+          "uk": "4 години"
         },
         {
           "value": 8,
@@ -95,169 +122,207 @@
           "es": "5 Horas",
           "fr": "5 heures",
           "zh-CN": "5 小时",
-          "ht": null
+          "zh-TW": "5 小時",
+          "pt-BR": "5 Horas",
+          "uk": "5 годин"
         },
         {
           "value": 9,
           "en": "6 Hours",
-          "de": "12 Stunden",
+          "de": "6 Stunden",
           "es": "6 Horas",
           "fr": "6 heures",
           "zh-CN": "6 小时",
-          "ht": null
+          "zh-TW": "6 小時",
+          "pt-BR": "6 Horas",
+          "uk": "6 годин"
         },
         {
           "value": 10,
           "en": "7 Hours",
-          "de": "Echtzeit",
+          "de": "7 Stunden",
           "es": "7 Horas",
           "fr": "7 heures",
           "zh-CN": "7 小时",
-          "ht": null
+          "zh-TW": "7 小時",
+          "pt-BR": "7 Horas",
+          "uk": "7 годин"
         },
         {
           "value": 11,
           "en": "8 Hours",
-          "de": "8 stunden",
+          "de": "8 Stunden",
           "es": "8 Horas",
           "fr": "8 heures",
           "zh-CN": "8 小时",
-          "ht": null
+          "zh-TW": "8 小時",
+          "pt-BR": "8 Horas",
+          "uk": "8 годин"
         },
         {
           "value": 12,
           "en": "9 Hours",
-          "de": "9 stunden",
+          "de": "9 Stunden",
           "es": "9 Horas",
           "fr": "9 heures",
           "zh-CN": "9 小时",
-          "ht": null
+          "zh-TW": "9 小時",
+          "pt-BR": "9 Horas",
+          "uk": "9 годин"
         },
         {
           "value": 13,
           "en": "10 Hours",
-          "de": "10 stunden",
+          "de": "10 Stunden",
           "es": "10 Horas",
           "fr": "10 heures",
           "zh-CN": "10 小时",
-          "ht": null
+          "zh-TW": "10 小時",
+          "pt-BR": "10 Horas",
+          "uk": "10 годин"
         },
         {
           "value": 14,
           "en": "11 Hours",
-          "de": "11 stunden",
+          "de": "11 Stunden",
           "es": "11 Horas",
           "fr": "11 heures",
           "zh-CN": "11 小时",
-          "ht": null
+          "zh-TW": "11 小時",
+          "pt-BR": "11 Horas",
+          "uk": "11 годин"
         },
         {
           "value": 15,
           "en": "12 Hours",
-          "de": "12 stunden",
+          "de": "12 Stunden",
           "es": "12 Horas",
           "fr": "12 heures",
           "zh-CN": "12 小时",
-          "ht": null
+          "zh-TW": "12 小時",
+          "pt-BR": "12 Horas",
+          "uk": "12 годин"
         },
         {
           "value": 16,
           "en": "13 Hours",
-          "de": "13 stunden",
+          "de": "13 Stunden",
           "es": "13 Horas",
           "fr": "13 heures",
           "zh-CN": "13 小时",
-          "ht": null
+          "zh-TW": "13 小時",
+          "pt-BR": "13 Horas",
+          "uk": "13 годин"
         },
         {
           "value": 17,
           "en": "14 Hours",
-          "de": "14 stunden",
+          "de": "14 Stunden",
           "es": "14 Horas",
           "fr": "14 heures",
           "zh-CN": "14 小时",
-          "ht": null
+          "zh-TW": "14 小時",
+          "pt-BR": "14 Horas",
+          "uk": "14 годин"
         },
         {
           "value": 18,
           "en": "15 Hours",
-          "de": "15 stunden",
+          "de": "15 Stunden",
           "es": "15 Horas",
           "fr": "15 heures",
           "zh-CN": "15 小时",
-          "ht": null
+          "zh-TW": "15 小時",
+          "pt-BR": "15 Horas",
+          "uk": "15 годин"
         },
         {
           "value": 19,
           "en": "16 Hours",
-          "de": "16 stunden",
+          "de": "16 Stunden",
           "es": "16 Horas",
           "fr": "16 heures",
           "zh-CN": "16 小时",
-          "ht": null
+          "zh-TW": "16 小時",
+          "pt-BR": "16 Horas",
+          "uk": "16 годин"
         },
         {
           "value": 20,
           "en": "17 Hours",
-          "de": "17 stunden",
+          "de": "17 Stunden",
           "es": "17 Horas",
           "fr": "17 heures",
           "zh-CN": "17 小时",
-          "ht": null
+          "zh-TW": "17 小時",
+          "pt-BR": "17 Horas",
+          "uk": "17 годин"
         },
         {
           "value": 21,
           "en": "18 Hours",
-          "de": "18 stunden",
+          "de": "18 Stunden",
           "es": "18 Horas",
           "fr": "18 heures",
           "zh-CN": "18 小时",
-          "ht": null
+          "zh-TW": "18 小時",
+          "pt-BR": "18 Horas",
+          "uk": "18 годин"
         },
         {
           "value": 22,
           "en": "19 Hours",
-          "de": "19 stunden",
+          "de": "19 Stunden",
           "es": "19 Horas",
           "fr": "19 heures",
           "zh-CN": "19 小时",
-          "ht": null
+          "zh-TW": "19 小時",
+          "pt-BR": "19 Horas",
+          "uk": "19 годин"
         },
         {
           "value": 23,
           "en": "20 Hours",
-          "de": "20 stunden",
+          "de": "20 Stunden",
           "es": "20 Horas",
           "fr": "20 heures",
           "zh-CN": "20 小时",
-          "ht": null
+          "zh-TW": "20 小時",
+          "pt-BR": "20 Horas",
+          "uk": "20 годин"
         },
         {
           "value": 24,
           "en": "21 Hours",
-          "de": "21 stunden",
+          "de": "21 Stunden",
           "es": "21 Horas",
           "fr": "21 heures",
           "zh-CN": "21 小时",
-          "ht": null
+          "zh-TW": "21 小時",
+          "pt-BR": "21 Horas",
+          "uk": "21 годину"
         },
         {
           "value": 25,
           "en": "22 Hours",
-          "de": "22 stunden",
+          "de": "22 Stunden",
           "es": "22 Horas",
           "fr": "22 heures",
           "zh-CN": "22 小时",
-          "ht": null
+          "zh-TW": "22 小時",
+          "pt-BR": "22 Horas",
+          "uk": "22 години"
         },
         {
           "value": 26,
           "en": "23 Hours",
-          "de": "23 stunden",
+          "de": "23 Stunden",
           "es": "23 Horas",
           "fr": "23 heures",
           "zh-CN": "23 小时",
-          "ht": null
+          "zh-TW": "23 小時",
+          "pt-BR": "23 Horas",
+          "uk": "23 години"
         },
         {
           "value": 27,
@@ -266,7 +331,9 @@
           "es": "Tiempo real",
           "fr": "Temps réel",
           "zh-CN": "24 小时",
-          "ht": null
+          "zh-TW": "現實時間",
+          "pt-BR": "Tempo real",
+          "uk": "Реальний час"
         }
       ]
     },
@@ -274,7 +341,19 @@
       "key": "StartMonth",
       "category": "time",
       "section": "settings",
+      "pzLabelKey": "StartMonth",
+      "pzOptionsKey": "StartMonth",
       "default": 7,
+      "labels": {
+        "en": "Start Month",
+        "de": "Startmonat",
+        "es": "Mes de inicio",
+        "fr": "Mois de départ",
+        "zh-CN": "开局月份",
+        "zh-TW": "開始月份",
+        "pt-BR": "Mês de Início",
+        "uk": "СТАРТОВИЙ МІСЯЦЬ:"
+      },
       "options": [
         {
           "value": 1,
@@ -283,7 +362,9 @@
           "es": "Enero",
           "fr": "Janvier",
           "zh-CN": "一月",
-          "ht": null
+          "zh-TW": "一月",
+          "pt-BR": "Janeiro",
+          "uk": "Січень"
         },
         {
           "value": 2,
@@ -292,7 +373,9 @@
           "es": "Febrero",
           "fr": "Février",
           "zh-CN": "二月",
-          "ht": null
+          "zh-TW": "二月",
+          "pt-BR": "Fevereiro",
+          "uk": "Лютий"
         },
         {
           "value": 3,
@@ -301,7 +384,9 @@
           "es": "Marzo",
           "fr": "Mars",
           "zh-CN": "三月",
-          "ht": null
+          "zh-TW": "三月",
+          "pt-BR": "Março",
+          "uk": "Березень"
         },
         {
           "value": 4,
@@ -310,7 +395,9 @@
           "es": "Abril",
           "fr": "Avril",
           "zh-CN": "四月",
-          "ht": null
+          "zh-TW": "四月",
+          "pt-BR": "Abril",
+          "uk": "Квітень"
         },
         {
           "value": 5,
@@ -319,7 +406,9 @@
           "es": "Mayo",
           "fr": "Mai",
           "zh-CN": "五月",
-          "ht": null
+          "zh-TW": "五月",
+          "pt-BR": "Maio",
+          "uk": "Травень"
         },
         {
           "value": 6,
@@ -328,7 +417,9 @@
           "es": "Junio",
           "fr": "Juin",
           "zh-CN": "六月",
-          "ht": null
+          "zh-TW": "六月",
+          "pt-BR": "Junho",
+          "uk": "Червень"
         },
         {
           "value": 7,
@@ -337,7 +428,9 @@
           "es": "Julio",
           "fr": "Juillet",
           "zh-CN": "七月",
-          "ht": null
+          "zh-TW": "七月",
+          "pt-BR": "Julho",
+          "uk": "Липень"
         },
         {
           "value": 8,
@@ -346,7 +439,9 @@
           "es": "Agosto",
           "fr": "Août",
           "zh-CN": "八月",
-          "ht": null
+          "zh-TW": "八月",
+          "pt-BR": "Agosto",
+          "uk": "Серпень"
         },
         {
           "value": 9,
@@ -355,7 +450,9 @@
           "es": "Septiembre",
           "fr": "Septembre",
           "zh-CN": "九月",
-          "ht": null
+          "zh-TW": "九月",
+          "pt-BR": "Setembro",
+          "uk": "Вересень"
         },
         {
           "value": 10,
@@ -364,7 +461,9 @@
           "es": "Octubre",
           "fr": "Octobre",
           "zh-CN": "十月",
-          "ht": null
+          "zh-TW": "十月",
+          "pt-BR": "Outubro",
+          "uk": "Жовтень"
         },
         {
           "value": 11,
@@ -373,7 +472,9 @@
           "es": "Noviembre",
           "fr": "Novembre",
           "zh-CN": "十一月",
-          "ht": null
+          "zh-TW": "十一月",
+          "pt-BR": "Novembro",
+          "uk": "Листопад"
         },
         {
           "value": 12,
@@ -382,7 +483,9 @@
           "es": "Diciembre",
           "fr": "Décembre",
           "zh-CN": "十二月",
-          "ht": null
+          "zh-TW": "十二月",
+          "pt-BR": "Dezembro",
+          "uk": "Грудень"
         }
       ]
     },
@@ -390,7 +493,19 @@
       "key": "StartTime",
       "category": "time",
       "section": "settings",
+      "pzLabelKey": "StartTime",
+      "pzOptionsKey": "StartTime",
       "default": 2,
+      "labels": {
+        "en": "Start Hour",
+        "de": "Startstunde",
+        "es": "Hora de inicio",
+        "fr": "Heure de départ",
+        "zh-CN": "开局时间",
+        "zh-TW": "開始小時",
+        "pt-BR": "Hora de Início",
+        "uk": "СТАРТОВИЙ ЧАС:"
+      },
       "options": [
         {
           "value": 1,
@@ -399,7 +514,9 @@
           "es": "7 AM",
           "fr": "7 heures",
           "zh-CN": "早上 7 点",
-          "ht": null
+          "zh-TW": "7 AM",
+          "pt-BR": "07:00",
+          "uk": "7:00"
         },
         {
           "value": 2,
@@ -408,7 +525,9 @@
           "es": "9 AM",
           "fr": "9 heures",
           "zh-CN": "早上 9 点",
-          "ht": null
+          "zh-TW": "9 AM",
+          "pt-BR": "09:00",
+          "uk": "9:00"
         },
         {
           "value": 3,
@@ -417,7 +536,9 @@
           "es": "12 PM",
           "fr": "Midi",
           "zh-CN": "中午 12 点",
-          "ht": null
+          "zh-TW": "12 PM",
+          "pt-BR": "12:00",
+          "uk": "12:00"
         },
         {
           "value": 4,
@@ -426,7 +547,9 @@
           "es": "2 PM",
           "fr": "14 heures",
           "zh-CN": "下午 2 点",
-          "ht": null
+          "zh-TW": "2 PM",
+          "pt-BR": "14:00",
+          "uk": "14:00"
         },
         {
           "value": 5,
@@ -435,7 +558,9 @@
           "es": "5 PM",
           "fr": "17 heures",
           "zh-CN": "下午 5 点",
-          "ht": null
+          "zh-TW": "5 PM",
+          "pt-BR": "17:00",
+          "uk": "17:00"
         },
         {
           "value": 6,
@@ -444,7 +569,9 @@
           "es": "9 PM",
           "fr": "21 heures",
           "zh-CN": "晚上 9 点",
-          "ht": null
+          "zh-TW": "9 PM",
+          "pt-BR": "21:00",
+          "uk": "21:00"
         },
         {
           "value": 7,
@@ -453,7 +580,9 @@
           "es": "12 AM",
           "fr": "Minuit",
           "zh-CN": "凌晨 12 点",
-          "ht": null
+          "zh-TW": "12 AM",
+          "pt-BR": "00:00",
+          "uk": "0:00"
         },
         {
           "value": 8,
@@ -462,7 +591,9 @@
           "es": "2 AM",
           "fr": "2 heures",
           "zh-CN": "深夜 2 点",
-          "ht": null
+          "zh-TW": "2 AM",
+          "pt-BR": "02:00",
+          "uk": "2:00"
         },
         {
           "value": 9,
@@ -471,7 +602,9 @@
           "es": "5 AM",
           "fr": "5 heures",
           "zh-CN": "早晨 5 点",
-          "ht": null
+          "zh-TW": "5 AM",
+          "pt-BR": "05:00",
+          "uk": "5:00"
         }
       ]
     },
@@ -479,7 +612,19 @@
       "key": "Zombies",
       "category": "population",
       "section": "settings",
+      "pzLabelKey": "ZombieCount",
+      "pzOptionsKey": "ZombieCount",
       "default": 4,
+      "labels": {
+        "en": "Zombie Count",
+        "de": "Zombie-Anzahl",
+        "es": "Número de zombis",
+        "fr": "Nombre de zombie",
+        "zh-CN": "僵尸数量",
+        "zh-TW": "殭屍數量",
+        "pt-BR": "Quantidade de Zumbis",
+        "uk": "КІЛЬКІСТЬ ЗОМБІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -488,7 +633,9 @@
           "es": "Zombicidio",
           "fr": "Hardcore",
           "zh-CN": "疯狂",
-          "ht": null
+          "zh-TW": "瘋狂",
+          "pt-BR": "Insana",
+          "uk": "Божевільне"
         },
         {
           "value": 2,
@@ -497,7 +644,9 @@
           "es": "Muy alto",
           "fr": "Très Élevé",
           "zh-CN": "非常多",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alta",
+          "uk": "Дуже багато"
         },
         {
           "value": 3,
@@ -506,7 +655,9 @@
           "es": "Alto",
           "fr": "Élevé",
           "zh-CN": "多",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Висока"
         },
         {
           "value": 4,
@@ -515,7 +666,9 @@
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "普通",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -524,7 +677,9 @@
           "es": "Bajo",
           "fr": "Faible",
           "zh-CN": "少",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         },
         {
           "value": 6,
@@ -533,7 +688,9 @@
           "es": "Nada",
           "fr": "Aucun",
           "zh-CN": "没有",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Відсутні"
         }
       ]
     },
@@ -541,7 +698,19 @@
       "key": "Distribution",
       "category": "population",
       "section": "settings",
+      "pzLabelKey": "ZombieDistribution",
+      "pzOptionsKey": "ZombieDistribution",
       "default": 1,
+      "labels": {
+        "en": "Zombie Distribution",
+        "de": "Zombie-Verteilung",
+        "es": "Distribución de zombis",
+        "fr": "Répartition des zombies",
+        "zh-CN": "僵尸分布",
+        "zh-TW": "殭屍分配",
+        "pt-BR": "Distribuição de Zumbis",
+        "uk": "РОЗПОДІЛ ЗОМБІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -550,7 +719,9 @@
           "es": "Enfoque urbano",
           "fr": "Focalisés en ville",
           "zh-CN": "城镇集中",
-          "ht": null
+          "zh-TW": "聚集市區",
+          "pt-BR": "Foco Urbano",
+          "uk": "Населені пункти"
         },
         {
           "value": 2,
@@ -559,7 +730,9 @@
           "es": "Uniforme",
           "fr": "Uniforme",
           "zh-CN": "各地分散",
-          "ht": null
+          "zh-TW": "平均分佈",
+          "pt-BR": "Uniforme",
+          "uk": "Рівномірне"
         }
       ]
     },
@@ -567,7 +740,19 @@
       "key": "ZombieRespawn",
       "category": "population",
       "section": "settings",
+      "pzLabelKey": "ZombieRespawn",
+      "pzOptionsKey": "ZombieRespawn",
       "default": 4,
+      "labels": {
+        "en": "Zombie Respawn",
+        "de": "Zombie-Respawn-Zeitraum",
+        "es": "Intervalo de reaparición de zombis",
+        "fr": "Réapparition des zombies",
+        "zh-CN": "僵尸刷新",
+        "zh-TW": "殭屍重生間隔時間",
+        "pt-BR": "Respawn de Zumbis",
+        "uk": "ПОЯВА НОВИХ ЗОМБІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -576,7 +761,9 @@
           "es": "Alto",
           "fr": "Élevée",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Часто"
         },
         {
           "value": 2,
@@ -585,7 +772,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "普通",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 3,
@@ -594,7 +783,9 @@
           "es": "Bajo",
           "fr": "Faible",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Нечасто"
         },
         {
           "value": 4,
@@ -603,7 +794,9 @@
           "es": "Ninguno",
           "fr": "Aucune",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhum",
+          "uk": "Немає"
         }
       ]
     },
@@ -611,34 +804,52 @@
       "key": "DayNightCycle",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "DayNightCycle",
+      "pzOptionsKey": "DayNightCycle",
       "default": 1,
+      "labels": {
+        "en": "Day / Night Cycle",
+        "de": "Tag-Nacht-Zyklus",
+        "es": "Ciclo Día / Noche",
+        "fr": "Cycle jour/nuit",
+        "zh-CN": "昼夜循环模式",
+        "zh-TW": "晝夜迴圈模式",
+        "pt-BR": "Ciclo de Dia / Noite",
+        "uk": null
+      },
       "options": [
         {
           "value": 1,
           "en": "Normal",
-          "de": null,
+          "de": "Normal",
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "正常循环",
-          "ht": null
+          "zh-TW": "正常迴圈",
+          "pt-BR": "Normal",
+          "uk": null
         },
         {
           "value": 2,
           "en": "Endless Day",
-          "de": null,
-          "es": "Día Infinito",
+          "de": "Immer Tag",
+          "es": "Día infinito",
           "fr": "Jour permanent",
           "zh-CN": "永昼模式",
-          "ht": null
+          "zh-TW": "永晝模式",
+          "pt-BR": "Dia Eterno",
+          "uk": null
         },
         {
           "value": 3,
           "en": "Endless Night",
-          "de": null,
-          "es": "Noche Infinita",
+          "de": "Immer Nacht",
+          "es": "Noche infinita",
           "fr": "Nuit permanente",
           "zh-CN": "永夜模式",
-          "ht": null
+          "zh-TW": "永夜模式",
+          "pt-BR": "Noite Eterna",
+          "uk": null
         }
       ]
     },
@@ -646,61 +857,85 @@
       "key": "ClimateCycle",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "ClimateCycle",
+      "pzOptionsKey": "ClimateCycle",
       "default": 1,
+      "labels": {
+        "en": "Climate Cycle",
+        "de": "Klimazyklus",
+        "es": "Ciclo climático",
+        "fr": "Cycle climatique",
+        "zh-CN": "气候循环模式",
+        "zh-TW": "氣候迴圈模式",
+        "pt-BR": "Ciclo Climático",
+        "uk": null
+      },
       "options": [
         {
           "value": 1,
           "en": "Normal",
-          "de": null,
+          "de": "Normal",
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "正常气候",
-          "ht": null
+          "zh-TW": "正常氣候",
+          "pt-BR": "Normal",
+          "uk": null
         },
         {
           "value": 2,
           "en": "No Weather",
-          "de": null,
-          "es": "Sin Clima",
+          "de": "Kein Wetter",
+          "es": "Sin clima",
           "fr": "Pas de changements",
           "zh-CN": "无天气变化",
-          "ht": null
+          "zh-TW": "無天氣變化",
+          "pt-BR": "Tempo Sempre Limpo",
+          "uk": null
         },
         {
           "value": 3,
           "en": "Endless Rain",
-          "de": null,
-          "es": "Lluvia Infinita",
+          "de": "Immer Regen",
+          "es": "Lluvia infinita",
           "fr": "Pluie permanente",
           "zh-CN": "无尽雨天",
-          "ht": null
+          "zh-TW": "無盡雨天",
+          "pt-BR": "Chuva Eterna",
+          "uk": null
         },
         {
           "value": 4,
           "en": "Endless Storm",
-          "de": null,
-          "es": "Tormenta Infinita",
+          "de": "Immer Sturm",
+          "es": "Tormenta infinita",
           "fr": "Tempête permanente",
           "zh-CN": "无尽暴风雨",
-          "ht": null
+          "zh-TW": "無盡暴風雨",
+          "pt-BR": "Tempestade Eterna",
+          "uk": null
         },
         {
           "value": 5,
           "en": "Endless Snow",
-          "de": null,
-          "es": "Nieve Infinita",
+          "de": "Immer Schnee",
+          "es": "Nieve infinita",
           "fr": "Neige permanente",
           "zh-CN": "无尽雪天",
-          "ht": null
+          "zh-TW": "無盡雪天",
+          "pt-BR": "Neve Eterna",
+          "uk": null
         },
         {
           "value": 6,
           "en": "Endless Blizzard",
-          "de": null,
-          "es": "Ventisca Infinita",
+          "de": "Immer Schneesturm",
+          "es": "Ventisca infinita",
           "fr": "Blizzard permanent",
           "zh-CN": "无尽暴风雪",
-          "ht": null
+          "zh-TW": "無盡暴風雪",
+          "pt-BR": "Nevasca Eterna",
+          "uk": null
         }
       ]
     },
@@ -708,34 +943,52 @@
       "key": "FogCycle",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "FogCycle",
+      "pzOptionsKey": "FogCycle",
       "default": 1,
+      "labels": {
+        "en": "Fog Cycle",
+        "de": "Nebelzyklus",
+        "es": "Ciclo de niebla",
+        "fr": "Cycle du brouillard",
+        "zh-CN": "雾气循环模式",
+        "zh-TW": "霧氣迴圈模式",
+        "pt-BR": "Ciclo de Nevoeiro",
+        "uk": null
+      },
       "options": [
         {
           "value": 1,
           "en": "Normal",
-          "de": null,
+          "de": "Normal",
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "正常雾气",
-          "ht": null
+          "zh-TW": "正常霧氣",
+          "pt-BR": "Normal",
+          "uk": null
         },
         {
           "value": 2,
           "en": "No Fog",
-          "de": null,
-          "es": "Sin Niebla",
+          "de": "Kein Nebel",
+          "es": "Sin niebla",
           "fr": "Pas de brouillard",
           "zh-CN": "无雾气",
-          "ht": null
+          "zh-TW": "無霧氣",
+          "pt-BR": "Sem Nevoeiro",
+          "uk": null
         },
         {
           "value": 3,
           "en": "Endless Fog",
-          "de": null,
-          "es": "Niebla Infinita",
+          "de": "Immer Nebel",
+          "es": "Niebla infinita",
           "fr": "Brouillard permanent",
           "zh-CN": "无尽雾气",
-          "ht": null
+          "zh-TW": "無盡霧氣",
+          "pt-BR": "Nevoeiro Eterno",
+          "uk": null
         }
       ]
     },
@@ -743,7 +996,19 @@
       "key": "WaterShut",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "WaterShut",
+      "pzOptionsKey": "Shutoff",
       "default": 2,
+      "labels": {
+        "en": "Water Shutoff",
+        "de": "Wasserausfall",
+        "es": "Corte de agua",
+        "fr": "Coupure d'eau",
+        "zh-CN": "停水时间",
+        "zh-TW": "斷水時間",
+        "pt-BR": "Corte de Água",
+        "uk": "ВІДКЛЮЧЕННЯ ВОДИ:"
+      },
       "options": [
         {
           "value": 1,
@@ -752,70 +1017,86 @@
           "es": "Instantáneo",
           "fr": "Immédiate",
           "zh-CN": "立即",
-          "ht": null
+          "zh-TW": "立即",
+          "pt-BR": "Instantâneo",
+          "uk": "Негайне"
         },
         {
           "value": 2,
           "en": "0 - 30 Days",
-          "de": "0-30 Tage",
+          "de": "0 - 30 Tage",
           "es": "0 - 30 días",
           "fr": "0 - 30 jours",
           "zh-CN": "0-30 天",
-          "ht": null
+          "zh-TW": "0-30 天",
+          "pt-BR": "0 a 30 Dias",
+          "uk": "Через 0-30 днів"
         },
         {
           "value": 3,
           "en": "0 - 2 Months",
-          "de": "0-2 Monate",
+          "de": "0 - 2 Monate",
           "es": "0 - 2 meses",
           "fr": "0 - 2 mois",
           "zh-CN": "0-2 个月",
-          "ht": null
+          "zh-TW": "0-2 個月",
+          "pt-BR": "0 a 2 Meses",
+          "uk": "Через 0-2 місяців"
         },
         {
           "value": 4,
           "en": "0 - 6 Months",
-          "de": "0-6 Monate",
+          "de": "0 - 6 Monate",
           "es": "0 - 6 meses",
           "fr": "0 - 6 mois",
           "zh-CN": "0-6 个月",
-          "ht": null
+          "zh-TW": "0-6 個月",
+          "pt-BR": "0 a 6 Meses",
+          "uk": "Через 0-6 місяців"
         },
         {
           "value": 5,
           "en": "0 - 1 Year",
-          "de": "0-1 Jahr",
+          "de": "0 - 1 Jahr",
           "es": "0 - 1 año",
           "fr": "0 - 1 année",
           "zh-CN": "0-1 年",
-          "ht": null
+          "zh-TW": "0-1 年",
+          "pt-BR": "0 a 1 Ano",
+          "uk": "Через 0-1 рік"
         },
         {
           "value": 6,
           "en": "0 - 5 Years",
-          "de": "0-5 Jahre",
+          "de": "0 - 5 Jahre",
           "es": "0 - 5 años",
           "fr": "0 - 5 années",
           "zh-CN": "0-5 年",
-          "ht": null
+          "zh-TW": "0-5 年",
+          "pt-BR": "0 a 5 Anos",
+          "uk": "Через 0-5 років"
         },
         {
           "value": 7,
           "en": "2 - 6 Months",
-          "de": "2-6 Monate",
+          "de": "2 - 6 Monate",
           "es": "2 - 6 meses",
           "fr": "2 - 6 mois",
           "zh-CN": "2-6 个月",
-          "ht": null
+          "zh-TW": "2-6 個月",
+          "pt-BR": "2 a 6 Meses",
+          "uk": "Через 2-6 місяців"
         },
         {
           "value": 8,
           "en": "6 - 12 Months",
-          "de": "6-12 Monate",
+          "de": "6 - 12 Monate",
           "es": "6 - 12 meses",
           "fr": "6 - 12 mois",
           "zh-CN": "6-12 个月",
-          "ht": null
+          "zh-TW": "6-12 個月",
+          "pt-BR": "6 a 12 Meses",
+          "uk": "Через 6-12 місяців"
         },
         {
           "value": 9,
@@ -824,7 +1105,9 @@
           "es": "Desactivado",
           "fr": "Désactivée",
           "zh-CN": "禁用",
-          "ht": null
+          "zh-TW": "禁用",
+          "pt-BR": "Desativado",
+          "uk": "Вимк."
         }
       ]
     },
@@ -832,88 +1115,118 @@
       "key": "ElecShut",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "ElecShut",
+      "pzOptionsKey": "ElecShut",
       "default": 2,
+      "labels": {
+        "en": "Electricity Shutoff",
+        "de": "Stromausfall",
+        "es": "Corte de electricidad",
+        "fr": "Coupure d'électricité",
+        "zh-CN": "停电时间",
+        "zh-TW": "斷電時間",
+        "pt-BR": "Corte de Energia",
+        "uk": "ВИМКНЕННЯ ЕЛЕКТРИКИ:"
+      },
       "options": [
         {
           "value": 1,
           "en": "Instant",
-          "de": null,
+          "de": "Sofort",
           "es": "Instantáneo",
           "fr": "Instantané",
           "zh-CN": "立即",
-          "ht": null
+          "zh-TW": "立即",
+          "pt-BR": "Instantâneo",
+          "uk": null
         },
         {
           "value": 2,
           "en": "14 - 30 Days",
-          "de": null,
+          "de": "14-30 Tage",
           "es": "14 - 30 días",
           "fr": "14 - 30 jours",
           "zh-CN": "14-30 天",
-          "ht": null
+          "zh-TW": "14-30 天",
+          "pt-BR": "14 a 30 Dias",
+          "uk": null
         },
         {
           "value": 3,
           "en": "14 Days - 2 Months",
-          "de": null,
+          "de": "14 Tage - 2 Monate",
           "es": "14 días - 2 meses",
           "fr": "14 jours - 2 mois",
           "zh-CN": "14 天 - 2 个月",
-          "ht": null
+          "zh-TW": "14 天 - 2 個月",
+          "pt-BR": "14 Dias a 2 Meses",
+          "uk": null
         },
         {
           "value": 4,
           "en": "14 Days - 6 Months",
-          "de": null,
+          "de": "14 Tage - 6 Monate",
           "es": "14 días - 6 meses",
           "fr": "14 jours - 6 mois",
           "zh-CN": "14 天 - 6 个月",
-          "ht": null
+          "zh-TW": "14 天 - 6 個月",
+          "pt-BR": "14 Dias a 6 Meses",
+          "uk": null
         },
         {
           "value": 5,
           "en": "14 Days - 1 Year",
-          "de": null,
+          "de": "14 Tage - 1 Jahr",
           "es": "14 días - 1 año",
           "fr": "14 jours - 1 an",
           "zh-CN": "14 天 - 1 年",
-          "ht": null
+          "zh-TW": "14 天 - 1 年",
+          "pt-BR": "14 Dias a 1 Ano",
+          "uk": null
         },
         {
           "value": 6,
           "en": "14 Days - 5 Years",
-          "de": null,
+          "de": "14 Tage - 5 Jahre",
           "es": "14 días - 5 años",
           "fr": "14 jours - 5 ans",
           "zh-CN": "14 天 - 5 年",
-          "ht": null
+          "zh-TW": "14 天 - 5 年",
+          "pt-BR": "14 Dias a 5 Anos",
+          "uk": null
         },
         {
           "value": 7,
           "en": "2 - 6 Months",
-          "de": null,
+          "de": "2-6 Monate",
           "es": "2 - 6 meses",
           "fr": "2 - 6 mois",
           "zh-CN": "2 - 6 个月",
-          "ht": null
+          "zh-TW": "2 - 6 個月",
+          "pt-BR": "2 a 6 Meses",
+          "uk": null
         },
         {
           "value": 8,
           "en": "6 - 12 Months",
-          "de": null,
+          "de": "6-12 Monate",
           "es": "6 - 12 meses",
           "fr": "6 - 12 mois",
           "zh-CN": "6 - 12 个月",
-          "ht": null
+          "zh-TW": "6 - 12 個月",
+          "pt-BR": "6 a 12 Meses",
+          "uk": null
         },
         {
           "value": 9,
           "en": "Disabled",
-          "de": null,
+          "de": "Deaktiviert",
           "es": "Desactivado",
           "fr": "Désactivé",
           "zh-CN": "禁用",
-          "ht": null
+          "zh-TW": "禁用",
+          "pt-BR": "Desativado",
+          "uk": null
         }
       ]
     },
@@ -921,7 +1234,19 @@
       "key": "AlarmDecay",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "AlarmDecay",
+      "pzOptionsKey": "Shutoff",
       "default": 2,
+      "labels": {
+        "en": "Alarm Battery Decay",
+        "de": "Alarmbatterie-Abnutzung",
+        "es": "Descarga de la batería de las alarmas",
+        "fr": "Dégradation batterie des alarmes",
+        "zh-CN": "房屋警报电池衰减",
+        "zh-TW": "房屋警報電池衰減",
+        "pt-BR": "Duração das Pilhas dos Alarmes",
+        "uk": "Розряджання батареї сигналізації"
+      },
       "options": [
         {
           "value": 1,
@@ -930,52 +1255,64 @@
           "es": "Instantáneo",
           "fr": "Immédiate",
           "zh-CN": "立即",
-          "ht": null
+          "zh-TW": "立即",
+          "pt-BR": "Instantâneo",
+          "uk": "Негайне"
         },
         {
           "value": 2,
           "en": "0 - 30 Days",
-          "de": "0-30 Tage",
+          "de": "0 - 30 Tage",
           "es": "0 - 30 días",
           "fr": "0 - 30 jours",
           "zh-CN": "0-30 天",
-          "ht": null
+          "zh-TW": "0-30 天",
+          "pt-BR": "0 a 30 Dias",
+          "uk": "Через 0-30 днів"
         },
         {
           "value": 3,
           "en": "0 - 2 Months",
-          "de": "0-2 Monate",
+          "de": "0 - 2 Monate",
           "es": "0 - 2 meses",
           "fr": "0 - 2 mois",
           "zh-CN": "0-2 个月",
-          "ht": null
+          "zh-TW": "0-2 個月",
+          "pt-BR": "0 a 2 Meses",
+          "uk": "Через 0-2 місяців"
         },
         {
           "value": 4,
           "en": "0 - 6 Months",
-          "de": "0-6 Monate",
+          "de": "0 - 6 Monate",
           "es": "0 - 6 meses",
           "fr": "0 - 6 mois",
           "zh-CN": "0-6 个月",
-          "ht": null
+          "zh-TW": "0-6 個月",
+          "pt-BR": "0 a 6 Meses",
+          "uk": "Через 0-6 місяців"
         },
         {
           "value": 5,
           "en": "0 - 1 Year",
-          "de": "0-1 Jahr",
+          "de": "0 - 1 Jahr",
           "es": "0 - 1 año",
           "fr": "0 - 1 année",
           "zh-CN": "0-1 年",
-          "ht": null
+          "zh-TW": "0-1 年",
+          "pt-BR": "0 a 1 Ano",
+          "uk": "Через 0-1 рік"
         },
         {
           "value": 6,
           "en": "0 - 5 Years",
-          "de": "0-5 Jahre",
+          "de": "0 - 5 Jahre",
           "es": "0 - 5 años",
           "fr": "0 - 5 années",
           "zh-CN": "0-5 年",
-          "ht": null
+          "zh-TW": "0-5 年",
+          "pt-BR": "0 a 5 Anos",
+          "uk": "Через 0-5 років"
         }
       ]
     },
@@ -983,7 +1320,19 @@
       "key": "Temperature",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "WorldTemperature",
+      "pzOptionsKey": "WorldTemperature",
       "default": 3,
+      "labels": {
+        "en": "Temperature",
+        "de": "Temperatur",
+        "es": "Temperatura",
+        "fr": "Température",
+        "zh-CN": "温度",
+        "zh-TW": "氣溫",
+        "pt-BR": "Temperatura",
+        "uk": "ТЕМПЕРАТУРА:"
+      },
       "options": [
         {
           "value": 1,
@@ -992,7 +1341,9 @@
           "es": "Mucho frío",
           "fr": "Très froide",
           "zh-CN": "非常冷",
-          "ht": null
+          "zh-TW": "非常冷",
+          "pt-BR": "Muito Fria",
+          "uk": "Дуже холодна"
         },
         {
           "value": 2,
@@ -1001,7 +1352,9 @@
           "es": "Frío",
           "fr": "Froide",
           "zh-CN": "冷",
-          "ht": null
+          "zh-TW": "冷",
+          "pt-BR": "Fria",
+          "uk": "Холодна"
         },
         {
           "value": 3,
@@ -1010,7 +1363,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -1019,7 +1374,9 @@
           "es": "Calor",
           "fr": "Chaude",
           "zh-CN": "热",
-          "ht": null
+          "zh-TW": "熱",
+          "pt-BR": "Quente",
+          "uk": "Тепла"
         },
         {
           "value": 5,
@@ -1028,7 +1385,9 @@
           "es": "Mucho calor",
           "fr": "Très chaude",
           "zh-CN": "非常热",
-          "ht": null
+          "zh-TW": "非常熱",
+          "pt-BR": "Muito Quente",
+          "uk": "Спекотна"
         }
       ]
     },
@@ -1036,7 +1395,19 @@
       "key": "Rain",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "RainAmount",
+      "pzOptionsKey": "RainAmount",
       "default": 3,
+      "labels": {
+        "en": "Rain",
+        "de": "Regen",
+        "es": "Lluvia",
+        "fr": "Pluie",
+        "zh-CN": "降水量",
+        "zh-TW": "降雨量",
+        "pt-BR": "Chuva",
+        "uk": "ДОЩ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1045,7 +1416,9 @@
           "es": "Muy seco",
           "fr": "Très rare",
           "zh-CN": "非常干旱",
-          "ht": null
+          "zh-TW": "非常少雨",
+          "pt-BR": "Muito Seca",
+          "uk": "Дуже сухо"
         },
         {
           "value": 2,
@@ -1054,7 +1427,9 @@
           "es": "Seco",
           "fr": "Rare",
           "zh-CN": "干旱",
-          "ht": null
+          "zh-TW": "少雨",
+          "pt-BR": "Seca",
+          "uk": "Сухо"
         },
         {
           "value": 3,
@@ -1063,7 +1438,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -1072,7 +1449,9 @@
           "es": "Lluvioso",
           "fr": "Fréquente",
           "zh-CN": "多雨",
-          "ht": null
+          "zh-TW": "多雨",
+          "pt-BR": "Chuvosa",
+          "uk": "Дощитиме"
         },
         {
           "value": 5,
@@ -1081,7 +1460,9 @@
           "es": "Muy lluvioso",
           "fr": "Très fréquente",
           "zh-CN": "非常多雨",
-          "ht": null
+          "zh-TW": "非常多雨",
+          "pt-BR": "Muito Chuvosa",
+          "uk": "Зливи"
         }
       ]
     },
@@ -1089,7 +1470,19 @@
       "key": "ErosionSpeed",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "ErosionSpeed",
+      "pzOptionsKey": "ErosionSpeed",
       "default": 4,
+      "labels": {
+        "en": "Erosion Speed",
+        "de": "Erosionsgeschwindigkeit",
+        "es": "Velocidad de la erosión",
+        "fr": "Vitesse de détérioration",
+        "zh-CN": "侵蚀速度",
+        "zh-TW": "侵蝕速度",
+        "pt-BR": "Velocidade da Erosão",
+        "uk": "Швидкість ерозії"
+      },
       "options": [
         {
           "value": 1,
@@ -1098,7 +1491,9 @@
           "es": "Muy rápido (20 días)",
           "fr": "Très rapide (20 jours)",
           "zh-CN": "非常快 (20 天)",
-          "ht": null
+          "zh-TW": "非常快 (20 天)",
+          "pt-BR": "Muito Rápida (20 Dias)",
+          "uk": "Надшвидка (20 дн.)"
         },
         {
           "value": 2,
@@ -1107,7 +1502,9 @@
           "es": "Rápido (50 días)",
           "fr": "Rapide (50 jours)",
           "zh-CN": "快 (50 天)",
-          "ht": null
+          "zh-TW": "快 (20 天)",
+          "pt-BR": "Rápida (50 Dias)",
+          "uk": "Швидка (50 дн.)"
         },
         {
           "value": 3,
@@ -1116,7 +1513,9 @@
           "es": "Normal (100 días)",
           "fr": "Normale (100 jours)",
           "zh-CN": "正常 (100 天)",
-          "ht": null
+          "zh-TW": "正常 (100 天)",
+          "pt-BR": "Normal (100 Dias)",
+          "uk": "Нормальна (100 дн.)"
         },
         {
           "value": 4,
@@ -1125,7 +1524,9 @@
           "es": "Lento (200 días)",
           "fr": "Lente (200 jours)",
           "zh-CN": "慢 (200 天)",
-          "ht": null
+          "zh-TW": "慢 (200 天)",
+          "pt-BR": "Lenta (200 Dias)",
+          "uk": "Повільна (200 дн.)"
         },
         {
           "value": 5,
@@ -1134,7 +1535,9 @@
           "es": "Muy lento (500 días)",
           "fr": "Très lente (500 jours)",
           "zh-CN": "非常慢 (500 天)",
-          "ht": null
+          "zh-TW": "非常慢 (500 天)",
+          "pt-BR": "Muito Lenta (500 Dias)",
+          "uk": "Надповільна (500 дн.)"
         }
       ]
     },
@@ -1142,7 +1545,19 @@
       "key": "MaxFogIntensity",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "MaxFogIntensity",
+      "pzOptionsKey": "MaxFogIntensity",
       "default": 1,
+      "labels": {
+        "en": "Maximum Fog Intensity",
+        "de": "Maximale Nebelintensität",
+        "es": "Máxima intensidad de niebla",
+        "fr": "Densité maximale du brouillard",
+        "zh-CN": "雾气强度",
+        "zh-TW": "最高霧強度",
+        "pt-BR": "Intensidade Máxima de Nevoeiro",
+        "uk": "МАКСИМАЛЬНА ІНТЕНСИВНІСТЬ ТУМАНУ"
+      },
       "options": [
         {
           "value": 1,
@@ -1151,7 +1566,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Звичайна"
         },
         {
           "value": 2,
@@ -1160,7 +1577,9 @@
           "es": "Moderada",
           "fr": "Modérée",
           "zh-CN": "中等",
-          "ht": null
+          "zh-TW": "中等",
+          "pt-BR": "Moderada",
+          "uk": "Помірна"
         },
         {
           "value": 3,
@@ -1169,7 +1588,9 @@
           "es": "Baja",
           "fr": "Basse",
           "zh-CN": "弱",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         },
         {
           "value": 4,
@@ -1178,7 +1599,9 @@
           "es": "Ninguna",
           "fr": "Aucun",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Немає"
         }
       ]
     },
@@ -1186,7 +1609,19 @@
       "key": "MaxRainFxIntensity",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "MaxRainFxIntensity",
+      "pzOptionsKey": "MaxRainFxIntensity",
       "default": 1,
+      "labels": {
+        "en": "Maximum Rain FX Intensity",
+        "de": "Maximale Regeneffekt-Intensität",
+        "es": "Intensidad máxima del efecto de lluvia",
+        "fr": "Intensité maximale des effets de pluie",
+        "zh-CN": "最大降雨特效强度",
+        "zh-TW": "最高降雨效果強度",
+        "pt-BR": "Intensidade Máxima de Efeitos de Chuva",
+        "uk": "МАКСИМАЛЬНА ІНТЕНСИВНІСТЬ ДОЩУ"
+      },
       "options": [
         {
           "value": 1,
@@ -1195,7 +1630,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Звичайна"
         },
         {
           "value": 2,
@@ -1204,7 +1641,9 @@
           "es": "Moderado",
           "fr": "Modérée",
           "zh-CN": "中等",
-          "ht": null
+          "zh-TW": "中等",
+          "pt-BR": "Moderada",
+          "uk": "Помірна"
         },
         {
           "value": 3,
@@ -1213,7 +1652,9 @@
           "es": "Bajo",
           "fr": "Basse",
           "zh-CN": "弱",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         }
       ]
     },
@@ -1221,7 +1662,19 @@
       "key": "NightDarkness",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "NightDarkness",
+      "pzOptionsKey": "NightDarkness",
       "default": 3,
+      "labels": {
+        "en": "Darkness during night",
+        "de": "Dunkelheit während der Nacht",
+        "es": "Oscuridad durante la noche",
+        "fr": "Obscurité durant la nuit",
+        "zh-CN": "夜间亮度",
+        "zh-TW": "夜間暗度",
+        "pt-BR": "Escuridão durante a noite",
+        "uk": "ТЕМРЯВА ВНОЧІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1230,7 +1683,9 @@
           "es": "Noche cerrada",
           "fr": "Nuit noire",
           "zh-CN": "漆黑",
-          "ht": null
+          "zh-TW": "漆黑",
+          "pt-BR": "Breu Total",
+          "uk": "Нульова видимість"
         },
         {
           "value": 2,
@@ -1239,7 +1694,9 @@
           "es": "Oscuro",
           "fr": "Sombre",
           "zh-CN": "黑暗",
-          "ht": null
+          "zh-TW": "黑暗",
+          "pt-BR": "Escura",
+          "uk": "Темно"
         },
         {
           "value": 3,
@@ -1248,7 +1705,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -1257,7 +1716,9 @@
           "es": "Claro",
           "fr": "Claire",
           "zh-CN": "明亮",
-          "ht": null
+          "zh-TW": "明亮",
+          "pt-BR": "Clara",
+          "uk": "Світло"
         }
       ]
     },
@@ -1265,7 +1726,19 @@
       "key": "NightLength",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "NightLength",
+      "pzOptionsKey": "NightLength",
       "default": 3,
+      "labels": {
+        "en": "Length of nights",
+        "de": "Länge der Nächte",
+        "es": "Duración de las noches",
+        "fr": "Durée des nuits",
+        "zh-CN": "夜晚时长",
+        "zh-TW": "夜晚長度",
+        "pt-BR": "Duração das noites",
+        "uk": "Тривалість ночі"
+      },
       "options": [
         {
           "value": 1,
@@ -1274,7 +1747,9 @@
           "es": "Siempre de noche",
           "fr": "Nuit permanente",
           "zh-CN": "永夜",
-          "ht": null
+          "zh-TW": "總是夜晚",
+          "pt-BR": "Sempre Noite",
+          "uk": "Вічна ніч"
         },
         {
           "value": 2,
@@ -1283,7 +1758,9 @@
           "es": "Largo",
           "fr": "Longue",
           "zh-CN": "长",
-          "ht": null
+          "zh-TW": "長",
+          "pt-BR": "Longa",
+          "uk": "Довга"
         },
         {
           "value": 3,
@@ -1292,7 +1769,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -1301,7 +1780,9 @@
           "es": "Corto",
           "fr": "Courte",
           "zh-CN": "短",
-          "ht": null
+          "zh-TW": "短",
+          "pt-BR": "Curta",
+          "uk": "Коротка"
         },
         {
           "value": 5,
@@ -1310,7 +1791,9 @@
           "es": "Siempre de día",
           "fr": "Jour permanent",
           "zh-CN": "永昼",
-          "ht": null
+          "zh-TW": "總是白天",
+          "pt-BR": "Sempre de Dia",
+          "uk": "Вічний день"
         }
       ]
     },
@@ -1318,7 +1801,19 @@
       "key": "TimeSinceApo",
       "category": "environment",
       "section": "settings",
+      "pzLabelKey": "TimeSinceApo",
+      "pzOptionsKey": "TimeSinceApo",
       "default": 1,
+      "labels": {
+        "en": "Months since the Apocalypse",
+        "de": "Vergangene Monate seit Beginn der Apokalypse",
+        "es": "Meses desde el apocalipsis",
+        "fr": "Mois depuis l'apocalypse",
+        "zh-CN": "大灾变后第几个月",
+        "zh-TW": "末日開始後已經過月數",
+        "pt-BR": "Meses desde o Apocalipse",
+        "uk": "МІСЯЦІВ З ПОЧАТКУ АПОКАЛІПСИСА:"
+      },
       "options": [
         {
           "value": 1,
@@ -1327,7 +1822,9 @@
           "es": "0",
           "fr": "0",
           "zh-CN": "0",
-          "ht": null
+          "zh-TW": "0",
+          "pt-BR": "0",
+          "uk": "0"
         },
         {
           "value": 2,
@@ -1336,7 +1833,9 @@
           "es": "1",
           "fr": "1",
           "zh-CN": "1",
-          "ht": null
+          "zh-TW": "1",
+          "pt-BR": "1",
+          "uk": "1"
         },
         {
           "value": 3,
@@ -1345,7 +1844,9 @@
           "es": "2",
           "fr": "2",
           "zh-CN": "2",
-          "ht": null
+          "zh-TW": "2",
+          "pt-BR": "2",
+          "uk": "2"
         },
         {
           "value": 4,
@@ -1354,7 +1855,9 @@
           "es": "3",
           "fr": "3",
           "zh-CN": "3",
-          "ht": null
+          "zh-TW": "3",
+          "pt-BR": "3",
+          "uk": "3"
         },
         {
           "value": 5,
@@ -1363,7 +1866,9 @@
           "es": "4",
           "fr": "4",
           "zh-CN": "4",
-          "ht": null
+          "zh-TW": "4",
+          "pt-BR": "4",
+          "uk": "4"
         },
         {
           "value": 6,
@@ -1372,7 +1877,9 @@
           "es": "5",
           "fr": "5",
           "zh-CN": "5",
-          "ht": null
+          "zh-TW": "5",
+          "pt-BR": "5",
+          "uk": "5"
         },
         {
           "value": 7,
@@ -1381,7 +1888,9 @@
           "es": "6",
           "fr": "6",
           "zh-CN": "6",
-          "ht": null
+          "zh-TW": "6",
+          "pt-BR": "6",
+          "uk": "6"
         },
         {
           "value": 8,
@@ -1390,7 +1899,9 @@
           "es": "7",
           "fr": "7",
           "zh-CN": "7",
-          "ht": null
+          "zh-TW": "7",
+          "pt-BR": "7",
+          "uk": "7"
         },
         {
           "value": 9,
@@ -1399,7 +1910,9 @@
           "es": "8",
           "fr": "8",
           "zh-CN": "8",
-          "ht": null
+          "zh-TW": "8",
+          "pt-BR": "8",
+          "uk": "8"
         },
         {
           "value": 10,
@@ -1408,7 +1921,9 @@
           "es": "9",
           "fr": "9",
           "zh-CN": "9",
-          "ht": null
+          "zh-TW": "9",
+          "pt-BR": "9",
+          "uk": "9"
         },
         {
           "value": 11,
@@ -1417,7 +1932,9 @@
           "es": "10",
           "fr": "10",
           "zh-CN": "10",
-          "ht": null
+          "zh-TW": "10",
+          "pt-BR": "10",
+          "uk": "10"
         },
         {
           "value": 12,
@@ -1426,7 +1943,9 @@
           "es": "11",
           "fr": "11",
           "zh-CN": "11",
-          "ht": null
+          "zh-TW": "11",
+          "pt-BR": "11",
+          "uk": "11"
         },
         {
           "value": 13,
@@ -1435,7 +1954,9 @@
           "es": "12",
           "fr": "12",
           "zh-CN": "12",
-          "ht": null
+          "zh-TW": "12",
+          "pt-BR": "12",
+          "uk": "12"
         }
       ]
     },
@@ -1443,7 +1964,19 @@
       "key": "StatsDecrease",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "StatDecrease",
+      "pzOptionsKey": "StatDecrease",
       "default": 3,
+      "labels": {
+        "en": "Stats Decrease",
+        "de": "Statusrückgang",
+        "es": "Reducción de estados",
+        "fr": "Diminution des stats",
+        "zh-CN": "状态减少速度",
+        "zh-TW": "狀態數值降低",
+        "pt-BR": "Redução dos Indicadores",
+        "uk": "ШВИДКІСТЬ ЗНИЖЕННЯ ПОТРЕБ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1452,7 +1985,9 @@
           "es": "Muy rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápido",
+          "uk": "Дуже швидко"
         },
         {
           "value": 2,
@@ -1461,7 +1996,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápido",
+          "uk": "Швидко"
         },
         {
           "value": 3,
@@ -1470,7 +2007,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -1479,16 +2018,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lento",
+          "uk": "Повільно"
         },
         {
           "value": 5,
           "en": "Very Slow",
           "de": "Sehr langsam",
           "es": "Muy lento",
-          "fr": "Très lente",
+          "fr": "Très Lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lento",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -1496,7 +2039,19 @@
       "key": "FoodRotSpeed",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "FoodSpoil",
+      "pzOptionsKey": "FoodSpoil",
       "default": 3,
+      "labels": {
+        "en": "Food Spoilage",
+        "de": "Lebensmittel verderben",
+        "es": "Deterioro de la comida",
+        "fr": "Péremption de la nourriture",
+        "zh-CN": "食物变质速度",
+        "zh-TW": "食物腐壞",
+        "pt-BR": "Deterioração dos Alimentos",
+        "uk": "ШВИДКІСТЬ ПСУВАННЯ ПРОДУКТІВ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1505,7 +2060,9 @@
           "es": "Muy rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 2,
@@ -1514,7 +2071,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 3,
@@ -1523,7 +2082,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Середньо"
         },
         {
           "value": 4,
@@ -1532,7 +2093,9 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 5,
@@ -1541,7 +2104,9 @@
           "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -1549,7 +2114,19 @@
       "key": "FridgeFactor",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "FridgeEffect",
+      "pzOptionsKey": "FridgeEffect",
       "default": 3,
+      "labels": {
+        "en": "Refrigeration Effectiveness",
+        "de": "Kühlwirkung",
+        "es": "Eficacia de la refrigeración",
+        "fr": "Efficacité du réfrigérateur",
+        "zh-CN": "冷藏效率",
+        "zh-TW": "冷藏效力",
+        "pt-BR": "Eficiência da Refrigeração",
+        "uk": "ЕФЕКТИВНІСТЬ ХОЛОДИЛЬНИКІВ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1558,7 +2135,9 @@
           "es": "Muy baja",
           "fr": "Très peu efficace",
           "zh-CN": "很低",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixa",
+          "uk": "Дуже низька"
         },
         {
           "value": 2,
@@ -1567,7 +2146,9 @@
           "es": "Baja",
           "fr": "Peu efficace",
           "zh-CN": "较低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         },
         {
           "value": 3,
@@ -1576,7 +2157,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -1585,7 +2168,9 @@
           "es": "Alta",
           "fr": "Efficace",
           "zh-CN": "较高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Висока"
         },
         {
           "value": 5,
@@ -1594,7 +2179,9 @@
           "es": "Muy alta",
           "fr": "Très efficace",
           "zh-CN": "很高",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alta",
+          "uk": "Дуже висока"
         },
         {
           "value": 6,
@@ -1603,7 +2190,9 @@
           "es": "Sin deterioro",
           "fr": "Ne pourrit jamais",
           "zh-CN": "永不腐烂",
-          "ht": null
+          "zh-TW": "永不腐爛",
+          "pt-BR": "Sem deterioração",
+          "uk": "Їжа не псується"
         }
       ]
     },
@@ -1611,7 +2200,19 @@
       "key": "InjurySeverity",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "InjurySeverity",
+      "pzOptionsKey": "InjurySeverity",
       "default": 2,
+      "labels": {
+        "en": "Injury Severity",
+        "de": "Verletzungsgrad",
+        "es": "Gravedad de las lesiones",
+        "fr": "Gravité des blessures",
+        "zh-CN": "损伤严重程度",
+        "zh-TW": "受傷嚴重程度",
+        "pt-BR": "Gravidade dos Ferimentos",
+        "uk": "ТЯЖКІСТЬ ТРАВМ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1620,7 +2221,9 @@
           "es": "Bajo",
           "fr": "Basse",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Слабкі"
         },
         {
           "value": 2,
@@ -1629,7 +2232,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальні"
         },
         {
           "value": 3,
@@ -1638,7 +2243,9 @@
           "es": "Alto",
           "fr": "Haute",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Важкі"
         }
       ]
     },
@@ -1646,7 +2253,19 @@
       "key": "EndRegen",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "EnduranceRegen",
+      "pzOptionsKey": "EnduranceRegen",
       "default": 3,
+      "labels": {
+        "en": "Endurance Regeneration",
+        "de": "Ausdauer-Regeneration",
+        "es": "Regeneración de resistencia",
+        "fr": "Régénération de l'endurance",
+        "zh-CN": "耐力恢复",
+        "zh-TW": "耐力恢復",
+        "pt-BR": "Recuperação de Fôlego",
+        "uk": "Відновлення витривалості"
+      },
       "options": [
         {
           "value": 1,
@@ -1655,7 +2274,9 @@
           "es": "Muy rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидке"
         },
         {
           "value": 2,
@@ -1664,7 +2285,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидке"
         },
         {
           "value": 3,
@@ -1673,7 +2296,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальне"
         },
         {
           "value": 4,
@@ -1682,7 +2307,9 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільне"
         },
         {
           "value": 5,
@@ -1691,7 +2318,9 @@
           "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільне"
         }
       ]
     },
@@ -1699,7 +2328,19 @@
       "key": "DecayingCorpseHealthImpact",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "DecayingCorpseHealthImpact",
+      "pzOptionsKey": "DecayingCorpseHealthImpact",
       "default": 3,
+      "labels": {
+        "en": "Decaying Corpse Health Impact",
+        "de": "Gesundheitsauswirkung von verfaulenden Leichen",
+        "es": "Malestar producido por cadáveres en descomposición",
+        "fr": "Impact des cadavres en décomposition sur la santé",
+        "zh-CN": "腐烂尸体对健康的影响",
+        "zh-TW": "腐爛屍體影響健康",
+        "pt-BR": "Impacto de Cadáveres em Decomposição na Saúde",
+        "uk": "ВПЛИВ РОЗКЛАДУВАНИХ ТРУПІВ:"
+      },
       "options": [
         {
           "value": 1,
@@ -1708,7 +2349,9 @@
           "es": "Ninguno",
           "fr": "Aucun",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhum",
+          "uk": "Немає"
         },
         {
           "value": 2,
@@ -1717,7 +2360,9 @@
           "es": "Bajo",
           "fr": "Bas",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Низьке"
         },
         {
           "value": 3,
@@ -1726,7 +2371,9 @@
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "一般",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 4,
@@ -1735,16 +2382,20 @@
           "es": "Alto",
           "fr": "Haut",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Великий"
         },
         {
           "value": 5,
           "en": "Insane",
-          "de": "Verrückt",
+          "de": "Absurd hoch",
           "es": "Insano",
           "fr": "Extrême",
           "zh-CN": "疯狂",
-          "ht": null
+          "zh-TW": "瘋狂",
+          "pt-BR": "Insano",
+          "uk": "Божевільний"
         }
       ]
     },
@@ -1752,7 +2403,19 @@
       "key": "BloodLevel",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "BloodLevel",
+      "pzOptionsKey": "BloodLevel",
       "default": 3,
+      "labels": {
+        "en": "Blood Level",
+        "de": "Blutstärke",
+        "es": "Nivel de sangre",
+        "fr": "Quantité de sang",
+        "zh-CN": "血腥等级",
+        "zh-TW": "血腥程度",
+        "pt-BR": "Nível de Sangue",
+        "uk": "РІВЕНЬ КРОВІ"
+      },
       "options": [
         {
           "value": 1,
@@ -1761,7 +2424,9 @@
           "es": "Ninguno",
           "fr": "Pas de sang",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhum",
+          "uk": "Ні"
         },
         {
           "value": 2,
@@ -1770,7 +2435,9 @@
           "es": "Bajo",
           "fr": "Faible",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Мало"
         },
         {
           "value": 3,
@@ -1779,7 +2446,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "一般",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -1788,7 +2457,9 @@
           "es": "Alto",
           "fr": "Élevée",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Багато"
         },
         {
           "value": 5,
@@ -1797,7 +2468,9 @@
           "es": "Sangriento",
           "fr": "Ultra Gore",
           "zh-CN": "极度血腥",
-          "ht": null
+          "zh-TW": "極度血腥",
+          "pt-BR": "Carnificina Extrema",
+          "uk": "МОРЕ КРОВІ"
         }
       ]
     },
@@ -1805,7 +2478,19 @@
       "key": "ClothingDegradation",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "ClothingDegradation",
+      "pzOptionsKey": "ClothingDegradation",
       "default": 3,
+      "labels": {
+        "en": "Clothing Degradation",
+        "de": "Kleiderabnutzung",
+        "es": "Deterioro de la ropa",
+        "fr": "Dégradation des vêtements",
+        "zh-CN": "衣物劣化",
+        "zh-TW": "服裝劣化",
+        "pt-BR": "Degradação de Roupas",
+        "uk": "ЗНОС ОДЯГУ"
+      },
       "options": [
         {
           "value": 1,
@@ -1814,7 +2499,9 @@
           "es": "Deshabilitado",
           "fr": "Désactivée",
           "zh-CN": "禁用",
-          "ht": null
+          "zh-TW": "停用",
+          "pt-BR": "Desativada",
+          "uk": "Відключено"
         },
         {
           "value": 2,
@@ -1823,7 +2510,9 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільний"
         },
         {
           "value": 3,
@@ -1832,7 +2521,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 4,
@@ -1841,7 +2532,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидкий"
         }
       ]
     },
@@ -1849,25 +2542,41 @@
       "key": "EnablePoisoning",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "EnablePoisoning",
+      "pzOptionsKey": "EnablePoisoning",
       "default": 1,
+      "labels": {
+        "en": "Enable Poisoning",
+        "de": "Vergiftung aktivieren",
+        "es": "Habilitar el envenenamiento",
+        "fr": "Activer l'empoisonnement",
+        "zh-CN": "启用投毒",
+        "zh-TW": "啟用中毒",
+        "pt-BR": "Permitir Envenenamento",
+        "uk": "Харчове отруєння"
+      },
       "options": [
         {
           "value": 1,
           "en": "True",
-          "de": "Richtig",
+          "de": "Ja",
           "es": "Verdadero",
           "fr": "Oui",
           "zh-CN": "启用",
-          "ht": null
+          "zh-TW": "是",
+          "pt-BR": "Sim",
+          "uk": "Так"
         },
         {
           "value": 2,
           "en": "False",
-          "de": "Falsch",
+          "de": "Nein",
           "es": "Falso",
           "fr": "Non",
           "zh-CN": "关闭",
-          "ht": null
+          "zh-TW": "否",
+          "pt-BR": "Não",
+          "uk": "Ні"
         },
         {
           "value": 3,
@@ -1876,7 +2585,9 @@
           "es": "Sólo está deshabilitado el envenenamiento por lejía",
           "fr": "Seul l'empoisonnement à la javel est désactivé",
           "zh-CN": "只禁用漂白剂的中毒",
-          "ht": null
+          "zh-TW": "只停用漂白水下毒",
+          "pt-BR": "Apenas o envenenamento por água sanitária fica desativado",
+          "uk": "Заборонене тільки отруєння відбілювачем"
         }
       ]
     },
@@ -1884,7 +2595,19 @@
       "key": "MaggotSpawn",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "MaggotSpawn",
+      "pzOptionsKey": "MaggotSpawn",
       "default": 1,
+      "labels": {
+        "en": "Corpse Maggot Spawn",
+        "de": "Leichenmaden-Spawn",
+        "es": "Gusanos en cadáveres",
+        "fr": "Apparition d'asticots sur les cadavres",
+        "zh-CN": "尸体蛆虫",
+        "zh-TW": "屍體產生蛆",
+        "pt-BR": "Aparecimento de Larvas em Cadáveres",
+        "uk": "Поява трупних опаришів"
+      },
       "options": [
         {
           "value": 1,
@@ -1893,7 +2616,9 @@
           "es": "Dentro y alrededor de los cuerpos",
           "fr": "Dans les cadavres et autour",
           "zh-CN": "尸体和周围",
-          "ht": null
+          "zh-TW": "屍體內以及屍體附近",
+          "pt-BR": "Dentro e ao Redor dos Corpos",
+          "uk": "В трупі та довкола"
         },
         {
           "value": 2,
@@ -1902,7 +2627,9 @@
           "es": "Sólo dentro de los cuerpos",
           "fr": "Dans les cadavres uniquement",
           "zh-CN": "只在尸体上",
-          "ht": null
+          "zh-TW": "僅限屍體內",
+          "pt-BR": "Apenas nos Corpos",
+          "uk": "Тільки в трупі"
         },
         {
           "value": 3,
@@ -1911,7 +2638,9 @@
           "es": "Nunca",
           "fr": "Aucun",
           "zh-CN": "不产生蛆虫",
-          "ht": null
+          "zh-TW": "停用",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         }
       ]
     },
@@ -1919,7 +2648,19 @@
       "key": "NegativeTraitsPenalty",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "NegativeTraitsPenalty",
+      "pzOptionsKey": "NegativeTraitsPenalty",
       "default": 1,
+      "labels": {
+        "en": "Negative Traits Penalty",
+        "de": "Strafe auf negative Eigenschaften",
+        "es": "Penalización por rasgos negativos",
+        "fr": "Pénalité de traits négatifs",
+        "zh-CN": "负面特质惩罚",
+        "zh-TW": "負面特質懲罰",
+        "pt-BR": "Penalidade de Traços Negativos",
+        "uk": "Штраф за негативні риси"
+      },
       "options": [
         {
           "value": 1,
@@ -1928,7 +2669,9 @@
           "es": "Ninguna",
           "fr": "Aucune",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Немає"
         },
         {
           "value": 2,
@@ -1937,7 +2680,9 @@
           "es": "1 punto de penalización por cada 3 rasgos negativos seleccionados",
           "fr": "1 point de pénalité tous les 3 traits négatifs sélectionnés",
           "zh-CN": "每选择 3 个负面特质则减少 1 点",
-          "ht": null
+          "zh-TW": "每選擇 3 個負面特質則減少 1 點",
+          "pt-BR": "1 ponto de penalidade a cada 3 traços negativos selecionados",
+          "uk": "1 очко штрафу за кожні 3 обрані негативні риси"
         },
         {
           "value": 3,
@@ -1946,7 +2691,9 @@
           "es": "1 punto de penalización por cada 2 rasgos negativos seleccionados",
           "fr": "1 point de pénalité tous les 2 traits négatifs sélectionnés",
           "zh-CN": "每选择 2 个负面特质则减少 1 点",
-          "ht": null
+          "zh-TW": "每選擇 2 個負面特質則減少 1 點",
+          "pt-BR": "1 ponto de penalidade a cada 2 traços negativos selecionados",
+          "uk": "1 очко штрафу за кожні 2 обрані негативні риси"
         },
         {
           "value": 4,
@@ -1955,7 +2702,9 @@
           "es": "1 punto de penalización por cada rasgo negativo seleccionado después del primero",
           "fr": "1 point de pénalité pour chaque trait négatif sélectionné après le premier",
           "zh-CN": "在选择第一个负面特质后, 每选择一个负面特质则减少 1 点",
-          "ht": null
+          "zh-TW": "在選擇第一個負面特質後, 每選擇一個負面特質則減少 1 點",
+          "pt-BR": "1 ponto de penalidade para cada traço negativo selecionado após o primeiro",
+          "uk": "1 очко штрафу за кожну обрану негативну рису після першої"
         }
       ]
     },
@@ -1963,7 +2712,19 @@
       "key": "MetaKnowledge",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "MetaKnowledge",
+      "pzOptionsKey": "MetaKnowledge",
       "default": 3,
+      "labels": {
+        "en": "Media List Meta Knowledge",
+        "de": "Medien-Metawissen",
+        "es": "Conocimiento meta de medios",
+        "fr": "Liste de connaissances (méta-médias)",
+        "zh-CN": "媒体内容显示",
+        "zh-TW": "媒體內容顯示",
+        "pt-BR": "Nível de Informação da Lista de Mídia",
+        "uk": "Відображення медіа-матеріалів"
+      },
       "options": [
         {
           "value": 1,
@@ -1972,7 +2733,9 @@
           "es": "Totalmente revelado",
           "fr": "Afficher en entier",
           "zh-CN": "完全显示",
-          "ht": null
+          "zh-TW": "完全顯示",
+          "pt-BR": "Conteúdo totalmente revelado",
+          "uk": "Показувати повністю"
         },
         {
           "value": 2,
@@ -1981,7 +2744,9 @@
           "es": "Mostrado como ???",
           "fr": "Afficher des ???",
           "zh-CN": "显示为 ???",
-          "ht": null
+          "zh-TW": "顯示為 ???",
+          "pt-BR": "Exibido como ???",
+          "uk": "Показувати «???»"
         },
         {
           "value": 3,
@@ -1990,7 +2755,9 @@
           "es": "Completamente oculto",
           "fr": "Cacher la totalité",
           "zh-CN": "完全隐藏",
-          "ht": null
+          "zh-TW": "完全隱藏",
+          "pt-BR": "Completamente oculto",
+          "uk": "Не показувати зовсім"
         }
       ]
     },
@@ -1998,7 +2765,19 @@
       "key": "Alarm",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "HouseAlarmFrequency",
+      "pzOptionsKey": "HouseAlarmFrequency",
       "default": 4,
+      "labels": {
+        "en": "House Alarms Frequency",
+        "de": "Häufigkeit von Hausalarmen",
+        "es": "Alarmas en las casas",
+        "fr": "Fréquence des alarmes de maison",
+        "zh-CN": "房屋警报频率",
+        "zh-TW": "房屋報警頻率",
+        "pt-BR": "Frequência de Alarmes Residenciais",
+        "uk": "ЧАСТОТА СИГНАЛІЗАЦІЙ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2007,7 +2786,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Відсутня"
         },
         {
           "value": 2,
@@ -2016,7 +2797,9 @@
           "es": "Muy raro",
           "fr": "Très rarement",
           "zh-CN": "极稀少",
-          "ht": null
+          "zh-TW": "極稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -2025,7 +2808,9 @@
           "es": "Raro",
           "fr": "Rarement",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -2034,7 +2819,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
         },
         {
           "value": 5,
@@ -2043,7 +2830,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -2052,7 +2841,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2060,7 +2851,19 @@
       "key": "LockedHouses",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "LockedHouseFrequency",
+      "pzOptionsKey": "LockedHouseFrequency",
       "default": 6,
+      "labels": {
+        "en": "Locked Houses Frequency",
+        "de": "Häufigkeit von verschlossenen Häusern",
+        "es": "Frecuencia de casas cerradas",
+        "fr": "Fréquence de fermeture des maisons",
+        "zh-CN": "上锁房屋频率",
+        "zh-TW": "房屋上鎖頻率",
+        "pt-BR": "Frequência de Casas Trancadas",
+        "uk": "ЧАСТОТА ЗАМКНЕНИХ БУДИНКІВ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2069,7 +2872,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2078,7 +2883,9 @@
           "es": "Muy raro",
           "fr": "Très rarement",
           "zh-CN": "极稀少",
-          "ht": null
+          "zh-TW": "極稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Деколи"
         },
         {
           "value": 3,
@@ -2087,7 +2894,9 @@
           "es": "Raro",
           "fr": "Rarement",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -2096,7 +2905,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Середньо"
         },
         {
           "value": 5,
@@ -2105,7 +2916,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -2114,7 +2927,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2122,7 +2937,19 @@
       "key": "Helicopter",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "Helicopter",
+      "pzOptionsKey": "HelicopterFreq",
       "default": 2,
+      "labels": {
+        "en": "Helicopter",
+        "de": "Helikopter",
+        "es": "Helicóptero",
+        "fr": "Hélicoptère",
+        "zh-CN": "直升机",
+        "zh-TW": "直升機",
+        "pt-BR": "Helicóptero",
+        "uk": "ГЕЛІКОПТЕР:"
+      },
       "options": [
         {
           "value": 1,
@@ -2131,7 +2958,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2140,7 +2969,9 @@
           "es": "Una vez",
           "fr": "Une fois",
           "zh-CN": "一次",
-          "ht": null
+          "zh-TW": "一次",
+          "pt-BR": "Uma vez",
+          "uk": "Один раз"
         },
         {
           "value": 3,
@@ -2149,7 +2980,9 @@
           "es": "A veces",
           "fr": "De temps en temps",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -2158,7 +2991,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequentemente",
+          "uk": "Часто"
         }
       ]
     },
@@ -2166,7 +3001,19 @@
       "key": "MetaEvent",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "MetaEvent",
+      "pzOptionsKey": "MetaEventFreq",
       "default": 2,
+      "labels": {
+        "en": "Meta Event",
+        "de": "Meta-Event",
+        "es": "Meta eventos",
+        "fr": "Évènements sonores",
+        "zh-CN": "元事件",
+        "zh-TW": "幕外事件",
+        "pt-BR": "Metaevento",
+        "uk": "ЧАСТОТА ПОДІЙ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2175,7 +3022,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2184,7 +3033,9 @@
           "es": "A veces",
           "fr": "De temps en temps",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Рідко"
         },
         {
           "value": 3,
@@ -2193,7 +3044,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequentemente",
+          "uk": "Часто"
         }
       ]
     },
@@ -2201,7 +3054,19 @@
       "key": "SleepingEvent",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "SleepingEvent",
+      "pzOptionsKey": "MetaEventFreq",
       "default": 1,
+      "labels": {
+        "en": "Sleeping Event",
+        "de": "Schlaf-Event",
+        "es": "Eventos al dormir",
+        "fr": "Évènements durant le sommeil",
+        "zh-CN": "睡眠事件",
+        "zh-TW": "睡眠事件",
+        "pt-BR": "Evento Durante o Sono",
+        "uk": "ПОДІЇ У СНІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2210,7 +3075,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2219,7 +3086,9 @@
           "es": "A veces",
           "fr": "De temps en temps",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Рідко"
         },
         {
           "value": 3,
@@ -2228,7 +3097,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequentemente",
+          "uk": "Часто"
         }
       ]
     },
@@ -2236,16 +3107,30 @@
       "key": "NatureAbundance",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "NatureAmount",
+      "pzOptionsKey": "NatureAmount",
       "default": 3,
+      "labels": {
+        "en": "Nature's Abundance",
+        "de": "Natur Ausbeute",
+        "es": "Abundancia de la naturaleza",
+        "fr": "Abondance de la nature",
+        "zh-CN": "野外资源量",
+        "zh-TW": "天然資源豐富度",
+        "pt-BR": "Abundância da Natureza",
+        "uk": "БАГАТСТВО ПРИРОДИ:"
+      },
       "options": [
         {
           "value": 1,
           "en": "Very Poor",
           "de": "Sehr schlecht",
-          "es": "Muy Pobre",
+          "es": "Muy pobre",
           "fr": "Très pauvre",
           "zh-CN": "非常贫瘠",
-          "ht": null
+          "zh-TW": "非常差",
+          "pt-BR": "Muito Escassa",
+          "uk": "Дуже низька"
         },
         {
           "value": 2,
@@ -2254,7 +3139,9 @@
           "es": "Pobre",
           "fr": "Pauvre",
           "zh-CN": "贫瘠",
-          "ht": null
+          "zh-TW": "差",
+          "pt-BR": "Escassa",
+          "uk": "Низька"
         },
         {
           "value": 3,
@@ -2262,8 +3149,10 @@
           "de": "Normal",
           "es": "Normal",
           "fr": "Normale",
-          "zh-CN": "普通",
-          "ht": null
+          "zh-CN": "正常",
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -2271,17 +3160,21 @@
           "de": "Reichlich",
           "es": "Abundante",
           "fr": "Abondante",
-          "zh-CN": "丰富",
-          "ht": null
+          "zh-CN": "丰饶",
+          "zh-TW": "豐富",
+          "pt-BR": "Abundante",
+          "uk": "Висока"
         },
         {
           "value": 5,
           "en": "Very Abundant",
           "de": "Sehr reichlich",
-          "es": "Muy Abundante",
+          "es": "Muy abundante",
           "fr": "Très abondante",
-          "zh-CN": "非常丰富",
-          "ht": null
+          "zh-CN": "非常丰饶",
+          "zh-TW": "非常豐富",
+          "pt-BR": "Muito Abundante",
+          "uk": "Надзвичайно висока"
         }
       ]
     },
@@ -2289,16 +3182,30 @@
       "key": "FishAbundance",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "FishAmount",
+      "pzOptionsKey": "FishAmount",
       "default": 2,
+      "labels": {
+        "en": "Fishing Abundance",
+        "de": "Fischreichtum",
+        "es": "Abundancia de pesca",
+        "fr": "Abondance de la pêche",
+        "zh-CN": "鱼类产量",
+        "zh-TW": "魚類產量",
+        "pt-BR": "Abundância da Pesca",
+        "uk": "Достаток риби:"
+      },
       "options": [
         {
           "value": 1,
           "en": "Very Poor",
           "de": "Sehr schlecht",
-          "es": "Muy Pobre",
+          "es": "Muy pobre",
           "fr": "Très pauvre",
           "zh-CN": "非常贫瘠",
-          "ht": null
+          "zh-TW": "非常貧瘠",
+          "pt-BR": "Muito Escassa",
+          "uk": "Дуже низька"
         },
         {
           "value": 2,
@@ -2307,7 +3214,9 @@
           "es": "Pobre",
           "fr": "Pauvre",
           "zh-CN": "贫瘠",
-          "ht": null
+          "zh-TW": "貧瘠",
+          "pt-BR": "Escassa",
+          "uk": "Низька"
         },
         {
           "value": 3,
@@ -2316,7 +3225,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "普通",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -2325,16 +3236,20 @@
           "es": "Abundante",
           "fr": "Abondante",
           "zh-CN": "丰富",
-          "ht": null
+          "zh-TW": "豐富",
+          "pt-BR": "Abundante",
+          "uk": "Висока"
         },
         {
           "value": 5,
           "en": "Very Abundant",
           "de": "Sehr reichlich",
-          "es": "Muy Abundante",
+          "es": "Muy abundante",
           "fr": "Très abondante",
           "zh-CN": "非常丰富",
-          "ht": null
+          "zh-TW": "非常豐富",
+          "pt-BR": "Muito Abundante",
+          "uk": "Надзвичайно висока"
         }
       ]
     },
@@ -2342,7 +3257,19 @@
       "key": "AnnotatedMapChance",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "AnnotatedMapChance",
+      "pzOptionsKey": "AnnotatedMapChance",
       "default": 4,
+      "labels": {
+        "en": "Annotated Map Chance",
+        "de": "Chance auf Karten mit Anmerkungen",
+        "es": "Probabilidad de mapas anotados",
+        "fr": "Apparition des cartes annotées",
+        "zh-CN": "注释地图几率",
+        "zh-TW": "已標記的地圖產生率",
+        "pt-BR": "Chance de Mapas Anotados",
+        "uk": "КАРТИ З МІТКАМИ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2351,7 +3278,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2360,7 +3289,9 @@
           "es": "Muy raro",
           "fr": "Très rare",
           "zh-CN": "特别稀少",
-          "ht": null
+          "zh-TW": "非常稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Деколи"
         },
         {
           "value": 3,
@@ -2369,7 +3300,9 @@
           "es": "Raro",
           "fr": "Rare",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -2378,7 +3311,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -2387,7 +3322,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -2396,7 +3333,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2404,25 +3343,41 @@
       "key": "GeneratorSpawning",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "GeneratorSpawning",
+      "pzOptionsKey": "GeneratorSpawning",
       "default": 4,
+      "labels": {
+        "en": "Generators",
+        "de": "Generatoren",
+        "es": "Aparición de generadores",
+        "fr": "Groupes électrogènes",
+        "zh-CN": "发电机生成",
+        "zh-TW": "發電機產生",
+        "pt-BR": "Geradores",
+        "uk": "ПОЯВА ГЕНЕРАТОРІВ:"
+      },
       "options": [
         {
           "value": 1,
           "en": "None (not recommended)",
-          "de": "Extrem selten",
+          "de": "Nie (nicht empfohlen)",
           "es": "Ninguno (no recomendado)",
           "fr": "Aucun (non recommandé)",
           "zh-CN": "极度稀少",
-          "ht": null
+          "zh-TW": "非常稀有",
+          "pt-BR": "Nenhum (não recomendado)",
+          "uk": "Дуже рідко"
         },
         {
           "value": 2,
           "en": "Insanely Rare",
-          "de": "Selten",
+          "de": "Absurd Selten",
           "es": "Extremadamente Raro",
           "fr": "Extrêmement rare",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Insanamente Raros",
+          "uk": "Рідко"
         },
         {
           "value": 3,
@@ -2431,25 +3386,31 @@
           "es": "Muy Raro",
           "fr": "Très rare",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Extremamente Raros",
+          "uk": "Нормально"
         },
         {
           "value": 4,
           "en": "Rare",
-          "de": "Oft",
+          "de": "Selten",
           "es": "Raro",
           "fr": "Rare",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Raros",
+          "uk": "Часто"
         },
         {
           "value": 5,
           "en": "Normal",
-          "de": "Sehr oft",
+          "de": "Normal",
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Normais",
+          "uk": "Дуже часто"
         },
         {
           "value": 6,
@@ -2458,7 +3419,9 @@
           "es": "Común",
           "fr": "Commun",
           "zh-CN": "常见",
-          "ht": null
+          "zh-TW": "常見",
+          "pt-BR": "Comuns",
+          "uk": "Часто"
         },
         {
           "value": 7,
@@ -2467,7 +3430,9 @@
           "es": "Abundante",
           "fr": "Abondant",
           "zh-CN": "丰富",
-          "ht": null
+          "zh-TW": "豐富",
+          "pt-BR": "Abundantes",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2475,7 +3440,19 @@
       "key": "CompostTime",
       "category": "survival",
       "section": "settings",
+      "pzLabelKey": "CompostTime",
+      "pzOptionsKey": "CompostTime",
       "default": 2,
+      "labels": {
+        "en": "Compost Time",
+        "de": "Kompostzeit",
+        "es": "Tiempo de compostaje",
+        "fr": "Temps de compostage",
+        "zh-CN": "堆肥时间",
+        "zh-TW": "堆肥時間",
+        "pt-BR": "Tempo de Compostagem",
+        "uk": "ЧАС ГНИТТЯ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2484,7 +3461,9 @@
           "es": "1 Semana",
           "fr": "1 semaine",
           "zh-CN": "1 周",
-          "ht": null
+          "zh-TW": "1 週",
+          "pt-BR": "1 Semana",
+          "uk": "1 тиждень"
         },
         {
           "value": 2,
@@ -2493,7 +3472,9 @@
           "es": "2 Semanas",
           "fr": "2 semaines",
           "zh-CN": "2 周",
-          "ht": null
+          "zh-TW": "2 週",
+          "pt-BR": "2 Semanas",
+          "uk": "2 тижні"
         },
         {
           "value": 3,
@@ -2502,7 +3483,9 @@
           "es": "3 Semanas",
           "fr": "3 semaines",
           "zh-CN": "3 周",
-          "ht": null
+          "zh-TW": "3 週",
+          "pt-BR": "3 Semanas",
+          "uk": "3 тижні"
         },
         {
           "value": 4,
@@ -2511,7 +3494,9 @@
           "es": "4 Semanas",
           "fr": "4 semaines",
           "zh-CN": "4 周",
-          "ht": null
+          "zh-TW": "4 週",
+          "pt-BR": "4 Semanas",
+          "uk": "4 тижні"
         },
         {
           "value": 5,
@@ -2520,7 +3505,9 @@
           "es": "6 Semanas",
           "fr": "6 semaines",
           "zh-CN": "6 周",
-          "ht": null
+          "zh-TW": "6 週",
+          "pt-BR": "6 Semanas",
+          "uk": "6 тижнів"
         },
         {
           "value": 6,
@@ -2529,7 +3516,9 @@
           "es": "8 Semanas",
           "fr": "8 semaines",
           "zh-CN": "8 周",
-          "ht": null
+          "zh-TW": "8 週",
+          "pt-BR": "8 Semanas",
+          "uk": "8 тижнів"
         },
         {
           "value": 7,
@@ -2538,7 +3527,9 @@
           "es": "10 Semanas",
           "fr": "10 semaines",
           "zh-CN": "10 周",
-          "ht": null
+          "zh-TW": "10 週",
+          "pt-BR": "10 Semanas",
+          "uk": "10 тижнів"
         },
         {
           "value": 8,
@@ -2547,7 +3538,9 @@
           "es": "12 Semanas",
           "fr": "12 semaines",
           "zh-CN": "12 周",
-          "ht": null
+          "zh-TW": "12 週",
+          "pt-BR": "12 Semanas",
+          "uk": "12 тижнів"
         }
       ]
     },
@@ -2555,7 +3548,19 @@
       "key": "RearVulnerability",
       "category": "combat",
       "section": "settings",
+      "pzLabelKey": "RearVulnerability",
+      "pzOptionsKey": "RearVulnerability",
       "default": 3,
+      "labels": {
+        "en": "Rear Vulnerability",
+        "de": "Verwundbarkeit im Rückenbereich",
+        "es": "Retaguardia vulnerable",
+        "fr": "Vulnérabilité de dos",
+        "zh-CN": "背后弱点",
+        "zh-TW": "後方防備脆弱度",
+        "pt-BR": "Vulnerabilidade por Trás",
+        "uk": "ЗАГРОЗА З СПИНИ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2564,7 +3569,9 @@
           "es": "Bajo",
           "fr": "Basse",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         },
         {
           "value": 2,
@@ -2573,7 +3580,9 @@
           "es": "Medio",
           "fr": "Moyenne",
           "zh-CN": "中",
-          "ht": null
+          "zh-TW": "中",
+          "pt-BR": "Média",
+          "uk": "Середня"
         },
         {
           "value": 3,
@@ -2582,7 +3591,9 @@
           "es": "Alto",
           "fr": "Haute",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Висока"
         }
       ]
     },
@@ -2590,7 +3601,19 @@
       "key": "CarSpawnRate",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "CarSpawnRate",
+      "pzOptionsKey": "CarSpawnRate",
       "default": 3,
+      "labels": {
+        "en": "Vehicle Spawn Rate",
+        "de": "Fahrzeug-Spawn-Rate",
+        "es": "Aparición de vehículos",
+        "fr": "Taux d'apparition des véhicules",
+        "zh-CN": "车辆生成率",
+        "zh-TW": "車輛產生率",
+        "pt-BR": "Taxa de Geração de Veículos",
+        "uk": "ПОЯВА АВТОМОБІЛЯ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2599,7 +3622,9 @@
           "es": "Ninguno",
           "fr": "Aucun",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2608,7 +3633,9 @@
           "es": "Muy bajo",
           "fr": "Bas",
           "zh-CN": "很低",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixa",
+          "uk": "Мало"
         },
         {
           "value": 3,
@@ -2617,7 +3644,9 @@
           "es": "Bajo",
           "fr": "Normal",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Нормально"
         },
         {
           "value": 4,
@@ -2626,7 +3655,9 @@
           "es": "Normal",
           "fr": "Haut",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Велика"
         },
         {
           "value": 5,
@@ -2635,7 +3666,9 @@
           "es": "Alto",
           "fr": "Élevé",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Багато"
         }
       ]
     },
@@ -2643,7 +3676,19 @@
       "key": "InitialGas",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "InitialGas",
+      "pzOptionsKey": "InitialGas",
       "default": 2,
+      "labels": {
+        "en": "Initial Gas",
+        "de": "Start-Tankfüllung",
+        "es": "Combustible inicial",
+        "fr": "Carburant de départ",
+        "zh-CN": "初始油量",
+        "zh-TW": "初始油量",
+        "pt-BR": "Nível Inicial de Combustível",
+        "uk": "ПОЧАТКОВЕ ПАЛЬНЕ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2652,7 +3697,9 @@
           "es": "Muy bajo",
           "fr": "Très bas",
           "zh-CN": "很低",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixo",
+          "uk": "Мало"
         },
         {
           "value": 2,
@@ -2661,7 +3708,9 @@
           "es": "Bajo",
           "fr": "Bas",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Менше половини"
         },
         {
           "value": 3,
@@ -2670,7 +3719,9 @@
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "一般",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Півбака"
         },
         {
           "value": 4,
@@ -2679,7 +3730,9 @@
           "es": "Alto",
           "fr": "Haut",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Більше половини"
         },
         {
           "value": 5,
@@ -2688,7 +3741,9 @@
           "es": "Muy alto",
           "fr": "Très haut",
           "zh-CN": "很高",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alto",
+          "uk": "Майже повний бак"
         },
         {
           "value": 6,
@@ -2697,7 +3752,9 @@
           "es": "Lleno",
           "fr": "Plein",
           "zh-CN": "满",
-          "ht": null
+          "zh-TW": "全滿",
+          "pt-BR": "Cheio",
+          "uk": "Повний бак"
         }
       ]
     },
@@ -2705,7 +3762,19 @@
       "key": "LockedCar",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "LockedCar",
+      "pzOptionsKey": "LockedCar",
       "default": 4,
+      "labels": {
+        "en": "Locked Vehicle Frequency",
+        "de": "Verschlossene Fahrzeuge",
+        "es": "Frecuencia de vehículos cerrados",
+        "fr": "Fréquence de verrouillage",
+        "zh-CN": "锁车几率",
+        "zh-TW": "鎖住機率",
+        "pt-BR": "Frequência de Veículos Trancados",
+        "uk": "ЗАМКНЕНІ ЗОМБІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2714,7 +3783,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Відкрити"
         },
         {
           "value": 2,
@@ -2723,7 +3794,9 @@
           "es": "Muy raro",
           "fr": "Très rare",
           "zh-CN": "极稀有",
-          "ht": null
+          "zh-TW": "非常稀有",
+          "pt-BR": "Muito Raramente",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -2732,7 +3805,9 @@
           "es": "Raro",
           "fr": "Rare",
           "zh-CN": "稀有",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Raramente",
+          "uk": "Іноді"
         },
         {
           "value": 4,
@@ -2741,7 +3816,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Буває"
         },
         {
           "value": 5,
@@ -2750,7 +3827,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequentemente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -2759,7 +3838,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequentemente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2767,7 +3848,19 @@
       "key": "CarGeneralCondition",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "CarGeneralCondition",
+      "pzOptionsKey": "CarGeneralCondition",
       "default": 3,
+      "labels": {
+        "en": "General Condition",
+        "de": "Allgemeinzustand",
+        "es": "Estado general",
+        "fr": "État général",
+        "zh-CN": "基本状况",
+        "zh-TW": "整體狀況",
+        "pt-BR": "Condição Geral",
+        "uk": "ЗАГАЛЬНИЙ СТАН:"
+      },
       "options": [
         {
           "value": 1,
@@ -2776,7 +3869,9 @@
           "es": "Muy bajo",
           "fr": "Très mauvais état",
           "zh-CN": "很差",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixa",
+          "uk": "Дуже низький"
         },
         {
           "value": 2,
@@ -2785,7 +3880,9 @@
           "es": "Bajo",
           "fr": "Mauvais état",
           "zh-CN": "差",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низький"
         },
         {
           "value": 3,
@@ -2794,7 +3891,9 @@
           "es": "Normal",
           "fr": "État correct",
           "zh-CN": "一般",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 4,
@@ -2803,7 +3902,9 @@
           "es": "Alto",
           "fr": "Bon état",
           "zh-CN": "好",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Високий"
         },
         {
           "value": 5,
@@ -2812,7 +3913,9 @@
           "es": "Muy alto",
           "fr": "Très bon état",
           "zh-CN": "很好",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alta",
+          "uk": "Новенький"
         }
       ]
     },
@@ -2820,7 +3923,19 @@
       "key": "CarDamageOnImpact",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "CarDamageOnImpact",
+      "pzOptionsKey": "CarDamageOnImpact",
       "default": 3,
+      "labels": {
+        "en": "Car Damage on Impact",
+        "de": "Fahrzeug-Beschädigungen beim Aufprall",
+        "es": "Daños al coche por impactos",
+        "fr": "Dégâts au véhicule à l'impact",
+        "zh-CN": "车辆碰撞损伤",
+        "zh-TW": "車輛撞擊傷害",
+        "pt-BR": "Dano em Veículos por Colisão",
+        "uk": "Пошкодження автомобіля від удару"
+      },
       "options": [
         {
           "value": 1,
@@ -2829,7 +3944,9 @@
           "es": "Muy bajo",
           "fr": "Très bas",
           "zh-CN": "很低",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixo",
+          "uk": "Дуже низьке"
         },
         {
           "value": 2,
@@ -2838,7 +3955,9 @@
           "es": "Bajo",
           "fr": "Bas",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Низьке"
         },
         {
           "value": 3,
@@ -2847,7 +3966,9 @@
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальне"
         },
         {
           "value": 4,
@@ -2856,7 +3977,9 @@
           "es": "Alto",
           "fr": "Haut",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Високе"
         },
         {
           "value": 5,
@@ -2865,7 +3988,9 @@
           "es": "Muy alto",
           "fr": "Très haut",
           "zh-CN": "很高",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alto",
+          "uk": "Дуже високе"
         }
       ]
     },
@@ -2873,7 +3998,19 @@
       "key": "DamageToPlayerFromHitByACar",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "DamageToPlayerFromHitByACar",
+      "pzOptionsKey": "DamageToPlayerFromHitByACar",
       "default": 1,
+      "labels": {
+        "en": "Player Damage From Vehicle Impact",
+        "de": "Schaden am Spieler durch einen Autounfall",
+        "es": "Daños al jugador por atropello de un vehículo",
+        "fr": "Dégâts de collision entre joueur et véhicule",
+        "zh-CN": "撞车对玩家造成的伤害",
+        "zh-TW": "車輛撞擊對玩家傷害",
+        "pt-BR": "Dano ao Personagem por Impacto de Veículo",
+        "uk": "ШКОДА ПІШОХОДАМ ВІД АВТО:"
+      },
       "options": [
         {
           "value": 1,
@@ -2882,7 +4019,9 @@
           "es": "Ninguno",
           "fr": "Aucun",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhum",
+          "uk": "Відсутня"
         },
         {
           "value": 2,
@@ -2891,7 +4030,9 @@
           "es": "Bajo",
           "fr": "Bas",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixo",
+          "uk": "Низька"
         },
         {
           "value": 3,
@@ -2900,7 +4041,9 @@
           "es": "Normal",
           "fr": "Normaux",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -2909,7 +4052,9 @@
           "es": "Alto",
           "fr": "Élevés",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alto",
+          "uk": "Важка"
         },
         {
           "value": 5,
@@ -2918,7 +4063,9 @@
           "es": "Muy alto",
           "fr": "Très élevés",
           "zh-CN": "非常高",
-          "ht": null
+          "zh-TW": "最高",
+          "pt-BR": "Muito Alto",
+          "uk": "Дуже важка"
         }
       ]
     },
@@ -2926,7 +4073,19 @@
       "key": "CarAlarm",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "CarAlarmFrequency",
+      "pzOptionsKey": "CarAlarmFrequency",
       "default": 3,
+      "labels": {
+        "en": "Vehicle Alarms Frequency",
+        "de": "Fahrzeugalarm-Häufigkeit",
+        "es": "Frecuencia de alarmas en coches",
+        "fr": "Fréquence des alarmes de véhicules",
+        "zh-CN": "汽车警报率",
+        "zh-TW": "汽車警報頻率",
+        "pt-BR": "Frequência de Alarmes em Veículos",
+        "uk": "ЧАСТОТА АВТОСИГНАЛІЗАЦІЙ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2935,7 +4094,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "从不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -2944,7 +4105,9 @@
           "es": "Muy raro",
           "fr": "Très rare",
           "zh-CN": "极稀有",
-          "ht": null
+          "zh-TW": "非常稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -2953,7 +4116,9 @@
           "es": "Raro",
           "fr": "Rare",
           "zh-CN": "稀有",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -2962,7 +4127,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -2971,7 +4138,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -2980,7 +4149,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -2988,7 +4159,19 @@
       "key": "ChanceHasGas",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "ChanceHasGas",
+      "pzOptionsKey": "ChanceHasGas",
       "default": 2,
+      "labels": {
+        "en": "Chance Has Gas",
+        "de": "Kraftstoff-Chance",
+        "es": "Probabilidad de combustible",
+        "fr": "Véhicules contenant du carburant",
+        "zh-CN": "有燃料的几率",
+        "zh-TW": "有油的機率",
+        "pt-BR": "Chance de Encontrar Combustível",
+        "uk": "ШАНС МАШИНИ З ПАЛИВОМ:"
+      },
       "options": [
         {
           "value": 1,
@@ -2997,7 +4180,9 @@
           "es": "Bajo",
           "fr": "Peu",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Маленький"
         },
         {
           "value": 2,
@@ -3006,7 +4191,9 @@
           "es": "Normal",
           "fr": "Normal",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 3,
@@ -3015,7 +4202,9 @@
           "es": "Alto",
           "fr": "Beaucoup",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Великий"
         }
       ]
     },
@@ -3023,7 +4212,19 @@
       "key": "RecentlySurvivorVehicles",
       "category": "vehicles",
       "section": "settings",
+      "pzLabelKey": "RecentlySurvivorVehicles",
+      "pzOptionsKey": "RecentlySurvivorVehicles",
       "default": 2,
+      "labels": {
+        "en": "Recent Survivor Vehicles",
+        "de": "Fahrzeuge kürzlich Überlebender",
+        "es": "Vehículos de supervivientes recientes",
+        "fr": "Véhicules de survivants",
+        "zh-CN": "最近的幸存者车辆",
+        "zh-TW": "近期倖存者車輛",
+        "pt-BR": "Frequência de Veículos de Sobreviventes",
+        "uk": "АВТОМОБІЛІ ВИЖИВШИХ"
+      },
       "options": [
         {
           "value": 1,
@@ -3032,7 +4233,9 @@
           "es": "Ninguno",
           "fr": "Aucun",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Немає"
         },
         {
           "value": 2,
@@ -3041,7 +4244,9 @@
           "es": "Bajo",
           "fr": "Peu",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Маленький"
         },
         {
           "value": 3,
@@ -3050,7 +4255,9 @@
           "es": "Normal",
           "fr": "Quelques-uns",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 4,
@@ -3059,7 +4266,9 @@
           "es": "Alto",
           "fr": "Beaucoup",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Великий"
         }
       ]
     },
@@ -3067,7 +4276,19 @@
       "key": "AnimalStatsModifier",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalStatsModifier",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Stats Reduction Speed",
+        "de": "Geschwingdigkeit der Wertabnahme",
+        "es": "Velocidad de reducción de estadísticas",
+        "fr": "Vitesse de diminution des stats",
+        "zh-CN": "属性减少速度",
+        "zh-TW": "屬性減少速度",
+        "pt-BR": "Velocidade de Redução dos Indicadores",
+        "uk": "Швидкість погіршення характеристик"
+      },
       "options": [
         {
           "value": 1,
@@ -3076,7 +4297,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3085,7 +4308,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3094,7 +4319,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3103,7 +4330,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3112,16 +4341,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3129,7 +4362,19 @@
       "key": "AnimalMetaStatsModifier",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalMetaStatsModifier",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Meta Stats Reduction Speed",
+        "de": "Tempo der Meta-Statistikabnahme",
+        "es": "Velocidad de reducción de estadísticas en metadatos",
+        "fr": "Vitesse de diminution des stats dans le monde",
+        "zh-CN": "元属性减少速度",
+        "zh-TW": "元屬性減少速度",
+        "pt-BR": "Velocidade de Redução Fora da Tela",
+        "uk": "Швидкість погіршення характеристик у подіях"
+      },
       "options": [
         {
           "value": 1,
@@ -3138,7 +4383,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3147,7 +4394,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3156,7 +4405,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3165,7 +4416,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3174,16 +4427,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3191,7 +4448,19 @@
       "key": "AnimalPregnancyTime",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalPregnancyTime",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Pregnancy Time",
+        "de": "Trächtigkeitsdauer",
+        "es": "Duración del embarazo",
+        "fr": "Durée de la gestation",
+        "zh-CN": "分娩时间",
+        "zh-TW": "分娩時間",
+        "pt-BR": "Tempo de Gestação",
+        "uk": "Термін вагітності"
+      },
       "options": [
         {
           "value": 1,
@@ -3200,7 +4469,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3209,7 +4480,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3218,7 +4491,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3227,7 +4502,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3236,16 +4513,106 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
+        }
+      ]
+    },
+    "animals.AnimalAgeModifier": {
+      "key": "AnimalAgeModifier",
+      "category": "animals",
+      "section": "settings",
+      "pzLabelKey": "AnimalAgeModifier",
+      "pzOptionsKey": "AnimalSpeed",
+      "default": 4,
+      "labels": {
+        "en": "Aging Modifier Speed",
+        "de": "Alterungsmodifikator",
+        "es": "Velocidad de envejecimiento",
+        "fr": "Vitesse de vieillissement",
+        "zh-CN": "动物成长速度",
+        "zh-TW": "動物成長速度",
+        "pt-BR": "Velocidade de Envelhecimento",
+        "uk": "Множник швидкості старіння"
+      },
+      "options": [
+        {
+          "value": 1,
+          "en": "Ultra Fast",
+          "de": "Ultra schnell",
+          "es": "Ultrarrápido",
+          "fr": "Super rapide",
+          "zh-CN": "超快",
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
+        },
+        {
+          "value": 2,
+          "en": "Very Fast",
+          "de": "Sehr schnell",
+          "es": "Muy Rápido",
+          "fr": "Très rapide",
+          "zh-CN": "非常快",
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
+        },
+        {
+          "value": 3,
+          "en": "Fast",
+          "de": "Schnell",
+          "es": "Rápido",
+          "fr": "Rapide",
+          "zh-CN": "快",
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
+        },
+        {
+          "value": 4,
+          "en": "Normal",
+          "de": "Normal",
+          "es": "Normal",
+          "fr": "Normale",
+          "zh-CN": "正常",
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
+        },
+        {
+          "value": 5,
+          "en": "Slow",
+          "de": "Langsam",
+          "es": "Lento",
+          "fr": "Lente",
+          "zh-CN": "慢",
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
+        },
+        {
+          "value": 6,
+          "en": "Very Slow",
+          "de": "Sehr langsam",
+          "es": "Muy lento",
+          "fr": "Très lente",
+          "zh-CN": "非常慢",
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3253,7 +4620,19 @@
       "key": "AnimalMilkIncModifier",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalMilkIncModifier",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Milk Increase Speed",
+        "de": "Milchproduktion",
+        "es": "Velocidad de producción de leche",
+        "fr": "Vitesse de production du lait",
+        "zh-CN": "牛奶产出速度",
+        "zh-TW": "牛奶產出速度",
+        "pt-BR": "Velocidade de Produção de Leite",
+        "uk": "Швидкість збільшення кількості молока"
+      },
       "options": [
         {
           "value": 1,
@@ -3262,7 +4641,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3271,7 +4652,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3280,7 +4663,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3289,7 +4674,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3298,16 +4685,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3315,7 +4706,19 @@
       "key": "AnimalWoolIncModifier",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalWoolIncModifier",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Wool Increase Speed",
+        "de": "Wollproduktion",
+        "es": "Velocidad de producción de lana",
+        "fr": "Vitesse de production de laine",
+        "zh-CN": "羊毛产出速度",
+        "zh-TW": "羊毛產出速度",
+        "pt-BR": "Velocidade de Produção de Lã",
+        "uk": "Швидкість росту вовни"
+      },
       "options": [
         {
           "value": 1,
@@ -3324,7 +4727,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3333,7 +4738,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3342,7 +4749,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3351,7 +4760,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3360,16 +4771,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3377,7 +4792,19 @@
       "key": "AnimalRanchChance",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalRanchChance",
+      "pzOptionsKey": "AnimalRanchChance",
       "default": 5,
+      "labels": {
+        "en": "Animal Spawn Chance",
+        "de": "Wahrscheinlichkeit von Tier-Spawns",
+        "es": "Probabilidad de aparición de animales",
+        "fr": "Taux d'apparition des animaux",
+        "zh-CN": "动物生成几率",
+        "zh-TW": "動物生成機率",
+        "pt-BR": "Chance de Surgimento de Animais",
+        "uk": "Ймовірність появи тварин"
+      },
       "options": [
         {
           "value": 1,
@@ -3386,16 +4813,20 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "从不",
-          "ht": null
+          "zh-TW": "從不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
           "en": "Extremely Rare",
           "de": "Extrem selten",
-          "es": "Extremadamente Rara",
+          "es": "Muy raro",
           "fr": "Extrêmement Rare",
           "zh-CN": "极度罕见",
-          "ht": null
+          "zh-TW": "極度罕見",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -3404,25 +4835,31 @@
           "es": "Rara",
           "fr": "Rare",
           "zh-CN": "罕见",
-          "ht": null
+          "zh-TW": "罕見",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
           "en": "Sometimes",
           "de": "Manchmal",
-          "es": "A Veces",
+          "es": "A veces",
           "fr": "Quelque fois",
           "zh-CN": "有时",
-          "ht": null
+          "zh-TW": "有時",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
         },
         {
           "value": 5,
           "en": "Often",
           "de": "Oft",
-          "es": "Frecuente",
+          "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "經常",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3431,7 +4868,9 @@
           "es": "Muy Frecuente",
           "fr": "Très souvent",
           "zh-CN": "频繁",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         },
         {
           "value": 7,
@@ -3440,7 +4879,9 @@
           "es": "Siempre",
           "fr": "Toujours",
           "zh-CN": "总是",
-          "ht": null
+          "zh-TW": "總是",
+          "pt-BR": "Sempre",
+          "uk": "Завжди"
         }
       ]
     },
@@ -3448,7 +4889,19 @@
       "key": "AnimalEggHatch",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalEggHatch",
+      "pzOptionsKey": "AnimalSpeed",
       "default": 4,
+      "labels": {
+        "en": "Egg Hatch Time",
+        "de": "Eier-Schlüpfzeit",
+        "es": "Tiempo de incubación",
+        "fr": "Temps avant éclosion",
+        "zh-CN": "孵化时间",
+        "zh-TW": "孵化時間",
+        "pt-BR": "Tempo de Eclosão dos Ovos",
+        "uk": "Термін інкубації яєць"
+      },
       "options": [
         {
           "value": 1,
@@ -3457,7 +4910,9 @@
           "es": "Ultrarrápido",
           "fr": "Super rapide",
           "zh-CN": "超快",
-          "ht": null
+          "zh-TW": "超快",
+          "pt-BR": "Ultrarrápida",
+          "uk": "Надзвичайно швидко"
         },
         {
           "value": 2,
@@ -3466,7 +4921,9 @@
           "es": "Muy Rápido",
           "fr": "Très rapide",
           "zh-CN": "非常快",
-          "ht": null
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидко"
         },
         {
           "value": 3,
@@ -3475,7 +4932,9 @@
           "es": "Rápido",
           "fr": "Rapide",
           "zh-CN": "快",
-          "ht": null
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидко"
         },
         {
           "value": 4,
@@ -3484,7 +4943,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3493,16 +4954,20 @@
           "es": "Lento",
           "fr": "Lente",
           "zh-CN": "慢",
-          "ht": null
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільно"
         },
         {
           "value": 6,
           "en": "Very Slow",
           "de": "Sehr langsam",
-          "es": "Muy Lento",
+          "es": "Muy lento",
           "fr": "Très lente",
           "zh-CN": "非常慢",
-          "ht": null
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільно"
         }
       ]
     },
@@ -3510,7 +4975,19 @@
       "key": "AnimalTrackChance",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalTrackChance",
+      "pzOptionsKey": "HouseAlarmFrequency",
       "default": 4,
+      "labels": {
+        "en": "Animal Tracks Chance",
+        "de": "Chance für Tierspuren",
+        "es": "Probabilidad de huellas de animales",
+        "fr": "Chance de traces d'animaux",
+        "zh-CN": "动物足迹几率",
+        "zh-TW": "動物足跡機率",
+        "pt-BR": "Chance de Rastros de Animais",
+        "uk": null
+      },
       "options": [
         {
           "value": 1,
@@ -3519,7 +4996,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Відсутня"
         },
         {
           "value": 2,
@@ -3528,7 +5007,9 @@
           "es": "Muy raro",
           "fr": "Très rarement",
           "zh-CN": "极稀少",
-          "ht": null
+          "zh-TW": "極稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -3537,7 +5018,9 @@
           "es": "Raro",
           "fr": "Rarement",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -3546,7 +5029,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
         },
         {
           "value": 5,
@@ -3555,7 +5040,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3564,7 +5051,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -3572,7 +5061,19 @@
       "key": "AnimalPathChance",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "AnimalPathChance",
+      "pzOptionsKey": "HouseAlarmFrequency",
       "default": 4,
+      "labels": {
+        "en": "Animal Paths Chance",
+        "de": "Chance für Tierpfade",
+        "es": "Probabilidad de pasos de animales",
+        "fr": "Chance de passages d'animaux",
+        "zh-CN": "动物路径几率",
+        "zh-TW": "動物路徑機率",
+        "pt-BR": "Chance de Trilhas de Animais",
+        "uk": null
+      },
       "options": [
         {
           "value": 1,
@@ -3581,7 +5082,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Відсутня"
         },
         {
           "value": 2,
@@ -3590,7 +5093,9 @@
           "es": "Muy raro",
           "fr": "Très rarement",
           "zh-CN": "极稀少",
-          "ht": null
+          "zh-TW": "極稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -3599,7 +5104,9 @@
           "es": "Raro",
           "fr": "Rarement",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -3608,7 +5115,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
         },
         {
           "value": 5,
@@ -3617,7 +5126,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3626,7 +5137,9 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         }
       ]
     },
@@ -3634,25 +5147,41 @@
       "key": "Farming",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "FarmingSpeed",
+      "pzOptionsKey": "FarmingSpeed",
       "default": 3,
+      "labels": {
+        "en": "Farming Speed",
+        "de": "Wachstumsrate",
+        "es": "Velocidad de cultivo",
+        "fr": "Vitesse de l'agriculture",
+        "zh-CN": "作物生长速率",
+        "zh-TW": "農耕速度",
+        "pt-BR": "Velocidade de Cultivo",
+        "uk": "ШВИДКІСТЬ ЗРОСТАННЯ ПОСІВУ:"
+      },
       "options": [
         {
           "value": 1,
-          "en": "Very Low",
-          "de": "Sehr niedrig",
-          "es": "Muy bajo",
-          "fr": "Très basse",
-          "zh-CN": "很低",
-          "ht": null
+          "en": "Very Fast",
+          "de": "Sehr schnell",
+          "es": "Muy rápido",
+          "fr": "Très rapide",
+          "zh-CN": "非常快",
+          "zh-TW": "非常快",
+          "pt-BR": "Muito Rápida",
+          "uk": "Дуже швидка"
         },
         {
           "value": 2,
-          "en": "Low",
-          "de": "Niedrig",
-          "es": "Bajo",
-          "fr": "Basse",
-          "zh-CN": "低",
-          "ht": null
+          "en": "Fast",
+          "de": "Schnell",
+          "es": "Rápido",
+          "fr": "Rapide",
+          "zh-CN": "快",
+          "zh-TW": "快",
+          "pt-BR": "Rápida",
+          "uk": "Швидка"
         },
         {
           "value": 3,
@@ -3661,25 +5190,31 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Середня"
         },
         {
           "value": 4,
-          "en": "High",
-          "de": "Hoch",
-          "es": "Alto",
-          "fr": "Haute",
-          "zh-CN": "高",
-          "ht": null
+          "en": "Slow",
+          "de": "Langsam",
+          "es": "Lento",
+          "fr": "Lente",
+          "zh-CN": "慢",
+          "zh-TW": "慢",
+          "pt-BR": "Lenta",
+          "uk": "Повільна"
         },
         {
           "value": 5,
-          "en": "Very High",
-          "de": "Sehr hoch",
-          "es": "Muy alto",
-          "fr": "Très haute",
-          "zh-CN": "很高",
-          "ht": null
+          "en": "Very Slow",
+          "de": "Sehr langsam",
+          "es": "Muy lento",
+          "fr": "Très lente",
+          "zh-CN": "非常慢",
+          "zh-TW": "非常慢",
+          "pt-BR": "Muito Lenta",
+          "uk": "Дуже повільна"
         }
       ]
     },
@@ -3687,7 +5222,19 @@
       "key": "PlantResilience",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "PlantResilience",
+      "pzOptionsKey": "PlantResilience",
       "default": 3,
+      "labels": {
+        "en": "Plant Resilience",
+        "de": "Pflanzen-Widerstandsfähigkeit",
+        "es": "Resistencia de los cultivos",
+        "fr": "Ténacité des plantations",
+        "zh-CN": "作物适应力",
+        "zh-TW": "植物韌性",
+        "pt-BR": "Resistência das Plantas",
+        "uk": "ЖИВУЧІСТЬ РОСЛИН:"
+      },
       "options": [
         {
           "value": 1,
@@ -3696,7 +5243,9 @@
           "es": "Muy alto",
           "fr": "Très forte",
           "zh-CN": "非常高",
-          "ht": null
+          "zh-TW": "非常高",
+          "pt-BR": "Muito Alta",
+          "uk": "Дуже висока"
         },
         {
           "value": 2,
@@ -3705,7 +5254,9 @@
           "es": "Alto",
           "fr": "Forte",
           "zh-CN": "高",
-          "ht": null
+          "zh-TW": "高",
+          "pt-BR": "Alta",
+          "uk": "Висока"
         },
         {
           "value": 3,
@@ -3714,7 +5265,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -3723,7 +5276,9 @@
           "es": "Bajo",
           "fr": "Basse",
           "zh-CN": "低",
-          "ht": null
+          "zh-TW": "低",
+          "pt-BR": "Baixa",
+          "uk": "Низька"
         },
         {
           "value": 5,
@@ -3732,7 +5287,9 @@
           "es": "Muy bajo",
           "fr": "Très basse",
           "zh-CN": "非常低",
-          "ht": null
+          "zh-TW": "非常低",
+          "pt-BR": "Muito Baixa",
+          "uk": "Дуже низька"
         }
       ]
     },
@@ -3740,16 +5297,30 @@
       "key": "PlantAbundance",
       "category": "animals",
       "section": "settings",
+      "pzLabelKey": "PlantAbundance",
+      "pzOptionsKey": "FarmingAmount",
       "default": 3,
+      "labels": {
+        "en": "Farming's Abundance",
+        "de": "Landwirtschaftlicher Ertrag",
+        "es": "Abundancia de la agricultura",
+        "fr": "Abondance des récoltes",
+        "zh-CN": "作物产量",
+        "zh-TW": "農耕豐富度",
+        "pt-BR": "Abundância da Colheita",
+        "uk": "РОДЮЧІСТЬ РОСЛИН:"
+      },
       "options": [
         {
           "value": 1,
           "en": "Very Poor",
           "de": "Sehr schlecht",
-          "es": "Muy Pobre",
+          "es": "Muy pobre",
           "fr": "Très pauvre",
           "zh-CN": "非常贫瘠",
-          "ht": null
+          "zh-TW": "非常貧瘠",
+          "pt-BR": "Muito Escassa",
+          "uk": "Дуже низька"
         },
         {
           "value": 2,
@@ -3758,7 +5329,9 @@
           "es": "Pobre",
           "fr": "Pauvre",
           "zh-CN": "贫瘠",
-          "ht": null
+          "zh-TW": "貧瘠",
+          "pt-BR": "Escassa",
+          "uk": "Низька"
         },
         {
           "value": 3,
@@ -3767,7 +5340,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "普通",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 4,
@@ -3776,16 +5351,20 @@
           "es": "Abundante",
           "fr": "Abondante",
           "zh-CN": "丰富",
-          "ht": null
+          "zh-TW": "豐富",
+          "pt-BR": "Abundante",
+          "uk": "Висока"
         },
         {
           "value": 5,
           "en": "Very Abundant",
           "de": "Sehr reichlich",
-          "es": "Muy Abundante",
+          "es": "Muy abundante",
           "fr": "Très abondante",
           "zh-CN": "非常丰富",
-          "ht": null
+          "zh-TW": "非常豐富",
+          "pt-BR": "Muito Abundante",
+          "uk": "Надзвичайно висока"
         }
       ]
     },
@@ -3793,7 +5372,19 @@
       "key": "SurvivorHouseChance",
       "category": "world",
       "section": "settings",
+      "pzLabelKey": "SurvivorHouseChance",
+      "pzOptionsKey": "SurvivorHouseChance",
       "default": 3,
+      "labels": {
+        "en": "Randomized Building Chance",
+        "de": "Chance für Generierte Häuser",
+        "es": "Casas aleatorias",
+        "fr": "Chance de tomber sur des bâtiments d'histoire aléatoires",
+        "zh-CN": "随机房屋几率",
+        "zh-TW": "隨機房屋機率",
+        "pt-BR": "Chance de Construções Modificadas",
+        "uk": "Імовірність випадкових будівель"
+      },
       "options": [
         {
           "value": 1,
@@ -3802,7 +5393,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -3811,7 +5404,9 @@
           "es": "Muy raro",
           "fr": "Très rare",
           "zh-CN": "特别稀少",
-          "ht": null
+          "zh-TW": "非常稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Деколи"
         },
         {
           "value": 3,
@@ -3820,7 +5415,9 @@
           "es": "Raro",
           "fr": "Rare",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -3829,7 +5426,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3838,7 +5437,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3847,16 +5448,20 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         },
         {
           "value": 7,
           "en": "Always Tries",
           "de": "Immer versuchen",
-          "es": "Siempre Intenta",
+          "es": "Siempre intenta",
           "fr": "Le plus possible",
           "zh-CN": "总是尝试",
-          "ht": null
+          "zh-TW": "總是嘗試",
+          "pt-BR": "Sempre que Possível",
+          "uk": "Завжди"
         }
       ]
     },
@@ -3864,7 +5469,19 @@
       "key": "VehicleStoryChance",
       "category": "world",
       "section": "settings",
+      "pzLabelKey": "VehicleStoryChance",
+      "pzOptionsKey": "SurvivorHouseChance",
       "default": 3,
+      "labels": {
+        "en": "Randomized Road Stories Chance",
+        "de": "Wahrscheinlichkeit für Straßenereignisse",
+        "es": "Posibilidad de historias aleatorias en carretera",
+        "fr": "Chance de tomber sur des histoires aléatoires sur la route",
+        "zh-CN": "随机车辆故事发生几率",
+        "zh-TW": "隨機車輛故事機率",
+        "pt-BR": "Chance de Histórias Aleatórias de Estrada",
+        "uk": "ШАНС ЗНАЙТИ АВТОАВАРІЮ"
+      },
       "options": [
         {
           "value": 1,
@@ -3872,26 +5489,32 @@
           "de": "Nie",
           "es": "Nunca",
           "fr": "Jamais",
-          "zh-CN": "无",
-          "ht": null
+          "zh-CN": "永不",
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
           "en": "Extremely Rare",
           "de": "Extrem selten",
           "es": "Muy raro",
-          "fr": "Très rarement",
-          "zh-CN": "极稀少",
-          "ht": null
+          "fr": "Très rare",
+          "zh-CN": "特别稀少",
+          "zh-TW": "非常稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Деколи"
         },
         {
           "value": 3,
           "en": "Rare",
           "de": "Selten",
           "es": "Raro",
-          "fr": "Rarement",
+          "fr": "Rare",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -3900,7 +5523,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3909,7 +5534,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3918,16 +5545,20 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         },
         {
           "value": 7,
           "en": "Always Tries",
           "de": "Immer versuchen",
-          "es": "Siempre Intenta",
+          "es": "Siempre intenta",
           "fr": "Le plus possible",
           "zh-CN": "总是尝试",
-          "ht": null
+          "zh-TW": "總是嘗試",
+          "pt-BR": "Sempre que Possível",
+          "uk": "Завжди"
         }
       ]
     },
@@ -3935,7 +5566,19 @@
       "key": "ZoneStoryChance",
       "category": "world",
       "section": "settings",
+      "pzLabelKey": "ZoneStoryChance",
+      "pzOptionsKey": "SurvivorHouseChance",
       "default": 3,
+      "labels": {
+        "en": "Randomized Zone Stories Chance",
+        "de": "Randomisierte Zone-Story Chance",
+        "es": "Historias aleatorias de zona",
+        "fr": "Chance de tomber sur une zone d'histoire aléatoire",
+        "zh-CN": "随机区域故事发生几率",
+        "zh-TW": "隨機區域故事機率",
+        "pt-BR": "Chance de Histórias Aleatórias de Zona",
+        "uk": "Випадковий шанс історії зони"
+      },
       "options": [
         {
           "value": 1,
@@ -3943,26 +5586,32 @@
           "de": "Nie",
           "es": "Nunca",
           "fr": "Jamais",
-          "zh-CN": "无",
-          "ht": null
+          "zh-CN": "永不",
+          "zh-TW": "永不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
           "en": "Extremely Rare",
           "de": "Extrem selten",
           "es": "Muy raro",
-          "fr": "Très rarement",
-          "zh-CN": "极稀少",
-          "ht": null
+          "fr": "Très rare",
+          "zh-CN": "特别稀少",
+          "zh-TW": "非常稀有",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Деколи"
         },
         {
           "value": 3,
           "en": "Rare",
           "de": "Selten",
           "es": "Raro",
-          "fr": "Rarement",
+          "fr": "Rare",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Rara",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -3971,7 +5620,9 @@
           "es": "A veces",
           "fr": "Parfois",
           "zh-CN": "偶尔",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Нормально"
         },
         {
           "value": 5,
@@ -3980,7 +5631,9 @@
           "es": "A menudo",
           "fr": "Souvent",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -3989,16 +5642,20 @@
           "es": "Muy frecuentemente",
           "fr": "Très souvent",
           "zh-CN": "非常频繁",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
         },
         {
           "value": 7,
           "en": "Always Tries",
           "de": "Immer versuchen",
-          "es": "Siempre Intenta",
+          "es": "Siempre intenta",
           "fr": "Le plus possible",
           "zh-CN": "总是尝试",
-          "ht": null
+          "zh-TW": "總是嘗試",
+          "pt-BR": "Sempre que Possível",
+          "uk": "Завжди"
         }
       ]
     },
@@ -4006,16 +5663,30 @@
       "key": "Speed",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZSpeed",
+      "pzOptionsKey": "ZSpeed",
       "default": 4,
+      "labels": {
+        "en": "Speed",
+        "de": "Geschwindigkeit",
+        "es": "Velocidad",
+        "fr": "Vitesse",
+        "zh-CN": "速度",
+        "zh-TW": "速度",
+        "pt-BR": "Velocidade",
+        "uk": "ШВИДКІСТЬ:"
+      },
       "options": [
         {
           "value": 1,
           "en": "Sprinters",
           "de": "Sprinter",
-          "es": "Velocistas",
+          "es": "Corredores",
           "fr": "Sprinteur",
           "zh-CN": "短跑运动员",
-          "ht": null
+          "zh-TW": "衝刺者",
+          "pt-BR": "Corredores",
+          "uk": "Бігають"
         },
         {
           "value": 2,
@@ -4024,7 +5695,9 @@
           "es": "Tambaleantes veloces",
           "fr": "Traîneur rapide",
           "zh-CN": "快速蹒跚",
-          "ht": null
+          "zh-TW": "快速蹣跚者",
+          "pt-BR": "Cambaleantes Rápidos",
+          "uk": "Швидко волочуть ноги"
         },
         {
           "value": 3,
@@ -4033,7 +5706,9 @@
           "es": "Tambaleantes",
           "fr": "Traîneur",
           "zh-CN": "蹒跚",
-          "ht": null
+          "zh-TW": "蹣跚者",
+          "pt-BR": "Cambaleantes",
+          "uk": "Ледве ходять"
         },
         {
           "value": 4,
@@ -4042,7 +5717,9 @@
           "es": "Aleatorio",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         }
       ]
     },
@@ -4050,7 +5727,19 @@
       "key": "Strength",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZStrength",
+      "pzOptionsKey": "ZStrength",
       "default": 2,
+      "labels": {
+        "en": "Strength",
+        "de": "Stärke",
+        "es": "Fuerza",
+        "fr": "Force",
+        "zh-CN": "力量",
+        "zh-TW": "力量",
+        "pt-BR": "Força",
+        "uk": "СИЛА:"
+      },
       "options": [
         {
           "value": 1,
@@ -4059,7 +5748,9 @@
           "es": "Superhumano",
           "fr": "Hors norme",
           "zh-CN": "超人",
-          "ht": null
+          "zh-TW": "超人",
+          "pt-BR": "Super-humana",
+          "uk": "Дуже сильні"
         },
         {
           "value": 2,
@@ -4068,7 +5759,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальні"
         },
         {
           "value": 3,
@@ -4077,7 +5770,9 @@
           "es": "Débil",
           "fr": "Faible",
           "zh-CN": "弱鸡",
-          "ht": null
+          "zh-TW": "虛弱",
+          "pt-BR": "Fraca",
+          "uk": "Слабкі"
         },
         {
           "value": 4,
@@ -4086,7 +5781,9 @@
           "es": "Aleatorio",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         }
       ]
     },
@@ -4094,7 +5791,19 @@
       "key": "Toughness",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZToughness",
+      "pzOptionsKey": "ZToughness",
       "default": 4,
+      "labels": {
+        "en": "Toughness",
+        "de": "Härte",
+        "es": "Resistencia",
+        "fr": "Résistance",
+        "zh-CN": "韧性",
+        "zh-TW": "韌性",
+        "pt-BR": "Resistência",
+        "uk": "МІЦНІСТЬ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4103,7 +5812,9 @@
           "es": "Duro",
           "fr": "Résistants",
           "zh-CN": "坚强",
-          "ht": null
+          "zh-TW": "堅韌",
+          "pt-BR": "Resistente",
+          "uk": "Міцні"
         },
         {
           "value": 2,
@@ -4112,7 +5823,9 @@
           "es": "Normal",
           "fr": "Normaux",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "普通",
+          "pt-BR": "Normal",
+          "uk": "Нормальні"
         },
         {
           "value": 3,
@@ -4121,7 +5834,9 @@
           "es": "Frágil",
           "fr": "Fragiles",
           "zh-CN": "脆弱",
-          "ht": null
+          "zh-TW": "脆弱",
+          "pt-BR": "Frágil",
+          "uk": "Слабкі"
         },
         {
           "value": 4,
@@ -4130,7 +5845,9 @@
           "es": "Aleatorio",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         }
       ]
     },
@@ -4138,7 +5855,19 @@
       "key": "Transmission",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZTransmission",
+      "pzOptionsKey": "ZTransmission",
       "default": 1,
+      "labels": {
+        "en": "Transmission",
+        "de": "Übertragungswege",
+        "es": "Contagio",
+        "fr": "Transmission",
+        "zh-CN": "传染",
+        "zh-TW": "傳染性",
+        "pt-BR": "Transmissão",
+        "uk": "ПЕРЕДАВАННЯ ВІРУСУ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4147,7 +5876,9 @@
           "es": "Sangre + saliva",
           "fr": "Sang et salive",
           "zh-CN": "血液+唾液",
-          "ht": null
+          "zh-TW": "血液 + 唾液",
+          "pt-BR": "Sangue e Saliva",
+          "uk": "Через кров та слину"
         },
         {
           "value": 2,
@@ -4156,7 +5887,9 @@
           "es": "Sólo saliva",
           "fr": "Salive uniquement",
           "zh-CN": "仅唾液",
-          "ht": null
+          "zh-TW": "僅限唾液",
+          "pt-BR": "Apenas Saliva",
+          "uk": "Тільки слина"
         },
         {
           "value": 3,
@@ -4165,7 +5898,9 @@
           "es": "Todos están infectados",
           "fr": "Tout le monde est infecté",
           "zh-CN": "所有感染方式",
-          "ht": null
+          "zh-TW": "所有人都已感染",
+          "pt-BR": "Todos Estão Infectados",
+          "uk": "Усе інфікує"
         },
         {
           "value": 4,
@@ -4174,7 +5909,9 @@
           "es": "Ninguno",
           "fr": "Aucune",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Ніяк"
         }
       ]
     },
@@ -4182,7 +5919,19 @@
       "key": "Mortality",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZInfectionMortality",
+      "pzOptionsKey": "ZInfectionMortality",
       "default": 5,
+      "labels": {
+        "en": "Infection Mortality",
+        "de": "Infektions-Sterblichkeit",
+        "es": "Mortalidad por infección",
+        "fr": "Mortalité de l'infection",
+        "zh-CN": "致死时间",
+        "zh-TW": "感染致命",
+        "pt-BR": "Mortalidade da Infecção",
+        "uk": "ЛЕТАЛЬНІСТЬ УКУСІВ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4191,7 +5940,9 @@
           "es": "Instantáneo",
           "fr": "Instantanée",
           "zh-CN": "立即",
-          "ht": null
+          "zh-TW": "立即",
+          "pt-BR": "Instantânea",
+          "uk": "Негайна"
         },
         {
           "value": 2,
@@ -4200,7 +5951,9 @@
           "es": "0-30 segundos",
           "fr": "0-30 secondes",
           "zh-CN": "0-30 秒",
-          "ht": null
+          "zh-TW": "0-30 秒",
+          "pt-BR": "0 a 30 Segundos",
+          "uk": "0-30 секунд"
         },
         {
           "value": 3,
@@ -4209,7 +5962,9 @@
           "es": "0-1 minuto",
           "fr": "0-1 minutes",
           "zh-CN": "0-1 分钟",
-          "ht": null
+          "zh-TW": "0-1 分鐘",
+          "pt-BR": "0 a 1 Minuto",
+          "uk": "0-1 хвилин"
         },
         {
           "value": 4,
@@ -4218,7 +5973,9 @@
           "es": "0-12 horas",
           "fr": "0-12 heures",
           "zh-CN": "0-12 小时",
-          "ht": null
+          "zh-TW": "0-12 小時",
+          "pt-BR": "0 a 12 Horas",
+          "uk": "0-12 годин"
         },
         {
           "value": 5,
@@ -4227,7 +5984,9 @@
           "es": "2-3 días",
           "fr": "2-3 jours",
           "zh-CN": "2-3 天",
-          "ht": null
+          "zh-TW": "2-3 天",
+          "pt-BR": "2 a 3 Dias",
+          "uk": "2-3 дня"
         },
         {
           "value": 6,
@@ -4236,7 +5995,9 @@
           "es": "1-2 semanas",
           "fr": "1-2 semaines",
           "zh-CN": "1-2 星期",
-          "ht": null
+          "zh-TW": "1-2 星期",
+          "pt-BR": "1 a 2 Semanas",
+          "uk": "1-2 тижні"
         },
         {
           "value": 7,
@@ -4245,7 +6006,9 @@
           "es": "Nunca",
           "fr": "Jamais",
           "zh-CN": "永不",
-          "ht": null
+          "zh-TW": "關閉",
+          "pt-BR": "Nunca",
+          "uk": "Відсутня"
         }
       ]
     },
@@ -4253,7 +6016,19 @@
       "key": "Cognition",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZCognition",
+      "pzOptionsKey": "ZCognition",
       "default": 3,
+      "labels": {
+        "en": "Cognition",
+        "de": "Kenntnisse",
+        "es": "Cognición",
+        "fr": "Capacités cognitives",
+        "zh-CN": "僵尸感知",
+        "zh-TW": "感知",
+        "pt-BR": "Cognição",
+        "uk": "ЗНАННЯ НАВІГАЦІЇ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4262,7 +6037,9 @@
           "es": "Exploración + usar las puertas",
           "fr": "Se déplacer + ouvrir les portes",
           "zh-CN": "本能+开门",
-          "ht": null
+          "zh-TW": "巡路 + 使用門",
+          "pt-BR": "Navegam e Usam Portas",
+          "uk": "Навігація + двері"
         },
         {
           "value": 2,
@@ -4271,7 +6048,9 @@
           "es": "Exploración",
           "fr": "Se déplacer",
           "zh-CN": "本能",
-          "ht": null
+          "zh-TW": "巡路",
+          "pt-BR": "Navegam",
+          "uk": "Навігація"
         },
         {
           "value": 3,
@@ -4280,7 +6059,9 @@
           "es": "Exploración básica",
           "fr": "Déplacements basiques",
           "zh-CN": "基础本能",
-          "ht": null
+          "zh-TW": "基礎巡路",
+          "pt-BR": "Navegação Básica",
+          "uk": "Базова навігація"
         },
         {
           "value": 4,
@@ -4289,7 +6070,9 @@
           "es": "Aleatorio",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         }
       ]
     },
@@ -4297,7 +6080,19 @@
       "key": "Memory",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZMemory",
+      "pzOptionsKey": "ZMemory",
       "default": 2,
+      "labels": {
+        "en": "Memory",
+        "de": "Gedächtnis",
+        "es": "Memoria",
+        "fr": "Mémoire",
+        "zh-CN": "僵尸记忆",
+        "zh-TW": "記憶",
+        "pt-BR": "Memória",
+        "uk": "ПАМ'ЯТЬ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4306,7 +6101,9 @@
           "es": "Larga",
           "fr": "Longue",
           "zh-CN": "长",
-          "ht": null
+          "zh-TW": "長",
+          "pt-BR": "Longa",
+          "uk": "Довга"
         },
         {
           "value": 2,
@@ -4315,7 +6112,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "普通",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальна"
         },
         {
           "value": 3,
@@ -4324,7 +6123,9 @@
           "es": "Corta",
           "fr": "Courte",
           "zh-CN": "短",
-          "ht": null
+          "zh-TW": "短",
+          "pt-BR": "Curta",
+          "uk": "Коротка"
         },
         {
           "value": 4,
@@ -4333,7 +6134,9 @@
           "es": "Ninguna",
           "fr": "Aucune",
           "zh-CN": "无",
-          "ht": null
+          "zh-TW": "無",
+          "pt-BR": "Nenhuma",
+          "uk": "Відсутня"
         },
         {
           "value": 5,
@@ -4342,7 +6145,9 @@
           "es": "Aleatoria",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         },
         {
           "value": 6,
@@ -4351,7 +6156,9 @@
           "es": "Aleatorio entre Normal y Ninguno",
           "fr": "Aléatoire entre Normale et Aucune",
           "zh-CN": "在正常和无之间随机",
-          "ht": null
+          "zh-TW": "在正常和無之間隨機",
+          "pt-BR": "Aleatória entre Normal e Nenhuma",
+          "uk": "Випадково (між «Нормальна» й «Немає»)"
         }
       ]
     },
@@ -4359,7 +6166,19 @@
       "key": "Sight",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZSight",
+      "pzOptionsKey": "ZSight",
       "default": 5,
+      "labels": {
+        "en": "Sight",
+        "de": "Sehvermögen",
+        "es": "Visión",
+        "fr": "Vue",
+        "zh-CN": "僵尸视觉",
+        "zh-TW": "視覺",
+        "pt-BR": "Visão",
+        "uk": "ЗІР:"
+      },
       "options": [
         {
           "value": 1,
@@ -4368,7 +6187,9 @@
           "es": "Águila",
           "fr": "Vue aiguisée",
           "zh-CN": "鹰眼",
-          "ht": null
+          "zh-TW": "鷹眼",
+          "pt-BR": "Olhos de Águia",
+          "uk": "Орлиний"
         },
         {
           "value": 2,
@@ -4377,7 +6198,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 3,
@@ -4386,7 +6209,9 @@
           "es": "Mala",
           "fr": "Pauvre",
           "zh-CN": "眼拙",
-          "ht": null
+          "zh-TW": "差",
+          "pt-BR": "Ruim",
+          "uk": "Поганий"
         },
         {
           "value": 4,
@@ -4395,16 +6220,20 @@
           "es": "Aleatoria",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         },
         {
           "value": 5,
           "en": "Random between Normal and Poor",
           "de": "Zufällig zwischen Normal und Schlecht",
-          "es": "Aleatorio entre Normal y Pobre",
+          "es": "Aleatorio entre Normal y Mala",
           "fr": "Aléatoire entre Normale et Pauvre",
           "zh-CN": "在正常和差之间随机",
-          "ht": null
+          "zh-TW": "在正常和差之間隨機",
+          "pt-BR": "Aleatória entre Normal e Ruim",
+          "uk": "Випадково (між «Нормальний» і «Низький»)"
         }
       ]
     },
@@ -4412,7 +6241,19 @@
       "key": "Hearing",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZHearing",
+      "pzOptionsKey": "ZHearing",
       "default": 5,
+      "labels": {
+        "en": "Hearing",
+        "de": "Hörvermögen",
+        "es": "Audición",
+        "fr": "Ouïe",
+        "zh-CN": "僵尸听觉",
+        "zh-TW": "聽覺",
+        "pt-BR": "Audição",
+        "uk": "СЛУХ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4421,7 +6262,9 @@
           "es": "Precisa",
           "fr": "Précise",
           "zh-CN": "灵敏",
-          "ht": null
+          "zh-TW": "敏銳",
+          "pt-BR": "Precisa",
+          "uk": "Точний"
         },
         {
           "value": 2,
@@ -4430,7 +6273,9 @@
           "es": "Normal",
           "fr": "Normale",
           "zh-CN": "正常",
-          "ht": null
+          "zh-TW": "正常",
+          "pt-BR": "Normal",
+          "uk": "Нормальний"
         },
         {
           "value": 3,
@@ -4439,7 +6284,9 @@
           "es": "Mala",
           "fr": "Pauvre",
           "zh-CN": "耳背",
-          "ht": null
+          "zh-TW": "差",
+          "pt-BR": "Ruim",
+          "uk": "Поганий"
         },
         {
           "value": 4,
@@ -4448,16 +6295,20 @@
           "es": "Aleatoria",
           "fr": "Aléatoire",
           "zh-CN": "随机",
-          "ht": null
+          "zh-TW": "隨機",
+          "pt-BR": "Aleatória",
+          "uk": "Випадково"
         },
         {
           "value": 5,
           "en": "Random between Normal and Poor",
           "de": "Zufällig zwischen Normal und Schlecht",
-          "es": "Aleatorio entre Normal y Pobre",
+          "es": "Aleatorio entre Normal y Mala",
           "fr": "Aléatoire entre Normale et Pauvre",
           "zh-CN": "在正常和差之间随机",
-          "ht": null
+          "zh-TW": "在正常和差之間隨機",
+          "pt-BR": "Aleatória entre Normal e Ruim",
+          "uk": "Випадково (між «Нормальний» і «Низький»)"
         }
       ]
     },
@@ -4465,7 +6316,19 @@
       "key": "ActiveOnly",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ActiveOnly",
+      "pzOptionsKey": "ActiveOnly",
       "default": 1,
+      "labels": {
+        "en": "Day/Night Zombie Speed Effect",
+        "de": "Tag/Nacht-Aktivität der Zombies",
+        "es": "Actividad diurna/nocturna",
+        "fr": "Activité diurne/nocturne des zombies",
+        "zh-CN": "日/夜活跃",
+        "zh-TW": "日 / 夜活躍",
+        "pt-BR": "Efeito Dia/Noite na Velocidade dos Zumbis",
+        "uk": "АКТИВНІСТЬ ДНЕМ\\ВНОЧІ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4474,7 +6337,9 @@
           "es": "Ambos",
           "fr": "Les deux",
           "zh-CN": "两者",
-          "ht": null
+          "zh-TW": "不分",
+          "pt-BR": "Ambos",
+          "uk": "І те і інше"
         },
         {
           "value": 2,
@@ -4483,7 +6348,9 @@
           "es": "Noche",
           "fr": "Nocturne",
           "zh-CN": "晚上",
-          "ht": null
+          "zh-TW": "晚上",
+          "pt-BR": "Noite",
+          "uk": "Вночі"
         },
         {
           "value": 3,
@@ -4492,7 +6359,9 @@
           "es": "Día",
           "fr": "Diurne",
           "zh-CN": "白天",
-          "ht": null
+          "zh-TW": "白天",
+          "pt-BR": "Dia",
+          "uk": "Днем"
         }
       ]
     },
@@ -4500,7 +6369,19 @@
       "key": "DisableFakeDead",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "DisableFakeDead",
+      "pzOptionsKey": "DisableFakeDead",
       "default": 1,
+      "labels": {
+        "en": "Fake Dead Zombie Reanimation",
+        "de": "Reanimation von vorgetäuschten toten Zombies",
+        "es": "Reanimación de falsos zombis muertos",
+        "fr": "Réanimation des zombies feignant la mort",
+        "zh-CN": "假死丧尸复活",
+        "zh-TW": "殭屍假死",
+        "pt-BR": "Reanimação de Zumbis que Parecem Mortos",
+        "uk": "Реанімація зомбі, що прикидаються мертвими"
+      },
       "options": [
         {
           "value": 1,
@@ -4509,7 +6390,9 @@
           "es": "Algunos zombis del mundo se harán pasar por muertos",
           "fr": "Zombies dans le monde",
           "zh-CN": "世界上的一些丧尸会假装死亡",
-          "ht": null
+          "zh-TW": "部分殭屍將會假死",
+          "pt-BR": "Zumbis do Mundo",
+          "uk": "Для зомбі у відкритому світі"
         },
         {
           "value": 2,
@@ -4518,16 +6401,84 @@
           "es": "Algunos zombis del mundo, así como algunos que \"matas\", pueden fingir estar muertos",
           "fr": "Zombie dans le monde et ceux tués",
           "zh-CN": "世界上的一些丧尸,以及你'杀死'的一些僵尸会假死",
-          "ht": null
+          "zh-TW": "部分殭屍將會假死, 包含你 '殺死' 的殭屍也可能只是假死",
+          "pt-BR": "Zumbis do Mundo e de Combate",
+          "uk": "Для зомбі у відкритому світі й агресивних зомбі"
         },
         {
           "value": 3,
           "en": "Never",
           "de": "Zombies werden niemals vorgeben, tot zu sein",
           "es": "Los zombis nunca fingirán estar muertos",
-          "fr": "Aucun",
+          "fr": "Jamais",
           "zh-CN": "僵尸永远不会假死",
-          "ht": null
+          "zh-TW": "殭屍不會假死",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
+        }
+      ]
+    },
+    "zombieLore.PlayerSpawnZombieRemoval": {
+      "key": "PlayerSpawnZombieRemoval",
+      "category": "zombieLore",
+      "section": "ZombieLore",
+      "pzLabelKey": "ZSpawnRemoval",
+      "pzOptionsKey": "ZSpawnRemoval",
+      "default": 1,
+      "labels": {
+        "en": "Player Spawn Area",
+        "de": "Spieler-Spawnbereich",
+        "es": "Zona de aparición del jugador",
+        "fr": "Zone d'apparition du joueur",
+        "zh-CN": "玩家生成区域",
+        "zh-TW": "玩家生成區域",
+        "pt-BR": "Área de Spawn do Personagem",
+        "uk": "Зона появи гравців"
+      },
+      "options": [
+        {
+          "value": 1,
+          "en": "Inside the building and around it",
+          "de": "Im Gebäude und drumherum",
+          "es": "Dentro del edificio y alrededor",
+          "fr": "Dans le bâtiment et autour",
+          "zh-CN": "在建筑物内部及其周围",
+          "zh-TW": "在建築物內部及其周圍",
+          "pt-BR": "Dentro do prédio e ao redor",
+          "uk": "У будівлях і довкола них"
+        },
+        {
+          "value": 2,
+          "en": "Inside the building",
+          "de": "Im Gebäude",
+          "es": "Dentro del edificio",
+          "fr": "Dans le bâtiment",
+          "zh-CN": "在建筑物内部",
+          "zh-TW": "在建築物內部",
+          "pt-BR": "Dentro do prédio",
+          "uk": "У будівлях"
+        },
+        {
+          "value": 3,
+          "en": "Inside the room",
+          "de": "Im Raum",
+          "es": "Dentro de la habitación",
+          "fr": "Dans la pièce",
+          "zh-CN": "在房间内部",
+          "zh-TW": "在房間內部",
+          "pt-BR": "Dentro do cômodo",
+          "uk": "У кімнаті"
+        },
+        {
+          "value": 4,
+          "en": "Zombies can spawn anywhere",
+          "de": "Zombies können überall spawnen",
+          "es": "Los zombis pueden aparecer en cualquier lugar",
+          "fr": "Les zombies peuvent apparaître partout",
+          "zh-CN": "僵尸可以在任何地方生成",
+          "zh-TW": "殭屍可以在任何地方生成",
+          "pt-BR": "Zumbis podem aparecer em qualquer lugar",
+          "uk": "Зомбі можуть з'являтися всюди"
         }
       ]
     },
@@ -4535,7 +6486,19 @@
       "key": "CrawlUnderVehicle",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZCrawlUnderVehicle",
+      "pzOptionsKey": "ZCrawlUnderVehicle",
       "default": 5,
+      "labels": {
+        "en": "Crawl Under Vehicle",
+        "de": "Unter Fahrzeuge durchkriechen",
+        "es": "Arrastrarse debajo del vehículo",
+        "fr": "Zombies pouvant ramper sous les véhicules",
+        "zh-CN": "爬过车底",
+        "zh-TW": "爬行車輛下方",
+        "pt-BR": "Rastejar Sob Veículos",
+        "uk": "Зомбі проповзають під машинами"
+      },
       "options": [
         {
           "value": 1,
@@ -4544,7 +6507,9 @@
           "es": "Sólo reptantes",
           "fr": "Rampants uniquement",
           "zh-CN": "从不",
-          "ht": null
+          "zh-TW": "只有爬行者",
+          "pt-BR": "Apenas Rastejantes",
+          "uk": "Ніколи"
         },
         {
           "value": 2,
@@ -4553,7 +6518,9 @@
           "es": "Extremadamente raro",
           "fr": "Quasiment aucun",
           "zh-CN": "非常少",
-          "ht": null
+          "zh-TW": "極稀有",
+          "pt-BR": "Muito Raramente",
+          "uk": "Дуже рідко"
         },
         {
           "value": 3,
@@ -4562,7 +6529,9 @@
           "es": "Raro",
           "fr": "Quelques rares",
           "zh-CN": "稀少",
-          "ht": null
+          "zh-TW": "稀有",
+          "pt-BR": "Raramente",
+          "uk": "Рідко"
         },
         {
           "value": 4,
@@ -4571,7 +6540,9 @@
           "es": "A veces",
           "fr": "Quelques-uns",
           "zh-CN": "有时",
-          "ht": null
+          "zh-TW": "偶爾",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
         },
         {
           "value": 5,
@@ -4580,7 +6551,9 @@
           "es": "A menudo",
           "fr": "Beaucoup",
           "zh-CN": "经常",
-          "ht": null
+          "zh-TW": "頻繁",
+          "pt-BR": "Frequentemente",
+          "uk": "Часто"
         },
         {
           "value": 6,
@@ -4589,7 +6562,9 @@
           "es": "Muy a menudo",
           "fr": "Énormément",
           "zh-CN": "非常多",
-          "ht": null
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequentemente",
+          "uk": "Дуже часто"
         },
         {
           "value": 7,
@@ -4598,7 +6573,9 @@
           "es": "Siempre",
           "fr": "Tous",
           "zh-CN": "全部",
-          "ht": null
+          "zh-TW": "總是",
+          "pt-BR": "Sempre",
+          "uk": "Завжди"
         }
       ]
     },
@@ -4606,7 +6583,19 @@
       "key": "Reanimate",
       "category": "zombieLore",
       "section": "ZombieLore",
+      "pzLabelKey": "ZReanimateTime",
+      "pzOptionsKey": "ZReanimateTime",
       "default": 3,
+      "labels": {
+        "en": "Reanimate Time",
+        "de": "Reanimierungszeit",
+        "es": "Tiempo de reanimación",
+        "fr": "Temps de réanimation",
+        "zh-CN": "尸体复活",
+        "zh-TW": "復活時間",
+        "pt-BR": "Tempo de Reanimação",
+        "uk": "РЕАНІМАЦІЯ:"
+      },
       "options": [
         {
           "value": 1,
@@ -4615,7 +6604,9 @@
           "es": "Instantáneo",
           "fr": "Instantané",
           "zh-CN": "立即",
-          "ht": null
+          "zh-TW": "立即",
+          "pt-BR": "Instantâneo",
+          "uk": "Негайна"
         },
         {
           "value": 2,
@@ -4624,7 +6615,9 @@
           "es": "0-30 segundos",
           "fr": "0-30 secondes",
           "zh-CN": "0-30 秒",
-          "ht": null
+          "zh-TW": "0-30 秒",
+          "pt-BR": "0 a 30 Segundos",
+          "uk": "0-30 секунд"
         },
         {
           "value": 3,
@@ -4633,7 +6626,9 @@
           "es": "0-1 minuto",
           "fr": "0-1 minutes",
           "zh-CN": "0-1 分钟",
-          "ht": null
+          "zh-TW": "0-1 分鐘",
+          "pt-BR": "0 a 1 Minuto",
+          "uk": "0-1 хвилин"
         },
         {
           "value": 4,
@@ -4642,7 +6637,9 @@
           "es": "0-12 horas",
           "fr": "0-12 heures",
           "zh-CN": "0-12 小时",
-          "ht": null
+          "zh-TW": "0-12 小時",
+          "pt-BR": "0 a 12 Horas",
+          "uk": "0-12 годин"
         },
         {
           "value": 5,
@@ -4651,7 +6648,9 @@
           "es": "2-3 días",
           "fr": "2-3 jours",
           "zh-CN": "2-3 天",
-          "ht": null
+          "zh-TW": "2-3 天",
+          "pt-BR": "2 a 3 Dias",
+          "uk": "2-3 дня"
         },
         {
           "value": 6,
@@ -4660,7 +6659,106 @@
           "es": "1-2 semanas",
           "fr": "1-2 semaines",
           "zh-CN": "1-2 星期",
-          "ht": null
+          "zh-TW": "1-2 星期",
+          "pt-BR": "1 a 2 Semanas",
+          "uk": "1-2 тижні"
+        }
+      ]
+    },
+    "basement.SpawnFrequency": {
+      "key": "SpawnFrequency",
+      "category": "basement",
+      "section": "Basement",
+      "pzLabelKey": "BasementSpawnFrequency",
+      "pzOptionsKey": "BasementSpawnFrequency",
+      "default": 4,
+      "labels": {
+        "en": "Basement Spawn Frequency",
+        "de": "Häufigkeit von Kellern",
+        "es": "Frecuencia de aparición de sótanos",
+        "fr": "Fréquence d'apparition des sous-sols",
+        "zh-CN": "地下室生成频率",
+        "zh-TW": "地下室生成頻率",
+        "pt-BR": "Frequência de Geração de Porões",
+        "uk": "Частота появлення підвалів"
+      },
+      "options": [
+        {
+          "value": 1,
+          "en": "Never",
+          "de": "Nie",
+          "es": "Nunca",
+          "fr": "Jamais",
+          "zh-CN": "从不",
+          "zh-TW": "從不",
+          "pt-BR": "Nunca",
+          "uk": "Ніколи"
+        },
+        {
+          "value": 2,
+          "en": "Extremely Rare",
+          "de": "Extrem selten",
+          "es": "Extremadamente raro",
+          "fr": "Extrêmement rare",
+          "zh-CN": "极度罕见",
+          "zh-TW": "極度罕見",
+          "pt-BR": "Extremamente Rara",
+          "uk": "Нечасто"
+        },
+        {
+          "value": 3,
+          "en": "Rare",
+          "de": "Selten",
+          "es": "Raro",
+          "fr": "Rare",
+          "zh-CN": "罕见",
+          "zh-TW": "罕見",
+          "pt-BR": "Rara",
+          "uk": "Інколи"
+        },
+        {
+          "value": 4,
+          "en": "Sometimes",
+          "de": "Manchmal",
+          "es": "A veces",
+          "fr": "Parfois",
+          "zh-CN": "有时",
+          "zh-TW": "有時",
+          "pt-BR": "Às vezes",
+          "uk": "Іноді"
+        },
+        {
+          "value": 5,
+          "en": "Often",
+          "de": "Oft",
+          "es": "A menudo",
+          "fr": "Souvent",
+          "zh-CN": "经常",
+          "zh-TW": "經常",
+          "pt-BR": "Frequente",
+          "uk": "Часто"
+        },
+        {
+          "value": 6,
+          "en": "Very Often",
+          "de": "Sehr oft",
+          "es": "Muy frecuente",
+          "fr": "Très souvent",
+          "zh-CN": "非常频繁",
+          "zh-TW": "非常頻繁",
+          "pt-BR": "Muito Frequente",
+          "uk": "Дуже часто"
+        },
+        {
+          "value": 7,
+          "en": "Always",
+          "de": "Immer",
+          "es": "Siempre",
+          "fr": "Le plus possible",
+          "zh-CN": "总是",
+          "zh-TW": "總是",
+          "pt-BR": "Sempre",
+          "uk": "Завжди"
         }
       ]
     }

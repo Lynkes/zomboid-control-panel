@@ -3144,23 +3144,23 @@
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Agriculture Multiplier",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Farming Speed (Legacy)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Very Low"
+            "label": "Very Fast"
           },
           "2": {
-            "label": "Low"
+            "label": "Fast"
           },
           "3": {
             "label": "Normal"
           },
           "4": {
-            "label": "High"
+            "label": "Slow"
           },
           "5": {
-            "label": "Very High"
+            "label": "Very Slow"
           }
         }
       },
@@ -3581,16 +3581,16 @@
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Inside the building and around it"
           },
           "2": {
-            "label": "Small"
+            "label": "Inside the building"
           },
           "3": {
-            "label": "Medium"
+            "label": "Inside the room"
           },
           "4": {
-            "label": "Large"
+            "label": "Zombies can spawn anywhere"
           },
           "5": {
             "label": "Very Large"
@@ -3901,10 +3901,10 @@
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Never"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extremely Rare"
           },
           "3": {
             "label": "Rare"

@@ -491,15 +491,6 @@
         },
         "6": {
           "label": "0 - 5 ane"
-        },
-        "7": {
-          "label": "2 - 6 mwa"
-        },
-        "8": {
-          "label": "6 - 12 mwa"
-        },
-        "9": {
-          "label": "Dezaktive"
         }
       }
     },
@@ -1719,22 +1710,22 @@
       "label": "Jou anvan endèks rat maksimòm"
     },
     "Farming": {
-      "label": "Miltiplikatè agrikilti",
+      "label": "Vitès agrikilti (Farming)",
       "options": {
         "1": {
-          "label": "Trè ba"
+          "label": "Trè rapid"
         },
         "2": {
-          "label": "Ba"
+          "label": "Rapid"
         },
         "3": {
           "label": "Nòmal"
         },
         "4": {
-          "label": "Wo"
+          "label": "Ralanti"
         },
         "5": {
-          "label": "Trè wo"
+          "label": "Trè ralanti"
         }
       }
     },
@@ -2120,19 +2111,16 @@
       "label": "Netwaye zòn aparisyon",
       "options": {
         "1": {
-          "label": "Okenn"
+          "label": "Andedan bilding lan ak alantou l"
         },
         "2": {
-          "label": "Piti"
+          "label": "Andedan bilding lan"
         },
         "3": {
-          "label": "Mwayen"
+          "label": "Andedan chanm nan"
         },
         "4": {
-          "label": "Gwo"
-        },
-        "5": {
-          "label": "Trè gwo"
+          "label": "Zonbi ka parèt nenpòt kote"
         }
       }
     },
@@ -2377,10 +2365,10 @@
       "label": "Frekans aparisyon sousòl",
       "options": {
         "1": {
-          "label": "Okenn"
+          "label": "Jamè"
         },
         "2": {
-          "label": "Trè ra"
+          "label": "Ekstrèmman ra"
         },
         "3": {
           "label": "Ra"

@@ -51,6 +51,8 @@ import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
+  getLifecycleLockHolder,
+  supersedeLifecycleLock,
   lifecycleInProgressResponse,
   isLifecycleLockedForServer,
 } from "../services/lifecycleCoordinator.js";
@@ -2462,13 +2464,50 @@ function expireExitedServerHeartbeat() {
   panelBridge.markServerExited();
 }
 
+// Stop and Force stop must work while a restart is running: a restart holds the
+// one process-wide lifecycle lock for its whole run (a countdown of up to an
+// hour, then the stop, the start and the wait for RCON), so both used to be
+// refused with "A 'restart' operation ... is already in progress" and the only
+// way to turn the server off was to restart the panel. They now cancel the
+// restart (every wait in it ends at once and no step after it is taken) and
+// take the lock when it frees. A restart that is stuck in a step that cannot be
+// interrupted (the Docker restart call, the launch itself) is taken over after
+// RESTART_CANCEL_WAIT_MS: its own release() then does nothing. Any other
+// holder (a backup restore, an update, a wipe) still refuses, as before.
+const RESTART_CANCEL_WAIT_MS = 20000;
+const RESTART_CANCEL_POLL_MS = 250;
+export async function acquireLockForStop(operation, serverId, app) {
+  const lock = acquireLifecycleLock(operation, serverId);
+  if (lock) return lock;
+
+  const holder = getLifecycleLockHolder();
+  const wanted = serverId === null || serverId === undefined ? "" : String(serverId).trim();
+  const sameServer = !holder?.serverId || !wanted || holder.serverId === wanted;
+  if (holder?.operation !== "restart" || !sameServer) return null;
+
+  log.info(`${operation}: a restart is running -- cancelling it`);
+  app?.get?.("scheduler")?.cancelRestart?.();
+
+  const deadline = Date.now() + RESTART_CANCEL_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, RESTART_CANCEL_POLL_MS));
+    const next = acquireLifecycleLock(operation, serverId);
+    if (next) return next;
+  }
+  log.warn(
+    `${operation}: the restart did not finish cancelling in ${RESTART_CANCEL_WAIT_MS / 1000} s -- taking over`,
+  );
+  return supersedeLifecycleLock(operation, serverId);
+}
+
 // Stop server (graceful via RCON)
 router.post("/stop", requirePermission("server.control"), async (req, res) => {
   // See /start's comment above for why this is fetched before the lock.
   const activeServerForLock = await getActiveServer();
-  const lifecycleLock = acquireLifecycleLock(
+  const lifecycleLock = await acquireLockForStop(
     "stop",
     activeServerForLock?.id ?? null,
+    req.app,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());
@@ -2843,9 +2882,10 @@ async function attemptBoundedSaveBeforeForceStop(rconService) {
 router.post("/force-stop", requirePermission("server.control"), async (req, res) => {
   // See /start's comment above for why this is fetched before the lock.
   const activeServerForLock = await getActiveServer();
-  const lifecycleLock = acquireLifecycleLock(
+  const lifecycleLock = await acquireLockForStop(
     "force-stop",
     activeServerForLock?.id ?? null,
+    req.app,
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());

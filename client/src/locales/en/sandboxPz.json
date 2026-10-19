@@ -491,15 +491,6 @@
         },
         "6": {
           "label": "0 - 5 Years"
-        },
-        "7": {
-          "label": "2 - 6 Months"
-        },
-        "8": {
-          "label": "6 - 12 Months"
-        },
-        "9": {
-          "label": "Disabled"
         }
       }
     },
@@ -1719,22 +1710,22 @@
       "label": "Days Until Max Rat Index"
     },
     "Farming": {
-      "label": "Agriculture Multiplier",
+      "label": "Farming Speed (Legacy)",
       "options": {
         "1": {
-          "label": "Very Low"
+          "label": "Very Fast"
         },
         "2": {
-          "label": "Low"
+          "label": "Fast"
         },
         "3": {
           "label": "Normal"
         },
         "4": {
-          "label": "High"
+          "label": "Slow"
         },
         "5": {
-          "label": "Very High"
+          "label": "Very Slow"
         }
       }
     },
@@ -2120,19 +2111,16 @@
       "label": "Spawn Zone Clear",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Inside the building and around it"
         },
         "2": {
-          "label": "Small"
+          "label": "Inside the building"
         },
         "3": {
-          "label": "Medium"
+          "label": "Inside the room"
         },
         "4": {
-          "label": "Large"
-        },
-        "5": {
-          "label": "Very Large"
+          "label": "Zombies can spawn anywhere"
         }
       }
     },
@@ -2377,10 +2365,10 @@
       "label": "Basement Spawn Frequency",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Never"
         },
         "2": {
-          "label": "Very Rare"
+          "label": "Extremely Rare"
         },
         "3": {
           "label": "Rare"

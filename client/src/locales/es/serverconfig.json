@@ -1499,21 +1499,21 @@
         }
       },
       "ZombieMigrate": {
-        "label": "Migración De Zombis",
+        "label": "Migración de zombis",
         "description": "Zombies can migrate to empty cells."
       }
     },
     "loot": {
       "LootItemRemovalList": {
-        "label": "Lista De Eliminación De Botín",
+        "label": "Lista de eliminación de objetos de botín",
         "description": "Comma-separated item types removed from the world by the loot cleanup system."
       },
       "FoodLootNew": {
-        "label": "Comida Perecedera",
+        "label": "Comida perecedera",
         "description": "Any food that can rot or spoil."
       },
       "CannedFoodLootNew": {
-        "label": "Comida No Perecedera",
+        "label": "Comida no perecedera",
         "description": "Canned and dried food, beverages."
       },
       "LiteratureLootNew": {
@@ -1525,23 +1525,23 @@
         "description": "Books that provide skill XP multipliers."
       },
       "RecipeResourceLoot": {
-        "label": "Recursos de recetas",
+        "label": "Recetas",
         "description": "Items that teach recipes."
       },
       "MedicalLootNew": {
-        "label": "Médicos",
+        "label": "Médico",
         "description": "Medicine, bandages, and first aid tools."
       },
       "SurvivalGearsLootNew": {
-        "label": "Elementos De Supervivencia",
+        "label": "Elementos de supervivencia",
         "description": "Fishing rods, tents, camping gear."
       },
       "WeaponLootNew": {
-        "label": "Armas Cuerpo A Cuerpo",
+        "label": "Armas cuerpo a cuerpo",
         "description": "Weapons that are not tools in other categories."
       },
       "RangedWeaponLootNew": {
-        "label": "Armas De Larga Distancia",
+        "label": "Armas de larga distancia",
         "description": "Ranged weapons and weapon attachments."
       },
       "AmmoLootNew": {
@@ -1573,7 +1573,7 @@
         "description": "Spiffo items, plushies, and collectible keepsakes."
       },
       "CookwareLootNew": {
-        "label": "Utensilios De Cocina",
+        "label": "Utensilios de cocina",
         "description": "Cooking items including those that can be weapons. Does not include food."
       },
       "MaterialLootNew": {
@@ -1593,85 +1593,85 @@
         "description": "Everything else. Also affects foraging in Town/Road zones."
       },
       "RollsMultiplier": {
-        "label": "Multiplicador De Tiradas [!]",
+        "label": "Multiplicador de tiradas [!]",
         "description": "Multiplier for loot table rolls. Higher values may affect performance. NOT recommended to change."
       },
       "RemoveStoryLoot": {
-        "label": "Eliminar Botín De Historia No Deseado",
+        "label": "Eliminar botín no deseado de historias",
         "description": "Items on the removal list will not spawn in world stories."
       },
       "RemoveZombieLoot": {
-        "label": "Eliminar Botín De Zombis No Deseado",
+        "label": "Eliminar botín no deseado de los zombis",
         "description": "Items on the removal list will not spawn on zombies."
       },
       "ZombiePopLootEffect": {
-        "label": "Efecto De Botín Por Población Zombi",
+        "label": "Efecto de la población de zombis sobre el botín",
         "description": "If > 0, loot increases relative to nearby zombies, multiplied by this value."
       },
       "HoursForLootRespawn": {
-        "label": "Horas Para Reaparición De Botín",
+        "label": "Horas para la reaparición del botín",
         "description": "Hours after which containers respawn loot. 0 = never."
       },
       "MaxItemsForLootRespawn": {
-        "label": "Máximo De Objetos Para Reaparición",
+        "label": "Máximo de objetos para la reaparición del botín",
         "description": "Containers with this many items or more will not respawn loot."
       },
       "ConstructionPreventsLootRespawn": {
-        "label": "La Construcción Evita La Reaparición De Botín",
+        "label": "Las construcciones impiden la reaparición del botín",
         "description": "Player constructions near containers prevent loot respawn."
       },
       "SeenHoursPreventLootRespawn": {
-        "label": "Horas para reaparición de loot",
+        "label": "Horas desde la última visita que impiden la reaparición del botín",
         "description": "Hours a zone must be unvisited before loot respawns. 0 = disabled."
       }
     },
     "lootRarity": {
       "InsaneLootFactor": {
-        "label": "Factor De Botín Extremadamente Raro",
+        "label": "Factor de botín demencialmente raro",
         "description": "Spawn rate for Insane rarity items."
       },
       "ExtremeLootFactor": {
-        "label": "Factor De Botín Muy Raro",
+        "label": "Factor de botín extremadamente raro",
         "description": "Spawn rate for Extreme rarity items."
       },
       "RareLootFactor": {
-        "label": "Factor De Botín Raro",
+        "label": "Factor de botín raro",
         "description": "Spawn rate for Rare rarity items."
       },
       "NormalLootFactor": {
-        "label": "Factor De Botín Normal",
+        "label": "Factor de botín normal",
         "description": "Spawn rate for Normal rarity items."
       },
       "CommonLootFactor": {
-        "label": "Factor De Botín Común",
+        "label": "Factor de botín común",
         "description": "Spawn rate for Common rarity items."
       },
       "AbundantLootFactor": {
-        "label": "Factor De Botín Abundante",
+        "label": "Factor de botín abundante",
         "description": "Spawn rate for Abundant rarity items."
       },
       "MaximumLooted": {
-        "label": "Probabilidad Máxima De Edificio Saqueado",
+        "label": "Probabilidad máxima de edificio saqueado",
         "description": "Chance that any building is already looted when found."
       },
       "DaysUntilMaximumLooted": {
-        "label": "Días Hasta La Probabilidad Máxima De Saqueo",
+        "label": "Días hasta la probabilidad máxima de edificio saqueado",
         "description": "Days before Maximum Looted Building Chance is reached."
       },
       "RuralLooted": {
-        "label": "Multiplicador De Probabilidad De Saqueo En Áreas Rurales",
+        "label": "Multiplicador de probabilidad de edificios rurales saqueados",
         "description": "Chance that any rural building is already looted."
       },
       "MaximumDiminishedLoot": {
-        "label": "Porcentaje Máximo De Botín Reducido",
+        "label": "Porcentaje máximo de reducción del botín",
         "description": "Maximum loot that won't spawn when diminished days reached."
       },
       "DaysUntilMaximumDiminishedLoot": {
-        "label": "Días Hasta Botín Reducido Máximo",
+        "label": "Días hasta la reducción máxima del botín",
         "description": "Days before Maximum Diminished Loot is reached."
       },
       "MaximumLootedBuildingRooms": {
-        "label": "Máximo de Habitaciones Saqueadas en un Edificio",
+        "label": "Máximo de habitaciones saqueadas por edificio",
         "description": "Buildings with more than this many rooms will not be auto-looted."
       }
     },
@@ -1684,49 +1684,49 @@
             "label": "Normal"
           },
           "2": {
-            "label": "Día Infinito"
+            "label": "Día infinito"
           },
           "3": {
-            "label": "Noche Infinita"
+            "label": "Noche infinita"
           }
         }
       },
       "ClimateCycle": {
-        "label": "Ciclo Climático",
+        "label": "Ciclo climático",
         "description": "Whether weather changes or remains fixed.",
         "options": {
           "1": {
             "label": "Normal"
           },
           "2": {
-            "label": "Sin Clima"
+            "label": "Sin clima"
           },
           "3": {
-            "label": "Lluvia Infinita"
+            "label": "Lluvia infinita"
           },
           "4": {
-            "label": "Tormenta Infinita"
+            "label": "Tormenta infinita"
           },
           "5": {
-            "label": "Nieve Infinita"
+            "label": "Nieve infinita"
           },
           "6": {
-            "label": "Ventisca Infinita"
+            "label": "Ventisca infinita"
           }
         }
       },
       "FogCycle": {
-        "label": "Ciclo de Niebla",
+        "label": "Ciclo de niebla",
         "description": "Whether fog occurs naturally.",
         "options": {
           "1": {
             "label": "Normal"
           },
           "2": {
-            "label": "Sin Niebla"
+            "label": "Sin niebla"
           },
           "3": {
-            "label": "Niebla Infinita"
+            "label": "Niebla infinita"
           }
         }
       },
@@ -1797,7 +1797,7 @@
         }
       },
       "AlarmDecay": {
-        "label": "Decadencia De La Alarma",
+        "label": "Descarga de la batería de las alarmas",
         "description": "How long alarm batteries last after power shuts off.",
         "options": {
           "1": {
@@ -2036,7 +2036,7 @@
     },
     "survival": {
       "StatsDecrease": {
-        "label": "Deterioro de la comida",
+        "label": "Reducción de estados",
         "description": "How fast hunger, thirst, and fatigue decrease.",
         "options": {
           "1": {
@@ -2133,7 +2133,7 @@
         }
       },
       "EndRegen": {
-        "label": "Deterioro de la comida",
+        "label": "Regeneración de resistencia",
         "description": "Recovery from tiredness after actions.",
         "options": {
           "1": {
@@ -2179,7 +2179,7 @@
         }
       },
       "ZombieHealthImpact": {
-        "label": "Impacto De Salud Por Zombis",
+        "label": "Impacto de salud por zombis",
         "description": "Whether living zombies also affect player health/emotions."
       },
       "BloodLevel": {
@@ -2264,7 +2264,7 @@
         }
       },
       "MuscleStrainFactor": {
-        "label": "Factor De Tensión Muscular",
+        "label": "Factor de fatiga muscular",
         "description": "Multiplier for muscle strain from swinging weapons or carrying heavy loads."
       },
       "DiscomfortFactor": {
@@ -2272,19 +2272,19 @@
         "description": "Multiplier for discomfort from worn items."
       },
       "WoundInfectionFactor": {
-        "label": "Factor De Daño Por Infección De Heridas",
+        "label": "Factor de daño por infección de heridas",
         "description": "Damage from serious wound infections. 0 = disabled."
       },
       "NoBlackClothes": {
-        "label": "Sin Ropa Negra",
+        "label": "Sin ropa negra",
         "description": "Prevent randomized clothing from becoming near-black."
       },
       "EasyClimbing": {
-        "label": "Escalada Fácil",
+        "label": "Escalada fácil",
         "description": "Disable failure chances when climbing sheet ropes or walls."
       },
       "NegativeTraitsPenalty": {
-        "label": "Penalización Por Rasgos Negativos",
+        "label": "Penalización por rasgos negativos",
         "description": "Diminishing returns on bonus points from negative traits.",
         "options": {
           "1": {
@@ -2302,27 +2302,27 @@
         }
       },
       "MinutesPerPage": {
-        "label": "Minutos Por Página De Libro De Habilidades",
+        "label": "Minutos por página de libro de habilidades",
         "description": "In-game minutes to read one page of a skill book."
       },
       "LiteratureCooldown": {
-        "label": "Días De Enfriamiento Para Literatura",
+        "label": "Días de enfriamiento para literatura",
         "description": "Days before previously read literature can benefit again."
       },
       "LevelForMediaXPCutoff": {
-        "label": "Nivel Máximo De XP Por Medios",
+        "label": "Nivel Máximo de XP por medios",
         "description": "Skill level at which TV/VHS/media no longer provides XP."
       },
       "LevelForDismantleXPCutoff": {
-        "label": "Nivel Máximo De XP Por Desmantelar",
+        "label": "Nivel máximo de XP por desmantelar",
         "description": "Skill level at which scrapping furniture gives no XP."
       },
       "BloodSplatLifespanDays": {
-        "label": "Duración De Salpicaduras De Sangre (Días)",
+        "label": "Duración de salpicaduras de sangre (Días)",
         "description": "Days before blood splats disappear. 0 = never."
       },
       "MetaKnowledge": {
-        "label": "Conocimiento Meta De Medios",
+        "label": "Conocimiento meta de medios",
         "description": "How unseen/unread media is displayed.",
         "options": {
           "1": {
@@ -2337,7 +2337,7 @@
         }
       },
       "SeeNotLearntRecipe": {
-        "label": "Ver Recetas No Conocidas",
+        "label": "Ver recetas no conocidas",
         "description": "See station recipes even if not yet learned."
       },
       "LightBulbLifespan": {
@@ -2373,7 +2373,7 @@
         }
       },
       "LockedHouses": {
-        "label": "Alarmas en las casas",
+        "label": "Frecuencia de casas cerradas",
         "description": "Frequency of locked houses.",
         "options": {
           "1": {
@@ -2445,11 +2445,11 @@
         }
       },
       "NatureAbundance": {
-        "label": "Abundancia De Agricultura",
+        "label": "Abundancia de la naturaleza",
         "description": "Governs abundance of wild foods, medicinal plants, etc.",
         "options": {
           "1": {
-            "label": "Muy Pobre"
+            "label": "Muy pobre"
           },
           "2": {
             "label": "Pobre"
@@ -2461,16 +2461,16 @@
             "label": "Abundante"
           },
           "5": {
-            "label": "Muy Abundante"
+            "label": "Muy abundante"
           }
         }
       },
       "FishAbundance": {
-        "label": "Abundancia De Agricultura",
+        "label": "Abundancia de pesca",
         "description": "Governs abundance of fish.",
         "options": {
           "1": {
-            "label": "Muy Pobre"
+            "label": "Muy pobre"
           },
           "2": {
             "label": "Pobre"
@@ -2482,7 +2482,7 @@
             "label": "Abundante"
           },
           "5": {
-            "label": "Muy Abundante"
+            "label": "Muy abundante"
           }
         }
       },
@@ -2550,11 +2550,11 @@
         "description": "Generators can be placed outdoors and inside tents."
       },
       "GeneratorTileRange": {
-        "label": "Rango de Baldosas del Generador",
+        "label": "Rango de baldosas del generador",
         "description": "Horizontal range of generators in tiles."
       },
       "GeneratorVerticalPowerRange": {
-        "label": "Rango Vertical del Generador",
+        "label": "Rango vertical del generador",
         "description": "Vertical range of generators in floors."
       },
       "CompostTime": {
@@ -2629,23 +2629,23 @@
         "description": "Chance of weapon condition loss per use. 0 = never."
       },
       "FirearmNoiseMultiplier": {
-        "label": "Multiplicador De Ruido De Armas De Fuego",
+        "label": "Multiplicador de ruido de armas de fuego",
         "description": "Multiplier for gun noise attracting zombies."
       },
       "FirearmJamMultiplier": {
-        "label": "Multiplicador De Atascos De Armas De Fuego",
+        "label": "Multiplicador de atascos de armas de fuego",
         "description": "Multiplier for jamming chance."
       },
       "FirearmMoodleMultiplier": {
-        "label": "Multiplicador De Estado De Ánimo Para Armas De Fuego",
+        "label": "Multiplicador de estado de ánimo para armas de fuego",
         "description": "Multiplier for panic/stress from gun use."
       },
       "FirearmWeatherMultiplier": {
-        "label": "Multiplicador De Clima Para Armas De Fuego",
+        "label": "Multiplicador de clima para armas de fuego",
         "description": "Multiplier for rain affecting gun condition."
       },
       "FirearmHeadGearEffect": {
-        "label": "Efecto De Protección En La Precisión",
+        "label": "Efecto de protección en la precisión",
         "description": "How much head-covering gear like helmets affects firearm aim/shoulder."
       }
     },
@@ -2704,19 +2704,19 @@
         }
       },
       "FuelStationGasInfinite": {
-        "label": "Bombas De Gasolina Infinitas",
+        "label": "Bombas de gasolina infinitas",
         "description": "If enabled, gas pumps will never run out of fuel."
       },
       "FuelStationGasMin": {
-        "label": "Cantidad Mínima Inicial De Gasolina",
+        "label": "Cantidad mínima inicial de gasolina",
         "description": "The minimum amount of gasoline that can spawn in gas pumps."
       },
       "FuelStationGasMax": {
-        "label": "Cantidad Máxima Inicial De Gasolina",
+        "label": "Cantidad máxima inicial de gasolina",
         "description": "The maximum amount of gasoline that can spawn in gas pumps."
       },
       "FuelStationGasEmptyChance": {
-        "label": "Probabilidad Inicial De Bombas Vacías",
+        "label": "Probabilidad inicial de bombas vacías",
         "description": "The chance, as a percentage, that individual gas pumps will initially have no fuel."
       },
       "LockedCar": {
@@ -2884,13 +2884,13 @@
         "description": "Multiplier for vehicle sounds attracting zombies."
       },
       "SirenEffectsZombies": {
-        "label": "Las Sirenas Atraen Zombis",
+        "label": "Las sirenas atraen zombis",
         "description": "If zombies will head towards the sound of vehicle sirens."
       }
     },
     "animals": {
       "AnimalStatsModifier": {
-        "label": "Velocidad De Reducción De Estadísticas",
+        "label": "Velocidad de reducción de estadísticas",
         "description": "Speed at which animal stats (hunger, thirst etc.) reduce.",
         "options": {
           "1": {
@@ -2909,12 +2909,12 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalMetaStatsModifier": {
-        "label": "Velocidad De Reducción De Metadatos",
+        "label": "Velocidad de reducción de estadísticas en metadatos",
         "description": "Speed at which animal stats reduce while in meta (overworld).",
         "options": {
           "1": {
@@ -2933,12 +2933,12 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalPregnancyTime": {
-        "label": "Duración Del Embarazo",
+        "label": "Duración del embarazo",
         "description": "How long animals will be pregnant for before giving birth.",
         "options": {
           "1": {
@@ -2957,36 +2957,36 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalAgeModifier": {
-        "label": "Velocidad De Envejecimiento",
+        "label": "Velocidad de envejecimiento",
         "description": "Speed at which animals age.",
         "options": {
           "1": {
-            "label": "Muy Rápido"
+            "label": "Ultrarrápido"
           },
           "2": {
-            "label": "Rápido"
+            "label": "Muy Rápido"
           },
           "3": {
-            "label": "Normal"
+            "label": "Rápido"
           },
           "4": {
             "label": "Normal"
           },
           "5": {
-            "label": "Slow"
+            "label": "Lento"
           },
           "6": {
-            "label": "Very Slow"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalMilkIncModifier": {
-        "label": "Velocidad De Producción De Leche",
+        "label": "Velocidad de producción de leche",
         "description": "Speed of milk production.",
         "options": {
           "1": {
@@ -3005,12 +3005,12 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalWoolIncModifier": {
-        "label": "Velocidad De Producción De Lana",
+        "label": "Velocidad de producción de lana",
         "description": "Speed of wool production.",
         "options": {
           "1": {
@@ -3029,28 +3029,28 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalRanchChance": {
-        "label": "Probabilidad De Aparición De Animales",
+        "label": "Probabilidad de aparición de animales",
         "description": "The chance of finding animals in farms.",
         "options": {
           "1": {
             "label": "Nunca"
           },
           "2": {
-            "label": "Extremadamente Rara"
+            "label": "Muy raro"
           },
           "3": {
             "label": "Rara"
           },
           "4": {
-            "label": "A Veces"
+            "label": "A veces"
           },
           "5": {
-            "label": "Frecuente"
+            "label": "A menudo"
           },
           "6": {
             "label": "Muy Frecuente"
@@ -3061,19 +3061,19 @@
         }
       },
       "AnimalGrassRegrowTime": {
-        "label": "Tiempo De Regeneración De Pasto",
+        "label": "Tiempo de regeneración de pasto",
         "description": "The number of hours grass will regrow after being eaten by an animal or cut by the player."
       },
       "AnimalMetaPredator": {
-        "label": "Depredador Meta",
+        "label": "Depredador meta",
         "description": "If a meta fox may attack your chickens if the hutch door is left open at night."
       },
       "AnimalMatingSeason": {
-        "label": "Temporada De Reproducción",
+        "label": "Temporada de reproducción",
         "description": "Restrict mating to spring/early summer or allow year-round."
       },
       "AnimalEggHatch": {
-        "label": "Tiempo De Incubación",
+        "label": "Tiempo de incubación",
         "description": "How long before baby animals will hatch from eggs.",
         "options": {
           "1": {
@@ -3092,12 +3092,12 @@
             "label": "Lento"
           },
           "6": {
-            "label": "Muy Lento"
+            "label": "Muy lento"
           }
         }
       },
       "AnimalSoundAttractZombies": {
-        "label": "Sonidos De Animales Atraen Zombis",
+        "label": "Sonidos de animales atraen zombis",
         "description": "If true, animal calls will attract nearby zombies."
       },
       "AnimalTrackChance": {
@@ -3125,7 +3125,7 @@
         }
       },
       "AnimalPathChance": {
-        "label": "Probabilidad de sendas de animales",
+        "label": "Probabilidad de pasos de animales",
         "description": "The chance of creating a path for animals to be hunted.",
         "options": {
           "1": {
@@ -3149,31 +3149,31 @@
         }
       },
       "MaximumRatIndex": {
-        "label": "Índice Máximo De Plagas",
+        "label": "Índice máximo de alimañas",
         "description": "Maximum rat infestation level. 0 = no rats."
       },
       "DaysUntilMaximumRatIndex": {
-        "label": "Días Hasta El Índice Máximo De Plagas",
+        "label": "Días hasta alcanzar el índice máximo de alimañas",
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Multiplicador De Agricultura",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Velocidad de cultivo (Farming)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Muy bajo"
+            "label": "Muy rápido"
           },
           "2": {
-            "label": "Bajo"
+            "label": "Rápido"
           },
           "3": {
             "label": "Normal"
           },
           "4": {
-            "label": "Alto"
+            "label": "Lento"
           },
           "5": {
-            "label": "Muy alto"
+            "label": "Muy lento"
           }
         }
       },
@@ -3203,7 +3203,7 @@
         "description": "How much food crops produce.",
         "options": {
           "1": {
-            "label": "Muy Pobre"
+            "label": "Muy pobre"
           },
           "2": {
             "label": "Pobre"
@@ -3215,28 +3215,28 @@
             "label": "Abundante"
           },
           "5": {
-            "label": "Muy Abundante"
+            "label": "Muy abundante"
           }
         }
       },
       "KillInsideCrops": {
-        "label": "Matar Cultivos Cultivados En Interiores",
+        "label": "Los cultivos de interior mueren",
         "description": "Whether stepping on indoor crops destroys them."
       },
       "PlantGrowingSeasons": {
-        "label": "Temporadas De Crecimiento De Plantas",
+        "label": "Temporadas de crecimiento de plantas",
         "description": "Restrict crop growth to appropriate seasons."
       },
       "PlaceDirtAboveground": {
-        "label": "Granjas Fuera Del Nivel Del Suelo [!]",
+        "label": "Granjas fuera del nivel del suelo [!]",
         "description": "Allow placing dirt on built floors above ground."
       },
       "FarmingSpeedNew": {
-        "label": "Velocidad De Agricultura",
+        "label": "Velocidad de agricultura",
         "description": "Plant growth speed multiplier. Higher = faster (2 = twice as fast)."
       },
       "FarmingAmountNew": {
-        "label": "Abundancia De Agricultura",
+        "label": "Abundancia de agricultura",
         "description": "Multiplier for number of crops harvested."
       },
       "ClayLakeChance": {
@@ -3272,12 +3272,12 @@
             "label": "Muy frecuentemente"
           },
           "7": {
-            "label": "Siempre Intenta"
+            "label": "Siempre intenta"
           }
         }
       },
       "VehicleStoryChance": {
-        "label": "Posibilidad de historias de vehículos al azar",
+        "label": "Posibilidad de historias aleatorias en carretera",
         "description": "Chance of finding story-decorated vehicles.",
         "options": {
           "1": {
@@ -3299,12 +3299,12 @@
             "label": "Muy frecuentemente"
           },
           "7": {
-            "label": "Siempre Intenta"
+            "label": "Siempre intenta"
           }
         }
       },
       "ZoneStoryChance": {
-        "label": "Historias aleatorias por zonas",
+        "label": "Historias aleatorias de zona",
         "description": "Chance of encountering zone-based story setups.",
         "options": {
           "1": {
@@ -3326,7 +3326,7 @@
             "label": "Muy frecuentemente"
           },
           "7": {
-            "label": "Siempre Intenta"
+            "label": "Siempre intenta"
           }
         }
       }
@@ -3337,7 +3337,7 @@
         "description": "How fast zombies move.",
         "options": {
           "1": {
-            "label": "Velocistas"
+            "label": "Corredores"
           },
           "2": {
             "label": "Tambaleantes veloces"
@@ -3351,7 +3351,7 @@
         }
       },
       "Strength": {
-        "label": "Multiplicador De Fuerza",
+        "label": "Fuerza",
         "description": "How strong zombies are.",
         "options": {
           "1": {
@@ -3490,7 +3490,7 @@
             "label": "Aleatoria"
           },
           "5": {
-            "label": "Aleatorio entre Normal y Pobre"
+            "label": "Aleatorio entre Normal y Mala"
           }
         }
       },
@@ -3511,12 +3511,12 @@
             "label": "Aleatoria"
           },
           "5": {
-            "label": "Aleatorio entre Normal y Pobre"
+            "label": "Aleatorio entre Normal y Mala"
           }
         }
       },
       "SpottedLogic": {
-        "label": "Nuevo Sistema De Sigilo",
+        "label": "Nuevo sistema de sigilo",
         "description": "How zombies decide to chase their targets."
       },
       "ThumpNoChasing": {
@@ -3551,7 +3551,7 @@
         "description": "Multiple zombies can pull player to ground."
       },
       "ZombiesCrawlersDragDown": {
-        "label": "Arrastre De Zombis Reptantes",
+        "label": "Los reptantes pueden derribarte",
         "description": "Crawlers can drag players down."
       },
       "ZombiesFenceLunge": {
@@ -3559,19 +3559,19 @@
         "description": "Zombies can lunge at you over fences."
       },
       "ZombiesArmorFactor": {
-        "label": "Factor De Armadura De Zombis",
+        "label": "Factor de armadura de zombis",
         "description": "Multiplier for zombie armor from clothing. Higher = harder to kill."
       },
       "ZombiesMaxDefense": {
-        "label": "Defensa Máxima De Armadura De Zombis",
+        "label": "Defensa máxima de la armadura de los zombis",
         "description": "Maximum defense value zombies can have."
       },
       "ChanceOfAttachedWeapon": {
-        "label": "Probabilidad De Armas Adjuntas",
+        "label": "Probabilidad de arma incrustada",
         "description": "Chance a zombie has a weapon stuck in them."
       },
       "ZombiesFallDamage": {
-        "label": "Multiplicador De Daño Por Caída De Zombis",
+        "label": "Multiplicador del daño por caída de los zombis",
         "description": "Whether zombies can die from falling."
       },
       "DisableFakeDead": {
@@ -3590,20 +3590,20 @@
         }
       },
       "PlayerSpawnZombieRemoval": {
-        "label": "Spawn Zone Clear",
+        "label": "Zona de aparición del jugador",
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Dentro del edificio y alrededor"
           },
           "2": {
-            "label": "Small"
+            "label": "Dentro del edificio"
           },
           "3": {
-            "label": "Medium"
+            "label": "Dentro de la habitación"
           },
           "4": {
-            "label": "Large"
+            "label": "Los zombis pueden aparecer en cualquier lugar"
           },
           "5": {
             "label": "Very Large"
@@ -3611,15 +3611,15 @@
         }
       },
       "FenceThumpersRequired": {
-        "label": "Zombis Para Dañar Vallas",
+        "label": "Zombis para dañar vallas",
         "description": "Minimum zombies needed to damage a fence."
       },
       "FenceDamageMultiplier": {
-        "label": "Multiplicador de Daño a Vallas",
+        "label": "Multiplicador de daño a vallas",
         "description": "Multiplier for damage zombies do to fences."
       },
       "DoorOpeningPercentage": {
-        "label": "Random Door Opening Amount",
+        "label": "Porcentaje de zombis que pueden abrir puertas",
         "description": "Percentage of zombies that can open doors when cognition allows it."
       },
       "CrawlUnderVehicle": {
@@ -3650,7 +3650,7 @@
         }
       },
       "SprinterPercentage": {
-        "label": "Random Sprinter Amount",
+        "label": "Porcentaje de zombis corredores",
         "description": "Percentage of sprinter zombies when Speed is set to Random."
       },
       "Reanimate": {
@@ -3720,7 +3720,7 @@
         "description": "Base number of zombies in rally groups."
       },
       "RallyGroupSizeVariance": {
-        "label": "Varianza Del Tamaño De Grupos De Reunión",
+        "label": "Variación del tamaño de la horda",
         "description": "The amount, as a percentage, that zombie groups can vary in size from the default (both larger and smaller)."
       },
       "RallyTravelDistance": {
@@ -3736,133 +3736,133 @@
         "description": "Radius of area a rally group spreads across."
       },
       "ZombiesCountBeforeDelete": {
-        "label": "Cantidad De Zombis Antes De Borrar",
+        "label": "Número de zombis antes de eliminarlos",
         "description": "Minimum zombie count in a cell before deletion can occur."
       }
     },
     "xpMultipliers": {
       "Global": {
-        "label": "Multiplicador Global",
+        "label": "Multiplicador global",
         "description": "The rate at which all skills level up."
       },
       "GlobalToggle": {
-        "label": "Usar Multiplicador Global",
+        "label": "Usar multiplicador global",
         "description": "When enabled, all skills will use the Global Multiplier instead of individual values."
       },
       "Sprinting": {
-        "label": "Multiplicador De Carrera",
+        "label": "Multiplicador de Carrera",
         "description": "XP multiplier for Sprinting skill."
       },
       "Lightfoot": {
-        "label": "Multiplicador De Pies Ligeros",
+        "label": "Multiplicador de Pies ligeros",
         "description": "XP multiplier for Lightfoot skill."
       },
       "Nimble": {
-        "label": "Multiplicador De Destreza",
+        "label": "Multiplicador de Destreza",
         "description": "XP multiplier for Nimble skill."
       },
       "Sneak": {
-        "label": "Multiplicador De Sigilo",
+        "label": "Multiplicador de Sigilo",
         "description": "XP multiplier for Sneaking skill."
       },
       "Axe": {
-        "label": "Multiplicador De Hacha",
+        "label": "Multiplicador de Hacha",
         "description": "XP multiplier for Axe skill."
       },
       "Blunt": {
-        "label": "Multiplicador De Armas Largas Contundentes ",
+        "label": "Multiplicador de Armas largas contundentes",
         "description": "XP multiplier for Blunt skill."
       },
       "SmallBlade": {
-        "label": "Multiplicador De Armas de Hoja Corta",
+        "label": "Multiplicador de Armas de hoja corta",
         "description": "XP multiplier for Small Blade skill."
       },
       "LongBlade": {
-        "label": "Multiplicador De Armas de Hoja Larga",
+        "label": "Multiplicador de Armas de hoja larga",
         "description": "XP multiplier for Long Blade skill."
       },
       "SmallBlunt": {
-        "label": "Multiplicador De Armas Cortas Contundentes ",
+        "label": "Multiplicador de Armas cortas contundentes",
         "description": "XP multiplier for Small Blunt skill."
       },
       "Aiming": {
-        "label": "Multiplicador De Puntería",
+        "label": "Multiplicador de Puntería",
         "description": "XP multiplier for Aiming skill."
       },
       "Reloading": {
-        "label": "Multiplicador De Recarga",
+        "label": "Multiplicador de Recarga",
         "description": "XP multiplier for Reloading skill."
       },
       "Fishing": {
-        "label": "Multiplicador De Pesca",
+        "label": "Multiplicador de Pesca",
         "description": "XP multiplier for Fishing skill."
       },
       "Trapping": {
-        "label": "Multiplicador De Trampas",
+        "label": "Multiplicador de Trampas",
         "description": "XP multiplier for Trapping skill."
       },
       "Woodwork": {
-        "label": "Multiplicador De Carpintería",
+        "label": "Multiplicador de Carpintería",
         "description": "XP multiplier for Carpentry skill."
       },
       "Cooking": {
-        "label": "Multiplicador De Cocina",
+        "label": "Multiplicador de Cocina",
         "description": "XP multiplier for Cooking skill."
       },
       "Farming": {
-        "label": "Multiplicador De Agricultura",
+        "label": "Multiplicador de Agricultura",
         "description": "XP multiplier for Farming skill."
       },
       "Doctor": {
-        "label": "Multiplicador De Primeros Auxilios",
+        "label": "Multiplicador de Primeros auxilios",
         "description": "XP multiplier for First Aid skill."
       },
       "Electricity": {
-        "label": "Multiplicador De Electricidad",
+        "label": "Multiplicador ae Electrónica",
         "description": "XP multiplier for Electricity skill."
       },
       "MetalWelding": {
-        "label": "Multiplicador De Metalistería",
+        "label": "Multiplicador de Metalistería",
         "description": "XP multiplier for Metalworking skill."
       },
       "Mechanics": {
-        "label": "Multiplicador De Mecánica",
+        "label": "Multiplicador de Mecánica",
         "description": "XP multiplier for Mechanics skill."
       },
       "Tailoring": {
-        "label": "Multiplicador De Sastrería",
+        "label": "Multiplicador de Sastrería",
         "description": "XP multiplier for Tailoring skill."
       },
       "Maintenance": {
-        "label": "Multiplicador De Mantenimiento",
+        "label": "Multiplicador de Mantenimiento",
         "description": "XP multiplier for Maintenance skill."
       },
       "PlantScavenging": {
-        "label": "Multiplicador De Recolección",
+        "label": "Multiplicador de Rebuscar",
         "description": "XP multiplier for Foraging skill."
       },
       "Fitness": {
-        "label": "Multiplicador De Estado Físico",
+        "label": "Multiplicador de Estado físico",
         "description": "XP multiplier for Fitness skill."
       },
       "Strength": {
-        "label": "Multiplicador De Fuerza",
+        "label": "Multiplicador de Fuerza",
         "description": "XP multiplier for Strength skill."
       },
       "FlintKnapping": {
-        "label": "Multiplicador De Labrar Piedra",
+        "label": "Multiplicador de Labrar piedra",
         "description": "XP multiplier for Knapping skill."
       },
       "Carving": {
-        "label": "Multiplicador De Tallar",
+        "label": "Multiplicador de Tallar",
         "description": "XP multiplier for Carving skill."
       },
       "Tracking": {
-        "label": "Multiplicador De Rastrear",
+        "label": "Multiplicador de Rastreo",
         "description": "XP multiplier for Tracking skill."
       },
       "Butchering": {
-        "label": "Multiplicador De Carnicería",
+        "label": "Multiplicador de Carnicería",
         "description": "XP multiplier for Butchering skill."
       },
       "Glassmaking": {
@@ -3870,23 +3870,23 @@
         "description": "XP multiplier for Glassmaking skill."
       },
       "Husbandry": {
-        "label": "Multiplicador De Cuidado Animal",
+        "label": "Multiplicador de Cuidado animal",
         "description": "XP multiplier for Animal Husbandry skill."
       },
       "Spear": {
-        "label": "Multiplicador De Lanza",
+        "label": "Multiplicador de Lanza",
         "description": "XP multiplier for Spear skill."
       },
       "Masonry": {
-        "label": "Multiplicador De Albañilería",
+        "label": "Multiplicador de Albañilería",
         "description": "XP multiplier for Masonry skill."
       },
       "Pottery": {
-        "label": "Multiplicador De Alfarería",
+        "label": "Multiplicador de Alfarería",
         "description": "XP multiplier for Pottery skill."
       },
       "Blacksmith": {
-        "label": "Multiplicador De Herrería",
+        "label": "Multiplicador de Herrería",
         "description": "XP multiplier for Blacksmith skill."
       }
     },
@@ -3904,35 +3904,35 @@
         "description": "The entire map is revealed from the start."
       },
       "MapNeedsLight": {
-        "label": "Luz Necesaria Para Leer El Mapa",
+        "label": "Luz necesaria para leer el mapa",
         "description": "Map can only be used when there is enough light."
       }
     },
     "basement": {
       "SpawnFrequency": {
-        "label": "Basement Spawn Frequency",
+        "label": "Frecuencia de aparición de sótanos",
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Nunca"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extremadamente raro"
           },
           "3": {
-            "label": "Rare"
+            "label": "Raro"
           },
           "4": {
-            "label": "Sometimes"
+            "label": "A veces"
           },
           "5": {
-            "label": "Often"
+            "label": "A menudo"
           },
           "6": {
-            "label": "Very Often"
+            "label": "Muy frecuente"
           },
           "7": {
-            "label": "Always"
+            "label": "Siempre"
           }
         }
       }
