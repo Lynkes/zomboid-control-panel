@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
+
 ## [1.4.17] - 2026-10-18
 
 ### Fixed
