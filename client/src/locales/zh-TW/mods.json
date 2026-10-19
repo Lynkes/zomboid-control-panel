@@ -152,6 +152,7 @@
     "descPrefix": "貼上 Steam 創意工坊連結或 ID，或",
     "importCollectionLink": "匯入整個收藏集",
     "inputLabel": "創意工坊連結或 ID",
+    "discoveringHint": "正在查找模組 ID。伺服器上還沒有的模組會先從 Steam 下載，這可能需要一分鐘。",
     "inputPlaceholder": "貼上創意工坊連結或輸入 ID…",
     "discover": "查詢",
     "example": "示例：https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",

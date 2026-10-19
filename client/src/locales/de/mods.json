@@ -152,6 +152,7 @@
     "descPrefix": "Füge eine Steam-Workshop-URL oder -ID ein — oder",
     "importCollectionLink": "importiere eine ganze Sammlung",
     "inputLabel": "Workshop-URL oder -ID",
+    "discoveringHint": "Mod-IDs werden gesucht. Eine Mod, die der Server noch nicht hat, wird zuerst von Steam heruntergeladen, das kann eine Minute dauern.",
     "inputPlaceholder": "Workshop-URL einfügen oder ID eingeben …",
     "discover": "Erkennen",
     "example": "Beispiel: https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",

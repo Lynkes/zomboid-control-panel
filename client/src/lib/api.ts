@@ -1757,12 +1757,14 @@ export const modsApi = {
   discoverModIds: (
     workshopId?: string,
     workshopUrl?: string,
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; download?: boolean },
   ) =>
+    // `download`: have SteamCMD fetch an item that is not on the server yet, so its
+    // mod IDs are read from its own files (up to 8 minutes on the server side).
     apiPost(
       "/mods/discover-mod-ids",
-      { workshopId, workshopUrl },
-      options,
+      { workshopId, workshopUrl, download: options?.download === true ? true : undefined },
+      { signal: options?.signal, timeout: options?.download ? 9 * 60 * 1000 : undefined },
     ) as Promise<{
       success: boolean;
       workshopId: string;
@@ -1775,6 +1777,8 @@ export const modsApi = {
       mapFolders: string[];
       isDownloaded: boolean;
       tags: string[];
+      downloadedFromSteam?: boolean;
+      downloadSkippedReason?: string | null;
     }>,
 
   // Add mod with specific mod IDs selected (for multi-ID mods)

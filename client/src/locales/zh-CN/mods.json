@@ -152,6 +152,7 @@
     "descPrefix": "粘贴 Steam 创意工坊链接或 ID，或",
     "importCollectionLink": "导入整个收藏集",
     "inputLabel": "创意工坊链接或 ID",
+    "discoveringHint": "正在查找模组 ID。服务器上还没有的模组会先从 Steam 下载，这可能需要一分钟。",
     "inputPlaceholder": "粘贴创意工坊链接或输入 ID…",
     "discover": "查找",
     "example": "示例：https://steamcommunity.com/sharedfiles/filedetails/?id=3616536783",
