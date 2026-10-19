@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stop and Force stop during a restart:** they now cancel the restart and turn the server off instead of being refused with "A 'restart' operation is already in progress"; a cancelled restart ends at once (countdown, save, stop, start or RCON wait) and starts nothing.
+
 ## [1.4.16] - 2026-10-16
 
 ### Added
