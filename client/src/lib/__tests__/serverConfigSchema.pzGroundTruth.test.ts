@@ -26,15 +26,16 @@ import { SANDBOX_SCHEMA } from '../serverConfigSchema'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE_PATH = path.resolve(__dirname, '../__fixtures__/pzSandboxGroundTruth.json')
 
-// The known, resolved denominator: 80 SANDBOX_SCHEMA select-type entries
-// have a trustworthy PZ option group the extractor could confidently
-// resolve. 2 more (PlayerSpawnZombieRemoval, SpawnFrequency) are
-// known-unresolved, and 1 more (AnimalAgeModifier) resolved but PZ's own
-// reference is known-stale -- all 3 intentionally excluded; see the
-// fixture's _provenance.note and knownStalePzReferences for why. If this
-// number changes, something changed the join or the schema's select-type
-// entries -- investigate before updating it, don't just bump it to match.
-const EXPECTED_SETTING_COUNT = 80
+// The known, resolved denominator: all 83 SANDBOX_SCHEMA select-type
+// entries. The extractor reads each option's translation keys out of the
+// game's own bytecode (setTranslation/setValueTranslation), so every one
+// resolves -- including the 3 the old name/label-guessing extractor could
+// not: PlayerSpawnZombieRemoval (ZSpawnRemoval), SpawnFrequency
+// (BasementSpawnFrequency) and AnimalAgeModifier (AnimalSpeed, not its own
+// vestigial 3-entry Sandbox_AnimalAgeModifier_option*). If this number
+// changes, something changed the join or the schema's select-type entries
+// -- investigate before updating it, don't just bump it to match.
+const EXPECTED_SETTING_COUNT = 83
 
 type FixtureOption = { value: number; en: string | null }
 type FixtureSetting = { key: string; category: string; default: number | boolean | string | null; options: FixtureOption[] }

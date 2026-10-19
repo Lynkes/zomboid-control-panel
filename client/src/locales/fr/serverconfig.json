@@ -2052,7 +2052,7 @@
             "label": "Lente"
           },
           "5": {
-            "label": "Très lente"
+            "label": "Très Lente"
           }
         }
       },
@@ -2133,7 +2133,7 @@
         }
       },
       "EndRegen": {
-        "label": "Récupération d'endurance",
+        "label": "Régénération de l'endurance",
         "description": "Recovery from tiredness after actions.",
         "options": {
           "1": {
@@ -2373,7 +2373,7 @@
         }
       },
       "LockedHouses": {
-        "label": "Fréquence de verrouillage des maisons",
+        "label": "Fréquence de fermeture des maisons",
         "description": "Frequency of locked houses.",
         "options": {
           "1": {
@@ -2466,7 +2466,7 @@
         }
       },
       "FishAbundance": {
-        "label": "Abondance de poissons",
+        "label": "Abondance de la pêche",
         "description": "Governs abundance of fish.",
         "options": {
           "1": {
@@ -3157,23 +3157,23 @@
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Multiplicateur d'agriculture",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Vitesse de l'agriculture (Farming)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Très basse"
+            "label": "Très rapide"
           },
           "2": {
-            "label": "Basse"
+            "label": "Rapide"
           },
           "3": {
             "label": "Normale"
           },
           "4": {
-            "label": "Haute"
+            "label": "Lente"
           },
           "5": {
-            "label": "Très haute"
+            "label": "Très lente"
           }
         }
       },
@@ -3284,10 +3284,10 @@
             "label": "Jamais"
           },
           "2": {
-            "label": "Très rarement"
+            "label": "Très rare"
           },
           "3": {
-            "label": "Rarement"
+            "label": "Rare"
           },
           "4": {
             "label": "Parfois"
@@ -3311,10 +3311,10 @@
             "label": "Jamais"
           },
           "2": {
-            "label": "Très rarement"
+            "label": "Très rare"
           },
           "3": {
-            "label": "Rarement"
+            "label": "Rare"
           },
           "4": {
             "label": "Parfois"
@@ -3575,7 +3575,7 @@
         "description": "Whether zombies can die from falling."
       },
       "DisableFakeDead": {
-        "label": "Zombies qui se réaniment",
+        "label": "Réanimation des zombies feignant la mort",
         "description": "No zombies will pretend to be dead.",
         "options": {
           "1": {
@@ -3590,20 +3590,20 @@
         }
       },
       "PlayerSpawnZombieRemoval": {
-        "label": "Spawn Zone Clear",
+        "label": "Zone d'apparition du joueur",
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Dans le bâtiment et autour"
           },
           "2": {
-            "label": "Small"
+            "label": "Dans le bâtiment"
           },
           "3": {
-            "label": "Medium"
+            "label": "Dans la pièce"
           },
           "4": {
-            "label": "Large"
+            "label": "Les zombies peuvent apparaître partout"
           },
           "5": {
             "label": "Very Large"
@@ -3619,7 +3619,7 @@
         "description": "Multiplier for damage zombies do to fences."
       },
       "DoorOpeningPercentage": {
-        "label": "Random Door Opening Amount",
+        "label": "Taux aléatoire de Z qui ouvrent les portes",
         "description": "Percentage of zombies that can open doors when cognition allows it."
       },
       "CrawlUnderVehicle": {
@@ -3650,7 +3650,7 @@
         }
       },
       "SprinterPercentage": {
-        "label": "Random Sprinter Amount",
+        "label": "Taux aléatoire de sprinteurs",
         "description": "Percentage of sprinter zombies when Speed is set to Random."
       },
       "Reanimate": {
@@ -3810,7 +3810,7 @@
         "description": "XP multiplier for Cooking skill."
       },
       "Farming": {
-        "label": "Multiplicateur d'XP d'agriculture",
+        "label": "Multiplicateur d'agriculture",
         "description": "XP multiplier for Farming skill."
       },
       "Doctor": {
@@ -3910,29 +3910,29 @@
     },
     "basement": {
       "SpawnFrequency": {
-        "label": "Basement Spawn Frequency",
+        "label": "Fréquence d'apparition des sous-sols",
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Jamais"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extrêmement rare"
           },
           "3": {
             "label": "Rare"
           },
           "4": {
-            "label": "Sometimes"
+            "label": "Parfois"
           },
           "5": {
-            "label": "Often"
+            "label": "Souvent"
           },
           "6": {
-            "label": "Very Often"
+            "label": "Très souvent"
           },
           "7": {
-            "label": "Always"
+            "label": "Le plus possible"
           }
         }
       }
