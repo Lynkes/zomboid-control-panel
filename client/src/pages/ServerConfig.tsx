@@ -181,6 +181,26 @@ type FilterMode = 'all' | 'modified' | 'nondefault'
 type SandboxScalar = string | number | boolean | null | undefined
 type SandboxRecord = Record<string, SandboxScalar>
 
+// The Sandbox Save sends only the values the form changed. PUT /sandbox writes
+// every value it gets that differs from the file, so sending the whole form
+// put back what changed on disk since it loaded: a Mod Settings edit
+// (PUT /sandbox-option) made earlier in the same visit, for one.
+function changedSandboxSections(data: SandboxData, original: SandboxData): SandboxData {
+  const changed: Record<string, unknown> = {}
+  const source = data as unknown as Record<string, unknown>
+  const before = original as unknown as Record<string, unknown>
+  for (const [section, values] of Object.entries(source)) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) continue
+    const old = (before[section] ?? {}) as SandboxRecord
+    const diff: SandboxRecord = {}
+    for (const [key, value] of Object.entries(values as SandboxRecord)) {
+      if (JSON.stringify(value) !== JSON.stringify(old[key])) diff[key] = value
+    }
+    if (Object.keys(diff).length > 0) changed[section] = diff
+  }
+  return changed as unknown as SandboxData
+}
+
 // PanelBridge enumerates every sandbox option. These are Project Zomboid's
 // built-in groups, which belong in the Sandbox editor rather than Mod Settings.
 const VANILLA_SANDBOX_GROUPS = new Set([
@@ -1024,6 +1044,10 @@ export default function ServerConfig() {
   // synchronously — keeps the input snappy on slower machines.
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [editorMode, setEditorMode] = useState<EditorMode>('structured')
+  // loadData() runs from the socket handler's older closure too: it reads the
+  // mode through this ref.
+  const editorModeRef = useRef<EditorMode>(editorMode)
+  editorModeRef.current = editorMode
   // Filter mode: 'all' = every schema setting, 'modified' = differs from the PZ default,
   // 'nondefault' = local edits not yet saved.
   const [filterMode, setFilterMode] = useState<FilterMode>(() => {
@@ -1254,6 +1278,20 @@ export default function ServerConfig() {
   // whichever response landed last (not last-requested) won, silently.
   const modSettingsLoadIdRef = useRef(0)
   const [savingOptions, setSavingOptions] = useState<Set<string>>(new Set())
+  // The server loadData() last loaded (undefined before the first load). Mod
+  // Settings and the live sandbox ranges come from that server's bridge; a
+  // switch drops them so the tabs ask the new server's bridge.
+  const loadedServerKeyRef = useRef<string | null | undefined>(undefined)
+  const resetBridgeSandboxOptions = () => {
+    modSettingsLoadIdRef.current += 1
+    setModSettings(null)
+    setModSettingsGroups([])
+    setModSettingsLastLoaded(null)
+    setModSettingsError(null)
+    setModSettingsLoading(false)
+    setSandboxLiveRanges(null)
+    setSandboxLiveRangesStatus('idle')
+  }
 
   // Shared helper: is this mod option modified from its default?
   const isOptModified = useCallback((opt: { default?: unknown; value?: unknown }) => {
@@ -1452,6 +1490,11 @@ export default function ServerConfig() {
     const isRemote = !!active.server?.isRemote
     setActiveServerRemote(isRemote)
     setActiveServerName(active.server?.name || active.server?.serverName || null)
+    const serverKey = active.server?.id != null ? String(active.server.id) : null
+    if (loadedServerKeyRef.current !== undefined && loadedServerKeyRef.current !== serverKey) {
+      resetBridgeSandboxOptions()
+    }
+    loadedServerKeyRef.current = serverKey
     try {
       // Load paths info first
       const paths = await serverFilesApi.getPaths(retries)
@@ -1492,6 +1535,12 @@ export default function ServerConfig() {
         setOriginalSpawnRegions([])
       }
       setLoadError(null)
+      // The raw editor shows a file too: after a switch, a Refresh or a
+      // restore it would keep the old text, and saving it wrote that text
+      // over the file that is there now (another server's, after a switch).
+      if (editorModeRef.current === 'raw') {
+        await loadRawContent(RAW_FILE_OF_TAB[activeTabRef.current as ServerConfigTab])
+      }
     } catch (error) {
       reportClientError('Failed to load config.', error)
       // getServerConfigPath() (server/routes/serverFiles.js) throws the same
@@ -1634,7 +1683,8 @@ export default function ServerConfig() {
   // Unsaved changes in the Form of the tab on screen: the raw editor shows
   // the file as it is on disk, without them.
   const hasFormEdits = editorMode === 'structured'
-    && ((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges))
+    && ((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges)
+      || (activeTab === 'spawnregions' && hasSpawnRegionChanges))
   const hasUnsavedChanges = hasIniChanges || hasSandboxChanges || hasSpawnRegionChanges || hasSpawnPointChanges || hasRawEdits
   // Every unsaved edit on the page, whichever tab holds it: leaving through
   // the sidebar, a link, the palette or a shortcut asks first, and closing
@@ -1706,10 +1756,30 @@ export default function ServerConfig() {
 
   // ?tab= changed without the tab strip (a command-palette deep link while
   // the page is open): the raw editor follows it like a click would.
+  // The leave-page guard doesn't ask on a same-page link (the sidebar's own
+  // entry, a palette section), so unsaved raw edits are asked about here, and
+  // the tab goes back when the operator keeps them.
   useEffect(() => {
     if (activeTabRef.current === activeTab) return
+    const previous = activeTabRef.current as ServerConfigTab
+    const follow = () => {
+      activeTabRef.current = activeTab
+      if (editorMode === 'raw') void loadRawContent(RAW_FILE_OF_TAB[activeTab])
+    }
+    if (!hasRawEdits) {
+      follow()
+      return
+    }
     activeTabRef.current = activeTab
-    if (editorMode === 'raw') void loadRawContent(RAW_FILE_OF_TAB[activeTab])
+    void confirmDiscardRawEdits().then((ok) => {
+      if (activeTabRef.current !== activeTab) return
+      if (ok) {
+        follow()
+      } else {
+        activeTabRef.current = previous
+        setActiveTabParam(previous)
+      }
+    })
   }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps -- only a tab change outside handleTabChange reloads
 
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
@@ -2205,7 +2275,11 @@ export default function ServerConfig() {
           }
         })
 
-        const sandboxSaveResult = await serverFilesApi.saveSandbox(cleanData)
+        // A file that doesn't exist yet is created from the whole form.
+        const payload = pathsInfo?.exists.sandbox !== false && originalSandboxData
+          ? changedSandboxSections(cleanData, originalSandboxData)
+          : cleanData
+        const sandboxSaveResult = await serverFilesApi.saveSandbox(payload)
         // Update local state to match sanitized data
         setSandboxData(cleanData)
         setOriginalSandboxData(cleanData)

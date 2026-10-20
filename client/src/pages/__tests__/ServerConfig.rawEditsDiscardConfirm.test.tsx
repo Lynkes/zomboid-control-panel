@@ -153,9 +153,11 @@ describe('ServerConfig.tsx: saved raw edits are not "unsaved" any more', () => {
 
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /^save$/i })) })
     await waitFor(() => expect(saveRaw).toHaveBeenCalledWith('spawnpoints', 'spawn=2'))
+    // The reload after the save reads the file back into the raw editor.
+    await waitFor(() => expect(getRaw).toHaveBeenCalledTimes(2))
 
     openTab(/spawn regions/i)
-    await waitFor(() => expect(getRaw).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getRaw).toHaveBeenCalledTimes(3))
     expect(screen.queryByText('Discard your unsaved raw edits?')).not.toBeInTheDocument()
   })
 })
