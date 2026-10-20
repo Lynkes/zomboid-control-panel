@@ -20,6 +20,7 @@ import { useSocket } from '@/contexts/SocketContext'
 import { serverFilesApi, templatesApi } from '@/lib/api'
 import { buildTemplateCapture, TemplateCapture } from '@/lib/templateBuilder'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useUnsavedChangesGuard } from '@/contexts/UnsavedChangesContext'
 
 interface CreateTemplateDialogProps {
   open: boolean
@@ -38,6 +39,9 @@ export function CreateTemplateDialog({ open, onClose, onCreated }: CreateTemplat
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A named template that isn't saved yet: leaving the page (or the tab)
+  // asks first.
+  useUnsavedChangesGuard(open && !saving && (name.trim() !== '' || description.trim() !== '' || tags.trim() !== ''))
 
   useEffect(() => {
     if (!open) return

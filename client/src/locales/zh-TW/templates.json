@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "沙盒模板",
-    "description": "為你的伺服器套用預設規則集，或儲存你自己的設定以便日後重複使用。",
+    "title": "模板",
+    "description": "可套用到任何伺服器的規則集；設定快照只能還原單一伺服器的檔案。",
+    "snapshotsLink": "設定快照位於「伺服器設定」中",
     "import": "匯入",
     "saveCurrentConfig": "儲存當前設定"
   },
+  "loading": "正在載入模板",
   "emptyState": {
     "loadErrorTitle": "無法載入模板",
     "retry": "重試",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "將當前伺服器設定儲存為模板，或從檔案匯入一個。"
   },
   "hiddenSection": {
-    "title": "已隱藏的內建模板",
+    "toggle": "已隱藏的內建模板（{{n}}）",
     "description": "已從上方列表中隱藏，但未被刪除。恢復一個即可找回。",
     "restoreButton": "恢復",
     "restoreAria": "恢復{{name}}"

@@ -5,7 +5,9 @@
   "settingsOverridden_other": "{{count}} Einstellungen überschrieben",
   "modsCount_one": "{{count}} Mod",
   "modsCount_other": "{{count}} Mods",
-  "preview": "Vorschau",
+  "preview": "Vorschau & anwenden",
   "exportTitle": "Vorlage exportieren",
-  "deleteTitle": "Vorlage löschen"
+  "deleteTitle": "Vorlage löschen",
+  "hideTitle": "Vorlage ausblenden",
+  "actionsAria": "Aktionen für {{name}}"
 }

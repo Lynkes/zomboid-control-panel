@@ -69,7 +69,7 @@ describe('Templates.tsx canManage: gates on the templates.manage capability, not
 
     renderTemplates()
 
-    await screen.findByText('Simulation Templates')
+    await screen.findByRole('heading', { level: 1, name: 'Templates' })
     expect(screen.queryByRole('button', { name: 'Save Current Config' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument()
   })

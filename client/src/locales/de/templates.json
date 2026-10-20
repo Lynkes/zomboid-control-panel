@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Simulationsvorlagen",
-    "description": "Wende ein kuratiertes Regelwerk auf deinen Server an oder speichere deine eigene Konfiguration zur späteren Wiederverwendung.",
+    "title": "Vorlagen",
+    "description": "Regelwerke, die du auf jeden Server anwenden kannst; ein Konfig-Schnappschuss stellt nur die Dateien eines Servers wieder her.",
+    "snapshotsLink": "Konfig-Schnappschüsse findest du in der Serverkonfiguration",
     "import": "Importieren",
     "saveCurrentConfig": "Aktuelle Konfiguration speichern"
   },
+  "loading": "Vorlagen werden geladen",
   "emptyState": {
     "loadErrorTitle": "Vorlagen konnten nicht geladen werden",
     "retry": "Erneut versuchen",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Speichere deine aktuelle Serverkonfiguration als Vorlage oder importiere eine aus einer Datei."
   },
   "hiddenSection": {
-    "title": "Ausgeblendete integrierte Vorlagen",
+    "toggle": "Ausgeblendete Vorlagen ({{n}})",
     "description": "Aus der Liste oben ausgeblendet, aber nicht gelöscht. Stelle eine wieder her, um sie zurückzuholen.",
     "restoreButton": "Wiederherstellen",
     "restoreAria": "{{name}} wiederherstellen"
