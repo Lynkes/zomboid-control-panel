@@ -578,6 +578,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "The server's mod list changed",
+    "serverModsChangedDesc": "Mods were enabled or disabled on the server since this page loaded the list. They are merged into your order now: check it, then save again.",
     "pendingAddServerChangedTitle": "Active server changed",
     "pendingAddServerChangedDesc": "The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.",
     "noActiveServerTitle": "No active server",

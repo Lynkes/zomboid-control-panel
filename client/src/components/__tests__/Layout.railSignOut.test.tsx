@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SocketContext } from '@/contexts/SocketContext'
 import Layout from '../Layout'
@@ -92,7 +92,8 @@ describe('Layout: signing out from the collapsed icon rail', () => {
     const footer = renderLayout()
     expect(await footer.findByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
     fireEvent.click(footer.getByRole('button', { name: 'Sign out' }))
-    expect(auth.logout).toHaveBeenCalledTimes(1)
+    // After the unsaved-changes check (nothing unsaved here), which is async.
+    await waitFor(() => expect(auth.logout).toHaveBeenCalledTimes(1))
   })
 
   it('shows no Sign out button in the rail when sign-in is off', async () => {

@@ -219,6 +219,42 @@ describe('WorldMap.tsx deep links', () => {
     expect(screen.getByRole('link', { name: 'Open in Players' })).toHaveAttribute('href', '/players?player=Nobody')
     expect(screen.queryByRole('button', { name: 'Close dossier' })).toBeNull()
   }, 20000)
+
+  // The bridge status answers at once; the roster is a round trip through
+  // the mod. "Kate isn't on the map" used to flash in between.
+  it('?player= says nothing about the player until the roster has arrived', async () => {
+    setUp()
+    let deliver: () => void = () => {}
+    vi.mocked(panelBridgeApi.getServerInfo).mockReturnValue(new Promise((resolve) => {
+      deliver = () => resolve({ success: true, data: { players: [{ name: 'Kate', x: 10000, y: 10000, health: 40 }] } } as never)
+    }))
+    renderWorldMap('/world-map?player=Kate')
+
+    await screen.findByText('Bridge connected', {}, { timeout: 5000 })
+    await wait(100)
+    expect(screen.queryByText("Kate isn't on the map")).toBeNull()
+
+    deliver()
+    expect(await screen.findByRole('button', { name: 'Close dossier' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByText("Kate isn't on the map")).toBeNull()
+  }, 20000)
+
+  // Detecting the map build re-centres on its default view: a pan to the
+  // player before it lands was undone on a cold map.
+  it('?player= waits for the map build before centring on the player', async () => {
+    setUp()
+    let resolveMap: () => void = () => {}
+    const resolved = await vi.mocked(mapApi.resolve)()
+    vi.mocked(mapApi.resolve).mockReturnValue(new Promise((resolve) => { resolveMap = () => resolve(resolved) }))
+    renderWorldMap('/world-map?player=Kate')
+
+    await screen.findByRole('button', { name: /pan to kate/i }, { timeout: 5000 })
+    await wait(100)
+    expect(screen.queryByRole('button', { name: 'Close dossier' })).toBeNull()
+
+    resolveMap()
+    expect(await screen.findByRole('button', { name: 'Close dossier' }, { timeout: 5000 })).toBeInTheDocument()
+  }, 20000)
 })
 
 describe('WorldMap.tsx page alerts', () => {

@@ -232,7 +232,7 @@
     "title": "{{name}} deaktivieren?",
     "description_one": "{{count}} Mod wird aus der Serverkonfiguration (Mods=) entfernt. Ihre Dateien bleiben auf der Festplatte, daher lässt sich die Gruppe sofort wieder aktivieren.",
     "description_other": "{{count}} Mods werden aus der Serverkonfiguration (Mods=) entfernt. Ihre Dateien bleiben auf der Festplatte, daher lässt sich die Gruppe sofort wieder aktivieren.",
-    "sharedNote": "Beibehalten, weil eine andere, vollständig aktivierte Gruppe sie benötigt: {{items}}",
+    "sharedNote": "Beibehalten, weil eine andere Gruppe noch aktivierte Mods hat und sie ebenfalls enthält: {{items}}",
     "confirm": "Mods deaktivieren",
     "doneTitle": "{{name}} deaktiviert",
     "doneDesc_one": "{{count}} Mod wurde aus der Serverkonfiguration entfernt.",

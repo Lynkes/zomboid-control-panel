@@ -230,7 +230,7 @@
     "title": "停用 {{name}}？",
     "description_one": "{{count}} 個模組將從伺服器設定（Mods=）中移除。其檔案仍保留在磁碟上，因此再次啟用此群組會立即完成。",
     "description_other": "{{count}} 個模組將從伺服器設定（Mods=）中移除。其檔案仍保留在磁碟上，因此再次啟用此群組會立即完成。",
-    "sharedNote": "已保留，因為另一個已完全啟用的群組需要它們：{{items}}",
+    "sharedNote": "已保留，因為另一個群組仍有已啟用的模組，並且也包含它們：{{items}}",
     "confirm": "停用模組",
     "doneTitle": "已停用 {{name}}",
     "doneDesc_one": "{{count}} 個模組已從伺服器設定中移除。",

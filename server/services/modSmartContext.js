@@ -17,7 +17,12 @@ import { buildLoadOrderConstraints, planLoadOrder } from "../utils/modSmartSort.
 import { normalizeGroup } from "../utils/modGroups.js";
 import { VANILLA_MAP_FOLDERS } from "../utils/modHealth.js";
 import { getBridgeManaged } from "./bridgeDelivery.js";
-import { findMapFoldersFromWorkshop, getModDetailsFromWorkshop, getWorkshopPaths } from "./workshopModInfo.js";
+import {
+  findMapFoldersFromWorkshop,
+  getModDetailsFromModsFolder,
+  getModDetailsFromWorkshop,
+  getWorkshopPaths,
+} from "./workshopModInfo.js";
 import { peekSteamKnowledge } from "./modSteamKnowledge.js";
 
 const MODS_RE = /^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m;
@@ -65,18 +70,57 @@ function itemFolder(workshopId, serverPath) {
   return null;
 }
 
+// Where a dedicated server finds mods, in the order it looks
+// (ZomboidFileSystem.getAllModFolders, default "workshop,steam,mods" -- read
+// from the 42.21 jar): Workshop items staged under <Zomboid>/Workshop/<item>/
+// Contents/mods, then the installed Workshop items (WorkshopItems=), then
+// <Zomboid>/mods. ChooseGameInfo.getModDetails keeps the FIRST folder found
+// for an id (putIfAbsent), so a Workshop copy of an id beats a local one. The
+// order of the installed items among themselves is Steam's, not the panel's
+// to know.
+
+function modsOfFolder(folder, source) {
+  return getModDetailsFromModsFolder(folder).map((mod) => {
+    const dir = path.join(folder, mod.folder);
+    return { ...mod, workshopId: null, source, dir, b42: hasB42ModInfo(dir) };
+  });
+}
+
+// The staged items' and the local mods of a data folder.
+function dataFolderMods(zomboidDataPath) {
+  if (typeof zomboidDataPath !== "string" || !zomboidDataPath) return { staged: [], local: [], readable: false };
+  const staged = [];
+  let stageFolders = [];
+  try {
+    // codeql[js/path-injection] zomboidDataPath is the active server's data folder, held to the data-folder rule (getActiveServerPaths).
+    stageFolders = fs.readdirSync(path.join(zomboidDataPath, "Workshop"), { withFileTypes: true }).filter((e) => e.isDirectory());
+  } catch {
+    stageFolders = [];
+  }
+  for (const entry of stageFolders) {
+    staged.push(...modsOfFolder(path.join(zomboidDataPath, "Workshop", entry.name, "Contents", "mods"), "staged"));
+  }
+  // codeql[js/path-injection] see above.
+  const readable = fs.existsSync(zomboidDataPath);
+  return { staged, local: modsOfFolder(path.join(zomboidDataPath, "mods"), "local"), readable };
+}
+
 /**
  * Reads the active server's mod setup. `content` is the ini text,
- * `serverPath` the install folder (Workshop content), `extraModIds` ids to
- * profile and classify besides the ones that load (a client's unsaved order).
- * `catalogOnly` stops after the mods and their links (no folder walks, no
- * classification): enough for an order rule's loop check.
+ * `serverPath` the install folder (Workshop content), `zomboidDataPath` the
+ * data folder the server runs with (its mods/ and Workshop/ hold mods too),
+ * `extraModIds` ids to profile and classify besides the ones that load (a
+ * client's unsaved order). `catalogOnly` stops after the mods and their links
+ * (no folder walks, no classification): enough for an order rule's loop check.
+ *
+ * Every mod has `source` ("workshop", "local" or "staged"); `providers` maps
+ * an id to every Build 42 copy of it, in the order the game looks.
  */
-export async function loadModSmartContext({ content, serverPath, extraModIds = [], catalogOnly = false }) {
+export async function loadModSmartContext({ content, serverPath, zomboidDataPath = null, extraModIds = [], catalogOnly = false }) {
   const lists = readModLists(content);
   const itemMods = new Map();
   const itemsOnDisk = new Set();
-  const all = [];
+  const workshopMods = [];
   for (const workshopId of lists.workshopItems) {
     if (!WORKSHOP_ID.test(workshopId)) continue;
     const base = itemFolder(workshopId, serverPath);
@@ -85,24 +129,36 @@ export async function loadModSmartContext({ content, serverPath, extraModIds = [
     const searchBase = fs.existsSync(path.join(base, "mods")) ? path.join(base, "mods") : base;
     const mods = getModDetailsFromWorkshop(workshopId, serverPath).map((mod) => {
       const dir = path.join(searchBase, mod.folder);
-      return { ...mod, workshopId, dir, b42: hasB42ModInfo(dir) };
+      return { ...mod, workshopId, source: "workshop", dir, b42: hasB42ModInfo(dir) };
     });
     itemMods.set(workshopId, mods);
-    all.push(...mods);
+    workshopMods.push(...mods);
   }
+  const data = dataFolderMods(zomboidDataPath);
+  const all = [...data.staged, ...workshopMods, ...data.local];
 
-  // One entry per id: the first Build 42 one; ids no item ships for B42 are
-  // left out of what loads and remembered as B41-only.
+  // One entry per id: the first Build 42 copy in the game's order; ids no
+  // folder ships for B42 are left out of what loads and remembered as
+  // B41-only.
   const catalogMap = new Map();
-  for (const mod of all) if (mod.b42 && !catalogMap.has(mod.id)) catalogMap.set(mod.id, mod);
+  const providers = new Map();
+  for (const mod of all) {
+    if (!mod.b42) continue;
+    if (!catalogMap.has(mod.id)) catalogMap.set(mod.id, mod);
+    if (!providers.has(mod.id)) providers.set(mod.id, []);
+    providers.get(mod.id).push({ source: mod.source, workshopId: mod.workshopId });
+  }
   const legacyMods = new Map();
   for (const mod of all) {
     if (!mod.b42 && !catalogMap.has(mod.id) && !legacyMods.has(mod.id)) {
-      legacyMods.set(mod.id, { workshopId: mod.workshopId, name: mod.name });
+      legacyMods.set(mod.id, { workshopId: mod.workshopId, source: mod.source, name: mod.name });
     }
   }
   const catalog = [...catalogMap.values()];
-  if (catalogOnly) return { ...lists, serverPath, catalog, catalogMap, legacyMods, itemMods, itemsOnDisk };
+  const localModsReadable = data.readable;
+  if (catalogOnly) {
+    return { ...lists, serverPath, catalog, catalogMap, legacyMods, itemMods, itemsOnDisk, providers, localModsReadable };
+  }
   const analysis = analyzeModOrder(lists.modsLine, catalog);
   const enabled = uniq([
     ...analysis.effectiveModOrder.filter((id) => catalogMap.has(id)),
@@ -136,6 +192,8 @@ export async function loadModSmartContext({ content, serverPath, extraModIds = [
     legacyMods,
     itemMods,
     itemsOnDisk,
+    providers,
+    localModsReadable,
     analysis,
     enabled,
     classification,
@@ -148,6 +206,26 @@ export async function loadModSmartContext({ content, serverPath, extraModIds = [
     rules: await getModOrderRules(),
     bridge: await getBridgeManaged(),
   };
+}
+
+/**
+ * The hard order constraints (require=, also through a required mod Mods=
+ * does not list, and order rules) between the mods of `order`, exactly as the
+ * load-order planner builds them: what the group enforcement of routes/mods.js
+ * passes to the keep-together rule it shares with the planner
+ * (modGroups.js keepTogetherForcedApart). [] when the mod list cannot be read
+ * (the enforcement then keeps every group together, as before).
+ */
+export async function hardOrderEdges(order, { content, serverPath, zomboidDataPath = null }) {
+  try {
+    const ctx = await loadModSmartContext({ content, serverPath, zomboidDataPath, catalogOnly: true });
+    const built = buildLoadOrderConstraints({ order, mods: ctx.catalog, rules: await getModOrderRules() });
+    return built.constraints
+      .filter((c) => c.reason === "require" || c.reason === "rule")
+      .map(({ before, after, reason }) => ({ before, after, reason }));
+  } catch {
+    return [];
+  }
 }
 
 /** The require= links between the known mods, as order-rule cycle edges. */
@@ -274,6 +352,7 @@ export function buildModInsights(ctx, built, steamStatus) {
     if (!mod || !info) continue;
     mods[id] = {
       workshopId: mod.workshopId,
+      source: mod.source,
       name: mod.name || id,
       enabled: listedMods.has(id),
       kind: info.kind,

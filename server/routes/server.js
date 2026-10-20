@@ -48,6 +48,7 @@ import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
 import { requirePermission } from "../services/permissions.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
+import { canSeeRconTarget, withoutRconConfigTarget } from "../utils/rconTargetView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
@@ -1838,7 +1839,9 @@ router.get("/status", async (req, res) => {
       // (utils/hostPathView.js); serverPathConfigured still says whether
       // there is one.
       ...((await canSeeHostPaths(req.user)) ? status : hideHostPaths(status)),
-      rcon: rconStatus,
+      // Whether RCON is connected for every role; its host and port only
+      // for the roles that work with it (utils/rconTargetView.js).
+      rcon: (await canSeeRconTarget(req.user)) ? rconStatus : withoutRconConfigTarget(rconStatus),
       // For the client to re-express startTime in its own clock -- see
       // routes/serverStatus.js, which sends the same field.
       serverTime: Date.now(),

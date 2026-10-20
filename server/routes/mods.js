@@ -124,6 +124,7 @@ import {
 } from "../utils/modConflictRules.js";
 import { downloadWorkshopItem } from "../services/workshopDownload.js";
 import { addConflictSuggestions, refreshConflictSuggestions } from "../services/modSmartScan.js";
+import { hardOrderEdges } from "../services/modSmartContext.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
 // keeps exporting getModDetailsFromWorkshop for its existing importers.
@@ -317,7 +318,12 @@ export async function getActiveServerPaths() {
     serverPath = legacyPath || null;
   }
 
-  return { serverConfigPath, serverName, serverPath, configRefusal };
+  // The data folder the game runs with (-cachedir): its mods/ and Workshop/
+  // folders hold mods the server loads too. Only when it passed the
+  // data-folder rule above.
+  const zomboidDataPath = config.refused ? null : config.dataPath || null;
+
+  return { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath };
 }
 
 // SECURITY (2026-10-05, PT3): the body a route answers when it has no
@@ -5390,7 +5396,7 @@ async function isModGroupEnforcementOn() {
 // active server), resolved like the preset routes do. Answers with the coded
 // error itself and returns null when there is no ini to read.
 export async function resolveActiveServerIniOrRespond(res) {
-  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
+  const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
   const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
   if (!iniPath) {
@@ -5410,7 +5416,7 @@ export async function resolveActiveServerIniOrRespond(res) {
     });
     return null;
   }
-  return { iniPath, serverPath };
+  return { iniPath, serverPath, zomboidDataPath };
 }
 
 async function resolveActiveIniPathOrRespond(res) {
@@ -5499,19 +5505,24 @@ router.post("/groups/import", async (req, res) => {
   }
 });
 
-// Which groups the CURRENT Mods= order already respects.
+// Which groups the CURRENT Mods= order already respects. A group kept
+// together that require= links or order rules keep apart (another mod must
+// load between its members) is judged on its order alone and carries
+// `forcedApart` (the rule the load-order planner follows too).
 router.get("/groups/status", async (req, res) => {
   try {
-    const iniPath = await resolveActiveIniPathOrRespond(res);
-    if (!iniPath) return;
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
 
-    const order = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
+    const content = readTextFile(active.iniPath);
+    const order = modTokensOf(content).map((token) => token.id);
     const groups = await getModGroups();
-    const statuses = groupsInOrder(order, groups);
+    const hardEdges = await hardOrderEdges(order, { content, ...active });
+    const statuses = groupsInOrder(order, groups, { hardEdges });
     res.json({
       groups: statuses,
       inOrder: statuses.every((status) => status.inOrder),
-      conflicts: applyModGroups(order, groups).conflicts,
+      conflicts: applyModGroups(order, groups, { hardEdges }).conflicts,
     });
   } catch (error) {
     log.error(`Failed to get mod group status: ${error.message}`);
@@ -5525,8 +5536,9 @@ router.get("/groups/status", async (req, res) => {
 router.post("/groups/apply", async (req, res) => {
   try {
     const preview = req.body?.preview === true;
-    const iniPath = await resolveActiveIniPathOrRespond(res);
-    if (!iniPath) return;
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    const { iniPath } = active;
 
     const groups = await getModGroups();
     let result = { order: [], moved: [], conflicts: [] };
@@ -5534,16 +5546,15 @@ router.post("/groups/apply", async (req, res) => {
     let backupWarning = null;
 
     if (preview) {
-      const ids = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
-      result = applyModGroups(ids, groups);
+      const content = readTextFile(iniPath);
+      const ids = modTokensOf(content).map((token) => token.id);
+      result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
     } else {
       await withIniLock(iniPath, async () => {
         let content = readTextFile(iniPath);
         const tokens = modTokensOf(content);
-        result = applyModGroups(
-          tokens.map((token) => token.id),
-          groups,
-        );
+        const ids = tokens.map((token) => token.id);
+        result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
         if (result.moved.length === 0) return;
 
         // Write the entries as they were written (backslashes kept), only in
@@ -5777,7 +5788,7 @@ router.post("/groups/:id/enable", async (req, res) => {
 
     const active = await resolveActiveServerIniOrRespond(res);
     if (!active) return;
-    const { iniPath, serverPath } = active;
+    const { iniPath, serverPath, zomboidDataPath } = active;
     const members = uniqueMemberIds(group);
     const enforce = await isModGroupEnforcementOn();
 
@@ -5810,7 +5821,13 @@ router.post("/groups/:id/enable", async (req, res) => {
       let newOrder = insertInGroupOrder(order, members, enabled);
       if (enforce) {
         try {
-          const applied = applyModGroups(newOrder, groups);
+          // The mod list as it will be (with the items this adds), for the
+          // require= links the keep-together rule reads.
+          const probe = workshopItemsAdded.length
+            ? withIniLine(content, "WorkshopItems", `WorkshopItems=${sanitizeIniList([...workshopItems, ...workshopItemsAdded])}`)
+            : content;
+          const hardEdges = await hardOrderEdges(newOrder, { content: probe, serverPath, zomboidDataPath });
+          const applied = applyModGroups(newOrder, groups, { hardEdges });
           newOrder = applied.order;
           result.groupsAdjusted = applied.moved;
         } catch (error) {
@@ -5844,8 +5861,11 @@ router.post("/groups/:id/enable", async (req, res) => {
 });
 
 // Disable every mod of a group on the active server: its member mod IDs leave
-// Mods=. With keepShared (the default) a mod that is also in another group
-// whose mods are all enabled stays (keptShared). PanelBridge's own mod, when
+// Mods=. With keepShared (the default) a mod that another group also lists
+// stays while that group still has an enabled mod this leaves on (keptShared):
+// a shared library its add-ons need. Not "every member enabled": groups are
+// shared by every server, so most have members a given server does not have,
+// and the library went with the add-ons still loading. PanelBridge's own mod, when
 // its Workshop delivery manages it, always stays (keptManaged). WorkshopItems=
 // is left alone, so the files stay and enabling again is instant. One write,
 // through the lock and backup path, and only when something changes.
@@ -5875,13 +5895,12 @@ router.post("/groups/:id/disable", async (req, res) => {
       const keptShared = [];
       const keptManaged = [];
       const disabled = [];
+      const leaving = new Set(members);
+      const stillUsed = (other) => other.some((member) => !leaving.has(member) && enabledNow.has(member));
       for (const id of members) {
         if (!enabledNow.has(id)) continue;
         if (id === bridgeModId) keptManaged.push(id);
-        else if (
-          keepShared &&
-          otherGroups.some((other) => other.includes(id) && other.every((member) => enabledNow.has(member)))
-        ) {
+        else if (keepShared && otherGroups.some((other) => other.includes(id) && stillUsed(other))) {
           keptShared.push(id);
         } else disabled.push(id);
       }
@@ -6006,7 +6025,7 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -6035,7 +6054,11 @@ router.post("/save-order", async (req, res) => {
     let groupConflicts = [];
     try {
       if (await isModGroupEnforcementOn()) {
-        const applied = applyModGroups(modIds, await getModGroups());
+        // A group kept together that require= links or order rules keep
+        // apart only keeps its order: the rule the load-order planner
+        // follows, so saving a plan leaves it as planned.
+        const hardEdges = await hardOrderEdges(modIds, { content: readTextFile(iniPath), serverPath, zomboidDataPath });
+        const applied = applyModGroups(modIds, await getModGroups(), { hardEdges });
         orderToWrite = applied.order;
         groupsAdjusted = applied.moved;
         groupConflicts = applied.conflicts;
@@ -6087,6 +6110,57 @@ router.post("/save-order", async (req, res) => {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
+
+// POST /discover-mod-ids's SteamCMD downloads (below). Each request gets a
+// folder of its own under <dataDir>/workshop-download-cache/ and removes it
+// whole when it is done, appworkshop_108600.acf included: with one shared
+// folder the .acf kept saying an item was installed after its files were
+// dropped, so adding the same mod again could "succeed" without downloading
+// anything, and two adds at once could delete each other's files. Folders a
+// crashed or killed panel left behind go once they are an hour old; one this
+// process is still downloading into is never swept, however long it takes.
+const WORKSHOP_DOWNLOAD_CACHE_DIR = "workshop-download-cache";
+const WORKSHOP_DOWNLOAD_STALE_MS = 60 * 60 * 1000;
+const activeWorkshopDownloadDirs = new Set();
+
+export function sweepStaleWorkshopDownloadDirs(cacheRoot, now = Date.now()) {
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const entryPath = path.join(cacheRoot, entry.name);
+    if (activeWorkshopDownloadDirs.has(entryPath)) continue;
+    try {
+      if (now - fs.lstatSync(entryPath).mtimeMs < WORKSHOP_DOWNLOAD_STALE_MS) continue;
+      fs.rmSync(entryPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch (error) {
+      log.debug(`Workshop download cache: could not remove ${entry.name}: ${error.message}`);
+    }
+  }
+}
+
+function workshopDownloadDirFor(dataDir) {
+  const cacheRoot = path.join(dataDir, WORKSHOP_DOWNLOAD_CACHE_DIR);
+  sweepStaleWorkshopDownloadDirs(cacheRoot);
+  const dir = path.join(cacheRoot, crypto.randomUUID());
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  activeWorkshopDownloadDirs.add(dir);
+  return dir;
+}
+
+function releaseWorkshopDownloadDir(dir) {
+  activeWorkshopDownloadDirs.delete(dir);
+  try {
+    // Retries: on Windows a SteamCMD just stopped (the dialog closed) can
+    // hold its files for a moment. A folder still left is swept later.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (error) {
+    log.warn(`Workshop download cache: could not remove ${path.basename(dir)}: ${error.message}`);
+  }
+}
 
 router.post("/discover-mod-ids", async (req, res) => {
   try {
@@ -6157,30 +6231,31 @@ router.post("/discover-mod-ids", async (req, res) => {
           process.platform === "win32"
             ? null
             : (await import("./server.js")).buildLinuxSteamCmdEnv;
-        const cacheRoot = path.join(getDataPaths().dataDir, "workshop-download-cache");
-        fs.mkdirSync(cacheRoot, { recursive: true });
-        const download = await downloadWorkshopItem(String(wsId), {
-          serverPath: cacheRoot,
-          signal: abort.signal,
-          buildEnv,
-        });
-        if (download.success) {
-          downloadedFromSteam = true;
-          for (const modId of findAllModIdsFromWorkshop(String(wsId), cacheRoot)) {
-            if (!discoveredModIds.includes(modId)) {
-              discoveredModIds.push(modId);
-              sources.push({ modId, source: "steamcmd-download" });
+        // A folder of its own per request (see workshopDownloadDirFor()),
+        // removed whole -- appworkshop_108600.acf included -- once the IDs
+        // are read.
+        const downloadDir = workshopDownloadDirFor(getDataPaths().dataDir);
+        try {
+          const download = await downloadWorkshopItem(String(wsId), {
+            serverPath: downloadDir,
+            signal: abort.signal,
+            buildEnv,
+          });
+          if (download.success) {
+            downloadedFromSteam = true;
+            for (const modId of findAllModIdsFromWorkshop(String(wsId), downloadDir)) {
+              if (!discoveredModIds.includes(modId)) {
+                discoveredModIds.push(modId);
+                sources.push({ modId, source: "steamcmd-download" });
+              }
             }
+            downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), downloadDir);
+          } else {
+            downloadSkippedReason = download.reason;
+            log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
           }
-          downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), cacheRoot);
-          // Only the IDs and map folder names were needed: drop the copy.
-          fs.rmSync(
-            path.join(cacheRoot, "steamapps", "workshop", "content", "108600", String(wsId)),
-            { recursive: true, force: true },
-          );
-        } else {
-          downloadSkippedReason = download.reason;
-          log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
+        } finally {
+          releaseWorkshopDownloadDir(downloadDir);
         }
       }
     }

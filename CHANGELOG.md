@@ -40,11 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
 - **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
 - **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
-- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port are shown only to roles that run RCON or manage servers.
+- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port (Dashboard, Servers, server status) are shown only to roles that run RCON, manage servers or edit the server configuration.
 
 ### Added
 
-- **Smart load order (server):** the panel plans a big mod list's load order (requirements, mod.info hints, Steam Required items, patches, pinned rules, group order and first/last placement), explains each move, checks the list for problems with one-click fixes, and suggests conflict winners.
+- **Smart load order (server):** the panel plans a big mod list's load order, Workshop and local mods alike (requirements, mod.info hints, Steam Required items, patches, pinned rules, group order and first/last placement), explains each move, checks the list for problems with one-click fixes, and suggests conflict winners.
 - **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
 - **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
 - **Mod groups to organise big mod lists:** a group can have a colour and keep its mods together in the load order, be enabled or disabled in one step (mods another enabled group needs, and PanelBridge, stay on), and the panel suggests groups from shared libraries, multi-mod Workshop items and name prefixes; any Workshop item can carry a note.
@@ -56,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (Ctrl+K), and mod lists that stay fast with 600+ mods.
+- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (press /), and mod lists that stay fast with 600+ mods.
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
 - **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
 - **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.
@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
 - **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
 - **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Unsaved load order kept:** Load order moves are no longer thrown away when the Mods page reloads (an update check, a restart, a mod removed) or by "Make X win", and Save no longer undoes mods enabled or disabled elsewhere meanwhile.
+- **Mods page after a server switch:** an open Auto-sort proposal and the previous server's conflict scan are cleared, so the old server's mod list can no longer be applied and saved into the new one.
+- **Mod conflict list:** added and removed lines in a file comparison are tinted again, and screen readers hear each conflict's severity in your language.
 - **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
 - **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
 - **Failed panel update download:** the Updates card no longer stays on "Downloading".
@@ -105,6 +108,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
 - **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
+- **SSO link confirmation:** after you link a sign-in identity to a panel account, Settings › Users now says which address was linked; the message never appeared.
+- **Single Sign-On edits kept across Settings tabs:** unsaved Single Sign-On fields no longer vanish when you open another Settings tab before saving.
+- **Single Sign-On display name help:** it now shows the button text ("Continue with Keycloak") instead of a raw `{{name}}`.
+- **Skip to content in the demo:** the keyboard skip link now moves to the page content instead of opening "Page Not Found".
+- **Discord Start, Stop and Refresh keep your edits:** unsaved bot settings, event notifications and command permissions no longer snap back to the saved values when you start, stop or refresh the bot.
+- **Switching servers without the permission:** for a role without servers.manage, the active-server menu now lists the other servers greyed out and says why, instead of ending in "Switch failed".
+- **Manage roles link on Panel Users:** it is shown only to a role that can open Roles & Permissions; others were sent to the General tab.
+- **Old panel addresses:** bookmarks such as `/serverconfig?tab=sandbox` or `/users` keep the rest of the address when they open the page's new home, and "Page Not Found" is in your language.
+- **Phone menu in Arabic:** the navigation drawer now slides in from the right, next to the menu button, instead of from the left.
+- **Confirmation dialogs dim the page again:** the page behind an "Are you sure?" dialog is darkened, primary buttons show their hover state, and the sidebar's connection notice has its coloured border.
+- **PanelBridge read as offline for Moderators:** Players, Events & Weather, World Map and Leaderboard now see a running bridge for roles without a PanelBridge permission, so God mode, weather, the clock and the other bridge controls are no longer greyed out for them.
+- **Admin chat that went out over RCON:** when the game's chat or PanelBridge isn't available and an admin or general chat message is sent over RCON, the Chat page now warns that every player saw it instead of saying "Visible only to admins in-game".
+- **Map Cleanup keys and switches:** 1 and 2 switch the tool again instead of opening the Dashboard or Console (and losing the selection); after a server switch the new server's save opens, not the first one in the folder; "Save as default" is disabled with the reason for roles without Edit server configuration; the switches have names for screen readers.
+- **Backups: a switch to include the panel database (without passwords):** World Backups › Schedule & retention can turn it on again; backups from the Dashboard and Diagnostics used to carry it, but since only this setting decides it was off on upgraded installs with no way to change it.
+- **Backup download and Create Backup:** a refused or failed download now says why instead of doing nothing, and a double click on Create Backup no longer starts a second backup over the first.
+- **Events & Weather RCON actions:** time speed, teleport and vehicle spawn are disabled with the reason for roles without Run RCON commands, instead of ending in a permission error.
 
 ## [1.4.17] - 2026-10-18
 

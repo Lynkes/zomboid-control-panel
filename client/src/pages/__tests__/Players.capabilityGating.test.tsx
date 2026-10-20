@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Players from '../Players'
-import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
+import { playersApi, panelBridgeApi, configApi, serversApi } from '@/lib/api'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 
@@ -83,6 +83,9 @@ vi.mock('@/lib/api', async () => {
       killPlayer: vi.fn(),
       getAllPlayerDetails: vi.fn(),
     },
+    // A role without bridge.setup/bridge.diagnostics reads the bridge from
+    // the composed server status (lib/bridgeLiveness.ts).
+    serversApi: { ...actual.serversApi, getComposedStatus: vi.fn() },
     configApi: {
       ...actual.configApi,
       getAppSettings: vi.fn(),
@@ -171,6 +174,14 @@ async function setUpFixtures() {
   getExports.mockResolvedValue({ exports: [] })
   getActivityLogs.mockResolvedValue({ logs: [] })
   getStatus.mockResolvedValue({ modConnected: true, isRunning: true } as Awaited<ReturnType<typeof panelBridgeApi.getStatus>>)
+  vi.mocked(serversApi.getComposedStatus).mockResolvedValue({
+    provider: 'native',
+    selected: true,
+    host: { status: 'running', label: 'Host', detail: null },
+    server: { status: 'connected', label: 'RCON', detail: null },
+    bridge: { status: 'active', label: 'PanelBridge', detail: null },
+    summary: '',
+  })
   getAllPlayerDetails.mockResolvedValue({ success: false } as Awaited<ReturnType<typeof panelBridgeApi.getAllPlayerDetails>>)
   getAppSettings.mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof configApi.getAppSettings>>)
 }

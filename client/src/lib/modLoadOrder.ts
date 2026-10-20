@@ -366,3 +366,70 @@ export function moveLoadOrderEntry<T>(order: readonly T[], from: number, to: num
   next.splice(to, 0, entry)
   return next
 }
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i])
+}
+
+/** Whether two Mods= lists hold the same entries (as many times each), whatever their order. */
+export function sameLoadOrderEntries(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const counts = new Map<string, number>()
+  for (const id of a) counts.set(id, (counts.get(id) ?? 0) + 1)
+  for (const id of b) {
+    const n = counts.get(id) ?? 0
+    if (n === 0) return false
+    counts.set(id, n - 1)
+  }
+  return true
+}
+
+/**
+ * The Load order list after the server's saved Mods= changed from
+ * `previousSaved` to `nextSaved` (a reload, another admin, a mod enabled or
+ * removed elsewhere on the page). Without unsaved moves (`local` is the saved
+ * list) it is the server's new list. With unsaved moves they are kept: an
+ * entry the server no longer has leaves; one it gained at the end of its list
+ * goes at the end, any other right after the entry it follows there.
+ */
+export function reconcileLoadOrder(
+  local: readonly string[],
+  previousSaved: readonly string[],
+  nextSaved: readonly string[],
+): string[] {
+  if (sameList(local, previousSaved)) return [...nextSaved]
+  if (sameList(previousSaved, nextSaved)) return [...local]
+  const count = (list: readonly string[]) => {
+    const counts = new Map<string, number>()
+    for (const id of list) counts.set(id, (counts.get(id) ?? 0) + 1)
+    return counts
+  }
+  // The server's entries the list does not have yet (as many times as missing).
+  const inLocal = count(local)
+  const added = nextSaved.map((id) => {
+    const n = inLocal.get(id) ?? 0
+    if (n === 0) return true
+    inLocal.set(id, n - 1)
+    return false
+  })
+  // The list's entries the server still has, in the list's order.
+  const inNext = count(nextSaved)
+  const result = local.filter((id) => {
+    const n = inNext.get(id) ?? 0
+    if (n === 0) return false
+    inNext.set(id, n - 1)
+    return true
+  })
+  let tail = nextSaved.length
+  while (tail > 0 && added[tail - 1]) tail--
+  nextSaved.forEach((id, i) => {
+    if (!added[i]) return
+    if (i >= tail) {
+      result.push(id)
+      return
+    }
+    const after = i > 0 ? result.lastIndexOf(nextSaved[i - 1]) : -1
+    result.splice(after + 1, 0, id)
+  })
+  return result
+}

@@ -140,6 +140,8 @@ import { FolderBrowser } from '@/components/FolderBrowser'
 import {
   buildRequiresMap,
   createRequirementResolver,
+  reconcileLoadOrder,
+  sameLoadOrderEntries,
 } from '@/lib/modLoadOrder'
 import { autoSortLoadOrder, hasSortRules, type AutoSortResult } from '@/lib/loadOrderAutoSort'
 import { groupsOfMods, summarizeGroupConflicts, type GroupConflictSummary } from '@/lib/modGroupTools'
@@ -388,6 +390,23 @@ export default function Mods() {
   const groupsStore = useModGroupsStore({ savedModIds: iniConfig?.modIds })
   const notesStore = useModNotes()
   const [orderedModIds, setOrderedModIds] = useState<string[]>([])
+  // The Load order list and the saved Mods= it started from, as of the last
+  // render, for reloads that land later: unsaved moves must survive them.
+  const orderedModIdsRef = useRef<string[]>([])
+  const savedModIdsRef = useRef<string[]>([])
+  useEffect(() => {
+    orderedModIdsRef.current = orderedModIds
+    savedModIdsRef.current = iniConfig?.modIds ?? []
+  }, [orderedModIds, iniConfig?.modIds])
+  // The server's Mods= arrived (a reload, a write elsewhere on the page):
+  // unsaved moves are kept with the server's additions and removals merged
+  // in, unless `adopt` (the page itself just wrote this order).
+  const syncOrderFromServer = useCallback((nextSaved: string[], adopt = false) => {
+    const next = adopt ? [...nextSaved] : reconcileLoadOrder(orderedModIdsRef.current, savedModIdsRef.current, nextSaved)
+    orderedModIdsRef.current = next
+    savedModIdsRef.current = nextSaved
+    setOrderedModIds(next)
+  }, [])
   // Mods ticked on the Load order tab, for "Create group from selection".
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set())
   const [createGroupRequest, setCreateGroupRequest] = useState<CreateGroupRequest | null>(null)
@@ -684,7 +703,9 @@ export default function Mods() {
   // automatic retry, which is the right tolerance for a transient blip
   // nobody is staring at. Same shape as Servers.tsx's fetchServers(); see
   // its own comment for the full reasoning.
-  const fetchData = useCallback(async (opts?: { manual?: boolean }) => {
+  // `adoptServerOrder`: the page itself just wrote the load order (Save, "Make
+  // X win", a preset), so the list takes what the server wrote as it is.
+  const fetchData = useCallback(async (opts?: { manual?: boolean; adoptServerOrder?: boolean }) => {
     const retries = opts?.manual ? { retries: 0 } : undefined
     setFetchError(null)
     try {
@@ -744,9 +765,10 @@ export default function Mods() {
       }
       if (results[2].status === 'fulfilled') {
         setIniConfig(results[2].value)
-        // Initialize ordered mod IDs when iniConfig is loaded
+        // Unsaved Load order moves survive a reload (an update check, a
+        // restart event, a mod removed elsewhere on the page).
         if (results[2].value?.modIds) {
-          setOrderedModIds(results[2].value.modIds)
+          syncOrderFromServer(results[2].value.modIds, opts?.adoptServerOrder === true)
         }
       }
       if (results[3].status === 'fulfilled') {
@@ -775,7 +797,7 @@ export default function Mods() {
     // background. The status hook short-circuits if no collection is wired,
     // so this is a no-op for users who don't use the feature.
     fetchCollectionStatusRef.current?.().catch(() => {})
-  }, [])
+  }, [syncOrderFromServer])
 
   const handleOpenWorkshopBrowser = useCallback(async () => {
     try {
@@ -1152,8 +1174,11 @@ export default function Mods() {
   const handleApplyPreset = async (id: number, _name: string) => {
     if (!canManageMods) return
     setApplyingPreset(id)
+    // An applied preset replaces Mods=: the list then shows its order.
+    let applied = false
     try {
       const result = await modsApi.applyPreset(id)
+      applied = true
       toast({
         title: t('toasts.presetAppliedTitle'),
         description: result.message,
@@ -1172,7 +1197,7 @@ export default function Mods() {
       // fs.writeFileSync call, so it's all-or-nothing), but so the UI
       // reflects the confirmed server-side config rather than a local guess,
       // even after a failed attempt.
-      fetchData()
+      fetchData({ adoptServerOrder: applied })
     }
   }
 
@@ -2225,6 +2250,22 @@ export default function Mods() {
     busyRef.current = true
     try {
       setSavingModOrder(true)
+      // Mods= may have changed since this page read it (another admin or tab,
+      // the Discord bot): writing this list as it is would undo that, putting
+      // back a mod they disabled or dropping one they enabled. Read it again
+      // first; when mods came or went, merge them in and let the admin look.
+      const base = savedModIdsRef.current
+      const live = await modsApi.getCurrentConfig()
+      if (live?.configured && Array.isArray(live.modIds) && !sameLoadOrderEntries(live.modIds, base)) {
+        setIniConfig(live)
+        syncOrderFromServer(live.modIds)
+        toast({
+          title: t('toasts.serverModsChangedTitle'),
+          description: t('toasts.serverModsChangedDesc'),
+          variant: 'warning',
+        })
+        return
+      }
       const saved = await modsApi.saveModOrder(orderedModIds)
       // With "Keep group order" on, the server may have moved group members
       // (groupsAdjusted): what it wrote is then not orderedModIds, so the
@@ -2244,8 +2285,9 @@ export default function Mods() {
       // replaced orderedModIds with what the server wrote. Released any
       // earlier, a move made in that window was overwritten a moment later,
       // and for that round-trip the footer still said "Unsaved order
-      // changes" with Save enabled again.
-      await fetchData()
+      // changes" with Save enabled again. What the server wrote is the list
+      // now (it may have moved group members back into group order).
+      await fetchData({ adoptServerOrder: true })
     } catch (error) {
       toast({
         title: t('toasts.saveOrderFailedTitle'),
@@ -2279,6 +2321,16 @@ export default function Mods() {
       toast({
         title: t('toasts.serverChangedSinceLoadTitle'),
         description: t('toasts.serverChangedSinceLoadDesc'),
+        variant: 'destructive',
+      })
+      return
+    }
+    // It saves at once from the saved order: unsaved Load order moves would
+    // be written over without a word.
+    if (hasModOrderChanged) {
+      toast({
+        title: t('toasts.couldNotUpdateLoadOrderTitle'),
+        description: tGroups('enable.unsavedOrder'),
         variant: 'destructive',
       })
       return
@@ -2317,7 +2369,7 @@ export default function Mods() {
       // Awaited for the same reason as in handleSaveModOrder: savingModOrder
       // also locks the Load Order tab, and a move made there before this
       // reload lands would be overwritten by it.
-      await fetchData()
+      await fetchData({ adoptServerOrder: true })
     } catch (error) {
       toast({
         title: t('toasts.couldNotUpdateLoadOrderTitle'),
@@ -2370,6 +2422,26 @@ export default function Mods() {
       setSelectedIgnored(new Set())
       setSelectedActiveWs(new Set())
       setConflictsFocus(null)
+
+      // The conflict scan and an open Auto-sort proposal describe the old
+      // server's mods. Applied and saved, the proposal wrote the old server's
+      // whole Mods= into the new one; the scan's winners fed the group
+      // badges, Auto-sort and "Make X win". The new server is scanned anew.
+      setAutoSortPreview(null)
+      if (eventSourceRef.current) {
+        closingIntentionallyRef.current = true
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+      if (sseIdleTimerRef.current) clearTimeout(sseIdleTimerRef.current)
+      sseIdleTimerRef.current = null
+      cancelAnimationFrame(scanBatchRef.current.raf)
+      setConflicts(null)
+      setConflictsLoading(false)
+      setConflictsError(null)
+      setLastScanTime(null)
+      setScanIniSnapshot(null)
+      setStreamConflicts([])
 
       // pz-bughunt round 18: depSearchOpen/depSearchData/depAdding/
       // depAddResults are the SAME lifted state used by both this page's
@@ -2993,9 +3065,11 @@ export default function Mods() {
       return
     }
     const members = [...new Set(group.modIds)].filter((id) => enabledModIds.has(id))
-    // The server keeps a mod that another fully enabled group also needs: say which, before asking.
+    // The server keeps a mod that another group lists while that group still
+    // has an enabled mod this leaves on (its add-ons need it): say which, before asking.
+    const leavingIds = new Set(group.modIds)
     const shared = members.filter((id) =>
-      groupsStore.groups.some((other) => other.id !== group.id && other.modIds.includes(id) && other.modIds.every((m) => enabledModIds.has(m))))
+      groupsStore.groups.some((other) => other.id !== group.id && other.modIds.includes(id) && other.modIds.some((m) => !leavingIds.has(m) && enabledModIds.has(m))))
     const leaving = members.filter((id) => !shared.includes(id))
     const nameOf = (id: string) => (modIdNameMap.get(id) ? `${id} (${modIdNameMap.get(id)})` : id)
     const ok = await confirm({
@@ -3325,7 +3399,7 @@ export default function Mods() {
       await modsApi.removeFromIni(wsId, undefined, knownModIds)
       const updated = await modsApi.getCurrentConfig()
       setIniConfig(updated)
-      if (updated?.modIds) setOrderedModIds(updated.modIds)
+      if (updated?.modIds) syncOrderFromServer(updated.modIds)
       setLastSavedMod(`removed-${wsId}`)
       if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
       savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
@@ -3396,7 +3470,7 @@ export default function Mods() {
       setDepAddResults(prev => ({ ...prev, [key]: 'added' as const }))
       const updated = await modsApi.getCurrentConfig()
       setIniConfig(updated)
-      if (updated?.modIds) setOrderedModIds(updated.modIds)
+      if (updated?.modIds) syncOrderFromServer(updated.modIds)
       toast({ title: t('toasts.dependencyAddedTitle'), description: t('toasts.dependencyAddedDesc', { name: hit.modName }) })
     } catch (err) {
       reportClientError('Failed to add dependency from inspector.', err)
@@ -5090,7 +5164,7 @@ export default function Mods() {
                           await modsApi.toggleModId(id, false)
                           const updated = await modsApi.getCurrentConfig()
                           setIniConfig(updated)
-                          if (updated?.modIds) setOrderedModIds(updated.modIds)
+                          if (updated?.modIds) syncOrderFromServer(updated.modIds)
                         } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
                       }}
                       disabled={!canManageMods || orphanBridgeLocked}
@@ -5171,7 +5245,7 @@ export default function Mods() {
                                   if (result.removed.length > 0) {
                                     const updated = await modsApi.getCurrentConfig()
                                     setIniConfig(updated)
-                                    if (updated?.modIds) setOrderedModIds(updated.modIds)
+                                    if (updated?.modIds) syncOrderFromServer(updated.modIds)
                                   }
                                 } catch (err: unknown) {
                                   const errMsg = getUserErrorMessage(err, 'Failed to deduplicate')
@@ -6951,8 +7025,10 @@ export default function Mods() {
           groups={groupsStore.groups}
           onAdd={handleAddToGroup}
           onCreateNew={() => {
-            const modIds = orderedModIds.filter((id) => addToGroup.modIds.includes(id))
-            setGroupEditor({ group: null, initialModIds: modIds.length > 0 ? modIds : addToGroup.modIds })
+            // In load order; picked mods that are not enabled (not in it) follow.
+            const inOrder = orderedModIds.filter((id) => addToGroup.modIds.includes(id))
+            const modIds = [...new Set([...inOrder, ...addToGroup.modIds])]
+            setGroupEditor({ group: null, initialModIds: modIds })
             setAddToGroup(null)
           }}
           onClose={() => setAddToGroup(null)}

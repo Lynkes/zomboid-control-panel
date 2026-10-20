@@ -71,6 +71,14 @@ describe("computeModHealth", () => {
     expect(isWritableModId("Mod With Spaces")).toBe(true);
   });
 
+  it("without the data folder's mods/ it cannot rule out a local mod: an info, no removal", () => {
+    const body = healthFor({ modsLine: ["Unknown", "A"], catalog: [{ id: "A", workshopId: "1", require: ["Lib"] }], localModsReadable: false });
+    const [missing] = body.issues.filter((i) => i.kind === "notInstalled");
+    expect(missing).toMatchObject({ severity: "info", params: { localModsUnknown: true }, fixes: [] });
+    const [required] = body.issues.filter((i) => i.kind === "requiredNotInstalled");
+    expect(required.params.localModsUnknown).toBe(true);
+  });
+
   it("does not call an item required by an item in use unused", () => {
     const body = healthFor({
       modsLine: ["A"],

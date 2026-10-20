@@ -341,6 +341,14 @@ export default function ChunkCleaner() {
   // both, unlike WorldMap's mixed bridge.command/players.gm_tools/
   // server.world_events split (2026-08-27 bug-hunt capability trace).
   const canManageChunks = can("chunks.manage");
+  // "Save as default" repoints the active server's data folder: the route
+  // also wants server.configure for that (chunks.js, save-path).
+  const canSaveDefaultPath = canManageChunks && can("server.configure");
+  const saveDefaultPathReason = !canManageChunks
+    ? t("permissions.noManage")
+    : !canSaveDefaultPath
+      ? t("CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED", { ns: "errors" })
+      : null;
   // 41fa20a3 gated every chunks.js READ route (saves/suggested-paths/
   // chunks/stats/browse) behind chunks.manage, previously unpermissioned.
   // Set from a REAL 403 on fetchSaves' mount-time call, not the client-side
@@ -659,34 +667,38 @@ export default function ChunkCleaner() {
     [customPath, toast, t],
   );
 
+  // Select the active server's save in a freshly loaded list: on mount and
+  // again after an active-server switch reloads the list (several servers
+  // can share one Zomboid folder, so the first save may be another one's).
+  const selectActiveServerSave = useCallback(async (savesList: SaveInfo[]) => {
+    if (savesList.length === 0) return;
+
+    let picked = false;
+    try {
+      const { server } = await serversApi.getResolvedActive();
+      if (server?.serverName) {
+        const match = savesList.find(
+          (s: SaveInfo) => s.name === server.serverName,
+        );
+        if (match) {
+          setSelectedSave(match.name);
+          picked = true;
+        }
+      }
+    } catch {
+      // No active server configured — fall through to auto-pick below
+    }
+
+    // Fallback: if the active-server lookup didn't yield a match, auto-select
+    // the only save (common on single-server Linux setups) or the first one.
+    if (!picked) {
+      setSelectedSave(savesList[0].name);
+    }
+  }, []);
+
   // On mount: fetch saves and auto-select the active server's save
   useEffect(() => {
-    (async () => {
-      const savesList = await fetchSaves();
-      if (savesList.length === 0) return;
-
-      let picked = false;
-      try {
-        const { server } = await serversApi.getResolvedActive();
-        if (server?.serverName) {
-          const match = savesList.find(
-            (s: SaveInfo) => s.name === server.serverName,
-          );
-          if (match) {
-            setSelectedSave(match.name);
-            picked = true;
-          }
-        }
-      } catch {
-        // No active server configured — fall through to auto-pick below
-      }
-
-      // Fallback: if the active-server lookup didn't yield a match, auto-select
-      // the only save (common on single-server Linux setups) or the first one.
-      if (!picked) {
-        setSelectedSave(savesList[0].name);
-      }
-    })();
+    void fetchSaves().then(selectActiveServerSave);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Safety net: if the saves list changes (Refresh, custom-path swap) and
@@ -899,8 +911,8 @@ export default function ChunkCleaner() {
       description: t("toasts.activeServerChangedDesc"),
       variant: "destructive",
     });
-    void fetchSaves();
-  }, [toast, t, fetchSaves]);
+    void fetchSaves().then(selectActiveServerSave);
+  }, [toast, t, fetchSaves, selectActiveServerSave]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1875,14 +1887,25 @@ export default function ChunkCleaner() {
   }, [hasCanvas]);
 
   // ─── Keyboard shortcuts ───
+  // Capture phase: 1 and 2 are also the shell's Dashboard and Console
+  // shortcuts (useKeyboardShortcuts, a bubble-phase window listener), so a
+  // tool switch used to leave the page and lose the selection. The page
+  // claims the keys it handles and stops them there. Like the shell, it
+  // leaves fields, modified keys and any open dialog alone (the shortcut
+  // list, the delete confirm).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
       )
         return;
       if (deleteDialogOpen) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       if (!selectedSave) return;
 
       switch (e.key) {
@@ -1898,16 +1921,20 @@ export default function ChunkCleaner() {
           }
           break;
         case "1":
+          e.preventDefault();
+          e.stopPropagation();
           setTool("select");
           break;
         case "2":
+          e.preventDefault();
+          e.stopPropagation();
           setTool("pan");
           break;
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [selectedChunks.size, deleteDialogOpen, selectedSave, canManageChunks]);
 
   // ─── Mouse handlers ───
@@ -2548,13 +2575,13 @@ export default function ChunkCleaner() {
                     </p>
                     {customPath && (
                       <div className="flex gap-1.5">
-                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                        <DisabledReason reason={saveDefaultPathReason}>
                           <Button
                             variant="outline"
                             size="sm"
                             className="flex-1 h-6 text-xs"
                             onClick={() => void persistCurrentPath(customPath)}
-                            disabled={savingPath || loadingSaves || !canManageChunks}
+                            disabled={savingPath || loadingSaves || !canSaveDefaultPath}
                             // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t("save.saveAsDefaultTitle")}
                           >
@@ -2582,7 +2609,7 @@ export default function ChunkCleaner() {
                           <CheckCircle2 className="w-3 h-3 text-primary shrink-0 mt-0.5" />
                           <span>{t("save.autoDetected")}</span>
                         </div>
-                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                        <DisabledReason reason={saveDefaultPathReason}>
                           <Button
                             variant="outline"
                             size="sm"
@@ -2590,7 +2617,7 @@ export default function ChunkCleaner() {
                             onClick={() =>
                               void persistCurrentPath(debugInfo.autoPicked!)
                             }
-                            disabled={savingPath || !canManageChunks}
+                            disabled={savingPath || !canSaveDefaultPath}
                           >
                             <Save className="w-3 h-3 me-1" />
                             {savingPath ? t("save.saving") : t("save.saveAsDefault")}
@@ -3063,6 +3090,7 @@ export default function ChunkCleaner() {
                         size="icon"
                         onClick={() => setTool("select")}
                         aria-label={t("tools.selectToolAria")}
+                        aria-pressed={tool === "select"}
                       >
                         <Square className="w-4 h-4" />
                       </Button>
@@ -3077,6 +3105,7 @@ export default function ChunkCleaner() {
                         size="icon"
                         onClick={() => setTool("pan")}
                         aria-label={t("tools.panToolAria")}
+                        aria-pressed={tool === "pan"}
                       >
                         <Move className="w-4 h-4" />
                       </Button>
@@ -3152,7 +3181,7 @@ export default function ChunkCleaner() {
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-map" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     {showMap ? (
                       <Image className="w-3.5 h-3.5" />
                     ) : (
@@ -3160,11 +3189,11 @@ export default function ChunkCleaner() {
                     )}
                     {t("tools.map")}
                   </Label>
-                  <Switch checked={showMap} onCheckedChange={setShowMap} />
+                  <Switch id="chunk-cleaner-show-map" checked={showMap} onCheckedChange={setShowMap} />
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-vehicles" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <Car className="w-3.5 h-3.5" />
                     {t("tools.vehicles")}
                     {chunkVehicles.length > 0 && (
@@ -3174,13 +3203,14 @@ export default function ChunkCleaner() {
                     )}
                   </Label>
                   <Switch
+                    id="chunk-cleaner-show-vehicles"
                     checked={showVehicles}
                     onCheckedChange={setShowVehicles}
                   />
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-safehouses" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <Home className="w-3.5 h-3.5" />
                     {t("tools.safehouses")}
                     {chunkSafehouses.length > 0 && (
@@ -3190,6 +3220,7 @@ export default function ChunkCleaner() {
                     )}
                   </Label>
                   <Switch
+                    id="chunk-cleaner-show-safehouses"
                     checked={showSafehouses}
                     onCheckedChange={setShowSafehouses}
                   />
@@ -3308,12 +3339,14 @@ export default function ChunkCleaner() {
             <AlertDialogBody className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                 <div>
-                  <Label>{t("deleteDialog.backupLabel")}</Label>
-                  <p className="text-xs text-muted-foreground">
+                  <Label htmlFor="chunk-cleaner-create-backup">{t("deleteDialog.backupLabel")}</Label>
+                  <p id="chunk-cleaner-create-backup-desc" className="text-xs text-muted-foreground">
                     {t("deleteDialog.backupDesc")}
                   </p>
                 </div>
                 <Switch
+                  id="chunk-cleaner-create-backup"
+                  aria-describedby="chunk-cleaner-create-backup-desc"
                   checked={createBackup}
                   onCheckedChange={setCreateBackup}
                 />
@@ -3340,11 +3373,11 @@ export default function ChunkCleaner() {
                 return (
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                     <div className="min-w-0 pe-3">
-                      <Label className="flex items-center gap-1.5">
+                      <Label htmlFor="chunk-cleaner-remove-vehicles" className="flex items-center gap-1.5">
                         <Car className="w-3.5 h-3.5" />
                         {t("deleteDialog.removeVehiclesLabel")}
                       </Label>
-                      <p className="text-xs text-muted-foreground">
+                      <p id="chunk-cleaner-remove-vehicles-desc" className="text-xs text-muted-foreground">
                         {loadedCount > 0
                           ? t("deleteDialog.removeVehiclesLoaded", {
                               count: loadedCount,
@@ -3354,6 +3387,8 @@ export default function ChunkCleaner() {
                       </p>
                     </div>
                     <Switch
+                      id="chunk-cleaner-remove-vehicles"
+                      aria-describedby="chunk-cleaner-remove-vehicles-desc"
                       checked={deleteVehicles}
                       onCheckedChange={setDeleteVehicles}
                     />

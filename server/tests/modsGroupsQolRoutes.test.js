@@ -201,10 +201,10 @@ describe("POST /groups/:id/disable", () => {
     expect(fx.backups()).toHaveLength(1);
   });
 
-  it("keeps a mod shared with another group whose mods are all enabled, unless keepShared is false", async () => {
+  it("keeps a mod shared with another group that still has enabled mods, unless keepShared is false", async () => {
     await seed(["KI5", "lib", "core", "fix"], ["Fixes", "fix", "y"], ["Partly", "core", "ghost"]);
     let res = await disable("seed-0");
-    // core's other group is not all enabled, so core goes
+    // core's other group has no other enabled mod, so core goes
     expect(res.getBody()).toEqual({ disabled: ["lib", "core"], keptShared: ["fix"], notEnabled: [], keptManaged: [] });
     expect(fx.iniValue("Mods")).toBe("x;addon;fix;y");
 
@@ -212,6 +212,22 @@ describe("POST /groups/:id/disable", () => {
     res = await disable("seed-0", { keepShared: false });
     expect(res.getBody()).toMatchObject({ disabled: ["lib", "core", "fix"], keptShared: [] });
     expect(fx.iniValue("Mods")).toBe("x;addon;y");
+  });
+
+  it("keeps a library another group's enabled mods need, although that group has a member this server lacks", async () => {
+    // Groups are shared by every server: "Cars" lists carB, which this server
+    // does not have. Its enabled mods (x, addon) still need lib.
+    await seed(["Fix", "lib", "fix"], ["Cars", "lib", "x", "addon", "carB"]);
+    const res = await disable("seed-0");
+    expect(res.getBody()).toEqual({ disabled: ["fix"], keptShared: ["lib"], notEnabled: [], keptManaged: [] });
+    expect(fx.iniValue("Mods")).toBe("lib;x;core;addon;y");
+  });
+
+  it("lets a shared mod go when every other mod of the other group goes too", async () => {
+    // The same group imported twice: nothing else keeps its mods on.
+    await seed(["KI5", "lib", "core"], ["KI5 (2)", "lib", "core"]);
+    const res = await disable("seed-0");
+    expect(res.getBody()).toEqual({ disabled: ["lib", "core"], keptShared: [], notEnabled: [], keptManaged: [] });
   });
 
   it("removes every entry of a mod listed twice and keeps the others as written", async () => {

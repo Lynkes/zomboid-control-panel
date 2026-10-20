@@ -10,6 +10,12 @@
     "modBadge.updatesAvailable_zero"
   ],
   "skipToContent": "تخطي إلى المحتوى",
+  "notFound": {
+    "title": "الصفحة غير موجودة",
+    "description": "الصفحة التي طلبتها غير موجودة أو لم تعد متاحة في هذا الإصدار من اللوحة.",
+    "goDashboard": "الانتقال إلى لوحة المعلومات",
+    "openServers": "فتح الخوادم"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "لوحة التحكم",

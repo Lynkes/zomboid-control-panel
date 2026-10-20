@@ -462,6 +462,101 @@ describe("GET /insights", () => {
   });
 });
 
+// A mod in the server's data folder: <Zomboid>/mods/<folder> (or a staged
+// Workshop item, <Zomboid>/Workshop/<item>/Contents/mods/<folder>).
+function addLocalMod(folder, id, { lines = [], files = {}, staged = null } = {}) {
+  const base = staged
+    ? path.join(fx.dataRoot, "Workshop", staged, "Contents", "mods", folder)
+    : path.join(fx.dataRoot, "mods", folder);
+  fs.mkdirSync(path.join(base, "42"), { recursive: true });
+  fs.writeFileSync(path.join(base, "42", "mod.info"), [`name=${id}`, `id=${id}`, ...lines, ""].join("\n"));
+  for (const [rel, content] of Object.entries(files)) {
+    const target = path.join(base, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  }
+}
+
+describe("local mods (<Zomboid>/mods) and staged Workshop items", () => {
+  it("a local-only mod is installed: never notInstalled, explained, ordered and classified", async () => {
+    addLocalMod("MyServerTweaks", "ServerTweaks", { lines: ["require=Lib"], files: { "42/media/lua/server/tweak.lua": "x" } });
+    addMod("5000", "Lib");
+    fx.writeIni("Mods=ServerTweaks;Lib\nWorkshopItems=5000\n");
+    const health = (await call("/health", "get")).getBody();
+    expect(issuesOf(health, "notInstalled")).toEqual([]);
+    expect(issuesOf(health, "requiredNotInstalled")).toEqual([]);
+    for (const issue of health.issues) {
+      for (const fix of issue.fixes) {
+        if (fix.action === "removeMods") expect(fix.params.modIds).not.toContain("ServerTweaks");
+      }
+    }
+    const plan = (await call("/load-order/plan", "post")).getBody();
+    expect(plan.order).toEqual(["Lib", "ServerTweaks"]);
+    const insights = (await call("/insights", "get")).getBody();
+    expect(insights.mods.ServerTweaks).toMatchObject({ source: "local", workshopId: null, requires: ["Lib"] });
+    expect(insights.mods.Lib).toMatchObject({ source: "workshop", workshopId: "5000" });
+  });
+
+  it("a required mod that is local is not missing (the game loads it first anyway)", async () => {
+    addLocalMod("LocalLib", "LocalLib");
+    addMod("5100", "User", { lines: ["require=LocalLib"] });
+    fx.writeIni("Mods=User\nWorkshopItems=5100\n");
+    const health = (await call("/health", "get")).getBody();
+    expect(issuesOf(health, "requiredNotInstalled")).toEqual([]);
+    expect(issuesOf(health, "requiredLoadedImplicitly")[0]).toMatchObject({
+      modIds: ["LocalLib"],
+      workshopIds: [],
+      fixes: [{ action: "addMods", params: { modIds: ["LocalLib"], before: "User" } }],
+    });
+  });
+
+  it("a Workshop and a local copy of one id: the Workshop copy loads, the duplicate says so", async () => {
+    addMod("5200", "Shared", { files: { "42/media/scripts/workshop.txt": "x" } });
+    addLocalMod("SharedLocal", "Shared", { lines: ["require=Ghost"] });
+    fx.writeIni("Mods=Shared\nWorkshopItems=5200\n");
+    const health = (await call("/health", "get")).getBody();
+    const [dup] = issuesOf(health, "duplicateModId");
+    expect(dup).toMatchObject({
+      severity: "warning",
+      modIds: ["Shared"],
+      workshopIds: ["5200"],
+      params: {
+        modId: "Shared",
+        copies: [{ source: "workshop", workshopId: "5200" }, { source: "local", workshopId: null }],
+        loads: { source: "workshop", workshopId: "5200" },
+      },
+      fixes: [],
+    });
+    // The local copy's require=Ghost is not what loads: no missing requirement.
+    expect(issuesOf(health, "requiredNotInstalled")).toEqual([]);
+    const insights = (await call("/insights", "get")).getBody();
+    expect(insights.mods.Shared).toMatchObject({ source: "workshop", workshopId: "5200" });
+  });
+
+  it("two local copies of one id: which one loads is not defined; a staged copy beats a Workshop one", async () => {
+    addLocalMod("CopyA", "Twin");
+    addLocalMod("CopyB", "Twin");
+    addMod("5300", "Staged");
+    addLocalMod("StagedCopy", "Staged", { staged: "MyUpload" });
+    fx.writeIni("Mods=Twin;Staged\nWorkshopItems=5300\n");
+    const dups = issuesOf((await call("/health", "get")).getBody(), "duplicateModId");
+    expect(dups.find((d) => d.modIds[0] === "Twin").params).toMatchObject({ loads: null });
+    expect(dups.find((d) => d.modIds[0] === "Staged").params).toMatchObject({
+      copies: [{ source: "staged", workshopId: null }, { source: "workshop", workshopId: "5300" }],
+      loads: { source: "staged", workshopId: null },
+    });
+  });
+
+  it("a local B42 copy of a B41-only Workshop mod loads: no b41Only", async () => {
+    addMod("5400", "OldOne", { infoDir: "" });
+    addLocalMod("OldOneB42", "OldOne");
+    fx.writeIni("Mods=OldOne\nWorkshopItems=5400\n");
+    const health = (await call("/health", "get")).getBody();
+    expect(issuesOf(health, "b41Only")).toEqual([]);
+    expect(issuesOf(health, "notInstalled")).toEqual([]);
+  });
+});
+
 describe("GET /insights?refresh=1", () => {
   it("fetches Steam now (tags, Required items from the public page), then rate-limits the next refresh", async () => {
     addMod("3000", "Lib", { files: { "42/media/lua/shared/lib.lua": "x" } });

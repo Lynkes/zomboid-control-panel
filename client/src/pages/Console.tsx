@@ -473,7 +473,15 @@ export default function Console() {
   // A readable log needs a source AND the capability to read it; everything
   // that fetches or polls keys on this, not on the source alone.
   const canPollServerLog = hasServerLogSource && canViewServerLog
-  const hasRconConfig = !!activeServer && Boolean(activeServer.rconHost && activeServer.rconPort && activeServer.rconPassword)
+  // GET /servers/active leaves the RCON host and port out for a role that
+  // isn't shown where RCON connects (ServerInstance): for that role they are
+  // hidden, not unset, and the masked password still says whether RCON is
+  // set up -- reading them as missing put "RCON not configured" in front of
+  // every moderator.
+  const rconTargetHidden = !!activeServer && activeServer.rconHost === undefined && activeServer.rconPort === undefined
+  const hasRconConfig = !!activeServer && Boolean(
+    activeServer.rconPassword && (rconTargetHidden || (activeServer.rconHost && activeServer.rconPort)),
+  )
   const serverLogUnavailable = !canViewServerLog
     ? {
         title: t('unavailable.noPermissionTitle'),

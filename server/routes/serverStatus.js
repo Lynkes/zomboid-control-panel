@@ -9,6 +9,7 @@ import { getActiveServer } from "../database/init.js";
 import panelBridge from "../services/panelBridge.js";
 import { composeServerStatus, resolveProvider } from "../utils/serverStatusModel.js";
 import { resolveDockerHostSignal } from "../services/managedContainer.js";
+import { canSeeRconTarget, withoutRconConfigTarget } from "../utils/rconTargetView.js";
 
 const log = createLogger("API:ServerStatus");
 const router = express.Router();
@@ -26,7 +27,12 @@ router.get("/active/status", async (req, res) => {
 
     const serverManager = req.app.get("serverManager");
     const rconService = req.app.get("rconService");
-    const rconConfig = rconService?.getConfig ? rconService.getConfig() : {};
+    // The RCON signal's "host:port" detail only for a role that may see
+    // where RCON connects (utils/rconTargetView.js); its state for every role.
+    const fullRconConfig = rconService?.getConfig ? rconService.getConfig() : {};
+    const rconConfig = (await canSeeRconTarget(req.user))
+      ? fullRconConfig
+      : withoutRconConfigTarget(fullRconConfig);
 
     const provider = resolveProvider(server);
     const isContainerProvider =

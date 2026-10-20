@@ -588,6 +588,10 @@ export default function Discord() {
     savedCommandPermissions,
   );
   const anyDirty = configDirty || eventsDirty || permissionsDirty;
+  // Start, Stop and Refresh re-read the bot's state: a form holding unsaved
+  // edits keeps them instead of snapping back to the saved values.
+  const reloadKeepingEdits = () =>
+    loadData({ config: !configDirty, events: !eventsDirty, permissions: !permissionsDirty });
   const savingAny = saving || savingEvents || savingPermissions;
   // The SaveBar guards the dashboard; the setup wizard has no SaveBar (it
   // saves with Save Draft / Save & Start), so it guards what was typed into
@@ -799,7 +803,7 @@ export default function Discord() {
       setConfigMessage(null);
       await discordApi.start();
       setConfigMessage({ type: "success", text: t("toasts.botStarted") });
-      await loadData();
+      await reloadKeepingEdits();
     } catch (error: unknown) {
       const msg =
         getUserErrorMessage(error, t("toasts.startBotFailedFallback"));
@@ -816,7 +820,7 @@ export default function Discord() {
       setConfigMessage(null);
       await discordApi.stop();
       setConfigMessage({ type: "success", text: t("toasts.botStopped") });
-      await loadData();
+      await reloadKeepingEdits();
     } catch (error: unknown) {
       const msg = getUserErrorMessage(error, t("toasts.stopBotFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
@@ -1824,7 +1828,7 @@ export default function Discord() {
             <Button
               variant="ghost"
               size="iconDense"
-              onClick={() => loadData()}
+              onClick={() => void reloadKeepingEdits()}
               aria-label={t("management.refreshAria")}
               title={t("management.refreshAria")}
             >

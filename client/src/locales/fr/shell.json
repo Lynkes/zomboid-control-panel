@@ -1,5 +1,11 @@
 {
   "skipToContent": "Aller au contenu",
+  "notFound": {
+    "title": "Page introuvable",
+    "description": "La page demandée n'existe pas ou n'est plus disponible dans cette version du panneau.",
+    "goDashboard": "Aller au tableau de bord",
+    "openServers": "Ouvrir les serveurs"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Panneau de contrôle",

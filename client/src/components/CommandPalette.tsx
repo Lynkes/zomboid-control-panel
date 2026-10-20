@@ -100,6 +100,8 @@ export function CommandPalette({ open, onOpenChange, servers, activeServer, onSw
         })
       }
     }
+    // Switching is POST /servers/:id/activate, which needs servers.manage.
+    const switchDenied = can('servers.manage') ? undefined : t('servers:card.noPermissionManage')
     for (const server of servers ?? []) {
       if (server.isActive) continue
       list.push({
@@ -108,6 +110,7 @@ export function CommandPalette({ open, onOpenChange, servers, activeServer, onSw
         label: t('switchServer', { name: server.name }),
         keywords: server.name,
         icon: Server,
+        disabledReason: switchDenied,
         run: () => {
           onOpenChange(false)
           onSwitchServer(server)

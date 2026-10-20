@@ -17,6 +17,7 @@ import { Toolbar } from '@/components/ui/toolbar'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { formatDateTime } from '@/lib/dateFormat'
 import { panelBridgeApi } from '@/lib/api'
+import { readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { useSocket } from '@/contexts/SocketContext'
 import {
@@ -225,7 +226,10 @@ export default function Leaderboard() {
     setRefreshing(true)
     const [leaderboardResult, statusResult] = await Promise.allSettled([
       panelBridgeApi.getLeaderboard(),
-      panelBridgeApi.getStatus(),
+      // A Moderator can't read GET /panel-bridge/status: on its 403,
+      // readBridgeLiveness() asks the status every role may read instead of
+      // calling the bridge down (which swapped Retry for a settings link).
+      readBridgeLiveness(true),
     ])
     if (refreshGuard.isStale(requestId)) return
 

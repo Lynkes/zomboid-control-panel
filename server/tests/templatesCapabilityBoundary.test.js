@@ -99,7 +99,9 @@ describe("the template ini floor", () => {
 });
 
 describe("POST /api/templates/import", () => {
-  it("refuses a template carrying keys other capabilities govern, whatever their case", async () => {
+  // Left out rather than refused (bp5, 2026-10-20): an export from v1.4.17
+  // carries most of them (below). Either way none of them is ever stored.
+  it("never stores keys other capabilities govern, whatever their case", async () => {
     for (const serverIni of [
       { DiscordToken: "attacker-token" },
       { UPnP: "true" },
@@ -108,11 +110,85 @@ describe("POST /api/templates/import", () => {
       { upnp: "true" },
       { mods: "EvilMod" },
       { DoLuaChecksum: "false" },
+      { RCONPassword: "pw", DefaultPort: "1", SomeModApiKey: "k" },
     ]) {
-      const res = await app.call("POST", "/api/templates/import", manager, { template: templateWith(serverIni) });
-      expect(res.status).toBe(400);
-      expect(res.body.code).toBe("SIM_TEMPLATE_VALIDATION_FAILED");
+      const res = await app.call("POST", "/api/templates/import", manager, {
+        template: templateWith({ ...serverIni, PVP: "false" }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.droppedIniKeys).toEqual(Object.keys(serverIni));
+      const stored = await init.getUserTemplate(res.body.template.meta.id);
+      expect(stored.serverIni).toEqual({ PVP: "false" });
+      expect(JSON.stringify(stored)).not.toContain("attacker-token");
     }
+  });
+
+  it("still refuses a template that is invalid for another reason", async () => {
+    const res = await app.call("POST", "/api/templates/import", manager, {
+      template: { ...templateWith({ Mods: "EvilMod" }), schemaVersion: 99 },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("SIM_TEMPLATE_VALIDATION_FAILED");
+  });
+
+  it("still needs templates.manage", async () => {
+    const res = await app.call("POST", "/api/templates/import", nobody, { template: templateWith({ PVP: "false" }) });
+    expect(res.status).toBe(403);
+  });
+});
+
+// v1.4.17's "Save as template" captured every .ini key but the eight it
+// excluded then, so its exports carry Mods=, WorkshopItems=, Map=, UPnP=,
+// DoLuaChecksum= and the Discord token's mask. Refusing them made every such
+// export (a template shared between panels, or kept as a file) impossible to
+// import after the upgrade.
+describe("a template exported by v1.4.17", () => {
+  const legacyExport = {
+    schemaVersion: 1,
+    meta: { id: "0b1c5d1e-legacy", name: "Our 2025 rules", description: "", tags: [], pzBuild: "42", createdAt: "2025-11-02T10:00:00.000Z" },
+    sandboxVars: {},
+    serverIni: {
+      PVP: "true",
+      PauseEmpty: "false",
+      Mods: "EvilMod;OtherMod",
+      WorkshopItems: "123456789",
+      Map: "Riverside, KY",
+      UPnP: "true",
+      DoLuaChecksum: "false",
+      DiscordToken: "••••••••",
+    },
+    iniExclusions: ["RCONPassword", "Password", "PublicName", "DefaultPort", "UDPPort", "RCONPort", "server_browser_announced_ip"],
+    mods: [],
+    map: { mapId: "Muldraugh, KY" },
+    difficulty: {},
+  };
+
+  it("imports, without the keys a template may no longer carry", async () => {
+    const res = await app.call("POST", "/api/templates/import", manager, { template: legacyExport });
+    expect(res.status).toBe(200);
+    expect(res.body.droppedIniKeys).toEqual(["Mods", "WorkshopItems", "Map", "UPnP", "DoLuaChecksum", "DiscordToken"]);
+    expect(res.body.template.serverIni).toEqual({ PVP: "true", PauseEmpty: "false" });
+    expect(res.body.template.meta.id).not.toBe(legacyExport.meta.id);
+  });
+
+  it("re-saved as a new template (POST /), gets the same treatment", async () => {
+    const res = await app.call("POST", "/api/templates", manager, legacyExport);
+    expect(res.status).toBe(200);
+    expect(res.body.template.serverIni).toEqual({ PVP: "true", PauseEmpty: "false" });
+  });
+
+  it("applied, rewrites none of the governed keys (adversary pass)", async () => {
+    const imported = await app.call("POST", "/api/templates/import", manager, { template: legacyExport });
+    const res = await app.call("POST", `/api/templates/${imported.body.template.meta.id}/apply`, manager, { serverId: server.id });
+    expect(res.status).toBe(200);
+    const ini = fs.readFileSync(iniPath, "utf8");
+    expect(ini).toContain("DiscordToken=BOT_TOKEN_SECRET_123");
+    expect(ini).toContain("UPnP=false");
+    expect(ini).toMatch(/^Mods=$/m);
+    expect(ini).toMatch(/^WorkshopItems=$/m);
+    expect(ini).toContain("Map=Muldraugh, KY");
+    expect(ini).toContain("DoLuaChecksum=true");
+    expect(ini).toContain("PauseEmpty=false");
   });
 });
 

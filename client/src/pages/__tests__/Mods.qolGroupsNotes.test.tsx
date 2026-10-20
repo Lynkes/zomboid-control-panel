@@ -223,6 +223,24 @@ describe('Active on server, Groups view', () => {
     await waitFor(() => expect(m.disableGroup).toHaveBeenCalledWith('g1', true))
   })
 
+  it('names a mod kept for another group whose enabled mods still use it, though that group lists a mod this server lacks', async () => {
+    // "Charlie pack" lists ModA too; its ModC is enabled, ModGhost is not on this server.
+    const CHARLIE: ModGroup = { id: 'g2', name: 'Charlie pack', description: '', modIds: ['ModA', 'ModC', 'ModGhost'], createdAt: STAMP, updatedAt: STAMP }
+    prime({ groups: [VEHICLES, CHARLIE] })
+    confirmSpy.mockResolvedValue(false)
+    await openActiveGroups()
+
+    const menu = await openMenu('Actions for group Vehicles')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Disable all/ }))
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1))
+    const { description, items } = confirmSpy.mock.calls[0][0]
+    expect(description).toContain('0 mods leave the server config')
+    expect(description).toContain('Kept, because another group still has enabled mods')
+    expect(description).toContain('ModA (Alpha Mod)')
+    expect(items).toEqual([])
+  })
+
   it('does nothing when Disable all is declined', async () => {
     prime()
     confirmSpy.mockResolvedValue(false)
@@ -318,6 +336,25 @@ describe('Groups and notes from a row', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /Vehicles/ }))
 
     await waitFor(() => expect(m.updateGroup).toHaveBeenCalledWith('g1', { modIds: ['ModA', 'ModB', 'ModC', 'ModD'] }))
+  })
+
+  it('starts a new group with every selected mod, the ones not in the load order last', async () => {
+    prime()
+    renderMods()
+    await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
+    await openModsView('Active on server')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select' }))
+    // Bravo is not enabled, so it is not in the load order.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bravo Mod' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Delta Mod' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add selected to group' }))
+    const picker = await screen.findByRole('dialog', { name: 'Add to a group' })
+    fireEvent.click(within(picker).getByRole('button', { name: 'New group…' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'New mod group' })
+    const members = Array.from(dialog.querySelectorAll('[data-member-id]')).map((el) => el.getAttribute('data-member-id'))
+    expect(members).toEqual(['ModD', 'ModB'])
   })
 
   it("shows a group member's colour dots and offers to remove it from the group", async () => {

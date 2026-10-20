@@ -98,6 +98,7 @@ import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { NumberInput } from '@/components/NumberInput'
 import { playersApi, panelBridgeApi, configApi, ApiError } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { PageHeader } from '@/components/PageHeader'
 import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { DisabledReason } from '@/components/DisabledReason'
@@ -637,16 +638,20 @@ export default function Players() {
   // read until the user navigated away and back. Extracted so the 15s
   // roster interval and the activeServerChanged handler can both call it,
   // matching the siblings.
+  // A Moderator can't read GET /panel-bridge/status (bridge.setup or
+  // bridge.diagnostics only); readBridgeLiveness() then asks the status every
+  // role may read, so God mode and the other powers aren't greyed out.
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const checkBridgeStatus = useCallback(async () => {
     try {
-      const status = await panelBridgeApi.getStatus()
-      if (mountedRef.current) setBridgeConnected(Boolean(status.modConnected && status.isRunning))
+      const live = await readBridgeLiveness(canReadBridgeStatus)
+      if (mountedRef.current) setBridgeConnected(live.modConnected && live.isRunning)
     } catch {
       if (mountedRef.current) setBridgeConnected(false)
     } finally {
       if (mountedRef.current) setBridgeStatusLoading(false)
     }
-  }, [])
+  }, [canReadBridgeStatus])
 
   // 2026-09-08 (retry-stacking sweep): `manual` covers the Retry button,
   // the Enter-key filter search, and the filter button's own RefreshCw icon
@@ -976,6 +981,12 @@ export default function Players() {
     const handleActiveServerChanged = () => {
       setSelectedPlayer('')
       writePlayerParamRef.current('')
+      // The player dialogs live at the page root now: close them with the
+      // selection, or Kick/Ban would sit open with no name, doing nothing.
+      setKickDialogOpen(false)
+      setBanDialogOpen(false)
+      setBanConfirmOpen(false)
+      setTeleportDialogOpen(false)
       setTypingManualTarget(false)
       setSettledManualTarget('')
       setPlayers([])
@@ -1510,7 +1521,12 @@ export default function Players() {
     [selectedPlayer, whitelistAccounts, whitelistLoading, whitelistError]
   )
 
-  const selectedIsOnline = !!selectedPlayer && players.some(p => p.name === selectedPlayer)
+  // Ignoring case like the Character tab: a typed "bob" is the online "Bob",
+  // and the map link uses the roster's spelling.
+  const selectedOnlineName = selectedPlayer
+    ? players.find(p => p.name.toLowerCase() === selectedPlayer.toLowerCase())?.name
+    : undefined
+  const selectedIsOnline = !!selectedOnlineName
   const selectedNote = selectedPlayer ? playerNotes[noteKey(selectedPlayer)] : undefined
   const selectedStat = selectedPlayer ? playerStats[selectedPlayer] : undefined
   const selectedHasPowers = !!selectedPlayerPowers && (selectedPlayerPowers.godMode || selectedPlayerPowers.invisible || selectedPlayerPowers.noclip)
@@ -1521,7 +1537,9 @@ export default function Players() {
     currentNote.trim() !== (selectedNote?.note ?? '').trim() ||
     currentTags.join('\n') !== (selectedNote?.tags ?? []).join('\n')
   )
-  useUnsavedChangesGuard(noteDirty)
+  // Only a role that can save a note (players.moderate) can hold unsaved
+  // edits: the note box is read-only for the others.
+  useUnsavedChangesGuard(canModerate && noteDirty)
 
   // Switching lists re-reads the ones that change behind the page's back
   // (the bans and the whitelist), as the old tab buttons did.
@@ -2315,7 +2333,7 @@ export default function Players() {
                       </DisabledReason>
                       {selectedIsOnline ? (
                         <DropdownMenuItem asChild>
-                          <Link to={`/world-map?player=${encodeURIComponent(selectedPlayer)}`}>
+                          <Link to={`/world-map?player=${encodeURIComponent(selectedOnlineName ?? selectedPlayer)}`}>
                             <MapIcon className="me-2 h-4 w-4" aria-hidden="true" />
                             {t('dossier.showOnMap')}
                           </Link>
@@ -2919,6 +2937,7 @@ export default function Players() {
                             <button
                               type="button"
                               onClick={() => removeTag(tag)}
+                              disabled={!canModerate}
                               className="ms-1 rounded p-1.5 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                               aria-label={t('notes.removeTagAria', { tag })}
                             >
@@ -2939,8 +2958,9 @@ export default function Players() {
                             placeholder={t('notes.addTagPlaceholder')}
                             className="h-8 w-28 text-xs"
                             maxLength={24}
+                            disabled={!canModerate}
                           />
-                          <Button size="sm" variant="ghost" onClick={addTag} className="h-8 w-8 p-0" aria-label={t('notes.addTagAria')}>
+                          <Button size="sm" variant="ghost" onClick={addTag} disabled={!canModerate} className="h-8 w-8 p-0" aria-label={t('notes.addTagAria')}>
                             <Plus className="w-4 h-4" />
                           </Button>
                         </div>
@@ -2974,6 +2994,8 @@ export default function Players() {
                         placeholder={t('notes.notePlaceholder')}
                         className="min-h-[120px] resize-y"
                         maxLength={1000}
+                        readOnly={!canModerate}
+                        aria-label={t('notes.adminNoteLabel')}
                       />
                       <p className="text-xs text-muted-foreground">{t('notes.charCount', { count: currentNote.length })}</p>
                     </div>

@@ -468,12 +468,15 @@ export default function Servers() {
     !!editingStoredServer &&
     (editingServer.rconPassword || '').startsWith('••••••••') &&
     ((editingServer.rconHost || '').trim().toLowerCase() !== (editingStoredServer.rconHost || '').trim().toLowerCase() ||
-      Number(editingServer.rconPort) !== Number(editingStoredServer.rconPort))
+      // A port this role isn't shown is absent on both sides: unchanged.
+      String(editingServer.rconPort ?? '') !== String(editingStoredServer.rconPort ?? ''))
 
   const editDuplicateRemoteConflict = useMemo(() => {
     if (!editingServer || !editingServer.isRemote) return false
     const normalizedName = (editingServer.name || '').trim().toLowerCase()
     const normalizedHost = (editingServer.rconHost || '').trim().toLowerCase()
+    // No host: one this role isn't shown, so nothing to compare.
+    if (!normalizedHost) return false
     return (servers || []).some(s =>
       s.id !== editingServer.id &&
       s.isRemote &&
@@ -1488,8 +1491,10 @@ export default function Servers() {
       return
     }
 
-    // Validate port range
-    if (!isValidPort(editingServer.rconPort)) {
+    // Validate port range. An absent port is one this role isn't shown
+    // (GET /servers leaves the RCON target out, see ServerInstance): not an
+    // edit, and left out of the request below.
+    if (editingServer.rconPort !== undefined && !isValidPort(editingServer.rconPort)) {
       toast({ title: t('toasts.error'), description: t('toasts.rconPortRangeError'), variant: 'destructive' })
       return
     }
@@ -2303,9 +2308,12 @@ export default function Servers() {
 
               {/* Facts: where it listens, how big it runs, which build */}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pt-4 sm:grid-cols-3">
-                <ServerCardFact label={t('card.rcon')}>
-                  <span dir="ltr">{server.rconHost}:{server.rconPort}</span>
-                </ServerCardFact>
+                {/* Absent for a role that isn't shown where RCON connects. */}
+                {server.rconHost !== undefined && server.rconPort !== undefined && (
+                  <ServerCardFact label={t('card.rcon')}>
+                    <span dir="ltr">{server.rconHost}:{server.rconPort}</span>
+                  </ServerCardFact>
+                )}
                 <ServerCardFact label={t('card.gamePort')}>{server.serverPort}</ServerCardFact>
                 {!server.isRemote && (
                   <ServerCardFact label={t('card.memory')}>
@@ -3200,7 +3208,7 @@ export default function Servers() {
                       </Tooltip>
                     </Label>
                     <Input
-                      value={editingServer.rconHost}
+                      value={editingServer.rconHost ?? ''}
                       onChange={e => setEditingServer({ ...editingServer, rconHost: e.target.value })}
                       placeholder={editingServer.isRemote ? t('editDialog.rconHostPlaceholderRemote') : t('editDialog.rconHostPlaceholderLocal')}
                       aria-invalid={editDuplicateRemoteConflict}
@@ -3221,7 +3229,7 @@ export default function Servers() {
                       type="number"
                       min={1}
                       max={65535}
-                      value={editingServer.rconPort}
+                      value={editingServer.rconPort ?? ''}
                       onChange={e => {
                         const val = parseInt(e.target.value)
                         if (!isNaN(val)) setEditingServer({ ...editingServer, rconPort: Math.min(65535, Math.max(1, val)) })
@@ -3247,8 +3255,8 @@ export default function Servers() {
                       <p className="text-xs text-warning">{t('editDialog.rconPasswordReenter')}</p>
                     )}
                     <RconTestConnection
-                      host={editingServer.rconHost}
-                      port={editingServer.rconPort}
+                      host={editingServer.rconHost ?? ''}
+                      port={editingServer.rconPort ?? 0}
                       password={editingServer.rconPassword}
                     />
                   </div>

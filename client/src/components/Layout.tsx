@@ -25,7 +25,7 @@ import {
   type NavSection,
   type RouteMeta,
 } from '@/lib/navigation'
-import { useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
+import { useConfirmLeave, useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
 import { CommandPalette } from './CommandPalette'
 import { ConnectionStatus, ConnectionAnnouncer } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
@@ -93,9 +93,9 @@ const DASHBOARD_ROUTE = getRouteMeta('/') as RouteMeta
 const FOOTER_ICON_BUTTON =
   'grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-function AuthFooter() {
+function AuthFooter({ onSignOut }: { onSignOut: () => void }) {
   const { t } = useTranslation('shell')
-  const { user, authEnabled, logout } = useAuth()
+  const { user, authEnabled } = useAuth()
 
   if (!authEnabled || !user) return null
 
@@ -115,7 +115,7 @@ function AuthFooter() {
       </span>
       <button
         type="button"
-        onClick={logout}
+        onClick={onSignOut}
         className={FOOTER_ICON_BUTTON}
         aria-label={t('footer.signOut')}
         title={t('footer.signOut')}
@@ -216,7 +216,16 @@ export default function Layout({ children }: LayoutProps) {
   const { toast } = useToast()
   const { helpOpen, setHelpOpen, paletteOpen, setPaletteOpen, shortcuts } = useKeyboardShortcuts()
   const guardedNavigate = useGuardedNavigate()
+  const confirmLeave = useConfirmLeave()
   const navRef = useRef<HTMLElement>(null)
+
+  // Signing out drops the page as surely as leaving it (the sign-in screen
+  // replaces the app without a reload, so no beforeunload either): ask
+  // first when a page holds unsaved edits, like a sidebar link does.
+  const handleSignOut = useCallback(async () => {
+    if (!(await confirmLeave())) return
+    await logout()
+  }, [confirmLeave, logout])
 
   // Fetch panel version
   useEffect(() => {
@@ -604,8 +613,14 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [socket])
 
+  // POST /servers/:id/activate needs servers.manage: without it the strip
+  // and the palette show the other servers but can't switch to them (a
+  // click used to end in a bare "Switch failed").
+  const canSwitchServer = can('servers.manage')
+  const switchDeniedReason = canSwitchServer ? undefined : t('servers:card.noPermissionManage')
+
   const handleSwitchServer = useCallback(async (server: ServerInstance) => {
-    if (server.isActive) return
+    if (server.isActive || !canSwitchServer) return
     try {
       await serversApi.activate(server.id)
       // Socket event will refresh the list
@@ -616,7 +631,7 @@ export default function Layout({ children }: LayoutProps) {
         variant: 'destructive',
       })
     }
-  }, [t, toast])
+  }, [canSwitchServer, t, toast])
 
   const openPalette = useCallback(() => {
     setMobileMenuOpen(false)
@@ -851,10 +866,14 @@ export default function Layout({ children }: LayoutProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60 glass border-border/50">
+        {switchDeniedReason && servers.length > 1 && (
+          <p className="px-3 pb-1.5 pt-2 text-xs text-muted-foreground">{switchDeniedReason}</p>
+        )}
         {servers.map(server => (
           <DropdownMenuItem
             key={server.id}
             onClick={() => handleSwitchServer(server)}
+            disabled={!server.isActive && !canSwitchServer}
             className={cn(
               "py-2.5 px-3 cursor-pointer transition-colors",
               server.isActive && 'bg-primary/10'
@@ -899,7 +918,18 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="flex h-screen bg-background">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm">{t('skipToContent')}</a>
+      {/* Focus moves in script: under the demo's HashRouter a plain
+          #main-content jump was read as a route, the 404 page. */}
+      <a
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault()
+          document.getElementById('main-content')?.focus()
+        }}
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:start-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm"
+      >
+        {t('skipToContent')}
+      </a>
       {/* Mobile top bar: the menu, where you are, and which server. */}
       <div className="fixed top-0 inset-x-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
         <div className="flex h-16 items-center gap-2 px-2">
@@ -954,11 +984,13 @@ export default function Layout({ children }: LayoutProps) {
         ref={mobileMenuAsideRef}
         aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
-        "fixed inset-y-0 left-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
+        // start-0 and the rtl: translate: in Arabic the drawer slides in
+        // from the right, beside the menu button, where the sidebar sits.
+        "fixed inset-y-0 start-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
         sidebarCollapsed ? "lg:w-[60px]" : "lg:w-64",
         "w-72",
-        "lg:translate-x-0",
-        mobileMenuOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0 lg:rtl:translate-x-0",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full rtl:translate-x-full",
         "pt-16 lg:pt-0" // Add padding for mobile header
       )}>
       <TooltipProvider delayDuration={150}>
@@ -1108,7 +1140,7 @@ export default function Layout({ children }: LayoutProps) {
                 <span className="sr-only"> {t('footer.opensInNewTab')}</span>
               </a>
               <div className="space-y-2">
-                <AuthFooter />
+                <AuthFooter onSignOut={() => void handleSignOut()} />
                 <div className="flex items-center gap-1.5">
                   {/* With an update waiting, the version itself becomes the
                       amber link to Settings > Updates: a separate badge does
@@ -1178,7 +1210,7 @@ export default function Layout({ children }: LayoutProps) {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={logout}
+                      onClick={() => void handleSignOut()}
                       className={FOOTER_ICON_BUTTON}
                       aria-label={t('footer.signOut')}
                     >

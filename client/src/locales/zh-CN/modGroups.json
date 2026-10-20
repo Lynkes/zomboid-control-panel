@@ -230,7 +230,7 @@
     "title": "禁用 {{name}}？",
     "description_one": "{{count}} 个模组将从服务器配置（Mods=）中移除。其文件仍保留在磁盘上，因此再次启用该模组组会立即完成。",
     "description_other": "{{count}} 个模组将从服务器配置（Mods=）中移除。其文件仍保留在磁盘上，因此再次启用该模组组会立即完成。",
-    "sharedNote": "已保留，因为另一个已完全启用的模组组需要它们：{{items}}",
+    "sharedNote": "已保留，因为另一个模组组仍有已启用的模组，并且也包含它们：{{items}}",
     "confirm": "禁用模组",
     "doneTitle": "已禁用 {{name}}",
     "doneDesc_one": "{{count}} 个模组已从服务器配置中移除。",

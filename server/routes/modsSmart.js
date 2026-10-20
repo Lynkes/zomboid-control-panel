@@ -71,10 +71,10 @@ function respondInvalid(res, code, field, message) {
 // order rules work without a server, they only lose the require= check.
 async function quietActiveIni() {
   try {
-    const { serverConfigPath, serverName, serverPath } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, zomboidDataPath } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
     if (!iniPath || !fs.existsSync(iniPath)) return null;
-    return { iniPath, serverPath };
+    return { iniPath, serverPath, zomboidDataPath };
   } catch {
     return null;
   }
@@ -119,6 +119,7 @@ router.post("/order-rules", requireModsManage, async (req, res) => {
       const ctx = await loadModSmartContext({
         content: readTextFile(active.iniPath),
         serverPath: active.serverPath,
+        zomboidDataPath: active.zomboidDataPath,
         catalogOnly: true,
       });
       requireEdges = requireEdgesOf(ctx);
@@ -239,6 +240,7 @@ router.post("/load-order/plan", requireModsManage, async (req, res) => {
     const ctx = await loadModSmartContext({
       content: readTextFile(active.iniPath),
       serverPath: active.serverPath,
+      zomboidDataPath: active.zomboidDataPath,
       extraModIds: givenOrder || [],
     });
     const order = givenOrder || ctx.modsLine;
@@ -253,8 +255,8 @@ router.post("/load-order/plan", requireModsManage, async (req, res) => {
 
 // ─── Health ───────────────────────────────────────────────────────────────
 
-async function healthOf(content, serverPath) {
-  const ctx = await loadModSmartContext({ content, serverPath });
+async function healthOf(content, { serverPath, zomboidDataPath }) {
+  const ctx = await loadModSmartContext({ content, serverPath, zomboidDataPath });
   const extras = await loadHealthExtras(ctx, { locate: locateModsOnDisk });
   const { plan } = planFor(ctx, {
     order: ctx.modsLine,
@@ -273,7 +275,7 @@ router.get("/health", requireModsManage, async (req, res) => {
   try {
     const active = await resolveActiveServerIniOrRespond(res);
     if (!active) return;
-    const { health } = await healthOf(readTextFile(active.iniPath), active.serverPath);
+    const { health } = await healthOf(readTextFile(active.iniPath), active);
     res.json(health);
   } catch (error) {
     log.error(`Failed to check mod health: ${error.message}`);
@@ -305,11 +307,11 @@ router.post("/health/fix", requireModsManage, async (req, res) => {
 
     const active = await resolveActiveServerIniOrRespond(res);
     if (!active) return;
-    const { iniPath, serverPath } = active;
+    const { iniPath } = active;
 
     const outcome = await withIniLock(iniPath, async () => {
       const content = readTextFile(iniPath);
-      const { plan, health } = await healthOf(content, serverPath);
+      const { plan, health } = await healthOf(content, active);
       const found = findHealthFix(health, body.issueId, body.action, params);
       if (found.error) return found;
       const edit = applyModListFix(content, found.fix, { order: plan.order });
@@ -327,7 +329,7 @@ router.post("/health/fix", requireModsManage, async (req, res) => {
     if (outcome.written) {
       log.info(`Mod health fix: ${outcome.fix.action} for ${outcome.issue.kind} (${outcome.fix.label})`);
     }
-    const { health } = await healthOf(readTextFile(iniPath), serverPath);
+    const { health } = await healthOf(readTextFile(iniPath), active);
     res.json({
       applied: outcome.written,
       ...(outcome.backupWarning ? { backupWarning: outcome.backupWarning } : {}),
@@ -350,12 +352,12 @@ router.get("/insights", requireModsManage, async (req, res) => {
     if (!active) return;
     const refresh = req.query?.refresh === "1" || req.query?.refresh === "true";
     let content = readTextFile(active.iniPath);
-    let ctx = await loadModSmartContext({ content, serverPath: active.serverPath });
+    let ctx = await loadModSmartContext({ content, serverPath: active.serverPath, zomboidDataPath: active.zomboidDataPath });
     let steamStatus;
     if (refresh) {
       steamStatus = (await fetchSteamKnowledge(ctx.workshopItems, { refresh: true })).status;
       content = readTextFile(active.iniPath);
-      ctx = await loadModSmartContext({ content, serverPath: active.serverPath });
+      ctx = await loadModSmartContext({ content, serverPath: active.serverPath, zomboidDataPath: active.zomboidDataPath });
     } else {
       startSteamKnowledgeFill(ctx.workshopItems);
     }

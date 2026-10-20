@@ -2375,7 +2375,10 @@ export interface ModHealthFixResult {
 }
 
 export interface ModInsight {
-  workshopId: string;
+  // null for a mod in the data folder (<Zomboid>/mods, or a staged item).
+  workshopId: string | null;
+  // Where the copy the server loads comes from.
+  source: "workshop" | "local" | "staged";
   name: string;
   // In Mods= (false: loaded only because something requires it).
   enabled: boolean;
@@ -2401,6 +2404,14 @@ export interface ModInsights {
     requires: { workshopId: string; title: string | null; installed: boolean; enabled: boolean }[];
   }[];
   constraints: SmartConstraint[];
+}
+
+// GET /mods/groups/status entries also carry `forcedApart` for a group kept
+// together that require= links or order rules keep apart (another mod must
+// load between its members): it is judged on its order alone, the rule the
+// load-order plan follows too.
+export interface ModGroupStatusEntryWithForcedApart extends ModGroupStatusEntry {
+  forcedApart?: string[];
 }
 
 // Each conflict scan pair may carry a suggested winner (no signal, none).
@@ -2673,8 +2684,12 @@ export interface ServerInstance {
   dockerContainerName?: string | null;
   dockerContainerId?: string | null;
   branch?: string;
-  rconHost: string;
-  rconPort: number;
+  // Left out of every server read for a role holding none of servers.manage,
+  // rcon.execute and server.configure (server/utils/rconTargetView.js):
+  // absent means hidden, not unset -- rconPassword's mask still says whether
+  // RCON is set up.
+  rconHost?: string;
+  rconPort?: number;
   rconPassword: string;
   serverPort: number;
   minMemory: number;

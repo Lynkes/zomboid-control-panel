@@ -343,6 +343,9 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     let finishSave!: () => void
     saveModOrder.mockReturnValueOnce(new Promise((resolve) => { finishSave = () => resolve({ message: 'ok', modCount: 4 } as never) }))
     let finishReload!: () => void
+    // Save first reads Mods= again (nothing changed on the server), then the
+    // reload after the write is held back.
+    getCurrentConfig.mockResolvedValueOnce({ configured: true, modIds: MOD_IDS, workshopIds: [], maps: [], totalMods: 4 } as never)
     getCurrentConfig.mockReturnValueOnce(new Promise((resolve) => {
       finishReload = () => resolve({ configured: true, modIds: ['NewMod', 'modA', 'modB', 'modC'], workshopIds: [], maps: [], totalMods: 4 } as never)
     }))
@@ -362,7 +365,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
 
     // Still locked once the write itself is done, while the reload is out.
     finishSave()
-    await waitFor(() => expect(getCurrentConfig).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getCurrentConfig).toHaveBeenCalledTimes(3))
     expect(screen.getByRole('button', { name: 'Move modA to the bottom' })).toBeDisabled()
 
     finishReload()

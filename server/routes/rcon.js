@@ -16,7 +16,8 @@ import {
   RCON_AUTH_FAILED_DETAIL,
   RCON_USER_ACTION_TIMEOUT_MS,
 } from '../services/rcon.js';
-import { requirePermission, getCapabilitiesForRole } from '../services/permissions.js';
+import { requirePermission } from '../services/permissions.js';
+import { canSeeRconTarget, withoutRconConfigTarget } from '../utils/rconTargetView.js';
 import { ErrorCode } from '../utils/errorCodes.js';
 
 const router = express.Router();
@@ -133,21 +134,13 @@ router.post('/execute', requirePermission('rcon.execute'), async (req, res) => {
 
 // Get RCON connection status. Every signed-in role reads whether RCON is
 // connected; WHERE it connects (host and port) only goes to the roles that
-// work with it -- rcon.execute or servers.manage (SECURITY 2026-10-20,
-// access-control audit: it went to every role).
+// work with it (utils/rconTargetView.js; SECURITY 2026-10-20, access-control
+// audit: it went to every role).
 router.get('/status', async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
     const config = rconService.getConfig();
-    const capabilities = await getCapabilitiesForRole(req.user?.role);
-    const seesTarget =
-      Array.isArray(capabilities) &&
-      (capabilities.includes('rcon.execute') || capabilities.includes('servers.manage'));
-    if (!seesTarget) {
-      const { host: _host, port: _port, ...status } = config;
-      return res.json(status);
-    }
-    res.json(config);
+    res.json((await canSeeRconTarget(req.user)) ? config : withoutRconConfigTarget(config));
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }

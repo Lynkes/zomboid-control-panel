@@ -247,7 +247,7 @@
     "description_one": "{{count}} mod sale de la configuración del servidor (Mods=). Sus archivos se quedan en el disco, así que volver a activar el grupo es instantáneo.",
     "description_many": "{{count}} mods salen de la configuración del servidor (Mods=). Sus archivos se quedan en el disco, así que volver a activar el grupo es instantáneo.",
     "description_other": "{{count}} mods salen de la configuración del servidor (Mods=). Sus archivos se quedan en el disco, así que volver a activar el grupo es instantáneo.",
-    "sharedNote": "Se conservan porque otro grupo totalmente activado los necesita: {{items}}",
+    "sharedNote": "Se conservan porque otro grupo todavía tiene mods activados y también los incluye: {{items}}",
     "confirm": "Desactivar mods",
     "doneTitle": "Grupo {{name}} desactivado",
     "doneDesc_one": "{{count}} mod salió de la configuración del servidor.",
