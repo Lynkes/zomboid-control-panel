@@ -344,8 +344,9 @@ describe('ServerConfig -- Backups dialog fits a short mobile viewport', () => {
     )
     await waitFor(() => expect(serverFilesApi.getIni).toHaveBeenCalled())
 
-    const backupsButton = await screen.findByRole('button', { name: /^backups$/i })
-    fireEvent.click(backupsButton)
+    // Config file backups sit in the header's "More" menu.
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'More actions' }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: /config file backups/i }))
 
     const dialog = await screen.findByRole('dialog')
     // 2026-09 dialog viewport sweep: this dialog is now a flex column whose
