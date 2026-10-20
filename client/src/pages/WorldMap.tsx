@@ -804,6 +804,10 @@ export default function WorldMap() {
   // fails) the page must not claim there is none.
   const [activeServerKnown, setActiveServerKnown] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A roster has arrived for the active server. `loading` goes false before
+  // that (no-server effect, the in-flight gate), so the ?player= deep link's
+  // "isn't on the map" alert waits for this instead.
+  const [playersFetched, setPlayersFetched] = useState(false)
   const [hoveredPlayer, setHoveredPlayer] = useState<string | null>(null)
   const [hoveredPoi, setHoveredPoi] = useState<string | null>(null)
   const [poiQuery, setPoiQuery] = useState('')
@@ -1057,6 +1061,7 @@ export default function WorldMap() {
     if (!socket) return
     const handleActiveServerChanged = () => {
       setPlayers([])
+      setPlayersFetched(false)
       setVehicles([])
       setSafehouses([])
       setSelectedPlayer(null)
@@ -1566,6 +1571,7 @@ export default function WorldMap() {
         : null
       if (rawPlayers) {
         setBridgeConnected(true)
+        setPlayersFetched(true)
         // isAlive/isInfected/accessLevel only exist on the wire from bridge
         // v1.7.39 onward -- an older bridge simply omits the keys. Gate on
         // the bridge's own reported version rather than defaulting/passing
@@ -3213,10 +3219,13 @@ export default function WorldMap() {
   useEffect(() => {
     if (!deepLinkPlayer || !deepLinkTarget || canvasSize.width === 0) return
     if (deepLinkPlayerDoneRef.current === deepLinkPlayer) return
+    // Like the square link below: wait for the map build, whose detection
+    // re-centres on its own default and would undo the pan.
+    if (mapVersionStatus === 'loading') return
     deepLinkPlayerDoneRef.current = deepLinkPlayer
     hasFittedRef.current = true
     panToPlayer(deepLinkTarget)
-  }, [deepLinkPlayer, deepLinkTarget, canvasSize.width, panToPlayer])
+  }, [deepLinkPlayer, deepLinkTarget, canvasSize.width, panToPlayer, mapVersionStatus])
 
   // ?x=&y=(&z=): centre on a square once the map build (B41/B42 geometry)
   // is known; detection re-centres on its own default otherwise.
@@ -3288,7 +3297,7 @@ export default function WorldMap() {
       action: { label: t('alerts.bridgeOfflineAction'), to: '/settings?tab=bridge' },
     })
   }
-  if (deepLinkPlayer && !deepLinkTarget && deepLinkPlayerDoneRef.current !== deepLinkPlayer && bridgeConnected && !loading) {
+  if (deepLinkPlayer && !deepLinkTarget && deepLinkPlayerDoneRef.current !== deepLinkPlayer && bridgeConnected && playersFetched) {
     pageAlerts.push({
       id: 'player-not-online',
       tone: 'info',
