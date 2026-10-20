@@ -667,7 +667,8 @@ export const ErrorCode = Object.freeze({
   SERVER_RCON_CHANGE_REQUIRES_CONFIGURE: "SERVER_RCON_CHANGE_REQUIRES_CONFIGURE",
   /** server/routes/servers.js -- PUT /:id (400): the RCON host or port
    * changes but no RCON password was entered. The stored password is never
-   * sent to a host or port it was not saved for. */
+   * sent to a host or port it was not saved for. Also server/routes/rcon.js
+   * POST /connect (400) for a host/port override without a password. */
   SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET: "SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET",
   /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
    * request succeeded): the active server's RCON settings changed and the

@@ -19,6 +19,7 @@ import {
 // RCON, and the reconnect warning carries a code.
 
 const { default: serversRouter } = await import("../routes/servers.js");
+const { default: rconRouter } = await import("../routes/rcon.js");
 
 const SECRET = "Stored-Rcon-Secret-42";
 
@@ -200,6 +201,48 @@ describe("GET /api/servers/rcon-status", () => {
     const token = await tokenWithCapabilities(["rcon.execute"]);
     const res = await app.call("GET", "/api/servers/rcon-status", token);
     expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/rcon/connect with a target override (adversary pass)", () => {
+  // The other door to the same connection: overriding host/port without a
+  // password kept the stored one (updateConfig()) and sent it there.
+  let rconApp;
+  const updates = [];
+  beforeAll(async () => {
+    rconApp = await startApp([["/api/rcon", rconRouter]], {
+      rconService: {
+        updateConfig: (...args) => updates.push(args),
+        connect: async () => false,
+        getConfig: () => ({ host: "127.0.0.1", port: evilPort }),
+        getUserFriendlyError: (m) => m,
+      },
+    });
+  });
+  afterAll(async () => {
+    await rconApp?.close();
+  });
+
+  it("refuses rcon.execute + servers.manage without server.configure", async () => {
+    const token = await tokenWithCapabilities(["rcon.execute", "servers.manage"]);
+    const res = await rconApp.call("POST", "/api/rcon/connect", token, { host: "127.0.0.1", port: evilPort });
+    expect(res.status).toBe(403);
+    expect(updates).toEqual([]);
+  });
+
+  it("refuses a new host or port without a password, even with server.configure", async () => {
+    const token = await tokenWithCapabilities(["rcon.execute", "servers.manage", "server.configure"]);
+    const res = await rconApp.call("POST", "/api/rcon/connect", token, { host: "127.0.0.1", port: evilPort });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET");
+    expect(updates).toEqual([]);
+  });
+
+  it("still reconnects to the configured target with no override", async () => {
+    const token = await tokenWithCapabilities(["rcon.execute"]);
+    const res = await rconApp.call("POST", "/api/rcon/connect", token, {});
+    expect(res.status).toBe(503);
+    expect(updates).toEqual([]);
   });
 });
 

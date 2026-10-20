@@ -192,6 +192,22 @@ router.post('/connect', requirePermission('rcon.execute'), async (req, res) => {
     if (overridesConnectionTarget && !(await requireCapabilityInline('servers.manage', req, res))) {
       return;
     }
+    // SECURITY (2026-10-20, access-control audit): the same rule as PUT
+    // /api/servers/:id (routes/servers.js's rconConnectionChanges()): the RCON
+    // host, port and password are server.configure's, and a new host or port
+    // is only used with a password typed for it -- omitting `password` used
+    // to send the STORED one to the caller's host (updateConfig() keeps it).
+    // No page sends an override; the dashboard's reconnect sends none.
+    if (overridesConnectionTarget && !(await requireCapabilityInline('server.configure', req, res))) {
+      return;
+    }
+    if ((host !== undefined || port !== undefined) && password === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Enter the RCON password again to change the RCON host or port: the saved password is only sent to the host and port it was saved for.',
+        code: ErrorCode.SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET,
+      });
+    }
 
     // Validate host format if provided (only alphanumeric, dots, hyphens)
     if (host !== undefined) {
