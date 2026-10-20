@@ -21,7 +21,7 @@ import type { ModGroup, ModGroupColorName, ModGroupInput } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { GROUP_DESCRIPTION_MAX, GROUP_NAME_MAX, moveListEntry } from '@/lib/modGroups'
 import { MOD_GROUP_COLORS, autoOrderMembers, groupDotClass } from '@/lib/modGroupTools'
-import type { GroupPlacement } from '@/lib/loadOrderAutoSort'
+import type { GroupPlacement } from './groupPlacementMigration'
 import { cn } from '@/lib/utils'
 
 const MEMBER_BUTTON_CLASS =
@@ -37,7 +37,7 @@ export const MIN_GROUP_MEMBERS = 2
 type MemberAction = 'up' | 'down' | 'remove'
 type PlacementChoice = 'anywhere' | GroupPlacement
 
-/** What the dialog saves: the group itself, plus where Auto-sort places it (kept in this browser). */
+/** What the dialog saves: the group itself, with where smart sort places it. */
 export interface ModGroupDialogValues extends ModGroupInput {
   color: ModGroupColorName | null
   keepTogether: boolean
@@ -51,7 +51,7 @@ export interface ModGroupDialogProps {
   initialModIds?: readonly string[]
   /** Creating only: a name to start with (a suggestion's). */
   initialName?: string
-  /** The group's Auto-sort placement (kept in this browser). */
+  /** The group's smart-sort placement (the server's `placement`). */
   placement?: GroupPlacement | null
   /** The mods enabled on the active server: what "Add mods" offers. */
   serverModIds: readonly string[]

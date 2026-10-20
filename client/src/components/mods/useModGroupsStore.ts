@@ -2,26 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { modsApi, type ModGroup, type ModGroupsStatus } from '@/lib/api'
 import { reportClientWarning } from '@/lib/client-errors'
 import { buildGroupMembership } from '@/lib/modGroupTools'
-import type { GroupPlacement } from '@/lib/loadOrderAutoSort'
-import { readStored, writeStored } from '@/lib/safeStorage'
-
-// Where a group sits in Auto-sort ("first" / "last"). The server keeps a
-// group's name, colour, members and keep-together flag; it does not keep a
-// placement, so this browser does (keyed by group id).
-const PLACEMENT_KEY = 'zcp:mods:groupPlacement'
-
-function readPlacements(): Record<string, GroupPlacement> {
-  try {
-    const parsed = JSON.parse(readStored(PLACEMENT_KEY) ?? '{}') as Record<string, unknown>
-    const result: Record<string, GroupPlacement> = {}
-    for (const [id, value] of Object.entries(parsed ?? {})) {
-      if (value === 'first' || value === 'last') result[id] = value
-    }
-    return result
-  } catch {
-    return {}
-  }
-}
+import { migrateLegacyPlacements, type GroupPlacement } from './groupPlacementMigration'
 
 export interface ModGroupsStore {
   groups: ModGroup[]
@@ -32,8 +13,8 @@ export interface ModGroupsStore {
   /** Mod ID to the groups listing it. */
   membership: Map<string, ModGroup[]>
   groupsById: Map<string, ModGroup>
+  /** Each placed group's smart-sort placement (the server's `placement`). */
   placements: Record<string, GroupPlacement>
-  setPlacement: (groupId: string, placement: GroupPlacement | null) => void
   setEnforce: (enforce: boolean) => void
   /** Reads the groups and their status again. */
   reload: () => Promise<void>
@@ -42,19 +23,20 @@ export interface ModGroupsStore {
 
 /**
  * The mod groups as the whole Mod Manager sees them: the list, the "keep group
- * order" switch, the in-order status (read again whenever the saved load order
- * changes) and the per-browser placements. `enabled: false` makes it inert, for
- * a panel that was handed the page's store instead.
+ * order" switch and the in-order status (read again whenever the saved load
+ * order changes). Placements come from the server; the first load also moves
+ * the ones an older version kept in this browser to the server, once.
+ * `enabled: false` makes it inert, for a panel that was handed the page's store.
  */
 export function useModGroupsStore({ enabled = true, savedModIds }: { enabled?: boolean; savedModIds?: readonly string[] } = {}): ModGroupsStore {
   const [groups, setGroups] = useState<ModGroup[]>([])
   const [enforce, setEnforce] = useState(false)
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [status, setStatus] = useState<ModGroupsStatus | null>(null)
-  const [placements, setPlacements] = useState<Record<string, GroupPlacement>>(readPlacements)
   const aliveRef = useRef(true)
   const groupsSeq = useRef(0)
   const statusSeq = useRef(0)
+  const migrationStarted = useRef(false)
 
   useEffect(() => {
     aliveRef.current = true
@@ -66,9 +48,15 @@ export function useModGroupsStore({ enabled = true, savedModIds }: { enabled?: b
     try {
       const data = await modsApi.getGroups()
       if (!aliveRef.current || seq !== groupsSeq.current) return
-      setGroups(Array.isArray(data?.groups) ? data.groups : [])
+      const list = Array.isArray(data?.groups) ? data.groups : []
+      setGroups(list)
       setEnforce(data?.enforce === true)
       setLoadState('ready')
+      if (!migrationStarted.current) {
+        migrationStarted.current = true
+        const { migrated } = await migrateLegacyPlacements(list)
+        if (migrated.length > 0 && aliveRef.current) void loadGroups()
+      }
     } catch (error) {
       if (!aliveRef.current || seq !== groupsSeq.current) return
       reportClientWarning('Failed to load mod groups.', error)
@@ -105,18 +93,13 @@ export function useModGroupsStore({ enabled = true, savedModIds }: { enabled?: b
     await Promise.all([loadGroups(), reloadStatus()])
   }, [loadGroups, reloadStatus])
 
-  const setPlacement = useCallback((groupId: string, placement: GroupPlacement | null) => {
-    setPlacements((previous) => {
-      const next = { ...previous }
-      if (placement) next[groupId] = placement
-      else delete next[groupId]
-      writeStored(PLACEMENT_KEY, JSON.stringify(next))
-      return next
-    })
-  }, [])
-
   const membership = useMemo(() => buildGroupMembership(groups), [groups])
   const groupsById = useMemo(() => new Map(groups.map((group) => [group.id, group])), [groups])
+  const placements = useMemo(() => {
+    const result: Record<string, GroupPlacement> = {}
+    for (const group of groups) if (group.placement === 'first' || group.placement === 'last') result[group.id] = group.placement
+    return result
+  }, [groups])
 
-  return { groups, enforce, loadState, status, membership, groupsById, placements, setPlacement, setEnforce, reload, reloadStatus }
+  return { groups, enforce, loadState, status, membership, groupsById, placements, setEnforce, reload, reloadStatus }
 }

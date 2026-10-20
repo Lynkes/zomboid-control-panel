@@ -7,21 +7,19 @@ export const MIN_MEMBERS = 2
 
 /**
  * Saves the group dialog's values: the group on the server (name, description,
- * members, colour, keep-together) and its Auto-sort placement in this browser.
- * Reloads the store; returns the saved group.
+ * members, colour, keep-together, smart-sort placement). Reloads the store;
+ * returns the saved group.
  */
 export async function saveGroupValues(values: ModGroupDialogValues, editing: ModGroup | null, store: ModGroupsStore): Promise<ModGroup | null> {
-  const { placement, ...rest } = values
   const payload = {
-    name: rest.name,
-    description: rest.description,
-    modIds: rest.modIds,
-    color: rest.color,
-    keepTogether: rest.keepTogether,
+    name: values.name,
+    description: values.description,
+    modIds: values.modIds,
+    color: values.color,
+    keepTogether: values.keepTogether,
+    placement: values.placement,
   }
   const response = editing ? await modsApi.updateGroup(editing.id, payload) : await modsApi.createGroup(payload)
-  const id = response?.group?.id ?? editing?.id
-  if (id) store.setPlacement(id, placement)
   await store.reload()
   return response?.group ?? null
 }

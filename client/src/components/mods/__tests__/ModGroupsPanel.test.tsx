@@ -230,7 +230,7 @@ describe('ModGroupsPanel: create and edit', () => {
     fireEvent.click(button('Create group'))
 
     await waitFor(() =>
-      expect(m.createGroup).toHaveBeenCalledWith({ name: 'KI5 Vehicles', description: '', modIds: ['KI5Lib', 'KI5Core'], color: null, keepTogether: false }),
+      expect(m.createGroup).toHaveBeenCalledWith({ name: 'KI5 Vehicles', description: '', modIds: ['KI5Lib', 'KI5Core'], color: null, keepTogether: false, placement: null }),
     )
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'New mod group' })).toBeNull())
     expect(toastTitles()).toContain('Group created')
@@ -258,6 +258,7 @@ describe('ModGroupsPanel: create and edit', () => {
       modIds: ['KI5Lib', 'KI5Addon', 'KI5Core', 'Other'],
       color: null,
       keepTogether: false,
+      placement: null,
     }))
     expect(toastTitles()).toContain('Group saved')
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Edit mod group' })).toBeNull())
@@ -584,8 +585,8 @@ describe('ModGroupsPanel: without mods.manage', () => {
 })
 
 describe('ModGroupsPanel: colour, keep together, placement and conflicts', () => {
-  it('shows a group kept together and its placement, and keeps the placement in this browser', async () => {
-    prime([{ ...KI5, color: 'amber', keepTogether: true }, WEAPONS])
+  it('shows a group kept together and its placement, and saves the placement on the server', async () => {
+    prime([{ ...KI5, color: 'amber', keepTogether: true, placement: null }, WEAPONS])
     renderPanel()
     await screen.findByText('KI5 Vehicles')
     expect(within(groupRow('KI5 Vehicles')).getByText('Kept together')).toBeInTheDocument()
@@ -593,12 +594,11 @@ describe('ModGroupsPanel: colour, keep together, placement and conflicts', () =>
 
     fireEvent.click(button('Edit group KI5 Vehicles'))
     fireEvent.click(await screen.findByRole('radio', { name: 'First' }))
+    m.getGroups.mockResolvedValue({ groups: [{ ...KI5, color: 'amber', keepTogether: true, placement: 'first' }, WEAPONS], enforce: false })
     fireEvent.click(button('Save changes'))
 
-    await waitFor(() => expect(m.updateGroup).toHaveBeenCalledWith('g1', expect.objectContaining({ color: 'amber', keepTogether: true })))
-    // The server does not keep a placement: it is not sent, this browser keeps it.
-    expect(m.updateGroup.mock.calls[0][1]).not.toHaveProperty('placement')
-    expect(JSON.parse(localStorage.getItem('zcp:mods:groupPlacement') ?? '{}')).toEqual({ g1: 'first' })
+    await waitFor(() => expect(m.updateGroup).toHaveBeenCalledWith('g1', expect.objectContaining({ color: 'amber', keepTogether: true, placement: 'first' })))
+    expect(localStorage.getItem('zcp:mods:groupPlacement')).toBeNull()
     expect(await within(groupRow('KI5 Vehicles')).findByText('Loads first')).toBeInTheDocument()
   })
 
