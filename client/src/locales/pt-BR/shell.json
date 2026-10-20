@@ -160,5 +160,42 @@
     "backend": "Backend",
     "unknown": "desconhecido",
     "checkAgain": "Verificar novamente"
+  },
+  "serverHeader": {
+    "more": "Mais ações para {{name}}"
+  },
+  "subNav": {
+    "unsaved": "alterações não salvas"
+  },
+  "toolbar": {
+    "clearSearch": "Limpar pesquisa"
+  },
+  "stepper": {
+    "ariaLabel": "Progresso",
+    "position": "Etapa {{current}} de {{total}}",
+    "status": {
+      "done": "concluída",
+      "current": "etapa atual",
+      "upcoming": "não iniciada",
+      "locked": "bloqueada"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Dispensar",
+    "showMore": "Mostrar mais {{count}}",
+    "showFewer": "Mostrar menos"
+  },
+  "saveBar": {
+    "unsaved": "Alterações não salvas",
+    "changeCount": "Alterações não salvas: {{count}}",
+    "saving": "Salvando…",
+    "discard": "Descartar",
+    "save": "Salvar alterações"
+  },
+  "unsavedChanges": {
+    "title": "Sair sem salvar?",
+    "description": "Esta página tem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.",
+    "leave": "Descartar e sair",
+    "stay": "Continuar editando"
   }
 }

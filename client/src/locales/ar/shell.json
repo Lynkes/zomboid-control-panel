@@ -176,5 +176,42 @@
     "backend": "الواجهة الخلفية",
     "unknown": "غير معروف",
     "checkAgain": "تحقق مرة أخرى"
+  },
+  "serverHeader": {
+    "more": "إجراءات أخرى لـ {{name}}"
+  },
+  "subNav": {
+    "unsaved": "تغييرات غير محفوظة"
+  },
+  "toolbar": {
+    "clearSearch": "مسح البحث"
+  },
+  "stepper": {
+    "ariaLabel": "التقدم",
+    "position": "الخطوة {{current}} من {{total}}",
+    "status": {
+      "done": "مكتملة",
+      "current": "الخطوة الحالية",
+      "upcoming": "لم تبدأ بعد",
+      "locked": "مقفلة"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "إخفاء",
+    "showMore": "عرض المزيد ({{count}})",
+    "showFewer": "عرض أقل"
+  },
+  "saveBar": {
+    "unsaved": "تغييرات غير محفوظة",
+    "changeCount": "تغييرات غير محفوظة: {{count}}",
+    "saving": "جارٍ الحفظ…",
+    "discard": "تجاهل التغييرات",
+    "save": "حفظ التغييرات"
+  },
+  "unsavedChanges": {
+    "title": "المغادرة دون حفظ؟",
+    "description": "في هذه الصفحة تغييرات لم تُحفظ بعد. إذا غادرت الآن فستضيع.",
+    "leave": "تجاهل ومغادرة",
+    "stay": "متابعة التعديل"
   }
 }

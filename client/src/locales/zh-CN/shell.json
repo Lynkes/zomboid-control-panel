@@ -158,5 +158,42 @@
     "backend": "后端",
     "unknown": "未知",
     "checkAgain": "重新检查"
+  },
+  "serverHeader": {
+    "more": "{{name}} 的更多操作"
+  },
+  "subNav": {
+    "unsaved": "有未保存的更改"
+  },
+  "toolbar": {
+    "clearSearch": "清除搜索"
+  },
+  "stepper": {
+    "ariaLabel": "进度",
+    "position": "第 {{current}} 步，共 {{total}} 步",
+    "status": {
+      "done": "已完成",
+      "current": "当前步骤",
+      "upcoming": "未开始",
+      "locked": "已锁定"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "关闭",
+    "showMore": "再显示 {{count}} 条",
+    "showFewer": "收起"
+  },
+  "saveBar": {
+    "unsaved": "有未保存的更改",
+    "changeCount": "未保存的更改：{{count}}",
+    "saving": "正在保存…",
+    "discard": "放弃更改",
+    "save": "保存更改"
+  },
+  "unsavedChanges": {
+    "title": "不保存就离开？",
+    "description": "此页面有尚未保存的更改。现在离开会丢失这些更改。",
+    "leave": "放弃并离开",
+    "stay": "继续编辑"
   }
 }

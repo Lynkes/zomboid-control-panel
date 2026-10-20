@@ -158,5 +158,42 @@
     "backend": "Backend",
     "unknown": "unknown",
     "checkAgain": "Check again"
+  },
+  "serverHeader": {
+    "more": "More actions for {{name}}"
+  },
+  "subNav": {
+    "unsaved": "unsaved changes"
+  },
+  "toolbar": {
+    "clearSearch": "Clear search"
+  },
+  "stepper": {
+    "ariaLabel": "Progress",
+    "position": "Step {{current}} of {{total}}",
+    "status": {
+      "done": "done",
+      "current": "current step",
+      "upcoming": "not started",
+      "locked": "locked"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Dismiss",
+    "showMore": "Show {{count}} more",
+    "showFewer": "Show fewer"
+  },
+  "saveBar": {
+    "unsaved": "Unsaved changes",
+    "changeCount": "Unsaved changes: {{count}}",
+    "saving": "Saving…",
+    "discard": "Discard",
+    "save": "Save changes"
+  },
+  "unsavedChanges": {
+    "title": "Leave without saving?",
+    "description": "This page has changes that are not saved yet. Leaving now discards them.",
+    "leave": "Discard and leave",
+    "stay": "Keep editing"
   }
 }

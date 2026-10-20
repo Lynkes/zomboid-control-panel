@@ -168,5 +168,42 @@
     "backend": "Серверна частина",
     "unknown": "невідомо",
     "checkAgain": "Перевірити ще раз"
+  },
+  "serverHeader": {
+    "more": "Інші дії для {{name}}"
+  },
+  "subNav": {
+    "unsaved": "незбережені зміни"
+  },
+  "toolbar": {
+    "clearSearch": "Очистити пошук"
+  },
+  "stepper": {
+    "ariaLabel": "Перебіг",
+    "position": "Крок {{current}} з {{total}}",
+    "status": {
+      "done": "виконано",
+      "current": "поточний крок",
+      "upcoming": "ще не розпочато",
+      "locked": "заблоковано"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Приховати",
+    "showMore": "Показати ще {{count}}",
+    "showFewer": "Показати менше"
+  },
+  "saveBar": {
+    "unsaved": "Незбережені зміни",
+    "changeCount": "Незбережені зміни: {{count}}",
+    "saving": "Збереження…",
+    "discard": "Скасувати зміни",
+    "save": "Зберегти зміни"
+  },
+  "unsavedChanges": {
+    "title": "Вийти без збереження?",
+    "description": "На цій сторінці є ще не збережені зміни. Якщо вийти зараз, вони будуть втрачені.",
+    "leave": "Відкинути й вийти",
+    "stay": "Продовжити редагування"
   }
 }

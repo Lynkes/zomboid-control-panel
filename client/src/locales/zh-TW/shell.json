@@ -158,5 +158,42 @@
     "backend": "後端",
     "unknown": "未知",
     "checkAgain": "重新檢查"
+  },
+  "serverHeader": {
+    "more": "{{name}} 的更多操作"
+  },
+  "subNav": {
+    "unsaved": "有未儲存的變更"
+  },
+  "toolbar": {
+    "clearSearch": "清除搜尋"
+  },
+  "stepper": {
+    "ariaLabel": "進度",
+    "position": "第 {{current}} 步，共 {{total}} 步",
+    "status": {
+      "done": "已完成",
+      "current": "目前步驟",
+      "upcoming": "尚未開始",
+      "locked": "已鎖定"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "關閉",
+    "showMore": "再顯示 {{count}} 則",
+    "showFewer": "收合"
+  },
+  "saveBar": {
+    "unsaved": "有未儲存的變更",
+    "changeCount": "未儲存的變更：{{count}}",
+    "saving": "正在儲存…",
+    "discard": "捨棄變更",
+    "save": "儲存變更"
+  },
+  "unsavedChanges": {
+    "title": "不儲存就離開？",
+    "description": "此頁面有尚未儲存的變更。現在離開會失去這些變更。",
+    "leave": "捨棄並離開",
+    "stay": "繼續編輯"
   }
 }

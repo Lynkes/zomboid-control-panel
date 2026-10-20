@@ -160,5 +160,42 @@
     "backend": "Backend",
     "unknown": "enkoni",
     "checkAgain": "Verifye ankò"
+  },
+  "serverHeader": {
+    "more": "Lòt aksyon pou {{name}}"
+  },
+  "subNav": {
+    "unsaved": "chanjman ki pa anrejistre"
+  },
+  "toolbar": {
+    "clearSearch": "Efase rechèch la"
+  },
+  "stepper": {
+    "ariaLabel": "Pwogrè",
+    "position": "Etap {{current}} sou {{total}}",
+    "status": {
+      "done": "fini",
+      "current": "etap kounye a",
+      "upcoming": "poko kòmanse",
+      "locked": "bloke"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Kache",
+    "showMore": "Montre {{count}} lòt",
+    "showFewer": "Montre mwens"
+  },
+  "saveBar": {
+    "unsaved": "Chanjman ki pa anrejistre",
+    "changeCount": "Chanjman ki pa anrejistre: {{count}}",
+    "saving": "Ap anrejistre…",
+    "discard": "Jete chanjman yo",
+    "save": "Anrejistre chanjman yo"
+  },
+  "unsavedChanges": {
+    "title": "Kite san anrejistre?",
+    "description": "Paj sa a gen chanjman ki poko anrejistre. Si w kite kounye a, w ap pèdi yo.",
+    "leave": "Jete epi kite",
+    "stay": "Kontinye modifye"
   }
 }

@@ -160,5 +160,42 @@
     "backend": "Backend",
     "unknown": "inconnu",
     "checkAgain": "Vérifier à nouveau"
+  },
+  "serverHeader": {
+    "more": "Autres actions pour {{name}}"
+  },
+  "subNav": {
+    "unsaved": "modifications non enregistrées"
+  },
+  "toolbar": {
+    "clearSearch": "Effacer la recherche"
+  },
+  "stepper": {
+    "ariaLabel": "Progression",
+    "position": "Étape {{current}} sur {{total}}",
+    "status": {
+      "done": "terminée",
+      "current": "étape en cours",
+      "upcoming": "pas encore commencée",
+      "locked": "verrouillée"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Masquer",
+    "showMore": "Afficher {{count}} de plus",
+    "showFewer": "Afficher moins"
+  },
+  "saveBar": {
+    "unsaved": "Modifications non enregistrées",
+    "changeCount": "Modifications non enregistrées : {{count}}",
+    "saving": "Enregistrement…",
+    "discard": "Annuler les modifications",
+    "save": "Enregistrer les modifications"
+  },
+  "unsavedChanges": {
+    "title": "Quitter sans enregistrer ?",
+    "description": "Cette page contient des modifications qui ne sont pas encore enregistrées. Si vous la quittez maintenant, elles seront perdues.",
+    "leave": "Abandonner et quitter",
+    "stay": "Continuer la modification"
   }
 }

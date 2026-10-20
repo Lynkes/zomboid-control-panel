@@ -10,12 +10,15 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 function Badge({ className, variant = 'default', ...props }: BadgeProps) {
   const variants = {
-    default: "border border-primary/20 bg-primary/12 text-primary",
+    // Opacity steps must be on Tailwind's scale (5, 10, 15, ...): an
+    // off-scale one like /12 compiles to nothing, which left these untinted.
+    default: "border border-primary/20 bg-primary/10 text-primary",
     secondary: "border border-border/70 bg-secondary/70 text-secondary-foreground",
-    destructive: "border border-destructive/25 bg-destructive/12 text-destructive",
+    destructive: "border border-destructive/25 bg-destructive/10 text-destructive",
     outline: "border border-input bg-transparent text-foreground",
     success: "border border-[hsl(var(--success)/0.28)] bg-[hsl(var(--success)/0.12)] text-[hsl(var(--success))]",
-    warning: "border border-[hsl(var(--warning)/0.72)] bg-[hsl(var(--warning))] text-[hsl(var(--warning-foreground))]"
+    // Tinted like success/destructive: a solid amber fill read as a button.
+    warning: "border border-warning/40 bg-warning/10 text-warning"
   }
 
   return (

@@ -158,5 +158,42 @@
     "backend": "Backend",
     "unknown": "unbekannt",
     "checkAgain": "Erneut prüfen"
+  },
+  "serverHeader": {
+    "more": "Weitere Aktionen für {{name}}"
+  },
+  "subNav": {
+    "unsaved": "ungespeicherte Änderungen"
+  },
+  "toolbar": {
+    "clearSearch": "Suche leeren"
+  },
+  "stepper": {
+    "ariaLabel": "Fortschritt",
+    "position": "Schritt {{current}} von {{total}}",
+    "status": {
+      "done": "erledigt",
+      "current": "aktueller Schritt",
+      "upcoming": "noch nicht begonnen",
+      "locked": "gesperrt"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Ausblenden",
+    "showMore": "{{count}} weitere anzeigen",
+    "showFewer": "Weniger anzeigen"
+  },
+  "saveBar": {
+    "unsaved": "Ungespeicherte Änderungen",
+    "changeCount": "Ungespeicherte Änderungen: {{count}}",
+    "saving": "Wird gespeichert…",
+    "discard": "Verwerfen",
+    "save": "Änderungen speichern"
+  },
+  "unsavedChanges": {
+    "title": "Ohne Speichern verlassen?",
+    "description": "Auf dieser Seite gibt es noch nicht gespeicherte Änderungen. Wenn du sie jetzt verlässt, gehen sie verloren.",
+    "leave": "Verwerfen und verlassen",
+    "stay": "Weiter bearbeiten"
   }
 }
