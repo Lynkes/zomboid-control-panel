@@ -45,7 +45,7 @@ import { getInstallProgressMessage } from "@/lib/installProgressMessage";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
-import { PageAlerts } from "@/components/PageAlerts";
+import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
 import { AddServerChoices } from "@/components/AddServerChoices";
 import { SectionCard } from "@/components/ui/section-card";
 import { Stepper, type StepperStep } from "@/components/ui/stepper";
@@ -2771,31 +2771,33 @@ export default function ServerSetup() {
     />
   );
 
+  // An install a previous page load left running. The step stays in the URL,
+  // so a reload mid-install lands back on the wizard: the banner shows there
+  // too, not only on the choice of mode.
+  const resumeAlerts: PageAlert[] =
+    resumeMarker && !installing
+      ? [
+          {
+            id: "resume-install",
+            tone: "warning",
+            title: t("resumeBanner.title"),
+            description: t("resumeBanner.description", {
+              installPath: resumeMarker.installPath,
+              elapsed: formatElapsed((Date.now() - resumeMarker.startedAt) / 1000),
+            }),
+            action: { label: t("resumeBanner.continueButton"), onClick: handleResumeContinue },
+            onDismiss: handleResumeDismiss,
+          },
+        ]
+      : [];
+
   // Mode selection: the three standard ways to add a server.
   if (setupMode === "select") {
     return (
       <div className="space-y-6 page-transition">
         {header}
 
-        <PageAlerts
-          alerts={
-            resumeMarker
-              ? [
-                  {
-                    id: "resume-install",
-                    tone: "warning",
-                    title: t("resumeBanner.title"),
-                    description: t("resumeBanner.description", {
-                      installPath: resumeMarker.installPath,
-                      elapsed: formatElapsed((Date.now() - resumeMarker.startedAt) / 1000),
-                    }),
-                    action: { label: t("resumeBanner.continueButton"), onClick: handleResumeContinue },
-                    onDismiss: handleResumeDismiss,
-                  },
-                ]
-              : []
-          }
-        />
+        <PageAlerts alerts={resumeAlerts} />
 
         <AddServerChoices
           onChoose={{ fresh: () => goTo("full"), existing: () => goTo("quick") }}
@@ -2886,6 +2888,8 @@ export default function ServerSetup() {
   return (
     <div className="space-y-6 page-transition">
       {header}
+
+      <PageAlerts alerts={resumeAlerts} />
 
       <Stepper
         steps={stepperSteps}

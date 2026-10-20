@@ -386,3 +386,31 @@ describe('ServerSetup -- install:log/install:complete are scoped to the install 
     expect(create).toHaveBeenCalledTimes(1)
   })
 })
+
+// Bug pass before the UX release: the wizard's step now lives in the URL
+// (?mode=fresh&step=4), so a reload in the middle of an install lands back on
+// the wizard, not on the choice of mode -- the only screen that showed this
+// banner. The install log even tells the operator to reload.
+describe('ServerSetup -- the resume banner after a reload on a wizard step', () => {
+  it('shows on the step the URL reopens, and Continue setup still works from there', async () => {
+    localStorage.setItem(
+      INSTALL_INFLIGHT_KEY,
+      JSON.stringify({ installPath: '/srv/pz-reloaded', serverName: 'reloaded', startedAt: Date.now() - 60_000 }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/server-setup?mode=fresh&step=4']}>
+        <SocketContext.Provider value={null}>
+          <TooltipProvider>
+            <ServerSetup />
+          </TooltipProvider>
+        </SocketContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText(enServerSetup.resumeBanner.title)).toBeInTheDocument()
+    expect(screen.getByText(/\/srv\/pz-reloaded/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: enServerSetup.resumeBanner.continueButton }))
+    expect(await screen.findByText(enServerSetup.full.step2.title)).toBeInTheDocument()
+    expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
+  })
+})
