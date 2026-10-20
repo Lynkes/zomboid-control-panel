@@ -18,24 +18,24 @@
       "panel": "面板"
     },
     "items": {
-      "serverConsole": "伺服器主控台",
-      "onlinePlayers": "線上玩家",
-      "inGameChat": "遊戲內聊天",
+      "serverConsole": "主控台",
+      "onlinePlayers": "玩家",
+      "inGameChat": "聊天",
       "eventsWeather": "事件與天氣",
       "worldMap": "世界地圖",
       "serverConfiguration": "伺服器設定",
-      "serverFiles": "伺服器檔案",
-      "modManager": "模組管理",
+      "serverFiles": "檔案",
+      "modManager": "模組",
       "templates": "模板",
       "scheduledTasks": "排程任務",
-      "worldBackups": "伺服器備份",
+      "worldBackups": "備份",
       "mapCleanup": "區塊重設",
-      "myServers": "我的伺服器",
-      "serverSetup": "伺服器安裝",
-      "browsePublic": "瀏覽公共伺服器",
+      "myServers": "伺服器列表",
+      "serverSetup": "新增伺服器",
+      "browsePublic": "公共伺服器",
       "discord": "Discord",
-      "panelSettings": "面板設定",
-      "debugLogs": "除錯日誌",
+      "panelSettings": "設定",
+      "debugLogs": "診斷",
       "leaderboard": "排行榜"
     },
     "notAvailableRemote": "遠端（僅 RCON）伺服器不支援此功能",
@@ -44,7 +44,7 @@
     "noServerBanner": {
       "title": "還沒有伺服器",
       "description": "新增一個伺服器後，面板的大部分功能就會解鎖。",
-      "cta": "設定伺服器"
+      "cta": "新增伺服器"
     }
   },
   "mobileMenu": {
@@ -75,8 +75,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "面板更新可用：v{{version}}",
     "titleNoVersion": "面板更新可用",
-    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打開面板設定。",
-    "titleNoVersionOpenSettings": "面板更新可用。打開面板設定。",
+    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打開設定。",
+    "titleNoVersionOpenSettings": "面板更新可用。打開設定。",
     "update": "更新"
   },
   "footer": {

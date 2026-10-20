@@ -18,24 +18,24 @@
       "panel": "Panèl"
     },
     "items": {
-      "serverConsole": "Konsòl Sèvè",
-      "onlinePlayers": "Jwè Anliy",
-      "inGameChat": "Chat nan jwèt la",
+      "serverConsole": "Konsòl",
+      "onlinePlayers": "Jwè",
+      "inGameChat": "Chat",
       "eventsWeather": "Evènman ak Move Tan",
       "worldMap": "Kat Mond",
-      "serverConfiguration": "Konfigirasyon Sèvè",
-      "serverFiles": "Fichye Sèvè",
-      "modManager": "Jesyon Mods",
+      "serverConfiguration": "Konfigirasyon",
+      "serverFiles": "Fichye",
+      "modManager": "Mods",
       "templates": "Modèl",
-      "scheduledTasks": "Tach Pwograme",
-      "worldBackups": "Kopi Sovgad Mond",
+      "scheduledTasks": "Planifikatè",
+      "worldBackups": "Kopi sovgad",
       "mapCleanup": "Netwayaj Kat",
-      "myServers": "Sèvè m yo",
-      "serverSetup": "Konfigirasyon Enstalasyon",
-      "browsePublic": "Gade Sèvè Piblik",
+      "myServers": "Sèvè yo",
+      "serverSetup": "Ajoute yon Sèvè",
+      "browsePublic": "Sèvè Piblik",
       "discord": "Discord",
-      "panelSettings": "Paramèt Panèl",
-      "debugLogs": "Jounal Debogaj",
+      "panelSettings": "Paramèt",
+      "debugLogs": "Dyagnostik",
       "leaderboard": "Klasman"
     },
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
@@ -44,7 +44,7 @@
     "noServerBanner": {
       "title": "Poko gen sèvè",
       "description": "Pifò nan panèl la debloke depi ou ajoute youn.",
-      "cta": "Konfigire yon sèvè"
+      "cta": "Ajoute yon sèvè"
     }
   },
   "mobileMenu": {
@@ -77,8 +77,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Mizajou panèl disponib: v{{version}}",
     "titleNoVersion": "Mizajou panèl disponib",
-    "titleWithVersionOpenSettings": "Mizajou panèl disponib: v{{version}}. Ouvri Paramèt Panèl.",
-    "titleNoVersionOpenSettings": "Mizajou panèl disponib. Ouvri Paramèt Panèl.",
+    "titleWithVersionOpenSettings": "Mizajou panèl disponib: v{{version}}. Ouvri Paramèt.",
+    "titleNoVersionOpenSettings": "Mizajou panèl disponib. Ouvri Paramèt.",
     "update": "Mete ajou"
   },
   "footer": {

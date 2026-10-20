@@ -28,24 +28,24 @@
       "panel": "اللوحة"
     },
     "items": {
-      "serverConsole": "وحدة تحكم الخادم",
-      "onlinePlayers": "اللاعبون المتصلون",
-      "inGameChat": "الدردشة داخل اللعبة",
+      "serverConsole": "وحدة التحكم",
+      "onlinePlayers": "اللاعبون",
+      "inGameChat": "الدردشة",
       "eventsWeather": "الأحداث والطقس",
       "worldMap": "خريطة العالم",
-      "serverConfiguration": "تهيئة الخادم",
-      "serverFiles": "ملفات الخادم",
-      "modManager": "مدير المودات",
+      "serverConfiguration": "التهيئة",
+      "serverFiles": "الملفات",
+      "modManager": "المودات",
       "templates": "القوالب",
-      "scheduledTasks": "المهام المجدولة",
-      "worldBackups": "النسخ الاحتياطية للعالم",
+      "scheduledTasks": "المُجدوِل",
+      "worldBackups": "النسخ الاحتياطية",
       "mapCleanup": "تنظيف الخريطة",
-      "myServers": "خوادمي",
-      "serverSetup": "إعداد الخادم",
-      "browsePublic": "تصفح الخوادم العامة",
+      "myServers": "الخوادم",
+      "serverSetup": "إضافة خادم",
+      "browsePublic": "الخوادم العامة",
       "discord": "Discord",
-      "panelSettings": "إعدادات اللوحة",
-      "debugLogs": "سجلات التصحيح",
+      "panelSettings": "الإعدادات",
+      "debugLogs": "التشخيص",
       "leaderboard": "لوحة المتصدرين"
     },
     "notAvailableRemote": "غير متاح للخوادم البعيدة (RCON فقط)",
@@ -54,7 +54,7 @@
     "noServerBanner": {
       "title": "لا يوجد خادم بعد",
       "description": "يُفتح معظم أقسام اللوحة بمجرد إضافة خادم.",
-      "cta": "إعداد خادم"
+      "cta": "أضف خادمًا"
     }
   },
   "mobileMenu": {
@@ -93,8 +93,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "يتوفر تحديث للوحة: v{{version}}",
     "titleNoVersion": "يتوفر تحديث للوحة",
-    "titleWithVersionOpenSettings": "يتوفر تحديث للوحة: v{{version}}. افتح إعدادات اللوحة.",
-    "titleNoVersionOpenSettings": "يتوفر تحديث للوحة. افتح إعدادات اللوحة.",
+    "titleWithVersionOpenSettings": "يتوفر تحديث للوحة: v{{version}}. افتح الإعدادات.",
+    "titleNoVersionOpenSettings": "يتوفر تحديث للوحة. افتح الإعدادات.",
     "update": "تحديث"
   },
   "footer": {

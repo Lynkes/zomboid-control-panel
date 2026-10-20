@@ -24,24 +24,24 @@
       "panel": "Панель"
     },
     "items": {
-      "serverConsole": "Консоль сервера",
-      "onlinePlayers": "Гравці онлайн",
-      "inGameChat": "Чат у грі",
+      "serverConsole": "Консоль",
+      "onlinePlayers": "Гравці",
+      "inGameChat": "Чат",
       "eventsWeather": "Події та погода",
       "worldMap": "Карта світу",
-      "serverConfiguration": "Конфігурація сервера",
-      "serverFiles": "Файли сервера",
-      "modManager": "Керування модами",
+      "serverConfiguration": "Конфігурація",
+      "serverFiles": "Файли",
+      "modManager": "Моди",
       "templates": "Шаблони",
-      "scheduledTasks": "Заплановані завдання",
-      "worldBackups": "Резервні копії світу",
+      "scheduledTasks": "Планувальник",
+      "worldBackups": "Резервні копії",
       "mapCleanup": "Очищення карти",
-      "myServers": "Мої сервери",
+      "myServers": "Сервери",
       "serverSetup": "Додати сервер",
-      "browsePublic": "Переглянути публічні сервери",
+      "browsePublic": "Публічні сервери",
       "discord": "Discord",
-      "panelSettings": "Налаштування панелі",
-      "debugLogs": "Журнали налагодження",
+      "panelSettings": "Налаштування",
+      "debugLogs": "Діагностика",
       "leaderboard": "Таблиця лідерів"
     },
     "notAvailableRemote": "Недоступно для віддалених серверів (лише RCON)",
@@ -50,7 +50,7 @@
     "noServerBanner": {
       "title": "Сервера ще немає",
       "description": "Більшість можливостей панелі розблокується, щойно ви додасте сервер.",
-      "cta": "Налаштувати сервер"
+      "cta": "Додати сервер"
     }
   },
   "mobileMenu": {
@@ -85,8 +85,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Доступне оновлення панелі: v{{version}}",
     "titleNoVersion": "Доступне оновлення панелі",
-    "titleWithVersionOpenSettings": "Доступне оновлення панелі: v{{version}}. Відкрити налаштування панелі.",
-    "titleNoVersionOpenSettings": "Доступне оновлення панелі. Відкрити налаштування панелі.",
+    "titleWithVersionOpenSettings": "Доступне оновлення панелі: v{{version}}. Відкрити налаштування.",
+    "titleNoVersionOpenSettings": "Доступне оновлення панелі. Відкрити налаштування.",
     "update": "Оновити"
   },
   "footer": {
