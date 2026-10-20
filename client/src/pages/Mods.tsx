@@ -91,6 +91,7 @@ import {
 import { getAccessToken } from '@/lib/authToken'
 import { isDemoMode } from '@/lib/demo'
 import { createConflictScanSnapshot, recalculateConflictWinners } from '@/lib/conflictSeverity'
+import { computeVariantSiblings } from '@/lib/modVariants'
 import { PageHeader } from '@/components/PageHeader'
 import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { SaveBar } from '@/components/SaveBar'
@@ -2856,32 +2857,12 @@ export default function Mods() {
   const isPairIgnored = useCallback((a: string, b: string) => {
     return ignoredPairKeys.has(a < b ? `${a}--${b}` : `${b}--${a}`)
   }, [ignoredPairKeys])
-  const siblingConflictsMap = useMemo(() => {
-    const result = new Map<string, Map<string, Set<string>>>()
-    if (!conflicts?.pairs?.length) return result
-    // Build modId → wsId lookup from active groups
-    const modToWs = new Map<string, string>()
-    for (const g of activeModsData.groups) {
-      for (const m of g.mods) modToWs.set(m.id, g.wsId)
-    }
-    for (const pair of conflicts.pairs) {
-      const wsA = modToWs.get(pair.modA.modId)
-      const wsB = modToWs.get(pair.modB.modId)
-      if (!wsA || wsA !== wsB) continue
-      // User dismissed this pair as a false positive — skip.
-      if (isPairIgnored(pair.modA.modId, pair.modB.modId)) continue
-      // Same-workshop conflict — record both directions
-      let groupMap = result.get(wsA)
-      if (!groupMap) { groupMap = new Map(); result.set(wsA, groupMap) }
-      const setA = groupMap.get(pair.modA.modId) || new Set<string>()
-      setA.add(pair.modB.modId)
-      groupMap.set(pair.modA.modId, setA)
-      const setB = groupMap.get(pair.modB.modId) || new Set<string>()
-      setB.add(pair.modA.modId)
-      groupMap.set(pair.modB.modId, setB)
-    }
-    return result
-  }, [conflicts?.pairs, activeModsData, isPairIgnored])
+  // A base and its add-on (require= / loadModAfter=) are never variants, nor
+  // mods sharing only translation keys (lib/modVariants.ts).
+  const siblingConflictsMap = useMemo(
+    () => computeVariantSiblings(conflicts?.pairs, activeModsData.groups, isPairIgnored),
+    [conflicts?.pairs, activeModsData, isPairIgnored],
+  )
 
   // Search covers the Workshop ID, every mod ID and name, and the item's note.
   const activeModsFiltered = useMemo(() => {

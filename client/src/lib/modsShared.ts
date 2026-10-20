@@ -54,7 +54,7 @@ export interface ModStatus {
   unknownWorkshopIds: Array<{ id: string; resultCode: number }>
 }
 
-export type ModEntry = { id: string; name: string; enabled: boolean; require?: string[] }
+export type ModEntry = { id: string; name: string; enabled: boolean; require?: string[]; loadAfter?: string[]; loadBefore?: string[] }
 export type WsGroup = { wsId: string; mods: ModEntry[]; allEnabled: boolean; someEnabled: boolean }
 
 export type DepSearchHit = {
