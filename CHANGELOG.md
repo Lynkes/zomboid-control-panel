@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Restoring a zip made by Windows PowerShell on a Linux panel:** backslash-separated archives (Compress-Archive) now restore into their world folder instead of failing with "no world save folder".
 - **Restore of an archive without world files:** a backup whose server-named folder holds no world (only a readme, say) is refused instead of replacing the live world; a real world elsewhere in the archive is used instead.
 - **Leftover upload temp files:** a backup upload cut off by a panel crash or restart no longer leaves its temporary file in the backups folder forever; the next backup removes it.
+- **Character import recovery copies:** the panel keeps the newest ones per player (as many as the auto-export keeps, else 5) instead of one more on every import, forever.
 
 ### Security
 
