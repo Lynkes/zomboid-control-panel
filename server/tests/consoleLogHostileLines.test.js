@@ -54,6 +54,97 @@ beforeEach(() => {
   currentRole = "moderator";
 });
 
+// Security audit 2026-10-20: on a world's first start the game logs the
+// -adminpassword value the panel passes it. The Console page never needs it,
+// so no role gets it -- not a moderator, not an admin.
+describe("the game's 'Command line admin password:' line", () => {
+  const FIRST_BOOT = [
+    "LOG  : General      f:0 st:195,165,107> User 'admin' not found, creating it ",
+    "LOG  : General      f:0 st:195,165,107> Command line admin password: Sup3rS3cret!",
+    "LOG  : General      f:0 st:195,166,001> RCON: listening on port 27015",
+    "",
+  ].join("\n");
+  const REDACTED = "LOG  : General      f:0 st:195,165,107> Command line admin password: [REDACTED]";
+
+  for (const role of ["moderator", "technician", "admin"]) {
+    it(`is redacted for ${role} in GET /console-log and /console-log/stream`, async () => {
+      currentRole = role;
+      fs.writeFileSync(LOG, FIRST_BOOT);
+      for (const filter of ["all", "filtered"]) {
+        const log = await getJson(`/api/server/console-log?filter=${filter}`);
+        expect(JSON.stringify(log)).not.toContain("Sup3rS3cret!");
+        expect(log.lines).toContain(REDACTED);
+      }
+
+      const stream = await getJson("/api/server/console-log/stream?filter=all&lastSize=0");
+      expect(JSON.stringify(stream)).not.toContain("Sup3rS3cret!");
+      expect(stream.newLines).toContain(REDACTED);
+
+      // A poll that picks the line up as new output, not as a rotation.
+      fs.writeFileSync(LOG, "LOG  : General      > SERVER STARTED\n");
+      const { currentSize, identity } = await getJson("/api/server/console-log/stream?filter=all&lastSize=0");
+      fs.appendFileSync(LOG, FIRST_BOOT);
+      const next = await getJson(
+        `/api/server/console-log/stream?filter=all&lastSize=${currentSize}&identity=${encodeURIComponent(identity)}`,
+      );
+      expect(next.rotated).toBeUndefined();
+      expect(next.newLines).toContain(REDACTED);
+      expect(JSON.stringify(next)).not.toContain("Sup3rS3cret!");
+    });
+  }
+
+  // Adversary pass: lastSize is the caller's. Aimed just past the marker, the
+  // stream used to answer with the rest of that line: the bare password.
+  it("a lastSize aimed into the middle of the line returns no part of it", async () => {
+    fs.writeFileSync(LOG, "LOG  : General      > SERVER STARTED\n");
+    const { identity } = await getJson("/api/server/console-log/stream?filter=all&lastSize=0");
+    fs.writeFileSync(LOG, FIRST_BOOT);
+    const marker = "Command line admin password: ";
+    const offsets = [
+      Buffer.byteLength(FIRST_BOOT.slice(0, FIRST_BOOT.indexOf(marker) + marker.length)),
+      Buffer.byteLength(FIRST_BOOT.slice(0, FIRST_BOOT.indexOf("S3cret"))),
+      Buffer.byteLength(FIRST_BOOT.slice(0, FIRST_BOOT.indexOf(marker) + 3)),
+    ];
+    for (const lastSize of offsets) {
+      const res = await getJson(
+        `/api/server/console-log/stream?filter=all&lastSize=${lastSize}&identity=${encodeURIComponent(identity)}`,
+      );
+      expect(res.rotated).toBeUndefined();
+      expect(JSON.stringify(res)).not.toContain("S3cret");
+      // The whole lines after it still arrive.
+      expect(res.newLines).toEqual(["LOG  : General      f:0 st:195,166,001> RCON: listening on port 27015"]);
+    }
+  });
+
+  it("an offset in a line that is still being written drops that line until its newline, then carries on", async () => {
+    fs.writeFileSync(LOG, "first\n");
+    const { identity } = await getJson("/api/server/console-log/stream?filter=all&lastSize=0");
+    fs.appendFileSync(LOG, "Command line admin password: Sup3r");
+    const cut = Buffer.byteLength("first\nCommand line admin password: Su");
+    const partial = await getJson(
+      `/api/server/console-log/stream?filter=all&lastSize=${cut}&identity=${encodeURIComponent(identity)}`,
+    );
+    expect(partial.newLines).toEqual([]);
+    fs.appendFileSync(LOG, "S3cret!\nnext line\n");
+    const rest = await getJson(
+      `/api/server/console-log/stream?filter=all&lastSize=${partial.currentSize}&identity=${encodeURIComponent(identity)}`,
+    );
+    expect(rest.newLines).toEqual(["next line"]);
+    expect(JSON.stringify([partial, rest])).not.toContain("3r");
+  });
+
+  it("a poll that ended mid-line still gets the whole line on the next poll", async () => {
+    fs.writeFileSync(LOG, "first\nCommand line admin password: Sup3r");
+    const first = await getJson("/api/server/console-log/stream?filter=all&lastSize=0");
+    expect(first.newLines).toEqual(["first"]);
+    fs.appendFileSync(LOG, "S3cret!\nafter\n");
+    const next = await getJson(
+      `/api/server/console-log/stream?filter=all&lastSize=${first.currentSize}&identity=${encodeURIComponent(first.identity)}`,
+    );
+    expect(next.newLines).toEqual(["Command line admin password: [REDACTED]", "after"]);
+  });
+});
+
 describe("the default (filtered) Console view: a line a mod printed", () => {
   // Security audit 2026-10-20: /Steam client .* is initiating/ rescanned the
   // rest of the line from every "Steam client " in it -- quadratic, and the

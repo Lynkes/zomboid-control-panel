@@ -95,6 +95,7 @@ import {
 import { getSteamApiKey } from "../services/steamApiKey.js";
 import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
 import { modInfoEntries, readModInfoText } from "../utils/modInfoText.js";
+import { redactGameLogSecrets } from "../utils/gameLogSecrets.js";
 import { Transform } from "stream";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -428,7 +429,7 @@ const RAW_LOG_STEAM_KEY_QUERY_RE = /([?&]key=)[0-9A-Za-z]{16,64}/g;
 
 /**
  * Support-bundle-specific superset of discordMessageRedaction.js's own
- * known-secret list: everything that list already covers (RCON/join
+ * known-secret list: everything that list already covers (RCON/join/admin
  * passwords across every server profile, the Discord bot token, the
  * PanelBridge SFTP password, Steam session cookies) plus the Steam Web API
  * key, which that module has no reason to know about (a Discord message
@@ -478,6 +479,10 @@ function redactRawLogText(text, knownSecrets) {
   out = redactRconCommandSecrets(out);
   out = out.replace(RAW_LOG_DISCORD_TOKEN_RE, "[REDACTED-DISCORD-TOKEN]");
   out = out.replace(RAW_LOG_STEAM_KEY_QUERY_RE, "$1[REDACTED]");
+  // The game's own "Command line admin password: <value>" line
+  // (utils/gameLogSecrets.js), a value it may have been started with that
+  // the panel no longer holds.
+  out = redactGameLogSecrets(out);
   return out;
 }
 

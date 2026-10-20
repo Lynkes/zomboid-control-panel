@@ -106,6 +106,22 @@ describe("collectKnownSecretValues() -- gathers every secret the panel currently
     expect(values).toContain("rcon-secret-two");
   });
 
+  it("collects every server's in-game admin password (the game logs it on a world's first start)", async () => {
+    vi.doMock("../database/init.js", () => ({
+      getServers: async () => [
+        { id: "s1", adminPassword: "admin-secret-one" },
+        { id: "s2", rconPassword: "rcon-x", adminPassword: "admin-secret-two" },
+      ],
+      getSetting: async () => null,
+    }));
+    const { collectKnownSecretValues } = await import("../utils/discordMessageRedaction.js");
+
+    const values = await collectKnownSecretValues();
+
+    expect(values).toContain("admin-secret-one");
+    expect(values).toContain("admin-secret-two");
+  });
+
   it("collects the legacy settings.rconPassword mirror", async () => {
     vi.doMock("../database/init.js", () => ({
       getServers: async () => [],
