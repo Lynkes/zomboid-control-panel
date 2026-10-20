@@ -17,7 +17,11 @@
 //             b41Only                 a Mods= id whose folder has no Build 42
 //                                     mod.info (never loads on B42)
 //             incompatibleEnabled     both mods of an incompatible= pair load
-//             duplicateModId          two installed items ship the same id;
+//             duplicateModId          two folders the server reads ship the
+//                                     same id: a staged item's copy beats a
+//                                     Workshop item's, which beats a local
+//                                     one (<Zomboid>/mods); between two
+//                                     Workshop items (or two local folders)
 //                                     which one loads is not defined
 //             mapNotInMapLine         a loaded mod ships a map Map= lacks
 //             mapFolderWithoutMod     Map= names a folder no loaded mod ships
@@ -144,6 +148,10 @@ export function canonicalJson(value) {
   return JSON.stringify(value ?? null);
 }
 
+// The order the game looks for mods in (services/modSmartContext.js): the
+// first folder with an id is the one it loads.
+const SOURCE_RANK = { staged: 0, workshop: 1, local: 2 };
+
 const lower = (s) => String(s).toLowerCase();
 const uniq = (list) => [...new Set(list)];
 
@@ -163,6 +171,8 @@ export function computeModHealth(input) {
     catalog = [],
     legacyMods = new Map(),
     itemMods = new Map(),
+    providers = null,
+    localModsReadable = true,
     itemsOnDisk = new Set(),
     analysis = { effectiveModOrder: [], orderWarnings: [] },
     located = new Map(),
@@ -307,7 +317,8 @@ export function computeModHealth(input) {
         requiredBy: requirers,
         affected: uniq(affected).slice(0, HEALTH_LIMITS.maxListed),
         ...(caseMatch ? { caseMatch } : {}),
-        ...(legacy ? { b41Only: true, workshopId: legacy.workshopId } : {}),
+        ...(legacy ? { b41Only: true, workshopId: legacy.workshopId, source: legacy.source || "workshop" } : {}),
+        ...(localModsReadable ? {} : { localModsUnknown: true }),
       },
       fixes,
       subjects: [`missing:${id}`],
@@ -380,8 +391,8 @@ export function computeModHealth(input) {
       const fix = removeFix([id]);
       add("b41Only", "warning", {
         modIds: [id],
-        workshopIds: [legacy.workshopId],
-        params: { modId: id, workshopId: legacy.workshopId },
+        workshopIds: legacy.workshopId ? [legacy.workshopId] : [],
+        params: { modId: id, workshopId: legacy.workshopId || null, source: legacy.source || "workshop" },
         fixes: fix ? [fix] : [],
       });
       continue;
@@ -392,12 +403,19 @@ export function computeModHealth(input) {
       const fix = addItemsFix([provider]);
       if (fix) fixes.push(fix);
     }
-    const remove = removeFix([id]);
+    // Without the data folder's mods/ the panel cannot rule out a local
+    // mod the game loads: no removal offered then, and only an info.
+    const remove = localModsReadable ? removeFix([id]) : null;
     if (remove) fixes.push(remove);
-    add("notInstalled", "warning", {
+    add("notInstalled", localModsReadable ? "warning" : "info", {
       modIds: [id],
       workshopIds: provider ? [provider] : [],
-      params: { modId: id, ...(provider ? { foundIn: provider } : {}), notDownloaded },
+      params: {
+        modId: id,
+        ...(provider ? { foundIn: provider } : {}),
+        notDownloaded,
+        ...(localModsReadable ? {} : { localModsUnknown: true }),
+      },
       fixes,
     });
   }
@@ -413,17 +431,38 @@ export function computeModHealth(input) {
   }
 
   // ── duplicateModId ──
-  const providers = new Map();
-  for (const [ws, mods] of itemMods) {
-    for (const mod of mods) {
-      if (mod.b42 === false || !loaded.has(mod.id)) continue;
-      if (!providers.has(mod.id)) providers.set(mod.id, []);
-      if (!providers.get(mod.id).includes(ws)) providers.get(mod.id).push(ws);
+  // Every Build 42 copy of each loaded id, in the order the game looks.
+  let copies = providers;
+  if (!(copies instanceof Map)) {
+    copies = new Map();
+    for (const [ws, mods] of itemMods) {
+      for (const mod of mods) {
+        if (mod.b42 === false) continue;
+        if (!copies.has(mod.id)) copies.set(mod.id, []);
+        copies.get(mod.id).push({ source: "workshop", workshopId: ws });
+      }
     }
   }
-  for (const [id, items] of providers) {
-    if (items.length < 2) continue;
-    add("duplicateModId", "warning", { modIds: [id], workshopIds: items, params: { modId: id, workshopIds: items } });
+  for (const [id, list] of copies) {
+    if (!loaded.has(id)) continue;
+    const distinct = list;
+    if (distinct.length < 2) continue;
+    const best = Math.min(...distinct.map((c) => SOURCE_RANK[c.source] ?? 9));
+    const first = distinct.filter((c) => (SOURCE_RANK[c.source] ?? 9) === best);
+    const items = uniq(distinct.filter((c) => c.workshopId).map((c) => c.workshopId));
+    add("duplicateModId", "warning", {
+      modIds: [id],
+      workshopIds: items,
+      params: {
+        modId: id,
+        workshopIds: items,
+        copies: distinct.map((c) => ({ source: c.source, workshopId: c.workshopId || null })),
+        // The copy the game loads, or null when that is not defined (two
+        // Workshop items, or two local folders).
+        loads: first.length === 1 ? { source: first[0].source, workshopId: first[0].workshopId || null } : null,
+      },
+      subjects: [`m:${id}`, ...distinct.map((c) => `${c.source}:${c.workshopId || ""}`)],
+    });
   }
 
   // ── Maps ──

@@ -317,7 +317,12 @@ export async function getActiveServerPaths() {
     serverPath = legacyPath || null;
   }
 
-  return { serverConfigPath, serverName, serverPath, configRefusal };
+  // The data folder the game runs with (-cachedir): its mods/ and Workshop/
+  // folders hold mods the server loads too. Only when it passed the
+  // data-folder rule above.
+  const zomboidDataPath = config.refused ? null : config.dataPath || null;
+
+  return { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath };
 }
 
 // SECURITY (2026-10-05, PT3): the body a route answers when it has no
@@ -5390,7 +5395,7 @@ async function isModGroupEnforcementOn() {
 // active server), resolved like the preset routes do. Answers with the coded
 // error itself and returns null when there is no ini to read.
 export async function resolveActiveServerIniOrRespond(res) {
-  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
+  const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
   const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
   if (!iniPath) {
@@ -5410,7 +5415,7 @@ export async function resolveActiveServerIniOrRespond(res) {
     });
     return null;
   }
-  return { iniPath, serverPath };
+  return { iniPath, serverPath, zomboidDataPath };
 }
 
 async function resolveActiveIniPathOrRespond(res) {
