@@ -40,9 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
 - **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
 - **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+- **Mod Manager, Groups view:** Active on server can list mods by group with Enable all / Disable all per group, every mod row has colour dots and "Add to group" (also for a selection), group blocks on the Load order tab move as one, and a group's conflict badge opens Conflicts filtered to it.
+- **Group-aware Auto-sort:** Auto-sort keeps dependencies, each group's order, kept-together blocks and conflict winners, can put a group first or last, and shows why each mod moves before you apply it.
+- **Mod list filters and sorting:** filter by group, note, update or missing dependency, sort by name, load order or last update; the panel remembers your chips, and updated mods link to their Workshop change notes.
 
 ### Changed
 
+- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (Ctrl+K), and mod lists that stay fast with 600+ mods.
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
 
 ### Fixed
