@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.
 - **PanelBridge newer than the panel's:** a PanelBridge.lua in the game folder newer than the one the panel ships now reads "Newer than this panel's" instead of an "Update now" that never did anything.
 - **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
+- **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
 
 ## [1.4.17] - 2026-10-18
 

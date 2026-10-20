@@ -132,9 +132,10 @@ function setUp() {
     maxLevel: 21,
     renderedMaxLevel: 10,
   })
-  // One player at the centre (the map fits to them: 0.006 px per map pixel)
-  // and one vehicle 300 squares further along both axes, ~58 px straight
-  // below the player on screen -- clear of the player's marker.
+  // A player, and a vehicle 300 squares further along both axes: once the
+  // view is centred on the player at 0.02 px per map pixel (panToKate), the
+  // vehicle sits 600 * 16 * 0.02 = 192 px straight below the centre, clear
+  // of the player's marker.
   vi.mocked(mapApi.vehicles).mockResolvedValue({ vehicles: [] } as Awaited<ReturnType<typeof mapApi.vehicles>>)
   vi.mocked(panelBridgeApi.getServerInfo).mockResolvedValue({ success: true, data: { players: [{ name: 'Kate', x: 10000, y: 10000 }] } } as Awaited<ReturnType<typeof panelBridgeApi.getServerInfo>>)
   vi.mocked(panelBridgeApi.getStatus).mockResolvedValue({ modConnected: true, modStatus: { version: '1.7.40' } } as Awaited<ReturnType<typeof panelBridgeApi.getStatus>>)
@@ -167,6 +168,9 @@ async function renderReadyMap() {
   )
   await screen.findByRole('button', { name: /pan to kate/i }, { timeout: 5000 })
   await screen.findByRole('button', { name: 'Hide vehicles (1 loaded)' }, { timeout: 5000 })
+  // Map detection re-centres the view when it finishes; wait for it.
+  const search = screen.getByRole('textbox', { name: 'Search map places' })
+  await waitFor(() => expect(search).toBeEnabled(), { timeout: 5000 })
   const canvas = screen.getByRole('img', { name: /world map/i })
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({
     left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}),
@@ -179,7 +183,10 @@ describe('WorldMap.tsx: dialogs opened for one server close when the active serv
     setUp()
     const { socket, canvas } = await renderReadyMap()
 
-    await openMenuItem(canvas, { x: 400, y: 358 }, /Remove vehicle/)
+    // A known view, whichever of the auto-fit and the detection re-centre
+    // landed last.
+    fireEvent.click(screen.getByRole('button', { name: /pan to kate/i }))
+    await openMenuItem(canvas, { x: 400, y: 492 }, /Remove vehicle/)
     expect(await screen.findByText('Remove vehicle?')).toBeInTheDocument()
 
     await act(async () => { socket.emit('activeServerChanged') })

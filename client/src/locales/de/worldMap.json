@@ -97,7 +97,9 @@
     "openPlayerControls": "Spielersteuerung öffnen",
     "healedTitle": "Geheilt",
     "healedDesc": "{{username}} wurde geheilt.",
-    "godModeEnabled": "Godmode aktiviert"
+    "godModeEnabled": "Godmode aktiviert",
+    "offline": "offline",
+    "offlineReason": "Dieser Spieler ist nicht mehr online."
   },
   "contextMenu": {
     "ariaLabel": "Kartenaktionen",

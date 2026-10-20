@@ -97,7 +97,9 @@
     "openPlayerControls": "Louvri kontwòl jwè a",
     "healedTitle": "Geri",
     "healedDesc": "{{username}} geri",
-    "godModeEnabled": "Mòd Bondye aktive"
+    "godModeEnabled": "Mòd Bondye aktive",
+    "offline": "dekonekte",
+    "offlineReason": "Jwè sa a pa konekte ankò."
   },
   "contextMenu": {
     "ariaLabel": "Aksyon kat",

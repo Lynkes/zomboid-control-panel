@@ -103,7 +103,9 @@
     "openPlayerControls": "Відкрити керування гравцем",
     "healedTitle": "Вилікувано",
     "healedDesc": "{{username}} вилікуваний",
-    "godModeEnabled": "Режим бога увімкнено"
+    "godModeEnabled": "Режим бога увімкнено",
+    "offline": "офлайн",
+    "offlineReason": "Цей гравець уже не в мережі."
   },
   "contextMenu": {
     "ariaLabel": "Дії на карті",

@@ -107,7 +107,9 @@
     "openPlayerControls": "فتح عناصر التحكم باللاعب",
     "healedTitle": "تم الشفاء",
     "healedDesc": "تم شفاء {{username}}",
-    "godModeEnabled": "تم تفعيل وضع God Mode"
+    "godModeEnabled": "تم تفعيل وضع God Mode",
+    "offline": "غير متصل",
+    "offlineReason": "لم يعد هذا اللاعب متصلًا."
   },
   "contextMenu": {
     "ariaLabel": "إجراءات الخريطة",
