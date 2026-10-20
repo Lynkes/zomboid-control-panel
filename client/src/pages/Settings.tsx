@@ -414,7 +414,11 @@ export default function Settings() {
   const [originalSettings, setOriginalSettings] = useState<AppSettings | null>(
     null,
   );
-  const [loading, setLoading] = useState(false);
+  // True from the first render: the skeleton shows until the settings are
+  // in. Starting false rendered every tab once with the defaults, then
+  // unmounted it behind the skeleton, so an embedded tab (Users) mounted
+  // twice and lost what its first mount had read (the SSO link result).
+  const [loading, setLoading] = useState(true);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
   // Escape hatch for the Server Settings and Sandbox tabs' range validation
   // (ServerConfig.tsx), per bernanas' request via the 2026-09-09 dispatch;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut, AlertTriangle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { isDemoMode } from '@/lib/demo'
@@ -206,14 +206,27 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     fetchAll()
   }, [fetchAll])
 
+  // Where the SSO link callback lands (server/routes/oidc.js redirects to
+  // /settings?tab=users&oidcSuccess=...). Read once, then dropped through the
+  // router: history.replaceState left them in the router's own location, so
+  // Settings' next tab switch (which keeps the other parameters) wrote them
+  // back and reopening Users toasted the link again.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const oidcSuccess = searchParams.get('oidcSuccess')
+  const oidcError = searchParams.get('oidcError')
+  const oidcLinkedUser = searchParams.get('linkedUser')
+  // One toast per result, also when StrictMode runs the effect twice.
+  const handledOidcResultRef = useRef<string | null>(null)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const success = params.get('oidcSuccess')
-    const error = params.get('oidcError')
+    const success = oidcSuccess
+    const error = oidcError
     if (!success && !error) return
+    const resultKey = `${success}|${error}|${oidcLinkedUser}`
+    if (handledOidcResultRef.current === resultKey) return
+    handledOidcResultRef.current = resultKey
 
     if (success === 'linked') {
-      setLinkedUserId(params.get('linkedUser') ?? '')
+      setLinkedUserId(oidcLinkedUser ?? '')
     } else if (error === 'link_expired') {
       toast({
         title: t('toasts.actionFailedTitle'),
@@ -228,12 +241,17 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       })
     }
 
-    params.delete('oidcSuccess')
-    params.delete('oidcError')
-    params.delete('linkedUser')
-    const query = params.toString()
-    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash)
-  }, [t, toast])
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous)
+        next.delete('oidcSuccess')
+        next.delete('oidcError')
+        next.delete('linkedUser')
+        return next
+      },
+      { replace: true },
+    )
+  }, [oidcSuccess, oidcError, oidcLinkedUser, setSearchParams, t, toast])
 
   useEffect(() => {
     if (linkedUserId === null || loading) return
