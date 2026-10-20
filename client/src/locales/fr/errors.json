@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "Impossible de créer un jeton de récupération sur ce serveur.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "Le jeton et le nouveau mot de passe sont requis",
   "RESET_PASSWORD_TOO_LONG": "Le mot de passe doit comporter 128 caractères ou moins",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Les comptes, les rôles et les secrets de connexion ne peuvent pas être modifiés tant que les connexions au panneau sont désactivées : n'importe qui ayant accès au panneau pourrait ajouter un administrateur qui fonctionnerait encore une fois les connexions réactivées. Pour les activer, supprimez le réglage authEnabled: false du fichier db.json du panneau (dans son dossier de données), redémarrez le panneau, puis connectez-vous.",
   "RESET_TOKEN_NOT_FOUND": "Aucun jeton de réinitialisation trouvé. Créez data/reset-token.txt sur le serveur d'abord.",
   "RESET_TOKEN_TOO_LARGE": "Le fichier de jeton de réinitialisation est invalide (trop volumineux). 1 Ko maximum.",
   "RESET_TOKEN_EXPIRED": "Le fichier de jeton de réinitialisation date de plus de 24 heures. Recréez-le sur le serveur.",

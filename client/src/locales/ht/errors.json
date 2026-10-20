@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "Pa t kapab kreye yon jeton rekiperasyon sou sèvè sa a.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "Jeton ak nouvo modpas obligatwa",
   "RESET_PASSWORD_TOO_LONG": "Modpas la dwe 128 karaktè oswa mwens",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Ou pa ka chanje kont, wòl ak sekrè koneksyon pandan koneksyon nan panèl la dezaktive: nenpòt moun ki ka rive sou panèl la ta ka ajoute yon administratè ki ap kontinye mache lè koneksyon yo aktive ankò. Pou aktive yo, retire paramèt authEnabled: false la nan db.json panèl la (nan dosye done li), rekòmanse panèl la, epi konekte.",
   "RESET_TOKEN_NOT_FOUND": "Pa jwenn jeton reyinisyalizasyon. Kreye data/reset-token.txt sou sèvè a dabò.",
   "RESET_TOKEN_TOO_LARGE": "Dosye jeton reyinisyalizasyon envalid (twò gwo). Maksimòm 1KB.",
   "RESET_TOKEN_EXPIRED": "Dosye jeton reyinisyalizasyon pi vye pase 24 èdtan. Rekreye l sou sèvè a.",

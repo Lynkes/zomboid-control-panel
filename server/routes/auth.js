@@ -20,6 +20,7 @@ import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
 import { isExtensionOrigin } from "../utils/extensionOrigin.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { requireLoginsOn } from "../middleware/requireLoginsOn.js";
 import {
   decodeResetTokenFile,
   prepareResetTokenChecks,
@@ -805,7 +806,7 @@ router.get("/users", requirePermission("users.manage"), async (req, res) => {
  * users.manage holder could mint a brand-new admin account outright, zero
  * cooperation from an actual admin needed.
  */
-router.post("/users", requirePermission("users.manage"), async (req, res) => {
+router.post("/users", requirePermission("users.manage"), requireLoginsOn, async (req, res) => {
   try {
     const { username, password, role } = req.body || {};
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
@@ -858,6 +859,7 @@ router.post("/users", requirePermission("users.manage"), async (req, res) => {
 router.patch(
   "/users/:id/role",
   requirePermission("users.manage"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       const { roleId, role } = req.body || {};
@@ -904,7 +906,7 @@ router.patch(
  * fresh on every call, so a deleted user's existing tokens stop working on
  * their very next request, not at natural token expiry.
  */
-router.delete("/users/:id", requirePermission("users.manage"), async (req, res) => {
+router.delete("/users/:id", requirePermission("users.manage"), requireLoginsOn, async (req, res) => {
   try {
     const user = await authService.deleteUser(req.params.id, {
       actingUserId: req.user?.userId,
@@ -930,6 +932,7 @@ router.delete("/users/:id", requirePermission("users.manage"), async (req, res) 
 router.post(
   "/users/:id/sessions/revoke",
   requirePermission("users.manage"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       const user = await authService.revokeAllSessions(req.params.id, {
@@ -1012,6 +1015,7 @@ router.delete("/users/:id/identities", requireRole("admin"), async (req, res) =>
 router.post(
   "/regenerate-jwt-secret",
   requireRole("admin"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       await authService.regenerateJwtSecret();
@@ -1112,7 +1116,7 @@ const localResetTokenLimiter = rateLimit({
  * account's own recovery net is reconnaissance a non-admin has no
  * legitimate reason to see either.
  */
-router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
+router.get("/recovery-codes", requireRole("admin"), requireLoginsOn, async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user)
@@ -1126,7 +1130,7 @@ router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/recovery-codes", requireRole("admin"), async (req, res) => {
+router.post("/recovery-codes", requireRole("admin"), requireLoginsOn, async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user)

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut, AlertTriangle } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -79,7 +80,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation(['users', 'errors'])
   const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, authEnabled } = useAuth()
   const confirm = useConfirm()
   const canLinkSso = currentUser?.role === 'admin'
 
@@ -511,6 +512,15 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
             ) : undefined
           }
         />
+      )}
+
+      {/* Account and role changes wait for panel logins (server/middleware/
+          requireLoginsOn.js): made while they are off, they would outlive it. */}
+      {!authEnabled && !permissionDenied && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{t('errors:ACCOUNT_CHANGES_NEED_LOGINS')}</AlertDescription>
+        </Alert>
       )}
 
       {permissionDenied ? (

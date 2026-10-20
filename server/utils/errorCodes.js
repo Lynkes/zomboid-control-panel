@@ -116,6 +116,13 @@ export const ErrorCode = Object.freeze({
   /** server/routes/auth.js -- POST /api/auth/reset-password, newPassword
    * exceeds 128 characters. */
   RESET_PASSWORD_TOO_LONG: "RESET_PASSWORD_TOO_LONG",
+  /* --- access-control audit 2026-10-20 (accounts) --- */
+  /** server/middleware/requireLoginsOn.js -- 403 from the account and role
+   * writes (POST/PATCH/DELETE /api/auth/users*, /api/permissions/roles*,
+   * regenerate-jwt-secret, recovery codes) while panel logins are off
+   * (authEnabled: false): a change made then would outlive the setting. */
+  ACCOUNT_CHANGES_NEED_LOGINS: "ACCOUNT_CHANGES_NEED_LOGINS",
+  /* --- end access-control audit 2026-10-20 (accounts) --- */
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
    * reset-token.txt exists on disk. Sent only to a caller on the panel host
    * (security sweep 2026-10-05, A2); anyone else gets RESET_TOKEN_INVALID. */

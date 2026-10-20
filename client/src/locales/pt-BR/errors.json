@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "Não foi possível criar um token de recuperação neste servidor.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "O token e a nova senha são obrigatórios",
   "RESET_PASSWORD_TOO_LONG": "A senha deve ter no máximo 128 caracteres",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Contas, cargos e segredos de login não podem ser alterados enquanto os logins do painel estão desativados: qualquer pessoa que acesse o painel poderia adicionar um admin que continuaria funcionando depois que os logins voltassem. Para ativá-los, remova a configuração authEnabled: false do db.json do painel (na pasta de dados dele), reinicie o painel e depois faça login.",
   "RESET_TOKEN_NOT_FOUND": "Nenhum token de redefinição encontrado. Crie data/reset-token.txt no servidor primeiro.",
   "RESET_TOKEN_TOO_LARGE": "O arquivo do token de redefinição é inválido (grande demais). Máximo de 1KB.",
   "RESET_TOKEN_EXPIRED": "O arquivo do token de redefinição tem mais de 24 horas. Crie-o novamente no servidor.",

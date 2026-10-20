@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "Auf diesem Server konnte kein Wiederherstellungs-Token erstellt werden.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "Token und neues Passwort sind erforderlich",
   "RESET_PASSWORD_TOO_LONG": "Das Passwort darf höchstens 128 Zeichen lang sein",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Konten, Rollen und Anmeldegeheimnisse können nicht geändert werden, solange Panel-Anmeldungen deaktiviert sind: Jeder, der das Panel erreicht, könnte einen Administrator anlegen, der auch nach dem Wiedereinschalten der Anmeldungen funktioniert. Um sie zu aktivieren, entferne die Einstellung authEnabled: false aus der db.json des Panels (in seinem Datenordner), starte das Panel neu und melde dich dann an.",
   "RESET_TOKEN_NOT_FOUND": "Kein Reset-Token gefunden. Erstelle zuerst data/reset-token.txt auf dem Server.",
   "RESET_TOKEN_TOO_LARGE": "Reset-Token-Datei ungültig (zu groß). Maximal 1 KB.",
   "RESET_TOKEN_EXPIRED": "Reset-Token-Datei ist älter als 24 Stunden. Erstelle sie erneut auf dem Server.",

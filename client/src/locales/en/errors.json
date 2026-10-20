@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "Could not create a recovery token on this server.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "Token and new password are required",
   "RESET_PASSWORD_TOO_LONG": "Password must be 128 characters or fewer",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Accounts, roles and sign-in secrets can't be changed while panel logins are off: anyone who can reach the panel could add an admin that keeps working once logins are back on. To turn them on, remove the authEnabled: false setting from the panel's db.json (in its data folder), restart the panel, then sign in.",
   "RESET_TOKEN_NOT_FOUND": "No reset token found. Create data/reset-token.txt on the server first.",
   "RESET_TOKEN_TOO_LARGE": "Reset token file is invalid (too large). Max 1KB.",
   "RESET_TOKEN_EXPIRED": "Reset token file is older than 24 hours. Recreate it on the server.",

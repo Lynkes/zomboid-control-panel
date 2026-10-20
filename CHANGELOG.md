@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
 - **Editing the active server:** saving it no longer drops and reconnects RCON unless the RCON connection itself changed, and the reconnect warning is translated.
+- **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
 
 ### Security
 
@@ -29,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backups and the panel database:** only the backup setting decides whether a backup includes the panel database (a request can no longer add it), and the copy it includes leaves out password hashes, sessions and other secrets.
 - **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
 - **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
+- **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
 
 ## [1.4.17] - 2026-10-18
 

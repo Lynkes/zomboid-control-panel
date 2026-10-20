@@ -21,6 +21,7 @@
   "LOCAL_RESET_TOKEN_CREATE_FAILED": "No se pudo crear un token de recuperación en este servidor.",
   "RESET_PASSWORD_FIELDS_REQUIRED": "Se requieren el token y la nueva contraseña",
   "RESET_PASSWORD_TOO_LONG": "La contraseña debe tener 128 caracteres o menos",
+  "ACCOUNT_CHANGES_NEED_LOGINS": "Las cuentas, los roles y los secretos de inicio de sesión no se pueden cambiar mientras los inicios de sesión del panel están desactivados: cualquiera que llegue al panel podría añadir un administrador que seguiría funcionando al reactivarlos. Para activarlos, quita el ajuste authEnabled: false del db.json del panel (en su carpeta de datos), reinicia el panel y luego inicia sesión.",
   "RESET_TOKEN_NOT_FOUND": "No se encontró ningún token de restablecimiento. Crea primero data/reset-token.txt en el servidor.",
   "RESET_TOKEN_TOO_LARGE": "El archivo del token de restablecimiento no es válido (demasiado grande). Máximo 1 KB.",
   "RESET_TOKEN_EXPIRED": "El archivo del token de restablecimiento tiene más de 24 horas. Vuelve a crearlo en el servidor.",
