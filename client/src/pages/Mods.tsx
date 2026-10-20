@@ -2543,7 +2543,8 @@ export default function Mods() {
     const label = mod.name || t('installedTab.modFallback', { id: mod.workshop_id })
     const revealClass = isSelected || anySelected
       ? 'opacity-100'
-      : 'opacity-0 group-hover/modrow:opacity-100 focus-within:opacity-100'
+      // A touch screen has no hover: the controls stay visible there.
+      : 'opacity-0 group-hover/modrow:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'
     return (
       <ModRow
         key={mod.id}
@@ -3701,6 +3702,10 @@ export default function Mods() {
             return (
               <div
                 key={virtualRow.key}
+                // Measured, not estimated: a row wraps taller on a phone
+                // (badges, "What changed", group dots) and must not overlap the next.
+                data-index={virtualRow.index}
+                ref={modListVirtualizer.measureElement}
                 style={{
                   position: 'absolute',
                   top: 0,
@@ -4453,7 +4458,8 @@ export default function Mods() {
                   <>
                     <Button variant="ghost" size="sm" onClick={fetchDisabled} disabled={disabledLoading}>
                       {disabledLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-                      {t('disabledPanel.refresh')}
+                      {/* Icon-only on a phone, so the card's title keeps its line. */}
+                      <span className="sr-only sm:not-sr-only">{t('disabledPanel.refresh')}</span>
                     </Button>
                     {disabledMods.length > 0 && !disabledLoading && (
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
@@ -4465,7 +4471,7 @@ export default function Mods() {
                           disabled={deletingId !== null || loading || !canManageMods}
                         >
                           {deletingId === '__batch_disabled__' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
-                          {t('disabledPanel.deleteAll')}
+                          <span className="sr-only sm:not-sr-only">{t('disabledPanel.deleteAll')}</span>
                         </Button>
                       </DisabledReason>
                     )}
@@ -4484,13 +4490,14 @@ export default function Mods() {
                 ) : (
                   <div className="divide-y divide-border/40">
                     {disabledMods.map((mod) => (
-                      <div key={mod.workshop_id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                        <div className="flex min-w-0 items-center gap-2">
+                      <div key={mod.workshop_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2 text-sm sm:flex-nowrap">
+                        {/* Full width on a phone (the buttons go under it), so the name stays readable. */}
+                        <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto">
                           <Package className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
                           <span className="truncate text-foreground">{mod.name}</span>
                           <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{mod.workshop_id}</span>
                         </div>
-                        <div className="flex shrink-0 items-center gap-1">
+                        <div className="ms-auto flex shrink-0 items-center gap-1">
                           <WorkshopLinkAction wsId={mod.workshop_id} label={mod.name || mod.workshop_id} hint={t('disabledPanel.openWorkshopPage')} />
                           <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                             <Button
@@ -5801,7 +5808,8 @@ export default function Mods() {
                         onClick={() => setShowGroupBlocks(!showGroupBlocks)}
                       >
                         <Layers aria-hidden="true" />
-                        {t('loadOrder.showGroups')}
+                        {/* Icon-only on a phone, so the card's title keeps its line. */}
+                        <span className="sr-only sm:not-sr-only">{t('loadOrder.showGroups')}</span>
                       </Button>
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                         <Button
@@ -5811,7 +5819,7 @@ export default function Mods() {
                           disabled={savingModOrder || !!autoSortPreview || !canManageMods}
                         >
                           <Wand2 aria-hidden="true" />
-                          {t('loadOrder.autoSort')}
+                          <span className="sr-only sm:not-sr-only">{t('loadOrder.autoSort')}</span>
                         </Button>
                       </DisabledReason>
                     </>

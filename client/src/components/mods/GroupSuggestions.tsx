@@ -43,7 +43,7 @@ export function GroupSuggestions({ suggestions, modNames, canManage, onCreate, o
         {t('suggestions.title', { count: suggestions.length })}
       </button>
       {open && (
-        <ul className="grid gap-2 border-t border-border/50 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={t('suggestions.listAria')}>
+        <ul className="grid grid-cols-1 gap-2 border-t border-border/50 p-3 sm:grid-cols-2 xl:grid-cols-3" aria-label={t('suggestions.listAria')}>
           {suggestions.map((suggestion) => {
             const names = suggestion.modIds.slice(0, NAMES_SHOWN).map((id) => modNames[id] ?? id)
             const more = suggestion.modIds.length - names.length

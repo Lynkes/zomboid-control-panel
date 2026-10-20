@@ -312,14 +312,15 @@ export function ModGroupsPanel({
               <DisabledReason reason={applyReason}>
                 <Button variant="outline" size="sm" onClick={handleApply} disabled={applyReason !== null || applying}>
                   {applying ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wand2 aria-hidden="true" />}
-                  {t('panel.applyOrder')}
+                  {/* Icon-only on a phone: the three actions fit one line next to the title. */}
+                  <span className="sr-only sm:not-sr-only">{t('panel.applyOrder')}</span>
                 </Button>
               </DisabledReason>
             )}
             <DisabledReason reason={permissionReason}>
               <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={!canManage || importing}>
                 {importing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
-                {t('panel.import')}
+                <span className="sr-only sm:not-sr-only">{t('panel.import')}</span>
               </Button>
             </DisabledReason>
             {hasGroups && (

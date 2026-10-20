@@ -527,13 +527,14 @@ export function WorkshopCollectionPanel() {
             // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the visible label; disables only transiently while re-reading is in flight (the spinning icon is the self-evident why). Triaged 2026-08-27.
             title={t('rereadTitle')}
           >
-            <RefreshCw className={cn('w-3.5 h-3.5 me-1.5', diffLoading && 'animate-spin')} />
-            {t('refresh')}
+            <RefreshCw className={cn('w-3.5 h-3.5 sm:me-1.5', diffLoading && 'animate-spin')} aria-hidden="true" />
+            {/* Icon-only on a phone, so the title and its details keep their width. */}
+            <span className="sr-only sm:not-sr-only">{t('refresh')}</span>
           </Button>
           <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground">
             <Link to="/settings?tab=mods">
-              <SettingsIcon className="w-3.5 h-3.5 me-1.5" />
-              {t('configure')}
+              <SettingsIcon className="w-3.5 h-3.5 sm:me-1.5" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">{t('configure')}</span>
             </Link>
           </Button>
         </>

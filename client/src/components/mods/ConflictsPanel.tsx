@@ -549,7 +549,8 @@ export function ConflictsPanel({
               >
                 <div className="flex flex-wrap items-stretch">
                   {/* Headline — big number + label */}
-                  <div className="flex items-center gap-3.5 px-4 py-3 flex-1 min-w-0">
+                  {/* At least 16rem: on a phone the stats wrap under it instead of squeezing it. */}
+                  <div className="flex min-w-0 flex-[1_1_16rem] items-center gap-3.5 px-4 py-3">
                     {isWarn ? (
                       <FileWarning className="w-5 h-5 text-warning shrink-0" aria-hidden="true" />
                     ) : isSuccess ? (
@@ -604,7 +605,7 @@ export function ConflictsPanel({
                   </div>
 
                   {/* Scan stats strip — right side */}
-                  <div className="flex items-center gap-4 border-s border-border/30 px-4 py-3 text-[11px] bg-background/30">
+                  <div className="flex w-full items-center gap-4 border-t border-border/30 bg-background/30 px-4 py-3 text-[11px] sm:w-auto sm:border-s sm:border-t-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="text-center cursor-help">

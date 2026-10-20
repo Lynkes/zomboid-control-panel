@@ -273,7 +273,9 @@ describe('ModGroupDialog: colour, keep together, placement and auto-order', () =
     fireEvent.click(button('Auto-order members'))
 
     expect(memberOrder()).toEqual(['KI5Lib', 'KI5Trucks', 'KI5Addon', 'KI5Fix'])
-    expect(screen.getByText(/Ordered: requirements first/)).toBeInTheDocument()
+    // Shown under the list and announced to screen readers.
+    expect(screen.getAllByText(/Ordered: requirements first/)).toHaveLength(2)
+    expect(document.querySelector('p.sr-only[role="status"]')).toHaveTextContent(/Ordered: requirements first/)
 
     fireEvent.click(button('Undo'))
     expect(memberOrder()).toEqual(['KI5Fix', 'KI5Addon', 'KI5Trucks', 'KI5Lib'])

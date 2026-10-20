@@ -539,7 +539,7 @@ const LoadOrderRow = memo(function LoadOrderRow({
       // The `!` on the moved and dragged tints: the list stripes even rows
       // with a child selector that a plain bg class on the row loses to.
       className={cn(
-        'flex items-center gap-2 px-2.5 py-1 outline-none transition-colors duration-150 hover:bg-muted/15',
+        'flex flex-wrap items-center gap-x-2 px-2.5 py-1 outline-none transition-colors duration-150 hover:bg-muted/15 sm:flex-nowrap',
         canDrag && 'cursor-move',
         dragging && 'opacity-30 !bg-primary/5',
         justMoved && '!bg-primary/[0.055] shadow-[inset_2px_0_0_hsl(var(--primary)/0.55)]',
@@ -558,13 +558,17 @@ const LoadOrderRow = memo(function LoadOrderRow({
         />
       )}
       <span className="w-6 shrink-0 text-end text-[11px] tabular-nums text-muted-foreground">{idx + 1}</span>
-      {/* Shrinkable (truncates) so the four move controls stay on-screen at
-          phone width. */}
+      {/* Shrinkable (truncates). Below `sm` the four 44px move controls take
+          a line of their own, so the mod ID stays readable at phone width. */}
       <span className="min-w-0 truncate font-mono text-[11px]">{modId}</span>
       {displayName ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{displayName}</span> : <span className="flex-1" />}
       <GroupDots groups={groups} />
       <NoteIndicator note={note} onOpen={onOpenNote} />
-      {canManage && <LoadOrderMoveControls index={idx} total={total} modId={modId} onMove={onMove} disabled={locked} />}
+      {canManage && (
+        <div className="flex w-full justify-end sm:w-auto">
+          <LoadOrderMoveControls index={idx} total={total} modId={modId} onMove={onMove} disabled={locked} />
+        </div>
+      )}
     </div>
   )
 })

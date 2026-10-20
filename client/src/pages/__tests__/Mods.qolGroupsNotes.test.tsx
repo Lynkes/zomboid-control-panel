@@ -423,6 +423,20 @@ describe('With a laid-out list', () => {
     expect(activeLink).toHaveAttribute('href', 'https://steamcommunity.com/sharedfiles/filedetails/changelog/100')
   })
 
+  it('places Installed rows by their measured height, so a row that wraps taller does not overlap the next', async () => {
+    prime({
+      tracked: ['100', '200', '300'].map((ws, i) => ({ id: i + 1, workshop_id: ws, name: `Tracked ${ws}`, last_updated: '', last_checked: STAMP, update_available: 1, created_at: '' })),
+    })
+    renderMods()
+    await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
+    await screen.findByText('Tracked 300')
+
+    // Every row measures 64px here (the estimate is 40 for the header and 96
+    // for a mod): the third entry starts after the measured header and row.
+    const third = document.querySelector('[data-index="2"]') as HTMLElement
+    await waitFor(() => expect(third.style.transform).toBe('translateY(128px)'))
+  })
+
   it('renders only the rows on screen of a 600-item Active on server list, quickly', async () => {
     const mods: ModMap = {}
     for (let i = 0; i < 600; i++) mods[String(10000 + i)] = [{ id: `Mod${i}`, name: `Mod number ${i}`, enabled: i % 7 !== 0 }]
