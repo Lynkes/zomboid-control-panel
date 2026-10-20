@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, AlertTriangle, ChevronRight, HeartPulse, Info, Loader2, RefreshCw, ShieldCheck, Wrench } from 'lucide-react'
 import { ApiError, type ModHealth, type ModHealthFix, type ModHealthFixResult, type ModHealthIssue, type ModHealthSeverity } from '@/lib/api'
@@ -32,6 +32,8 @@ export interface HealthViewProps {
   /** Steam refresh (insights refresh=1, then health reload); optional. */
   onRefreshSteam?: () => void
   steamRefreshing?: boolean
+  /** The page's "Fix everything" button: the view's primary when given. */
+  fixEverything?: ReactNode
 }
 
 const SEVERITIES: ModHealthSeverity[] = ['critical', 'warning', 'info']
@@ -59,6 +61,7 @@ export function HealthView({
   onFixed,
   onRefreshSteam,
   steamRefreshing = false,
+  fixEverything,
 }: HealthViewProps) {
   const { t } = useTranslation('modHealth')
   const { formatDateTime } = useDateFormat()
@@ -169,7 +172,7 @@ export function HealthView({
   const fixAllButton = (
     <DisabledReason reason={fixReason ?? (safePlan.length === 0 && health ? t('fixAll.noneReason') : null)}>
       <Button
-        variant="command"
+        variant={fixEverything ? 'outline' : 'command'}
         size="sm"
         onClick={() => void applyAllSafe()}
         disabled={busy || !!fixReason || safePlan.length === 0}
@@ -193,6 +196,7 @@ export function HealthView({
         <RefreshCw className={cn(loadState === 'loading' && 'animate-spin')} aria-hidden="true" />
       </Button>
       {health && health.issues.length > 0 && fixAllButton}
+      {fixEverything}
     </>
   )
 

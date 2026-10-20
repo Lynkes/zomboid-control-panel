@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "Die Korrekturanfrage ist ungültig: {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "Diese Korrektur wird für dieses Problem nicht angeboten.",
   "MODS_HEALTH_ISSUE_GONE": "Dieses Problem besteht nicht mehr oder hat sich geändert. Prüfe erneut.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "Es gibt nichts mehr rückgängig zu machen: Das Panel wurde neu gestartet oder ein anderer Server ist aktiv.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA und modIdB sind erforderlich",
   "MODS_IGNORED_PAIR_INVALID": "Ungültiges Paar",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA und modIdB sind erforderlich und müssen gültige Mod-IDs sein",

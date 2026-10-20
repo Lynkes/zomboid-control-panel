@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction, type MutableRefObject } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { RefreshCw, Plus, Trash2, ExternalLink, AlertTriangle, CheckCircle, Search, ChevronRight, Check, Info, Layers, Loader2, Shield, ShieldAlert, FileWarning, Wrench, GitBranch, PlusCircle, ArrowRight, X } from 'lucide-react'
 import type { ConflictScanResult, ScanStreamConflictFound } from '@/types'
@@ -66,6 +66,8 @@ export interface ConflictsPanelProps {
 
   /** Smart sort: each pair's suggested winner, one click to pin it (ConflictSuggestion.tsx). */
   smart?: ConflictsSmart
+  /** The page's "Fix everything" button: the view's primary. */
+  fixEverything?: ReactNode
 }
 
 export function ConflictsPanel({
@@ -74,7 +76,7 @@ export function ConflictsPanel({
   fetchData, busyRef, savingModOrder, promoteModOverOpponent, toast,
   depSearchOpen, setDepSearchOpen, depSearchData, setDepSearchData,
   depAdding, setDepAdding, depAddResults, setDepAddResults,
-  focus, onClearFocus, smart,
+  focus, onClearFocus, smart, fixEverything,
 }: ConflictsPanelProps) {
   const { t, i18n } = useTranslation('conflictsPanel')
   // A group's badge narrows every pair count, list and ranking below to the
@@ -291,17 +293,22 @@ export function ConflictsPanel({
       description={t('subtitle')}
       icon={Shield}
       actions={
-        conflicts && !conflictsLoading ? (
+        (conflicts && !conflictsLoading) || fixEverything ? (
           <>
-            {lastScanTime && (
-              <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
-                {t('lastScan', { time: formatTime(lastScanTime, { seconds: true }) })}
-              </span>
+            {conflicts && !conflictsLoading && (
+              <>
+                {lastScanTime && (
+                  <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+                    {t('lastScan', { time: formatTime(lastScanTime, { seconds: true }) })}
+                  </span>
+                )}
+                <Button variant="outline" size="sm" onClick={scanConflicts} disabled={conflictsLoading}>
+                  <RefreshCw aria-hidden="true" />
+                  {t('rescan')}
+                </Button>
+              </>
             )}
-            <Button variant="outline" size="sm" onClick={scanConflicts} disabled={conflictsLoading}>
-              <RefreshCw aria-hidden="true" />
-              {t('rescan')}
-            </Button>
+            {fixEverything}
           </>
         ) : undefined
       }

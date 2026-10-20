@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Fix everything (Mods → Conflicts and Health):** one preview of the safe health fixes, the suggested conflict winners as pinned rules and the smart sort, with what is left afterwards; applies them in one run with a single Undo.
+
 ## [1.5.0] - 2026-10-20
 
 ### Security

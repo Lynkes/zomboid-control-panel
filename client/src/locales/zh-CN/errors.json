@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "修复请求无效：{{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "此问题不提供该修复。",
   "MODS_HEALTH_ISSUE_GONE": "此问题已不存在或已变化。请重新检查。",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "已没有可撤销的内容：面板已重启，或当前是另一台服务器。",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA 和 modIdB 均为必填项",
   "MODS_IGNORED_PAIR_INVALID": "配对无效",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA 和 modIdB 均为必填项，且必须为有效的模组 ID",

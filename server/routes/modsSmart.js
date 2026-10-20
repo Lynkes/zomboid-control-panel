@@ -16,7 +16,8 @@ import {
   validateOrderRuleInput,
 } from "../utils/modOrderRules.js";
 import { HEALTH_FIX_ACTIONS, computeModHealth, findHealthFix, isHealthIssueId } from "../utils/modHealth.js";
-import { applyModListFix } from "../services/modIniEdit.js";
+import crypto from "crypto";
+import { applyModListFix, readModListLines, restoreModListLines } from "../services/modIniEdit.js";
 import {
   buildModInsights,
   changesLoading,
@@ -45,6 +46,9 @@ import {
 //   GET    /health                 what is wrong with the mod list
 //   POST   /health/fix             apply one of an issue's own fixes
 //   GET    /insights               what the panel makes of each mod
+//   POST   /autofix/snapshot       "Fix everything": keep Mods=, WorkshopItems=
+//                                  and Map= before a run
+//   POST   /autofix/restore        its Undo: put those lines back
 // Pure logic lives in utils/ (modSmartSort, modClassification, modHealth,
 // modOrderRules); disk reads in services/modSmartContext.js. Writes go
 // through routes/mods.js's ini lock and backup-before-write wrapper (which
@@ -60,7 +64,7 @@ const router = express.Router();
 // unauthenticated /thumbnail/:workshopId (see its router.use comment).
 const requireModsManage = requirePermission("mods.manage");
 
-const PLAN_LIMITS = Object.freeze({ maxOrder: 2000, maxConflictPairs: 20_000 });
+const PLAN_LIMITS = Object.freeze({ maxOrder: 2000, maxConflictPairs: 20_000, maxRules: MOD_ORDER_RULE_LIMITS.maxRules });
 const FIX_PARAMS_MAX_CHARS = 20_000;
 
 function respondInvalid(res, code, field, message) {
@@ -220,14 +224,25 @@ function parsePlanBody(body) {
       if (ids[0] !== ids[1]) conflictPairs.push(ids);
     }
   }
-  return { value: { order, mode, useGroups, conflictPairs } };
+  let rules = [];
+  if (input.rules !== undefined) {
+    if (!Array.isArray(input.rules) || input.rules.length > PLAN_LIMITS.maxRules) return { field: "rules" };
+    for (const [i, pair] of input.rules.entries()) {
+      const ids = Array.isArray(pair) && pair.length === 2 ? cleanIdList(pair, 2) : null;
+      if (!ids) return { field: "rules" };
+      if (ids[0] !== ids[1]) rules.push({ id: `candidate-${i}`, before: ids[0], after: ids[1], source: "conflictResolve" });
+    }
+  }
+  return { value: { order, mode, useGroups, conflictPairs, rules } };
 }
 
-// Body { order?, mode?, groups?, conflictPairs? }: order is the client's
-// (unsaved) Mods= order, default the saved one; mode "minimal" (default) or
-// "tiered"; groups false ignores mod groups; conflictPairs [[a, b]] of mods
-// that ship the same files (default: the last conflict scan's, while it
-// matches the saved config). Nothing is written.
+// Body { order?, mode?, groups?, conflictPairs?, rules? }: order is the
+// client's (unsaved) Mods= order, default the saved one; mode "minimal"
+// (default) or "tiered"; groups false ignores mod groups; conflictPairs
+// [[a, b]] of mods that ship the same files (default: the last conflict
+// scan's, while it matches the saved config); rules [[before, after]] order
+// rules to plan with as if they were stored ("Fix everything"'s preview).
+// Nothing is written.
 router.post("/load-order/plan", requireModsManage, async (req, res) => {
   try {
     const parsed = parsePlanBody(req.body);
@@ -236,13 +251,14 @@ router.post("/load-order/plan", requireModsManage, async (req, res) => {
     }
     const active = await resolveActiveServerIniOrRespond(res);
     if (!active) return;
-    const { order: givenOrder, mode, useGroups, conflictPairs } = parsed.value;
+    const { order: givenOrder, mode, useGroups, conflictPairs, rules } = parsed.value;
     const ctx = await loadModSmartContext({
       content: readTextFile(active.iniPath),
       serverPath: active.serverPath,
       zomboidDataPath: active.zomboidDataPath,
       extraModIds: givenOrder || [],
     });
+    if (rules.length > 0) ctx.rules = [...(ctx.rules || []), ...rules];
     const order = givenOrder || ctx.modsLine;
     const pairs = conflictPairs ?? cachedConflictPairs(ctx.workshopItems, ctx.modsLine, active.serverPath);
     const { plan } = planFor(ctx, { order, mode, useGroups, conflictPairs: pairs });
@@ -366,6 +382,63 @@ router.get("/insights", requireModsManage, async (req, res) => {
     res.json(buildModInsights(ctx, built, status));
   } catch (error) {
     log.error(`Failed to build mod insights: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ─── Fix everything: Undo ─────────────────────────────────────────────────
+
+// The client runs "Fix everything" through the routes above (health fixes,
+// order rules, the plan, save-order); the server only keeps what Mods=,
+// WorkshopItems= and Map= said before, so Undo puts back exactly that (the
+// client deletes the rules the run added). In memory: a restart drops them.
+const AUTOFIX_SNAPSHOT_LIMITS = Object.freeze({ max: 20, ttlMs: 24 * 60 * 60 * 1000 });
+const autofixSnapshots = new Map();
+
+function pruneAutofixSnapshots(now = Date.now()) {
+  for (const [id, snap] of autofixSnapshots) {
+    if (now - snap.at > AUTOFIX_SNAPSHOT_LIMITS.ttlMs) autofixSnapshots.delete(id);
+  }
+  while (autofixSnapshots.size >= AUTOFIX_SNAPSHOT_LIMITS.max) {
+    autofixSnapshots.delete(autofixSnapshots.keys().next().value);
+  }
+}
+
+router.post("/autofix/snapshot", requireModsManage, async (req, res) => {
+  try {
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    pruneAutofixSnapshots();
+    const id = crypto.randomUUID();
+    autofixSnapshots.set(id, { iniPath: active.iniPath, lines: readModListLines(readTextFile(active.iniPath)), at: Date.now() });
+    res.json({ snapshotId: id });
+  } catch (error) {
+    log.error(`Failed to keep the mod list before Fix everything: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Body { snapshotId }: one backup, one write, inside the ini lock.
+router.post("/autofix/restore", requireModsManage, async (req, res) => {
+  try {
+    const snapshotId = typeof req.body?.snapshotId === "string" ? req.body.snapshotId : "";
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    pruneAutofixSnapshots();
+    const snap = autofixSnapshots.get(snapshotId);
+    if (!snap || snap.iniPath !== active.iniPath) {
+      return res.status(404).json({ error: "Nothing to undo", code: ErrorCode.MODS_AUTOFIX_SNAPSHOT_NOT_FOUND });
+    }
+    const outcome = await withIniLock(active.iniPath, async () => {
+      const edit = restoreModListLines(readTextFile(active.iniPath), snap.lines);
+      if (!edit.changed) return { written: false };
+      return { written: true, backupWarning: backupWarningFor(await writeIniWithBackup(active.iniPath, edit.content)) };
+    });
+    autofixSnapshots.delete(snapshotId);
+    log.info(`Fix everything undone (${outcome.written ? "mod list restored" : "mod list already as before"})`);
+    res.json({ restored: outcome.written, ...(outcome.backupWarning ? { backupWarning: outcome.backupWarning } : {}) });
+  } catch (error) {
+    log.error(`Failed to undo Fix everything: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });

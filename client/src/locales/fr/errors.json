@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "La demande de correction n'est pas valide : {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "Cette correction n'est pas proposée pour ce problème.",
   "MODS_HEALTH_ISSUE_GONE": "Ce problème a disparu ou a changé. Relancez la vérification.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "Il n'y a plus rien à annuler : le panneau a redémarré ou un autre serveur est actif.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA et modIdB sont requis",
   "MODS_IGNORED_PAIR_INVALID": "Paire invalide",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA et modIdB sont requis et doivent être des ID de mod valides",

@@ -223,6 +223,56 @@ describe("POST /load-order/plan", () => {
   });
 });
 
+describe("Fix everything: candidate rules in the plan, and Undo", () => {
+  beforeEach(() => {
+    addMod("100", "Lib", { files: { "42/media/lua/shared/lib.lua": "x" } });
+    addMod("101", "User", { lines: ["require=Lib"], files: { "42/media/scripts/user.txt": "x" } });
+    addMod("102", "Other", { files: { "42/media/scripts/other.txt": "x" } });
+    addMod("103", "MapMod", { files: { "42/media/maps/Bunker/map.info": "x" } });
+    fx.writeIni("Mods=Lib;User;Other\nWorkshopItems=100;101;102\nMap=Muldraugh, KY\n");
+  });
+
+  it("plans with rules that are not stored yet (the preview) without storing them", async () => {
+    const plain = (await call("/load-order/plan", "post", { body: {} })).getBody();
+    expect(plain.order).toEqual(["Lib", "User", "Other"]);
+    const res = await call("/load-order/plan", "post", { body: { rules: [["Other", "User"]] } });
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().order).toEqual(["Lib", "Other", "User"]);
+    expect((await call("/order-rules", "get")).getBody().rules).toEqual([]);
+    const bad = await call("/load-order/plan", "post", { body: { rules: [["Other"]] } });
+    expect(bad.getStatusCode()).toBe(400);
+    expect(bad.getBody().params).toEqual({ field: "rules" });
+  });
+
+  it("restores Mods=, WorkshopItems= and Map= as they were before the run, once", async () => {
+    const snap = await call("/autofix/snapshot", "post");
+    expect(snap.getStatusCode()).toBe(200);
+    const { snapshotId } = snap.getBody();
+    // What a run may do: add an item and its mod, a map, reorder.
+    fx.writeIni("Mods=User;Lib;Other;MapMod\nWorkshopItems=100;101;102;103\nMap=Bunker;Muldraugh, KY\nPublic=true\n");
+    const res = await call("/autofix/restore", "post", { body: { snapshotId } });
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().restored).toBe(true);
+    expect(fx.iniValue("Mods")).toBe("Lib;User;Other");
+    expect(fx.iniValue("WorkshopItems")).toBe("100;101;102");
+    expect(fx.iniValue("Map")).toBe("Muldraugh, KY");
+    expect(fx.iniValue("Public")).toBe("true");
+    expect(fx.backups().length).toBe(1);
+    const again = await call("/autofix/restore", "post", { body: { snapshotId } });
+    expect(again.getStatusCode()).toBe(404);
+    expect(again.getBody().code).toBe("MODS_AUTOFIX_SNAPSHOT_NOT_FOUND");
+  });
+
+  it("removes a Map= line the run added, and refuses an unknown snapshot", async () => {
+    fx.writeIni("Mods=Lib\nWorkshopItems=100\n");
+    const { snapshotId } = (await call("/autofix/snapshot", "post")).getBody();
+    fx.writeIni("Mods=Lib\nWorkshopItems=100\nMap=Bunker\n");
+    await call("/autofix/restore", "post", { body: { snapshotId } });
+    expect(fx.iniValue("Map")).toBeNull();
+    expect((await call("/autofix/restore", "post", { body: { snapshotId: "nope" } })).getStatusCode()).toBe(404);
+  });
+});
+
 describe("GET /health and POST /health/fix", () => {
   async function health() {
     const res = await call("/health", "get");
@@ -609,6 +659,8 @@ describe("authorization", () => {
     ["/health", "get"],
     ["/health/fix", "post"],
     ["/insights", "get"],
+    ["/autofix/snapshot", "post"],
+    ["/autofix/restore", "post"],
   ];
 
   it("refuses a moderator and a request without a user on every route", async () => {

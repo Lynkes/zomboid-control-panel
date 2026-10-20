@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "Demann reparasyon an pa valab: {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "Reparasyon sa a pa disponib pou pwoblèm sa a.",
   "MODS_HEALTH_ISSUE_GONE": "Pwoblèm sa a pa la ankò oswa li chanje. Tcheke ankò.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "Pa gen anyen pou anile ankò: panèl la te rekòmanse oswa yon lòt sèvè aktif.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA ak modIdB obligatwa",
   "MODS_IGNORED_PAIR_INVALID": "Pè envalid",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA ak modIdB obligatwa epi yo dwe ID mod valid",

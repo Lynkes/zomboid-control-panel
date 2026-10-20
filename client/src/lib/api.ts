@@ -2143,6 +2143,12 @@ export const modsApi = {
     apiGet<ModHealth>("/mods/health"),
   applyModHealthFix: (issueId: string, action: ModHealthFixAction, params?: Record<string, unknown>) =>
     apiPost<ModHealthFixResult>("/mods/health/fix", { issueId, action, ...(params ? { params } : {}) }),
+  // "Fix everything": keep Mods=, WorkshopItems= and Map= before a run, and
+  // put them back for its Undo (one backup, one write).
+  autofixSnapshot: () =>
+    apiPost<{ snapshotId: string }>("/mods/autofix/snapshot", {}),
+  autofixRestore: (snapshotId: string) =>
+    apiPost<{ restored: boolean; backupWarning?: string }>("/mods/autofix/restore", { snapshotId }),
   // refresh: fetch Steam data now (at most once a minute; otherwise cached
   // data answers and the rest is fetched in the background).
   getModInsights: (refresh = false) =>
@@ -2247,6 +2253,8 @@ export interface LoadOrderPlanRequest {
   // Mods that ship the same files; today's winner (the later one) stays
   // later. Default: the last conflict scan's pairs.
   conflictPairs?: [string, string][];
+  // [before, after] order rules to plan with as if stored (nothing is stored).
+  rules?: [string, string][];
 }
 
 export interface LoadOrderPlanMove {

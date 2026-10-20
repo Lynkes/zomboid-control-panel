@@ -92,6 +92,8 @@ import { getAccessToken } from '@/lib/authToken'
 import { isDemoMode } from '@/lib/demo'
 import { createConflictScanSnapshot, recalculateConflictWinners } from '@/lib/conflictSeverity'
 import { computeVariantSiblings } from '@/lib/modVariants'
+import { FixEverythingButton } from '@/components/mods/FixEverythingButton'
+import { useFixEverything } from '@/components/mods/useFixEverything'
 import { PageHeader } from '@/components/PageHeader'
 import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { SaveBar } from '@/components/SaveBar'
@@ -3537,6 +3539,31 @@ export default function Mods() {
       .catch(() => { /* the suggestions stay as they were */ })
   }
 
+  // "Fix everything" (Conflicts and Health views): one run, one Undo.
+  const fixEverythingBlocked = !canManageMods
+    ? t('permissions.noModsManage')
+    : hasModOrderChanged ? tSmart('health.unsavedOrder') : savingModOrder ? tSmart('health.saving') : null
+  const fixEverything = useFixEverything({
+    canManage: canManageMods,
+    blockedReason: fixEverythingBlocked,
+    conflicts,
+    conflictsLoading,
+    conflictsStale,
+    conflictsError,
+    scanConflicts: () => { void scanConflicts() },
+    groups: activeModsData.groups,
+    isPairIgnored,
+    modName: (modId) => modIdNameMap.get(modId),
+    itemTitle: (workshopId) => trackedByWs.get(workshopId)?.name ?? undefined,
+    onChanged: async () => {
+      smart.invalidatePlans()
+      await Promise.all([fetchData({ adoptServerOrder: true }), smart.rules.reload(), smart.health.reload(), smart.insights.reload()])
+    },
+  })
+  const fixEverythingButton = (
+    <FixEverythingButton onClick={fixEverything.openDialog} disabledReason={fixEverythingBlocked} busy={fixEverything.busy} />
+  )
+
   // The inspector's "Add" for a missing Steam required item: the health
   // check's own fix when it has one.
   const applyHealthFixFromInspector = async (issue: ModHealthIssue, fix: ModHealthFix) => {
@@ -6191,6 +6218,7 @@ export default function Mods() {
               onFixed={afterHealthFix}
               onRefreshSteam={() => void smart.insights.refreshSteam().then(() => smart.health.reload())}
               steamRefreshing={smart.insights.refreshing}
+              fixEverything={fixEverythingButton}
             />
           )}
 
@@ -6225,8 +6253,10 @@ export default function Mods() {
               depAddResults={depAddResults}
               setDepAddResults={setDepAddResults}
               smart={{ rules: smart.rules, canManage: canManageMods, onRuleAdded: refreshAfterRuleChange, onSortNow: openSmartSort }}
+              fixEverything={fixEverythingButton}
             />
           )}
+          {fixEverything.dialog}
 
           {/* ═══ COLLECTIONS ═══ */}
           {activeTab === 'collection' && (

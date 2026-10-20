@@ -75,6 +75,8 @@ let demoRules: ModOrderRule[] = [
 ]
 let demoRuleSeq = demoRules.length
 const fixedIssues = new Set<string>()
+const demoSnapshots = new Map<string, string[]>()
+let demoSnapshotSeq = 0
 
 function steamStatus(total: number) {
   return { source: 'api' as const, fetchedAt: hoursAgo(3), stale: false, failed: false, pending: false, known: total, total }
@@ -91,7 +93,7 @@ interface Edge { before: string; after: string; reason: SmartConstraintReason; g
 const STRONG: ReadonlySet<string> = new Set(['require', 'rule', 'groupOrder', 'keepTogether', 'groupPlacement', 'loadAfter'])
 
 /** The demo plan of `order` (see the header). */
-export function demoPlan(ctx: DemoSmartContext, order: string[], mode: 'minimal' | 'tiered'): LoadOrderPlan {
+export function demoPlan(ctx: DemoSmartContext, order: string[], mode: 'minimal' | 'tiered', extraRules: ReadonlyArray<[string, string]> = []): LoadOrderPlan {
   const ids = [...new Set(order)]
   const present = new Set(ids)
   const requires = requiresOf(ctx)
@@ -112,6 +114,7 @@ export function demoPlan(ctx: DemoSmartContext, order: string[], mode: 'minimal'
     }
   }
   for (const rule of demoRules) add({ before: rule.before, after: rule.after, reason: 'rule', ruleId: rule.id })
+  extraRules.forEach(([before, after], i) => add({ before, after, reason: 'rule', ruleId: `candidate-${i}` }))
   for (const group of groups) {
     const members = group.modIds.filter((id) => present.has(id))
     for (let i = 0; i + 1 < members.length; i++) add({ before: members[i], after: members[i + 1], reason: 'groupOrder', group: group.id, groupName: group.name })
@@ -412,7 +415,24 @@ export function demoSmartResponse(ctx: DemoSmartContext, path: string, method: s
   if (path === '/api/mods/health/fix' && method === 'POST') return demoApplyFix(ctx, body)
   if (path === '/api/mods/load-order/plan' && method === 'POST') {
     const order = Array.isArray(body.order) ? body.order.filter((id): id is string => typeof id === 'string') : ctx.getOrder()
-    return { status: 200, payload: demoPlan(ctx, order, body.mode === 'tiered' ? 'tiered' : 'minimal') }
+    const rules = Array.isArray(body.rules)
+      ? body.rules.filter((r): r is [string, string] => Array.isArray(r) && r.length === 2 && r.every((id) => typeof id === 'string'))
+      : []
+    return { status: 200, payload: demoPlan(ctx, order, body.mode === 'tiered' ? 'tiered' : 'minimal', rules) }
+  }
+  // "Fix everything": the demo keeps the order before a run for its Undo.
+  if (path === '/api/mods/autofix/snapshot' && method === 'POST') {
+    const snapshotId = `demo-snapshot-${++demoSnapshotSeq}`
+    demoSnapshots.set(snapshotId, ctx.getOrder())
+    return { status: 200, payload: { snapshotId } }
+  }
+  if (path === '/api/mods/autofix/restore' && method === 'POST') {
+    const order = typeof body.snapshotId === 'string' ? demoSnapshots.get(body.snapshotId) : undefined
+    if (!order) return { status: 404, payload: { error: 'Nothing to undo', code: 'MODS_AUTOFIX_SNAPSHOT_NOT_FOUND' } }
+    demoSnapshots.delete(body.snapshotId as string)
+    ctx.setOrder(order)
+    fixedIssues.clear()
+    return { status: 200, payload: { restored: true } }
   }
   if (path === '/api/mods/order-rules' && method === 'GET') return { status: 200, payload: { rules: demoRules, max: 2000 } }
   if (path === '/api/mods/order-rules' && method === 'POST') return demoAddRule(ctx, body)
