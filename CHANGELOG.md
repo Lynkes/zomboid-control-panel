@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Server .ini RCON and port keys:** a control character in front of RCONPassword, RCONPort, DefaultPort, UDPPort or UPnP no longer gets past the server.configure check in the raw editor, backup restore or template apply.
 - **Workshop map folder names:** a map folder whose name holds a line break, ";", "=" or a control character is no longer written to Map=, where it could add other server .ini lines.
 - **Character import:** a skill level outside 0 to 10 is refused, and PanelBridge clamps levels and item numbers, so an import file can no longer freeze the game server.
+- **Docker memory reading:** the dashboard reads memory only from a container labelled for panel management, like the Docker page, its logs and its actions.
 
 ## [1.4.17] - 2026-10-18
 
