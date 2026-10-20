@@ -6638,7 +6638,15 @@ const CONSOLE_LOG_IMPORTANT_PATTERNS = [
   /player-connect/,
   /connection-lost/,
   /disconnect/,
-  /Steam client .* is initiating/,
+  // Was /Steam client .* is initiating/, which rescanned the rest of the line
+  // from every "Steam client " in it: a mod can print a 5 MB line of those,
+  // and the Console page filters every line on each load.
+  {
+    test(line) {
+      const at = line.indexOf("Steam client ");
+      return at !== -1 && line.indexOf(" is initiating", at + "Steam client ".length) !== -1;
+    },
+  },
   /RCON:/,
   /Recipe AutoLearned/,
   /Reduce Head Condition/,

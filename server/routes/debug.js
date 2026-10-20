@@ -94,6 +94,7 @@ import {
 } from "../utils/discordMessageRedaction.js";
 import { getSteamApiKey } from "../services/steamApiKey.js";
 import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
+import { modInfoEntries, readModInfoText } from "../utils/modInfoText.js";
 import { Transform } from "stream";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -802,7 +803,7 @@ async function inspectModDirectory(modDir, fallbackName, source, workshopId, con
     let metadata;
     try {
       metadata = parseModInfoMetadata(
-        await fs.promises.readFile(infoPath, "utf8"),
+        await readModInfoText(infoPath),
         infoPath,
         fallbackName,
       );
@@ -921,7 +922,9 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   }
 
   const installedMods = await collectSandboxModMetadata(activeServer, ini);
-  const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
+  // No "=" in the version: with [^\s]+ a line of "version=version=..." (a
+  // mod can print one) rescanned the rest of the line from every match start.
+  const pzVersion = logText?.match(/\bversion=([^\s=]+)\s+b[0-9a-f]+/i)?.[1] || null;
   const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
   const detected = exceptionCount > 0;
   // A bridge that makes the index-0 read is the likely cause. null: the log
@@ -2575,15 +2578,15 @@ async function parseServerIni(iniPath) {
 // can live under versioned subfolders like `common/`, `41/`, `42/`
 // (e.g. <mod>/42/mod.info and <mod>/common/media/maps/<name>/). We
 // therefore probe the mod root AND each direct subdirectory.
-async function readModIds(modInfoPath, fallbackName) {
+// Exported for server/tests/modContentRegexTiming.test.js.
+export async function readModIds(modInfoPath, fallbackName) {
   try {
-    const text = await fs.promises.readFile(modInfoPath, "utf-8");
+    // Capped, and split at "=" rather than matched with /^id\s*=\s*(.+?)\s*$/i,
+    // which backtracked quadratically on a long id= line with inner spaces
+    // (the file is the Workshop author's; utils/modInfoText.js).
     const ids = [];
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
-      const m = line.match(/^id\s*=\s*(.+?)\s*$/i);
-      if (m && m[1]) ids.push(m[1]);
+    for (const { key, value } of modInfoEntries(await readModInfoText(modInfoPath))) {
+      if (key.toLowerCase() === "id" && value) ids.push(value);
     }
     if (ids.length === 0 && fallbackName) ids.push(fallbackName);
     else if (fallbackName && !ids.includes(fallbackName))
