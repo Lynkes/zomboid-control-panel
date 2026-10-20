@@ -1601,7 +1601,7 @@ export interface ConflictFileRuleFields {
 
 // Extra fields of the conflict scan result (pairs also carry infoCount).
 export interface ConflictScanRuleFields extends ModOrderAnalysis {
-  benignSkipped?: { nonGameplay: number; notLoaded: number; sameDefinitions: number };
+  benignSkipped?: { nonGameplay: number; notLoaded: number; sameDefinitions: number; layeredAdditions?: number };
   severityCounts?: Record<ConflictRuleSeverity, number>;
 }
 

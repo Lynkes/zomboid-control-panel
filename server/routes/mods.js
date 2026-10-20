@@ -114,6 +114,7 @@ import {
 import {
   cachedFileHash,
   cachedParse,
+  compareLayeredDefinitions,
   compareScriptFileCopies,
   compareTranslationEntries,
   expireConflictFileCacheAfter,
@@ -7438,7 +7439,8 @@ const REASON_SEVERITY = {
   scriptFileReplaced: "high",
   scriptFileOverride: "medium",
   scriptDefinitionOverride: "medium",
-  scriptDefinitionMerge: "medium",
+  // Layered bodies (vehicle, xuiSkin): only the keys both set differently.
+  scriptDefinitionMerge: "low",
   translationKeyOverride: "low",
   translationUnreadable: "low",
   clothingOutfitOverride: "medium",
@@ -7574,7 +7576,7 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
   // Shared paths that are not conflicts for another reason than identical
   // bytes: never read by the game, or the same definitions written
   // differently.
-  const benignSkipped = { nonGameplay: 0, notLoaded: 0, sameDefinitions: 0 };
+  const benignSkipped = { nonGameplay: 0, notLoaded: 0, sameDefinitions: 0, layeredAdditions: 0 };
   const emit = (conflict) => {
     finalize(conflict);
     conflicts.push(conflict);
@@ -7822,19 +7824,60 @@ async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options 
     if (!defs) continue;
     for (const [name, def] of defs) {
       if (!defsByName.has(name)) defsByName.set(name, new Map());
+      const byMod = defsByName.get(name);
+      if (def.merged && def.layers) {
+        // A layered body: every file of the mod adds its keys (a later
+        // file's key on top of an earlier one's).
+        const prev = byMod.get(copy.modId);
+        const layers = prev?.layers || new Map();
+        for (const [layerKey, hash] of def.layers) layers.set(layerKey, { hash, entry: copy, file: relPath });
+        byMod.set(copy.modId, { entry: prev?.entry || copy, file: prev?.file || relPath, hash: def.hash, merged: true, layers });
+        continue;
+      }
       // Within one mod the later file (game order: sorted path) wins.
-      defsByName.get(name).set(copy.modId, { entry: copy, file: relPath, hash: def.hash, merged: def.merged });
+      byMod.set(copy.modId, { entry: copy, file: relPath, hash: def.hash, merged: def.merged });
     }
   }
   // One conflict per pair of mods (and files) whose bodies of a name differ;
   // two mods writing the same body agree and are no conflict. The winner is
   // the mod whose body the game ends up with (the last of ALL that define
-  // the name), so a third mod can win a pair.
+  // the name), so a third mod can win a pair. Layered bodies (vehicle,
+  // xuiSkin) only clash on the keys both set differently (low): two mods
+  // each adding their own entity style to "xuiSkin default" add up.
   let sameDefinitions = 0;
+  let layeredAdditions = 0;
   const pairs = new Map();
+  const pairFor = (x, y, merged, winner) => {
+    const [a, b] = x.modId < y.modId ? [x, y] : [y, x];
+    const key = `${a.modId}\u0000${a.file}\u0001${b.modId}\u0000${b.file}`;
+    if (!pairs.has(key)) pairs.set(key, { a, b, items: [], merged, winner });
+    const pair = pairs.get(key);
+    if (!merged) pair.merged = false;
+    return pair;
+  };
   for (const [name, byMod] of defsByName) {
     if (byMod.size < 2) continue;
     const defs = byLoadOrder([...byMod.values()].map((d) => ({ ...d, modId: d.entry.modId })), orderIndex);
+    if (defs.every((d) => d.layers)) {
+      let clashed = false;
+      for (let i = 0; i < defs.length; i++) {
+        for (let j = i + 1; j < defs.length; j++) {
+          const keys = compareLayeredDefinitions(defs[i].layers, defs[j].layers);
+          if (keys.length === 0) continue;
+          clashed = true;
+          // The files that set the first clashing key, and the mod whose
+          // value the game ends up with (the last of ALL that set it).
+          const at = (d) => ({ ...d, entry: d.layers.get(keys[0]).entry, file: d.layers.get(keys[0]).file });
+          const setters = defs.filter((d) => d.layers.has(keys[0]));
+          const pair = pairFor(at(defs[i]), at(defs[j]), true, setters[setters.length - 1].layers.get(keys[0]).entry);
+          for (const k of keys) pair.items.push(`${name} › ${k.startsWith("=") ? k.slice(1) : k}`);
+        }
+      }
+      if (clashed) continue;
+      if (new Set(defs.map((d) => d.hash)).size === 1) sameDefinitions++;
+      else layeredAdditions++;
+      continue;
+    }
     if (new Set(defs.map((d) => d.hash)).size === 1) {
       sameDefinitions++;
       continue;
@@ -7843,12 +7886,8 @@ async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options 
     for (let i = 0; i < defs.length; i++) {
       for (let j = i + 1; j < defs.length; j++) {
         if (defs[i].hash === defs[j].hash) continue;
-        const [a, b] = defs[i].modId < defs[j].modId ? [defs[i], defs[j]] : [defs[j], defs[i]];
-        const key = `${a.modId}\u0000${a.file}\u0001${b.modId}\u0000${b.file}`;
-        if (!pairs.has(key)) pairs.set(key, { a, b, items: [], merged: true, winner: finalDef.entry });
-        const pair = pairs.get(key);
+        const pair = pairFor(defs[i], defs[j], false, finalDef.entry);
         pair.items.push(name);
-        if (!a.merged || !b.merged) pair.merged = false;
       }
     }
   }
@@ -7863,7 +7902,7 @@ async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options 
       file: crossFileLabel(files.map((f) => f.file)),
       category: "scripts-cross-file",
       categoryLabel: CATEGORY_LABELS["scripts-cross-file"],
-      severity: "medium",
+      severity: pair.merged ? REASON_SEVERITY.scriptDefinitionMerge : REASON_SEVERITY.scriptDefinitionOverride,
       identical: false,
       crossFile: true,
       kind: "script-override",
@@ -7875,7 +7914,7 @@ async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options 
     });
     if (++emitted % 20 === 0) await yieldTick();
   }
-  return { sameDefinitions };
+  return { sameDefinitions, layeredAdditions };
 }
 
 // A global name defined by more mods than this is reported for the first ones
@@ -8158,11 +8197,12 @@ async function analyzeConflicts(fileIndex, modInfoMap, order, callbacks = {}) {
     conflicts.push(conflict);
     if (onConflictFound) onConflictFound(conflict);
   };
-  const { sameDefinitions } = await detectScriptDefinitionConflicts(fileIndex, emit, {
+  const { sameDefinitions, layeredAdditions } = await detectScriptDefinitionConflicts(fileIndex, emit, {
     shouldAbort,
     orderIndex,
   });
   detected.benignSkipped.sameDefinitions += sameDefinitions;
+  detected.benignSkipped.layeredAdditions += layeredAdditions;
   await detectLuaGlobalClashes(fileIndex, [...conflicts], emit, { shouldAbort, orderIndex });
   detectDeclaredIncompatibilities(order.effectiveModOrder, modInfoMap, emit);
   conflicts.sort(

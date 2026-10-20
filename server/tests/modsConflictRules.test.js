@@ -193,13 +193,86 @@ describe("scripts", () => {
     }
   });
 
-  it("vehicle bodies are layered by the game, not replaced", async () => {
+  it("vehicle bodies are layered by the game, not replaced: only a key both set differently clashes (low)", async () => {
     const ws = [
-      addMod("ModA", { "42/media/scripts/a.txt": "module Base { vehicle Van { mass = 800, } }" }),
-      addMod("ModB", { "42/media/scripts/b.txt": "module Base { vehicle Van { mass = 900, } }" }),
+      addMod("ModA", { "42/media/scripts/a.txt": "module Base { vehicle Van { mass = 800, engineForce = 3000, } }" }),
+      addMod("ModB", { "42/media/scripts/b.txt": "module Base { vehicle Van { mass = 900, engineForce = 3000, part Door { x = 1, } } }" }),
     ];
     const body = await scan(["ModA", "ModB"], ws);
-    expect(entries(body)).toEqual([expect.objectContaining({ reason: "scriptDefinitionMerge" })]);
+    expect(entries(body)).toEqual([
+      expect.objectContaining({
+        severity: "low",
+        reason: "scriptDefinitionMerge",
+        overlap: { kind: "script-defs", items: ["Base.vehicle.Van › mass"], total: 1 },
+        winner: expect.objectContaining({ modId: "ModB" }),
+      }),
+    ]);
+  });
+
+  // Seen live: Neat Building's generated entity scripts and Rocco's Tiles each
+  // add their own entity style to "xuiSkin default" (and the entity's
+  // UiConfig only references the skin): the game layers xuiSkin bodies, so
+  // this was never a "definition clash".
+  it("two mods adding their own entity styles to xuiSkin default is no conflict", async () => {
+    const neat = `module Base
+{
+\txuiSkin default
+\t{
+\t\tentity ES_Wood_YellowPanelWindowFrame
+\t\t{
+\t\t\tLuaWindowClass\t= ISEntityWindow,
+\t\t\tDisplayName\t= NBEntityName_YellowPanelWindowFrame,
+\t\t\tIcon\t\t= Build_walls_exterior_house_02_41,
+\t\t}
+\t}
+
+    entity Wood_YellowPanelWindowFrame
+    {
+        component UiConfig
+        {
+            xuiSkin         = default,
+            entityStyle     = ES_Wood_YellowPanelWindowFrame,
+            uiEnabled       = false,
+        }
+    }
+}
+`;
+    const rocco = `module Base
+{
+    xuiSkin default
+    {
+        entity RT_WaterDispenser
+        {
+            LuaWindowClass = ISEntityTabWindow,
+            DisplayName = Water Dispenser,
+            Icon = Item_WaterTank,
+        }
+    }
+}
+`;
+    const ws = [
+      addMod("Neat_Building", { "42/media/scripts/generated/entities/neat_expand/windows/WindowFrame/entity_wood_yellowpanelwindowframe.txt": neat }),
+      addMod("Roccos_Tiles", { "42/media/scripts/entities/appliances/entity_rt_waterdispenser_xuiSkin.txt": rocco }),
+    ];
+    const body = await scan(["Neat_Building", "Roccos_Tiles"], ws);
+    expect(body.totalConflicts).toBe(0);
+    expect(body.benignSkipped.layeredAdditions).toBe(1);
+  });
+
+  it("the same entity style styled differently in xuiSkin default is a low clash on that style only", async () => {
+    const skin = (icon, extra = "") => `module Base { xuiSkin default { entity ES_Shared { Icon = ${icon}, } ${extra} } }`;
+    const ws = [
+      addMod("ModA", { "42/media/scripts/a_skin.txt": skin("A", "entity ES_OnlyA { Icon = X, }") }),
+      addMod("ModB", { "42/media/scripts/b_skin.txt": skin("B", "entity ES_OnlyB { Icon = Y, }") }),
+    ];
+    const body = await scan(["ModA", "ModB"], ws);
+    expect(entries(body)).toEqual([
+      expect.objectContaining({
+        severity: "low",
+        reason: "scriptDefinitionMerge",
+        overlap: { kind: "script-defs", items: ["Base.xuiskin.default › entity ES_Shared"], total: 1 },
+      }),
+    ]);
   });
 });
 

@@ -316,12 +316,51 @@ export function stripScriptBlockComments(text) {
 }
 
 /**
+ * What a layered body (vehicle, xuiSkin) sets, as Map<key, digest>: each
+ * direct property ("=mass") and each direct nested block ("entity
+ * ES_Name", "part Door"). The game applies a later body on top of the
+ * earlier one, so two bodies only clash on a key both set differently: two
+ * mods each adding their own entity style to "xuiSkin default" add up.
+ */
+function layeredKeys(content, start, end, closing) {
+  const layers = new Map();
+  const addProps = (text) => {
+    for (const piece of text.split(/[,\n]/)) {
+      const eq = piece.indexOf("=");
+      if (eq <= 0) continue;
+      const key = piece.slice(0, eq).trim().toLowerCase();
+      if (key) layers.set(`=${key}`, digest(normaliseBody(piece.slice(eq + 1))));
+    }
+  };
+  let pos = start;
+  while (pos < end) {
+    const open = content.indexOf("{", pos);
+    if (open === -1 || open >= end) break;
+    const blockClose = closing.get(open);
+    const close = blockClose !== undefined && blockClose <= end ? blockClose : end;
+    const before = content.slice(pos, open);
+    const cut = Math.max(before.lastIndexOf(","), before.lastIndexOf("\n", before.trimEnd().length - 1));
+    addProps(before.slice(0, Math.max(cut, 0)));
+    const tokens = before.slice(cut + 1).trim().split(/\s+/).filter(Boolean);
+    if (tokens.length > 0) {
+      const header = [tokens[0].toLowerCase(), ...tokens.slice(1)].join(" ");
+      layers.set(header, digest(normaliseBody(content.slice(open + 1, close))));
+    }
+    pos = close + 1;
+  }
+  if (pos < end) addProps(content.slice(pos, end));
+  return layers;
+}
+
+/**
  * The definitions a PZ script file makes, as Map<"Module.type.Name",
- * { hash, merged }>: only blocks directly inside a module (the lines inside a
- * craftRecipe's inputs { item 1 [Base.Nails] } are not definitions), `hash`
- * a digest of the whitespace-normalised body, `merged` true for the types the
- * game layers instead of replacing (vehicle, xuiSkin). "template vehicle X" is
- * kept apart from "vehicle X". null when the file cannot be read.
+ * { hash, merged, layers? }>: only blocks directly inside a module (the lines
+ * inside a craftRecipe's inputs { item 1 [Base.Nails] } are not definitions,
+ * nor is an entity's `xuiSkin = default` reference), `hash` a digest of the
+ * whitespace-normalised body, `merged` true for the types the game layers
+ * instead of replacing (vehicle, xuiSkin), with what they set in `layers`
+ * (see layeredKeys). "template vehicle X" is kept apart from "vehicle X".
+ * null when the file cannot be read.
  */
 export function extractScriptDefinitionBodies(filePath) {
   try {
@@ -353,9 +392,11 @@ export function extractScriptDefinitionBodies(filePath) {
         if (tokens.length >= 2 && SCRIPT_TAGS.has(tag) && name && !/[{},]/.test(name)) {
           const template = (tokens[tokens.length - 3] || "").toLowerCase() === "template";
           const key = `${moduleName}.${template ? `template ${tag}` : tag}.${name}`;
+          const merged = !template && MERGED_SCRIPT_TAGS.has(tag);
           defs.set(key, {
             hash: digest(normaliseBody(content.slice(open + 1, end))),
-            merged: !template && MERGED_SCRIPT_TAGS.has(tag),
+            merged,
+            ...(merged ? { layers: layeredKeys(content, open + 1, end, closing) } : {}),
           });
         }
         pos = end + 1;
