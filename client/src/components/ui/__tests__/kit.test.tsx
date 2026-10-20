@@ -178,6 +178,13 @@ describe('SectionCard', () => {
     expect(screen.getByRole('button', { name: 'New task' })).toBeInTheDocument()
   })
 
+  it('keeps a width floor under the title block, so wide actions wrap below it on a phone', () => {
+    render(<SectionCard title="Spawn horde" description="Spawn or clear zombies." actions={<button type="button">Target</button>}>body</SectionCard>)
+    const titleBlock = screen.getByRole('heading', { name: 'Spawn horde' }).closest('div')!.parentElement!
+    expect(titleBlock).toHaveClass('min-w-[min(100%,14rem)]', 'flex-1')
+    expect(titleBlock.className).not.toMatch(/(^|\s)min-w-0(\s|$)/)
+  })
+
   it('collapses from its title and remembers the state under storageKey', () => {
     const { unmount } = render(<SectionCard title="Advanced" collapsible storageKey="card:advanced">secret body</SectionCard>)
     const toggle = screen.getByRole('button', { name: 'Advanced' })
