@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "Después de este paso",
+    "nextHeading": "Qué sigue",
     "previewBadge": "Vista previa",
     "step1Title": "Incorporar un servidor al panel",
     "step1Desc": "Añade una instalación existente o ejecuta la configuración guiada para crear una.",

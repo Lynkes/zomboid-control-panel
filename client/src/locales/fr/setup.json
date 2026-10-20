@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "Après cette étape",
+    "nextHeading": "La suite",
     "previewBadge": "Aperçu",
     "step1Title": "Ajouter un serveur au panneau",
     "step1Desc": "Ajoutez une installation existante ou utilisez la configuration guidée pour en créer une.",

@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "此步驟之後",
+    "nextHeading": "接下來",
     "previewBadge": "預覽",
     "step1Title": "將伺服器接入面板",
     "step1Desc": "新增現有安裝，或執行引導設定建立新伺服器。",

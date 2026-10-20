@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "Nach diesem Schritt",
+    "nextHeading": "Wie es weitergeht",
     "previewBadge": "Vorschau",
     "step1Title": "Server ins Panel aufnehmen",
     "step1Desc": "Eine bestehende Installation hinzufügen oder mit der geführten Einrichtung eine neue erstellen.",

@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "After this step",
+    "nextHeading": "What happens next",
     "previewBadge": "Preview",
     "step1Title": "Bring a server into the panel",
     "step1Desc": "Add an existing install or run the guided setup to create one.",
