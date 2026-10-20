@@ -149,6 +149,20 @@ describe('CommandPalette', () => {
     expect(onSwitchServer).toHaveBeenCalledWith(BRAVO)
   })
 
+  it('says a role without servers.manage cannot switch servers, and does not try', () => {
+    // POST /servers/:id/activate refuses it; the click used to end in a bare
+    // "Switch failed".
+    auth.can = (capability) => capability !== 'servers.manage'
+    const { input, onSwitchServer } = renderPalette()
+    fireEvent.change(input, { target: { value: 'bravo' } })
+    const option = within(listbox()).getByRole('option', { name: /Switch to Bravo/ })
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+    expect(option).toHaveTextContent('servers.manage')
+    fireEvent.click(option)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSwitchServer).not.toHaveBeenCalled()
+  })
+
   it('says when nothing matches', () => {
     const { input } = renderPalette()
     fireEvent.change(input, { target: { value: 'zzzz-nothing' } })

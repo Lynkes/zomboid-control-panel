@@ -613,8 +613,14 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [socket])
 
+  // POST /servers/:id/activate needs servers.manage: without it the strip
+  // and the palette show the other servers but can't switch to them (a
+  // click used to end in a bare "Switch failed").
+  const canSwitchServer = can('servers.manage')
+  const switchDeniedReason = canSwitchServer ? undefined : t('servers:card.noPermissionManage')
+
   const handleSwitchServer = useCallback(async (server: ServerInstance) => {
-    if (server.isActive) return
+    if (server.isActive || !canSwitchServer) return
     try {
       await serversApi.activate(server.id)
       // Socket event will refresh the list
@@ -625,7 +631,7 @@ export default function Layout({ children }: LayoutProps) {
         variant: 'destructive',
       })
     }
-  }, [t, toast])
+  }, [canSwitchServer, t, toast])
 
   const openPalette = useCallback(() => {
     setMobileMenuOpen(false)
@@ -860,10 +866,14 @@ export default function Layout({ children }: LayoutProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-60 glass border-border/50">
+        {switchDeniedReason && servers.length > 1 && (
+          <p className="px-3 pb-1.5 pt-2 text-xs text-muted-foreground">{switchDeniedReason}</p>
+        )}
         {servers.map(server => (
           <DropdownMenuItem
             key={server.id}
             onClick={() => handleSwitchServer(server)}
+            disabled={!server.isActive && !canSwitchServer}
             className={cn(
               "py-2.5 px-3 cursor-pointer transition-colors",
               server.isActive && 'bg-primary/10'
