@@ -106,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
 - **PanelBridge read as offline for Moderators:** Players, Events & Weather, World Map and Leaderboard now see a running bridge for roles without a PanelBridge permission, so God mode, weather, the clock and the other bridge controls are no longer greyed out for them.
 - **Admin chat that went out over RCON:** when the game's chat or PanelBridge isn't available and an admin or general chat message is sent over RCON, the Chat page now warns that every player saw it instead of saying "Visible only to admins in-game".
+- **Map Cleanup keys and switches:** 1 and 2 switch the tool again instead of opening the Dashboard or Console (and losing the selection); after a server switch the new server's save opens, not the first one in the folder; "Save as default" is disabled with the reason for roles without Edit server configuration; the switches have names for screen readers.
 
 ## [1.4.17] - 2026-10-18
 
