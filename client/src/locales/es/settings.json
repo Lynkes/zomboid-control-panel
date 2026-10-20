@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Actualización no aplicada",
+    "rolledBackDescription": "El panel se reinició, pero ejecuta la v{{running}}, no la v{{expected}}: la actualización se revirtió o no se aplicó. La sección Actualizaciones muestra qué pasó."
   },
   "saveButton": {
     "saving": "Guardando…",
@@ -987,7 +989,7 @@
     "updateDownloaded": {
       "title": "Actualización descargada"
     },
-    "updateDownloadedDescDocker": "El contenedor del panel se está reconstruyendo y se reconectará cuando pase la comprobación de estado.",
+    "updateDownloadedDescDocker": "El contenedor del panel se está recreando. El panel no puede confirmar que la actualización terminó: si no vuelve, revisa el estado o los registros del contenedor.",
     "updateDownloadedDescBinary": "Los archivos de la actualización están listos. Reinicia el panel para aplicar esta versión.",
     "downloadFailed": {
       "title": "Descarga fallida",

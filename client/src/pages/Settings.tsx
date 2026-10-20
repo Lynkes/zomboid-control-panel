@@ -433,12 +433,21 @@ export default function Settings() {
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restartOriginRef = useRef<string | null>(null);
+  // The bootId of the process asked to restart (its answer to the restart
+  // request). The reconnect poll waits for a different one: the version
+  // alone can't tell the old process from the new.
+  const restartBootIdRef = useRef<string | null>(null);
   // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
   // pass): set only when the reconnect poll below gives up -- distinct from
   // `restarting` (which just drives the button spinner) so the page can show
   // a persistent, actionable message instead of leaving the user staring at
   // a spinner tied to a navigation that already silently gave up.
   const [restartWaitFailed, setRestartWaitFailed] = useState(false);
+  // A restart-and-apply that came back on another version than the one
+  // being applied: the update was rolled back.
+  const [restartRolledBack, setRestartRolledBack] = useState<
+    { running: string; expected: string } | null
+  >(null);
   const [panelUpdateStatus, setPanelUpdateStatus] =
     useState<PanelUpdateStatus | null>(null);
   const [panelUpdateStatusError, setPanelUpdateStatusError] = useState<
@@ -961,15 +970,20 @@ export default function Settings() {
       // fresh download can still retry, but that means status.updateAvailable
       // stays true with status.stagedUpdate now null, and neither branch below
       // would otherwise touch panelUpdateReady -- leaving it stuck at whatever
-      // it was before the apply failed. Checked first and explicitly so a
-      // stuck-true "ready" from before the failure can't survive it.
-      if (
+      // it was before the apply failed. Checked explicitly so a stuck-true
+      // "ready" from before the failure can't survive it.
+      //
+      // A staged bundle is checked BEFORE that failure: it can only be the
+      // re-download the failure banner asks for (canRetryApply:false means
+      // the old one was gone), and testing the failure first kept "Restart
+      // and Apply" disabled after that re-download.
+      if (status.stagedUpdate) {
+        setPanelUpdateReady(true);
+      } else if (
         status.lastApplyResult?.status === "failed" &&
         status.lastApplyResult.canRetryApply === false
       ) {
         setPanelUpdateReady(false);
-      } else if (status.stagedUpdate) {
-        setPanelUpdateReady(true);
       } else if (!status.updateAvailable) {
         setPanelUpdateReady(false);
       }
@@ -1303,18 +1317,26 @@ export default function Settings() {
   // something this page can tell the user, in-app, instead of something
   // they're left to discover by staring at a dead tab.
   const pollForPanelReconnect = useCallback(
-    // expectedVersion: only meaningful for the update-apply caller. Passing
-    // it means "don't treat the OLD process still answering during the
-    // handoff window as success" -- without it, any 200 from /api/health is
-    // enough (the plain "Restart Panel" button has no version to compare
-    // against, and doesn't need one).
+    // The process is back when /api/health answers with a bootId other than
+    // the one the restart request answered with (restartBootIdRef): the old
+    // process keeps answering while it hands off, and in the all-in-one
+    // container while it saves and stops the game servers first.
+    //
+    // expectedVersion: only meaningful for the update-apply caller. A new
+    // process on another version means the update was rolled back (Start.bat
+    // or the startup check restored the previous build), which is reported
+    // instead of waiting for a version that will never come. Without a
+    // bootId to compare (none in the restart answer), the version is the
+    // only signal and any other answer is waited out, as before.
     (expectedVersion?: string | null) => {
       // Fixed by restartPanelWithReconnect before the restart (see there):
       // the origin this page is already on, or the new one only when the
       // panel's port really changes.
-      const origin = restartOriginRef.current ?? `${window.location.protocol}//${window.location.host}`;
+      const pageOrigin = `${window.location.protocol}//${window.location.host}`;
+      const origin = restartOriginRef.current ?? pageOrigin;
       const newUrl = `${origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
       const deadline = Date.now() + RESTART_RECONNECT_TIMEOUT_MS;
+      const previousBootId = restartBootIdRef.current;
 
       if (restartPollRef.current) clearInterval(restartPollRef.current);
       const poll = async () => {
@@ -1328,10 +1350,34 @@ export default function Settings() {
         try {
           const res = await fetch(`${origin}/api/health`, { cache: "no-store" });
           if (!res.ok) return;
-          const data = await res.json().catch(() => null);
-          if (expectedVersion && data?.version !== expectedVersion) return;
+          const data = (await res.json().catch(() => null)) as
+            | { version?: unknown; bootId?: unknown }
+            | null;
+          const version = typeof data?.version === "string" ? data.version : null;
+          if (previousBootId) {
+            // Still the process that was asked to restart. (A build too old
+            // to report a bootId is a different process by definition.)
+            if (data?.bootId === previousBootId) return;
+          } else if (expectedVersion && version !== expectedVersion) {
+            return;
+          }
           if (restartPollRef.current) clearInterval(restartPollRef.current);
           restartPollRef.current = null;
+          // Rolled back, on this same address: say so here and show why
+          // (the Updates card's failed-apply details). Another address can't
+          // be read from here; that page shows the failure on its Updates
+          // card.
+          if (
+            expectedVersion &&
+            version &&
+            version !== expectedVersion &&
+            origin === pageOrigin
+          ) {
+            setRestarting(false);
+            setRestartRolledBack({ running: version, expected: expectedVersion });
+            void fetchPanelUpdateStatus();
+            return;
+          }
           window.location.href = newUrl;
         } catch {
           // Not up yet (or, if the panel port genuinely changed, possibly
@@ -1344,7 +1390,7 @@ export default function Settings() {
       restartPollRef.current = setInterval(poll, RESTART_RECONNECT_POLL_INTERVAL_MS);
       poll();
     },
-    [],
+    [fetchPanelUpdateStatus],
   );
 
   const restartPanelWithReconnect = useCallback(
@@ -1357,6 +1403,8 @@ export default function Settings() {
       if (user?.role !== "admin") return;
       setRestarting(true);
       setRestartWaitFailed(false);
+      setRestartRolledBack(null);
+      restartBootIdRef.current = null;
       try {
         // Where the restarted panel will answer. Behind a reverse proxy, with
         // a remapped Docker port or on the HTTPS port it is this page's own
@@ -1368,7 +1416,11 @@ export default function Settings() {
           settings.panelPort,
           await readRunningPanelPort(serverApi.getPanelInfo),
         );
-        await serverApi.restartPanel();
+        const restartResult = (await serverApi.restartPanel()) as
+          | { bootId?: unknown }
+          | undefined;
+        restartBootIdRef.current =
+          typeof restartResult?.bootId === "string" ? restartResult.bootId : null;
         toast({
           title: t("toasts.restartingPanel.title"),
           description,
@@ -1406,8 +1458,9 @@ export default function Settings() {
   // it just resumes waiting with a fresh deadline. `expectedVersion` is
   // intentionally not re-threaded here (there is no staged-update state left
   // to compare against once the message is showing -- the page doesn't know
-  // which flow led here); a plain "did anything answer" check is the right
-  // relaxation for a manual, user-initiated retry.
+  // which flow led here); "a process other than the one asked to restart
+  // answers" (restartBootIdRef, kept) is the right relaxation for a manual,
+  // user-initiated retry.
   const retryRestartReconnectWait = useCallback(() => {
     setRestartWaitFailed(false);
     setRestarting(true);
@@ -1488,24 +1541,27 @@ export default function Settings() {
       // couldn't be reached (a failed check is not a passed check).
       const pre = await fetchPanelUpdatePreflight();
       if (!pre || !pre.ok) {
+        // The blocker in the reader's language (blockerDetails carries its
+        // key), like the blocked-update card, not the server's English.
         throw new Error(
-          pre?.blockers[0] || t("errors.updateBlockedByPreflight"),
+          (pre
+            ? translatePanelUpdateMessages(pre.blockers, pre.blockerDetails)[0]
+            : undefined) || t("errors.updateBlockedByPreflight"),
         );
       }
 
       // POST /panel/update-download always responds non-2xx on failure, so
       // handleResponse() throws into the catch below -- this never sees
       // result.success === false.
-      const result = await panelUpdateApi.download(isDockerPanelUpdate);
+      await panelUpdateApi.download(isDockerPanelUpdate);
 
       if (!isDockerPanelUpdate) setPanelUpdateReady(true);
+      // Translated text only: the server's result.message is English.
       toast({
         title: isDockerPanelUpdate ? t("toasts.dockerUpdateStarted.title") : t("toasts.updateDownloaded.title"),
-        description:
-          result.message ||
-          (isDockerPanelUpdate
-            ? t("toasts.updateDownloadedDescDocker")
-            : t("toasts.updateDownloadedDescBinary")),
+        description: isDockerPanelUpdate
+          ? t("toasts.updateDownloadedDescDocker")
+          : t("toasts.updateDownloadedDescBinary"),
         variant: "success" as const,
       });
       await fetchPanelUpdateStatus();
@@ -1537,6 +1593,9 @@ export default function Settings() {
         // the text a column too narrow to read in the toast's 15 s.
         layout: failure === "serverNotStopped" ? "stacked" : undefined,
       });
+      // The card's "Downloading" state came from the progress events; read
+      // the real state back instead of leaving it there after a failure.
+      void fetchPanelUpdateStatus();
     } finally {
       setDownloadingPanelUpdate(false);
     }
@@ -1615,6 +1674,8 @@ export default function Settings() {
           downloadProgress: bounded,
         };
       });
+      // A failed download (any tab's) ends with this; fetch its error.
+      if (data.status === "failed") fetchPanelUpdateStatus();
     };
 
     const handlePanelUpdateReady = (data: { version?: string }) => {
@@ -3087,6 +3148,21 @@ export default function Settings() {
               >
                 {t("restartWait.checkAgain")}
               </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
+      {restartRolledBack && (
+        <div aria-live="assertive" className="mb-5">
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>{t("restartWait.rolledBackTitle")}</AlertTitle>
+            <AlertDescription className="break-words">
+              {t("restartWait.rolledBackDescription", {
+                running: restartRolledBack.running,
+                expected: restartRolledBack.expected,
+              })}
             </AlertDescription>
           </Alert>
         </div>

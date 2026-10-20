@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "O painel não voltou",
     "failedDescription": "Já se passaram alguns minutos desde o reinício e o painel ainda não está respondendo. Ele pode ainda estar iniciando (isso pode demorar mais que o normal logo após uma atualização) ou pode ter falhado ao iniciar. Verifique a saída do console/log do painel em busca de erros antes de tentar novamente.",
-    "checkAgain": "Verificar novamente"
+    "checkAgain": "Verificar novamente",
+    "rolledBackTitle": "Atualização não aplicada",
+    "rolledBackDescription": "O painel reiniciou, mas está na v{{running}}, não na v{{expected}}: a atualização foi revertida ou não foi aplicada. A seção Atualizações mostra o que aconteceu."
   },
   "saveButton": {
     "saving": "Salvando...",
@@ -999,7 +1001,7 @@
     "updateDownloaded": {
       "title": "Atualização baixada"
     },
-    "updateDownloadedDescDocker": "O contêiner do painel está sendo reconstruído e vai se reconectar quando a verificação de saúde passar.",
+    "updateDownloadedDescDocker": "O contêiner do painel está sendo recriado. O painel não consegue confirmar que a atualização terminou: se ele não voltar, verifique o status ou os logs do contêiner.",
     "updateDownloadedDescBinary": "Os arquivos da atualização estão prontos. Reinicie o painel para aplicar esta versão.",
     "downloadFailed": {
       "title": "Falha no download",

@@ -46,6 +46,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
 - **PanelBridge dialogs after a server switch:** an open delivery-switch or Lua-checksum dialog now closes (with a short notice) when the active server changes, instead of reopening by itself for the new server.
 - **Character import recovery copy in Saved Exports:** the Import/Export dialog now reloads Saved Exports when it opens and after an import, so the pre-import copy it promises (and recent login exports) show up.
+- **Update / Verify on an inactive server:** the branch picker now starts on that server's own branch (or public), not on the active server's.
+- **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
+- **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
+- **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
+- **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
+- **Failed panel update download:** the Updates card no longer stays on "Downloading".
+- **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
+- **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
+- **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
 
 ## [1.4.17] - 2026-10-18
 

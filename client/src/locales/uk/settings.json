@@ -127,7 +127,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Оновлення не застосовано",
+    "rolledBackDescription": "Панель перезапустилася, але працює на v{{running}}, а не v{{expected}}: оновлення відкочено або не застосовано. У розділі «Оновлення» видно, що сталося."
   },
   "saveButton": {
     "saving": "Збереження...",
@@ -995,7 +997,7 @@
     "updateDownloaded": {
       "title": "Оновлення завантажено"
     },
-    "updateDownloadedDescDocker": "Контейнер панелі перезбирається й перепідключиться, коли перевірка стану пройде успішно.",
+    "updateDownloadedDescDocker": "Контейнер панелі створюється заново. Панель не може підтвердити, що оновлення завершилося: якщо вона не повернеться, перевірте стан або журнали контейнера.",
     "updateDownloadedDescBinary": "Файли оновлення готові. Перезапустіть панель, щоб застосувати цю версію.",
     "downloadFailed": {
       "title": "Не вдалося завантажити",

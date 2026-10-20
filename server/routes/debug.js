@@ -509,17 +509,29 @@ function redactLogBufferEntry(entry, knownSecrets) {
  */
 function createRedactingLogStream(knownSecrets) {
   let carry = "";
+  // One decoder for the whole stream: a character whose UTF-8 bytes straddle
+  // a 64 KB read boundary decoded chunk by chunk came out as two U+FFFD (and
+  // a secret containing it no longer matched the exact-value redaction).
+  // ignoreBOM: true keeps a leading BOM, as Buffer#toString did.
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  const pushLines = (stream, text) => {
+    carry += text;
+    const lines = carry.split("\n");
+    carry = lines.pop() ?? "";
+    for (const line of lines) {
+      stream.push(redactRawLogText(line, knownSecrets) + "\n");
+    }
+  };
   return new Transform({
     transform(chunk, _enc, callback) {
-      carry += chunk.toString("utf-8");
-      const lines = carry.split("\n");
-      carry = lines.pop() ?? "";
-      for (const line of lines) {
-        this.push(redactRawLogText(line, knownSecrets) + "\n");
-      }
+      pushLines(
+        this,
+        typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }),
+      );
       callback();
     },
     flush(callback) {
+      pushLines(this, decoder.decode());
       if (carry) this.push(redactRawLogText(carry, knownSecrets));
       callback();
     },

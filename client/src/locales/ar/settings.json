@@ -131,7 +131,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "لم يُطبَّق التحديث",
+    "rolledBackDescription": "أُعيد تشغيل اللوحة لكنها تعمل بالإصدار v{{running}} وليس v{{expected}}: تم التراجع عن التحديث أو لم يُطبَّق. يعرض قسم التحديثات ما حدث."
   },
   "saveButton": {
     "saving": "جارٍ الحفظ...",
@@ -1003,7 +1005,7 @@
     "updateDownloaded": {
       "title": "تم تنزيل التحديث"
     },
-    "updateDownloadedDescDocker": "يُعاد بناء حاوية اللوحة، وستعيد الاتصال عند اجتياز فحص السلامة.",
+    "updateDownloadedDescDocker": "يُعاد إنشاء حاوية اللوحة. لا تستطيع اللوحة تأكيد اكتمال التحديث: إذا لم تعد، فتحقق من حالة الحاوية أو سجلاتها.",
     "updateDownloadedDescBinary": "ملفات التحديث جاهزة. أعد تشغيل اللوحة لتطبيق هذا الإصدار.",
     "downloadFailed": {
       "title": "فشل التنزيل",

@@ -69,7 +69,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Mizajou a pa aplike",
+    "rolledBackDescription": "Panèl la redemare men li sou v{{running}}, pa v{{expected}}: yo te anile mizajou a oswa li pa t aplike. Seksyon Mizajou a montre sa ki te pase."
   },
   "saveButton": {
     "saving": "N ap sove...",
@@ -837,7 +839,7 @@
     "noUpdateAvailable": { "title": "Pa Gen Mizajou Disponib", "description": "Pa jwenn okenn vèsyon ki pi nouvo. Fè Tcheke Mizajou pou rafrechi estati a." },
     "dockerUpdateStarted": { "title": "Mizajou Docker Kòmanse" },
     "updateDownloaded": { "title": "Mizajou Telechaje" },
-    "updateDownloadedDescDocker": "Kontenè panèl la ap rebati epi ap rekonekte lè verifikasyon sante a pase.",
+    "updateDownloadedDescDocker": "Y ap rekreye kontenè panèl la. Panèl la pa ka konfime mizajou a fini: si li pa tounen, tcheke estati oswa jounal kontenè a.",
     "updateDownloadedDescBinary": "Fichye mizajou yo pare. Redemare panèl la pou aplike vèsyon sa a.",
     "downloadFailed": { "title": "Telechajman Echwe", "fallback": "Panèl la pa t kapab telechaje mizajou a. Tcheke aksè rezo, espas disk, ak otorizasyon." },
     "updateNotApplied": { "title": "Mizajou Pa Aplike", "openDashboard": "Louvri Tablo a", "openDashboardAlt": "Louvri Tablo a, kote “Fòse sispann” ye" },

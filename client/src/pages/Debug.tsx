@@ -1445,45 +1445,64 @@ export default function Debug() {
           });
           void wsDropped; // count already reflected in droppedTotal
         } else if (check.id === "mods.maps") {
+          // Success toasts below are built from the result's fields in the
+          // reader's language; result.message is the server's English.
           const result = await modsApi.repairMapEntries();
+          const removed = result.removed ?? [];
+          const added = result.added ?? [];
+          const sentences: string[] = [];
+          if (removed.length > 0)
+            sentences.push(
+              t("diagnostics.mapEntriesRemoved", {
+                count: removed.length,
+                list: removed.join(", "),
+              }),
+            );
+          if (added.length > 0)
+            sentences.push(
+              t("diagnostics.mapEntriesAdded", {
+                count: added.length,
+                list: added.join(", "),
+              }),
+            );
+          const sentenceSep = i18n.language.startsWith("zh") ? "" : " ";
           toast({
             title: t("diagnostics.mapEntriesRepairedTitle"),
-            description: `${result.message}${restartHint}`,
+            description:
+              sentences.length > 0
+                ? `${sentences.join(sentenceSep)}${restartHint}`
+                : t("diagnostics.mapEntriesAllValid"),
           });
         } else if (check.id === "mods.duplicates") {
           const result = await modsApi.deduplicateModIds();
+          const removed = result.removed ?? [];
           toast({
             title: t("diagnostics.duplicatesCleanedTitle"),
-            description: `${result.message}${restartHint}`,
+            description:
+              removed.length > 0
+                ? `${t("diagnostics.duplicatesRemoved", {
+                    count: result.removedCount ?? removed.length,
+                    list: removed.join(", "),
+                  })}${restartHint}`
+                : t("diagnostics.duplicatesNone"),
           });
         } else if (check.id === "server.process") {
           // /server/start always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees result.success === false.
-          const result = (await serverApi.start()) as {
-            success?: boolean;
-            message?: string;
-            error?: string;
-          };
+          await serverApi.start();
           toast({
             title: t("diagnostics.serverStartingTitle"),
-            description:
-              result?.message || t("diagnostics.serverStartingFallback"),
+            description: t("diagnostics.serverStartingFallback"),
           });
         } else if (check.id === "rcon.connected") {
           // /rcon/connect always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- the connected check below is always true when reached.
-          const result = (await rconApi.connect()) as {
-            success?: boolean;
-            connected?: boolean;
-            message?: string;
-            error?: string;
-          };
+          await rconApi.connect();
           toast({
             title: t("diagnostics.rconReconnectedTitle"),
-            description:
-              result?.message || t("diagnostics.rconReconnectedFallback"),
+            description: t("diagnostics.rconReconnectedFallback"),
           });
         } else if (check.id === "db.backup") {
           // /backup/create always responds non-2xx on failure, so
@@ -1505,6 +1524,7 @@ export default function Debug() {
             success?: boolean;
             deleted?: number;
             failed?: number;
+            truncated?: boolean;
             message?: string;
             error?: string;
             code?: string;
@@ -1521,13 +1541,22 @@ export default function Debug() {
               { status: res.status, code: data?.code },
             );
           }
+          const lockSentences = [
+            t("diagnostics.staleLocksRemovedFallback", {
+              count: data?.deleted ?? 0,
+            }),
+          ];
+          if ((data?.failed ?? 0) > 0)
+            lockSentences.push(
+              t("diagnostics.staleLocksSomeFailed", { count: data?.failed }),
+            );
+          if (data?.truncated)
+            lockSentences.push(t("diagnostics.staleLocksTruncated"));
           toast({
             title: t("diagnostics.staleLocksRemovedTitle"),
-            description:
-              data?.message ||
-              t("diagnostics.staleLocksRemovedFallback", {
-                count: data?.deleted ?? 0,
-              }),
+            description: lockSentences.join(
+              i18n.language.startsWith("zh") ? "" : " ",
+            ),
           });
         } else if (
           check.id === "bridge.configured" ||
@@ -1560,8 +1589,7 @@ export default function Debug() {
           if (result.alreadyValid) {
             toast({
               title: t("diagnostics.alreadyValidTitle"),
-              description:
-                result.message || t("diagnostics.alreadyValidFallback"),
+              description: t("diagnostics.alreadyValidFallback"),
             });
           } else {
             // SandboxVars.lua has no live-reload path (PZ's own /reloadoptions
@@ -1571,13 +1599,10 @@ export default function Debug() {
             // whether the server happened to be running when it was repaired.
             toast({
               title: t("diagnostics.sandboxRepairedTitle"),
-              description:
-                (result.message
-                  ? `${result.message}${restartHint}`
-                  : t("diagnostics.sandboxRepairedFallback", {
-                      count: result.changes?.length ?? 0,
-                      restartHint,
-                    })),
+              description: t("diagnostics.sandboxRepairedFallback", {
+                count: result.changes?.length ?? 0,
+                restartHint,
+              }),
             });
           }
         } else if (check.id === "server.sandboxVars") {
@@ -1587,7 +1612,7 @@ export default function Debug() {
           // VERSION-only content PZ falls back to implicitly, just written
           // out as a real, editable file. Always responds non-2xx on
           // failure, so this never sees result.success === false.
-          const result = await serverFilesApi.saveSandbox({
+          await serverFilesApi.saveSandbox({
             VERSION: 4,
             settings: {},
             ZombieLore: {},
@@ -1598,9 +1623,7 @@ export default function Debug() {
           });
           toast({
             title: t("diagnostics.sandboxCreatedTitle"),
-            description:
-              (result.message || t("diagnostics.sandboxCreatedFallback")) +
-              restartHint,
+            description: t("diagnostics.sandboxCreatedFallback") + restartHint,
           });
         } else if (check.id === "db.writable") {
           // POST /api/debug/fix-writability always responds non-2xx on
@@ -1630,35 +1653,26 @@ export default function Debug() {
           }
           toast({
             title: t("diagnostics.dbWritableFixedTitle"),
-            description:
-              data?.message || t("diagnostics.dbWritableFixedFallback"),
+            description: t("diagnostics.dbWritableFixedFallback"),
           });
         } else if (check.id === "modChecker") {
           // /mods/start always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees a false success.
-          const result = (await modsApi.start()) as {
-            success?: boolean;
-            message?: string;
-          };
+          await modsApi.start();
           toast({
             title: t("diagnostics.modCheckerStartedTitle"),
-            description:
-              result?.message || t("diagnostics.modCheckerStartedFallback"),
+            description: t("diagnostics.modCheckerStartedFallback"),
           });
         } else if (check.id === "discord.bot") {
           // /discord/start always responds non-2xx on failure (including a
           // still-bad token -- describeStartFailure() supplies the real
           // reason), so handleResponse() throws into this handler's
           // surrounding catch -- this never sees a false success.
-          const result = (await discordApi.start()) as {
-            success?: boolean;
-            message?: string;
-          };
+          await discordApi.start();
           toast({
             title: t("diagnostics.discordReconnectedTitle"),
-            description:
-              result?.message || t("diagnostics.discordReconnectedFallback"),
+            description: t("diagnostics.discordReconnectedFallback"),
           });
         }
 
@@ -2783,7 +2797,7 @@ export default function Debug() {
       if (data.success) {
         toast({
           title: t("systemTab.pathsUpdatedTitle"),
-          description: data.message,
+          description: t("systemTab.pathsUpdatedDesc"),
           variant: "success" as const,
         });
         setEditingPaths(false);

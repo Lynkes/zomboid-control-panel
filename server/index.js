@@ -1992,11 +1992,19 @@ export function recoverFromStartupInspectionFailure(error, journalPath) {
     );
   }
 }
+// New for every process. A page waiting for a restart compares it with the
+// one the restart request answered with: the version alone can't tell the
+// old process (still up while it saves and stops game servers in the
+// all-in-one container) from the new one, nor a rolled-back update (same
+// version as before) from the old process.
+const PANEL_BOOT_ID = randomUUID();
+
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     version: _pkgVersion,
     ..._buildMetadata,
+    bootId: PANEL_BOOT_ID,
     timestamp: new Date().toISOString(),
   });
 });
@@ -2094,6 +2102,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           message: "Stopping panel for supervisor to apply update...",
           applyingUpdate: true,
           supervisor: true,
+          bootId: PANEL_BOOT_ID,
         });
         // Same gap gracefulShutdown() (SIGTERM/SIGINT) already closes for a
         // signal-triggered shutdown: this handler exits the process directly
@@ -2239,7 +2248,12 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     }
   }
 
-  res.json({ success: true, message: "Panel is restarting..." });
+  res.json({
+    success: true,
+    message: "Panel is restarting...",
+    // The process that is going away; see PANEL_BOOT_ID.
+    bootId: PANEL_BOOT_ID,
+  });
 
   // Short delay so the response can be sent before exit
   setTimeout(async () => {
