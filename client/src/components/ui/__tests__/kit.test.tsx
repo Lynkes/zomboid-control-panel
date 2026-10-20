@@ -185,6 +185,16 @@ describe('SectionCard', () => {
     expect(titleBlock.className).not.toMatch(/(^|\s)min-w-0(\s|$)/)
   })
 
+  // jsdom has no layout: pins the class. Events' target picker (label,
+  // All/Specific and a 210px player menu) in a card's actions overflowed a
+  // 390px screen: the actions box doesn't shrink and had no width cap, so
+  // its items never wrapped.
+  it('caps the actions box at the card width so its items wrap on a phone', () => {
+    render(<SectionCard title="Teleport" actions={<button type="button">Target</button>}>body</SectionCard>)
+    const actionsBox = screen.getByRole('button', { name: 'Target' }).parentElement!
+    expect(actionsBox).toHaveClass('max-w-full', 'flex-wrap')
+  })
+
   it('collapses from its title and remembers the state under storageKey', () => {
     const { unmount } = render(<SectionCard title="Advanced" collapsible storageKey="card:advanced">secret body</SectionCard>)
     const toggle = screen.getByRole('button', { name: 'Advanced' })

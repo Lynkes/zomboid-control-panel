@@ -94,7 +94,10 @@ export function SectionCard({
         </div>
         {description && <div className="text-sm text-muted-foreground">{description}</div>}
       </div>
-      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      {/* max-w-full: a shrink-0 item is as wide as its one-line content, so
+          wide actions (Events' target picker with its player menu) pushed the
+          card past a phone screen instead of wrapping inside it. */}
+      {actions && <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 
