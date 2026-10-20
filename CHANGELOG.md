@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod conflict scan:** a crafted Workshop file can no longer freeze the panel for minutes while its clothing, translation, script or Lua definitions are read.
 - **Mod conflict file comparison:** it no longer follows a symlink or junction out of a mod's media folder (the scan already refused them).
 - **PanelBridge files on the panel's machine:** status, result and queue files over 16 MB are no longer read into memory (the SFTP transport already refused them); an oversized result is skipped instead of stalling the queue.
+- **Hostile Workshop mods can no longer freeze the panel:** a mod.info, Workshop description or console line built to make text matching slow is now read in milliseconds (panel start, update checks, diagnostics, Console page).
+- **Per-player data is bounded:** playtime stats (5,000 players per server), cached character sheets (5,000 / 256 MB per server) and login auto-export folders (2,000 players) now drop the longest-unseen entries instead of growing with every new name that joins; auto-export rotation no longer deletes pre-import snapshots.
+- **Server Finder address check:** only plain dotted-decimal IPv4 addresses are queried, so octal or other legacy spellings can no longer reach private addresses on Linux.
+- **Less work for signed-out requests:** the Server Files save's large body is read only after sign-in, Socket.IO connection attempts are rate limited per address, and map tiles the map host doesn't have are remembered for 10 minutes instead of fetched again on every request.
+- **In-game admin password hidden from logs:** the line where the game prints it on a world's first start is now redacted on the Console page for every role and in support bundles.
 
 ### Added
 
@@ -77,14 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
 - **Non-Latin chat and player names:** a Cyrillic, Chinese or other multi-byte character the game was still writing when the panel read the log no longer turns into garbled characters in chat relays and death notices.
 - **Changing a user's role from an allowed remote origin:** the panel's CORS settings now allow PATCH, so that request's preflight no longer fails.
-
-### Security
-
-- **Hostile Workshop mods can no longer freeze the panel:** a mod.info, Workshop description or console line built to make text matching slow is now read in milliseconds (panel start, update checks, diagnostics, Console page).
-- **Per-player data is bounded:** playtime stats (5,000 players per server), cached character sheets (5,000 / 256 MB per server) and login auto-export folders (2,000 players) now drop the longest-unseen entries instead of growing with every new name that joins; auto-export rotation no longer deletes pre-import snapshots.
-- **Server Finder address check:** only plain dotted-decimal IPv4 addresses are queried, so octal or other legacy spellings can no longer reach private addresses on Linux.
-- **Less work for signed-out requests:** the Server Files save's large body is read only after sign-in, Socket.IO connection attempts are rate limited per address, and map tiles the map host doesn't have are remembered for 10 minutes instead of fetched again on every request.
-- **In-game admin password hidden from logs:** the line where the game prints it on a world's first start is now redacted on the Console page for every role and in support bundles.
 
 ## [1.4.17] - 2026-10-18
 
