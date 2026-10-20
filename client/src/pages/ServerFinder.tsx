@@ -677,6 +677,7 @@ export default function ServerFinder() {
               <div className="flex flex-wrap items-center gap-1">
                 <SortButton field="name" label={t('searchFilters.sortName')} />
                 <SortButton field="players" label={t('searchFilters.sortPlayers')} />
+                <SortButton field="maxPlayers" label={t('searchFilters.sortMaxPlayers')} />
                 <SortButton field="ping" label={t('searchFilters.sortPing')} />
               </div>
             }

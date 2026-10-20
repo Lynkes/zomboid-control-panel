@@ -618,8 +618,8 @@ function demoServer() {
     rconPort: 27015,
     rconPassword: '',
     serverPort: 16261,
-    minMemory: 2048,
-    maxMemory: 4096,
+    minMemory: 2,
+    maxMemory: 4,
     useNoSteam: false,
     useDebug: false,
     isRemote: false,
@@ -861,7 +861,7 @@ function demoServerStatus() {
     startTime: null,
     uptime: null,
     serverPath: '/opt/pz',
-    configured: true,
+    serverPathConfigured: true,
     localIp: '127.0.0.1',
     port: 16261,
     rcon: { host: '127.0.0.1', port: 27015, connected: false },
@@ -872,9 +872,9 @@ function demoComposedStatus() {
   return {
     provider: 'native',
     selected: true,
-    host: { status: 'stopped', label: 'Stopped', detail: null },
-    server: { status: 'disconnected', label: 'Disconnected', detail: null },
-    bridge: { status: 'offline', label: 'Offline', detail: null },
+    host: { status: 'stopped', label: 'Process', detail: null },
+    server: { status: 'disconnected', label: 'RCON', detail: null },
+    bridge: { status: 'offline', label: 'PanelBridge', detail: null },
     summary: 'Demo server is offline',
   }
 }

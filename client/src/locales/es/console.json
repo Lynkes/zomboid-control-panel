@@ -131,7 +131,6 @@
   "broadcast": {
     "toggleLabel": "Difusión",
     "toggleSubtitle": "Envía un mensaje a todos los jugadores conectados.",
-    "editPresets": "Editar plantillas en Chat",
     "templates": {
       "restart15": {
         "label": "Reinicio en 15 min",

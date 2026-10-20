@@ -41,7 +41,8 @@
     "allVersions": "Todas as versões",
     "sortName": "Nome",
     "sortPlayers": "Jogadores",
-    "sortPing": "Ping"
+    "sortPing": "Ping",
+    "sortMaxPlayers": "Máx. de jogadores"
   },
   "error": {
     "title": "Não foi possível carregar os servidores públicos",

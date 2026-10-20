@@ -14,6 +14,8 @@ import en from '../../locales/en/servers.json'
 // /servers?add=existing|remote (linked from the Dashboard and Add a Server)
 // opens the matching dialog. The header renders while the list loads.
 
+const deniedCaps = vi.hoisted(() => new Set<string>())
+
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1', username: 'admin', role: 'admin', capabilities: [] },
@@ -23,7 +25,7 @@ vi.mock('@/contexts/AuthContext', () => ({
     needsSetup: false,
     logout: vi.fn(),
     getToken: () => 'fake-token',
-    can: () => true,
+    can: (cap: string) => !deniedCaps.has(cap),
   }),
 }))
 
@@ -175,5 +177,19 @@ describe('Servers: the "Add a server" entry points', () => {
     mockFetches([SERVER])
     renderServers()
     expect(await screen.findByRole('link', { name: en.pageHeader.publicServers })).toHaveAttribute('href', '/server-finder')
+  })
+
+  // Every /api/server-finder route needs server.install.
+  it('hides the public server link from a role without server.install', async () => {
+    deniedCaps.add('server.install')
+    try {
+      mockFetches([SERVER])
+      renderServers()
+      await screen.findByRole('heading', { level: 1, name: en.pageHeader.title })
+      await screen.findByText(SERVER.name)
+      expect(screen.queryByRole('link', { name: en.pageHeader.publicServers })).not.toBeInTheDocument()
+    } finally {
+      deniedCaps.clear()
+    }
   })
 })

@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { Link } from 'react-router-dom'
-import { Terminal as TerminalIcon, Send, Trash2, Loader2, Megaphone, FileText, RefreshCw, Pause, Play, Filter, History, ArrowRight, ArrowDownToLine } from 'lucide-react'
+import { Terminal as TerminalIcon, Send, Trash2, Loader2, Megaphone, FileText, RefreshCw, Pause, Play, Filter, History, ArrowDownToLine } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -1088,6 +1087,8 @@ export default function Console() {
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Enter that picks a candidate in an IME (Chinese input) is not a send.
+    if (e.nativeEvent.isComposing) return
     if (e.key === 'Enter') {
       executeCommand()
     } else if (e.key === 'ArrowUp') {
@@ -1618,15 +1619,6 @@ export default function Console() {
               icon={Megaphone}
               title={t('broadcast.toggleLabel')}
               description={t('broadcast.toggleSubtitle')}
-              actions={
-                <Link
-                  to="/chat"
-                  className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                >
-                  {t('broadcast.editPresets')}
-                  <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
-                </Link>
-              }
             >
               <div className="flex flex-wrap gap-1.5">
                 {quickBroadcasts.map((qb) => (

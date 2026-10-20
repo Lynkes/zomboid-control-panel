@@ -41,7 +41,8 @@
     "allVersions": "All versions",
     "sortName": "Name",
     "sortPlayers": "Players",
-    "sortPing": "Ping"
+    "sortPing": "Ping",
+    "sortMaxPlayers": "Max Players"
   },
   "error": {
     "title": "Can't load public servers",

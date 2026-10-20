@@ -2022,14 +2022,17 @@ export default function Servers() {
               )}
             </Button>
           </DisabledReason>
-          <RouterLink
-            to="/server-finder"
-            aria-label={t('pageHeader.publicServers')}
-            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-          >
-            <Globe aria-hidden="true" />
-            <span className="hidden sm:inline">{t('pageHeader.publicServers')}</span>
-          </RouterLink>
+          {/* GET /server-finder/* needs server.install (routes/serverFinder.js). */}
+          {canServerInstall && (
+            <RouterLink
+              to="/server-finder"
+              aria-label={t('pageHeader.publicServers')}
+              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            >
+              <Globe aria-hidden="true" />
+              <span className="hidden sm:inline">{t('pageHeader.publicServers')}</span>
+            </RouterLink>
+          )}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="command" size="sm">

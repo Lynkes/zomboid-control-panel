@@ -63,6 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Connect RCON needs RCON permission:** the Dashboard no longer offers Connect RCON to roles that can't run RCON commands, which only got a permission error.
+- **RCON input with Chinese input methods:** pressing Enter to pick a character no longer sends the half-typed command.
+- **Public Servers needs install permission:** roles without "Install servers" no longer see a Public Servers entry that only opened a permission error.
+- **Server Configuration raw editor after a server switch:** the raw editor now reloads the file after a server switch, Refresh or restore, so saving no longer writes the previous server's text over the new server's file.
+- **Mod Settings after a server switch:** the tab now loads the new server's mod options instead of listing the previous server's.
+- **Sandbox Save keeps Mod Settings edits:** saving the Sandbox tab now writes only the values you changed, so it no longer undoes a Mod Settings change made earlier in the same visit.
 - **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
 - **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
 - **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.

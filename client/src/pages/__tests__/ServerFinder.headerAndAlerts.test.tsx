@@ -84,3 +84,27 @@ describe('ServerFinder header and alerts', () => {
     expect(screen.queryByText(en.error.title)).not.toBeInTheDocument()
   })
 })
+
+// Bug pass before the UX release: the redesign's sort buttons dropped the old
+// "Max players" sort (v1.4.17's Sort by select had it).
+describe('ServerFinder sorting', () => {
+  it('sorts by max players, largest first', async () => {
+    vi.mocked(fetch).mockResolvedValue(listResponse({
+      servers: [
+        { name: 'Busy Small', ip: '10.0.0.1', port: 16261, gamePort: 16261, players: 9, maxPlayers: 10, map: 'Muldraugh, KY', version: '42.1.0', vac: false, isPrivate: false, os: 'l' },
+        { name: 'Quiet Big', ip: '10.0.0.2', port: 16261, gamePort: 16261, players: 1, maxPlayers: 64, map: 'Muldraugh, KY', version: '42.1.0', vac: false, isPrivate: false, os: 'l' },
+      ],
+      count: 2,
+    }))
+    renderServerFinder()
+    await screen.findByText('Quiet Big')
+    const order = () => {
+      const text = document.body.textContent ?? ''
+      return text.indexOf('Quiet Big') < text.indexOf('Busy Small') ? 'big-first' : 'small-first'
+    }
+    expect(order()).toBe('small-first')
+
+    fireEvent.click(screen.getByRole('button', { name: `Sort by ${en.searchFilters.sortMaxPlayers}` }))
+    await waitFor(() => expect(order()).toBe('big-first'))
+  })
+})

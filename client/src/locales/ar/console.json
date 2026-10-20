@@ -158,7 +158,6 @@
   "broadcast": {
     "toggleLabel": "بث",
     "toggleSubtitle": "أرسل رسالة إلى كل اللاعبين المتصلين.",
-    "editPresets": "تعديل القوالب في الدردشة",
     "templates": {
       "restart15": {
         "label": "إعادة تشغيل بعد 15 د",

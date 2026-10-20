@@ -175,14 +175,38 @@ describe('Console: dead ends link to their fix', () => {
     expect(within(alert).getByRole('link', { name: enConsole.actions.editServer })).toHaveAttribute('href', '/servers')
   })
 
-  it('Broadcast links to the canonical presets in Chat', async () => {
+  // Bug pass: the redesign added "Edit presets in Chat" here, but these
+  // buttons are the Console's own translated templates; Chat's presets never
+  // reach them, so the link promised an edit that changed nothing.
+  it('Broadcast does not send the operator to Chat presets it does not use', async () => {
     getAllServers.mockResolvedValue({ servers: [baseServer] })
     getHistory.mockResolvedValue({ history: [] })
     testRcon.mockResolvedValue({ success: true, connected: true })
 
     renderConsole('/console?tab=rcon')
 
-    expect(await screen.findByRole('link', { name: enConsole.broadcast.editPresets })).toHaveAttribute('href', '/chat')
+    await screen.findByRole('textbox', { name: enConsole.rcon.inputAria })
+    expect(document.querySelector('a[href="/chat"]')).toBeNull()
+  })
+
+  // Enter that picks a candidate in an IME (zh-CN, zh-TW) must not send the
+  // half-typed command.
+  it('Enter during IME composition does not run the command', async () => {
+    getAllServers.mockResolvedValue({ servers: [baseServer] })
+    getHistory.mockResolvedValue({ history: [] })
+    testRcon.mockResolvedValue({ success: true, connected: true })
+    vi.mocked(rconApi.execute).mockResolvedValue({ success: true, response: 'ok' } as never)
+
+    renderConsole('/console?tab=rcon')
+
+    const input = await screen.findByRole('textbox', { name: enConsole.rcon.inputAria })
+    await waitFor(() => expect(input).not.toBeDisabled())
+    fireEvent.change(input, { target: { value: 'servermsg 你' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(rconApi.execute).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(rconApi.execute).toHaveBeenCalledTimes(1))
   })
 })
 

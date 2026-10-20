@@ -116,6 +116,13 @@ describe('routeAvailability', () => {
     expect(routeAvailability(route('/files'), { ...ctx, can: (c) => c !== 'files.manage' })).toEqual({ state: 'hidden' })
   })
 
+  // Every /api/server-finder route needs server.install: without it Public
+  // Servers only ever loaded into a permission error.
+  it('hides Public Servers from a role without server.install', () => {
+    expect(routeAvailability(route('/server-finder'), { ...ctx, can: (c) => c !== 'server.install' })).toEqual({ state: 'hidden' })
+    expect(routeAvailability(route('/server-finder'), ctx)).toEqual({ state: 'enabled' })
+  })
+
   it('disables a server page, with the reason, only once the server list is confirmed empty', () => {
     expect(routeAvailability(route('/console'), { ...ctx, serversConfirmedEmpty: true }))
       .toEqual({ state: 'disabled', reasonKey: 'shell:nav.requiresServer' })

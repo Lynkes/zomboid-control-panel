@@ -128,7 +128,6 @@
   "broadcast": {
     "toggleLabel": "Broadcast",
     "toggleSubtitle": "Eine Nachricht an alle Spieler senden, die online sind.",
-    "editPresets": "Vorlagen im Chat bearbeiten",
     "templates": {
       "restart15": {
         "label": "Neustart 15 Min",

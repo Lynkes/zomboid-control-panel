@@ -41,7 +41,8 @@
     "allVersions": "Alle Versionen",
     "sortName": "Name",
     "sortPlayers": "Spieler",
-    "sortPing": "Ping"
+    "sortPing": "Ping",
+    "sortMaxPlayers": "Max. Spieler"
   },
   "error": {
     "title": "Öffentliche Server können nicht geladen werden",

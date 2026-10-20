@@ -128,7 +128,6 @@
   "broadcast": {
     "toggleLabel": "广播",
     "toggleSubtitle": "向所有在线玩家发送消息。",
-    "editPresets": "在聊天中编辑预设",
     "templates": {
       "restart15": {
         "label": "15 分钟重启",

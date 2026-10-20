@@ -27,6 +27,7 @@ let mockCanControl = true
 let mockCanWipe = true
 let mockCanPanelSettings = true
 let mockCanBackups = true
+let mockCanRcon = true
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -42,6 +43,7 @@ vi.mock('@/contexts/AuthContext', () => ({
       if (capability === 'server.wipe') return mockCanWipe
       if (capability === 'panel.settings') return mockCanPanelSettings
       if (capability === 'backups.manage') return mockCanBackups
+      if (capability === 'rcon.execute') return mockCanRcon
       return true
     },
   }),
@@ -225,6 +227,7 @@ afterEach(() => {
   mockCanWipe = true
   mockCanPanelSettings = true
   mockCanBackups = true
+  mockCanRcon = true
 })
 
 // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
@@ -673,5 +676,37 @@ describe('Dashboard.tsx: Create backup is gated on backups.manage at all 3 of it
     expect(dropdownItem).not.toHaveAttribute('aria-disabled', 'true')
     fireEvent.click(dropdownItem)
     await waitFor(() => expect(createBackup).toHaveBeenCalledTimes(1))
+  })
+})
+
+// Bug pass before the UX release: POST /rcon/connect needs rcon.execute, but
+// the verdict shortcut and the More menu offered Connect RCON to every role,
+// which then got a permission error toast.
+describe('Dashboard.tsx: Connect RCON is offered only with rcon.execute', () => {
+  async function setUpRunningWithoutRcon() {
+    await setUpCommon()
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+  }
+
+  it('lacking rcon.execute: neither the verdict nor the More menu offers Connect RCON', async () => {
+    mockCanRcon = false
+    await setUpRunningWithoutRcon()
+    renderDashboard()
+    await screen.findByRole('button', { name: 'Stop' })
+    expect(screen.queryByRole('button', { name: 'Connect RCON' })).not.toBeInTheDocument()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).queryByRole('menuitem', { name: /^connect rcon/i })).not.toBeInTheDocument()
+  })
+
+  it('holding rcon.execute: both offer it', async () => {
+    await setUpRunningWithoutRcon()
+    renderDashboard()
+    expect(await screen.findByRole('button', { name: 'Connect RCON' })).toBeInTheDocument()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /^connect rcon/i })).toBeInTheDocument()
   })
 })

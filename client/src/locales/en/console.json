@@ -128,7 +128,6 @@
   "broadcast": {
     "toggleLabel": "Broadcast",
     "toggleSubtitle": "Send a message to every player online.",
-    "editPresets": "Edit presets in Chat",
     "templates": {
       "restart15": { "label": "Restart 15min", "message": "SERVER RESTART in 15 minutes - Please find a safe location!" },
       "restart5": { "label": "Restart 5min", "message": "SERVER RESTART in 5 minutes - Save your progress!" },

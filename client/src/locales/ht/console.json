@@ -131,7 +131,6 @@
   "broadcast": {
     "toggleLabel": "Difizyon",
     "toggleSubtitle": "Voye yon mesaj bay tout jwè ki anliy.",
-    "editPresets": "Modifye modèl yo nan Chat",
     "templates": {
       "restart15": { "label": "Redemaraj 15min", "message": "SÈVÈ A AP REDEMARE nan 15 minit - Tanpri jwenn yon kote sekirize!" },
       "restart5": { "label": "Redemaraj 5min", "message": "SÈVÈ A AP REDEMARE nan 5 minit - Sove pwogrè ou!" },

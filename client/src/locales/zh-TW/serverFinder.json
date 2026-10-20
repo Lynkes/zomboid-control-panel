@@ -41,7 +41,8 @@
     "allVersions": "所有版本",
     "sortName": "名稱",
     "sortPlayers": "玩家數",
-    "sortPing": "延遲"
+    "sortPing": "延遲",
+    "sortMaxPlayers": "最大玩家數"
   },
   "error": {
     "title": "無法載入公共伺服器",

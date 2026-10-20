@@ -47,7 +47,8 @@
     "allVersions": "كل الإصدارات",
     "sortName": "الاسم",
     "sortPlayers": "اللاعبون",
-    "sortPing": "Ping"
+    "sortPing": "Ping",
+    "sortMaxPlayers": "الحد الأقصى للاعبين"
   },
   "error": {
     "title": "تعذّر تحميل الخوادم العامة",

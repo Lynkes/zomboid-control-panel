@@ -398,6 +398,8 @@ export default function Dashboard() {
   // the Wipe control. can() fails open on unknown/null capabilities, same
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
+  // POST /rcon/connect needs rcon.execute: without it Connect RCON is not offered.
+  const canExecuteRcon = can('rcon.execute')
   const canWipeServer = can('server.wipe')
   // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
   // /config/app-settings (handleAutoStartChange below) is gated
@@ -1271,12 +1273,12 @@ export default function Dashboard() {
             {t('verdict.rconHelpTip')}
           </HelpTip>
         ),
-        action: {
+        action: canExecuteRcon ? {
           label: t('actions.connectRcon'),
           onClick: () => { void handleConnect() },
           busy: loading === 'Connect RCON',
           disabled: loading !== null,
-        },
+        } : undefined,
       }
     }
     if (hostMemoryRatio != null && hostMemoryRatio >= 0.9) {
@@ -1690,7 +1692,7 @@ export default function Dashboard() {
       },
     )
   }
-  if (!rconConnected) {
+  if (!rconConnected && canExecuteRcon) {
     headerMenu.push({
       label: t('actions.connectRcon'),
       icon: Wifi,
