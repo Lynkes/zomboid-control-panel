@@ -890,6 +890,18 @@ export const ErrorCode = Object.freeze({
    * being correctly emitted by /wipe, so it stays in active use rather than
    * moving to that allowlist. */
   DELETE_FILES_CONFIRM_REQUIRED: "DELETE_FILES_CONFIRM_REQUIRED",
+  /** server/routes/server.js -- POST /api/server/delete-files, other server
+   * profiles use the same game folder (Quick Setup reuses the active
+   * server's install on purpose) and the request did not pass
+   * `confirmShared: true`. params.names lists them; the client shows them in
+   * its confirmation before sending the flag. */
+  DELETE_FILES_FOLDER_SHARED: "DELETE_FILES_FOLDER_SHARED",
+  /** server/routes/server.js (sites: /delete-files, /install, /quick-setup,
+   * /steam-update) -- another profile that uses the same game folder is
+   * running. These routes used to check only the first profile with that
+   * path, so a stopped profile's Delete files / Update could wipe or patch
+   * the files of a running one. params.name names it. */
+  INSTALL_FOLDER_SHARED_SERVER_RUNNING: "INSTALL_FOLDER_SHARED_SERVER_RUNNING",
   /** server/routes/server.js -- POST /api/server/list-directory, path exists
    * but isn't a directory. */
   PATH_NOT_A_DIRECTORY: "PATH_NOT_A_DIRECTORY",

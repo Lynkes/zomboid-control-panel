@@ -317,6 +317,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "Other servers use this game folder",
+    "desc": "Also using this game folder: {{names}}. Deleting it removes their game files too; they won't start until the game is installed again."
+  },
   "clearInstallDialog": {
     "title": "Clear Installation Folder?",
     "descriptionBefore": "This permanently deletes everything in",

@@ -318,6 +318,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "Lòt sèvè itilize dosye jwèt sa a",
+    "desc": "Lòt sèvè ki itilize dosye jwèt sa a tou: {{names}}. Si w efase l, fichye jwèt yo ap disparèt tou; yo p ap demare jiskaske jwèt la enstale ankò."
+  },
   "clearInstallDialog": {
     "title": "Efase Dosye Enstalasyon?",
     "descriptionBefore": "Sa a ap efase pou tout tan tout bagay nan",

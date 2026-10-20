@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "Refize efase: dosye done Zomboid sèvè sa a nan anndan dosye ou sou pwen efase a, kidonk sa ap detwi sovgad mond lan tou. Deplase chemen done a andeyò dosye enstalasyon an nan Paramèt, oswa fè pwòp kopi sovgad ou dabò.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "Chemen sa a pa koresponn ak yon sèvè panèl la genyen nan dosye li. Refize efase pou sekirite.",
   "DELETE_FILES_CONFIRM_REQUIRED": "Efase fichye sa yo bezwen confirm: true",
+  "DELETE_FILES_FOLDER_SHARED": "Lòt sèvè ki itilize dosye jwèt sa a tou: {{names}}. Si w efase l, fichye jwèt yo ap disparèt tou. Konfime pou efase l kanmenm.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "\"{{name}}\" itilize menm dosye jwèt la epi li ap mache. Sispann li dabò.",
   "PATH_NOT_A_DIRECTORY": "Chemen an se pa yon dosye",
   "DIRECTORY_READ_FAILED": "Pa ka li {{path}} ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "Pa ka li {{path}} ({{code}}). Fè panèl la kouri ak yon kont ki ka li dosye sa a.",

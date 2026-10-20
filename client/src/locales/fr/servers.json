@@ -318,6 +318,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "D'autres serveurs utilisent ce dossier de jeu",
+    "desc": "Utilisent aussi ce dossier de jeu : {{names}}. Le supprimer efface aussi leurs fichiers de jeu ; ils ne démarreront plus tant que le jeu n'aura pas été réinstallé."
+  },
   "clearInstallDialog": {
     "title": "Vider le dossier d'installation ?",
     "descriptionBefore": "Ceci supprime définitivement tout le contenu de",

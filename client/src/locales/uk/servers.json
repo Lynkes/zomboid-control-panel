@@ -325,6 +325,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "Цю теку гри використовують інші сервери",
+    "desc": "Цю теку гри також використовують: {{names}}. Її видалення прибере і їхні файли гри; вони не запустяться, доки гру не буде встановлено знову."
+  },
   "clearInstallDialog": {
     "title": "Очистити папку встановлення?",
     "descriptionBefore": "Це назавжди видалить усе в",

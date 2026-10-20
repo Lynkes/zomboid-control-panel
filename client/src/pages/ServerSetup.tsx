@@ -857,6 +857,7 @@ export default function ServerSetup() {
       zomboidDataPath?: string;
       serverConfigPath?: string;
       branch?: string;
+      rconHost?: string;
       rconPort?: number;
       rconPassword?: string;
       serverPort?: number;
@@ -908,7 +909,9 @@ export default function ServerSetup() {
               zomboidDataPath: data.zomboidDataPath || null,
               serverConfigPath: data.serverConfigPath || null,
               branch: data.branch,
-              rconHost: "127.0.0.1",
+              // The host the server saved (RCON_HOST in a two-container
+              // Docker setup); 127.0.0.1 only from an older panel.
+              rconHost: data.rconHost || "127.0.0.1",
               rconPort: data.rconPort || s.rconPort,
               rconPassword: data.rconPassword || s.rconPassword,
               adminPassword: s.adminPassword,
@@ -1372,7 +1375,8 @@ export default function ServerSetup() {
             installPath: data.installPath || installPath,
             zomboidDataPath: data.zomboidDataPath || null,
             serverConfigPath: data.serverConfigPath || null,
-            rconHost: "127.0.0.1",
+            // See handleInstallComplete: the host the server resolved.
+            rconHost: data.rconHost || "127.0.0.1",
             rconPort: data.rconPort || rconPort,
             rconPassword: data.rconPassword || rconPassword,
             adminPassword,

@@ -289,6 +289,32 @@ describe('ServerSetup -- install:complete create-vs-activate messaging (finding 
     )
   })
 
+  // The profile used to get a hardcoded 127.0.0.1 even when the server saved
+  // RCON_HOST (two-container Docker setup) as the RCON host.
+  it('creates the profile with the RCON host the server reported', async () => {
+    create.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.create>>)
+    activate.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.activate>>)
+    const fake = createFakeSocket()
+    await reachFullInstallButton(successPayload.installPath, successPayload.serverName, fake.socket)
+
+    fake.trigger('install:complete', { ...successPayload, rconHost: 'projectzomboid' })
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: 'projectzomboid' }))
+  })
+
+  it('falls back to 127.0.0.1 when an older server reports no RCON host', async () => {
+    create.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.create>>)
+    activate.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.activate>>)
+    const fake = createFakeSocket()
+    await reachFullInstallButton(successPayload.installPath, successPayload.serverName, fake.socket)
+
+    fake.trigger('install:complete', successPayload)
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: '127.0.0.1' }))
+  })
+
   it('clears the in-flight marker as soon as an outcome is heard, success or failure', async () => {
     create.mockRejectedValue(new Error('db write failed'))
     const fake = createFakeSocket()

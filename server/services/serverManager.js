@@ -20,7 +20,7 @@ import {
   createLinuxServiceLifecycle,
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
-import { hasActiveSteamOperation } from "./activeSteamOperations.js";
+import { hasStartBlockingSteamOperation } from "./activeSteamOperations.js";
 import { notifyServerLaunched, prepareForLaunch } from "./lifecycleCoordinator.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
@@ -2343,13 +2343,16 @@ export class ServerManager {
       // either) rather than introducing the one site in this function
       // that departs from its own neighbors' convention -- the message
       // itself is the "named, visible, not a quiet no-op" signal here.
+      // A Workshop item download (mods.js) writes only under
+      // steamapps/workshop and does not block: a restart during one used
+      // to leave the server down.
       const installPathForSteamCheck =
         this._serverRecord?.installPath || this.serverPath;
       if (installPathForSteamCheck) {
         const normalizedInstallPath = path
           .normalize(installPathForSteamCheck)
           .toLowerCase();
-        if (hasActiveSteamOperation(normalizedInstallPath)) {
+        if (hasStartBlockingSteamOperation(normalizedInstallPath)) {
           throw new Error(
             "A Steam install or update is currently in progress for this server's install directory. Wait for it to finish before starting the server.",
           );

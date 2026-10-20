@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "拒絕刪除：此伺服器的 Zomboid 資料資料夾位於你即將刪除的資料夾內部，這也會毀掉世界存檔。請在設定中將資料路徑移到安裝資料夾之外，或先自行備份。",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "該路徑與面板記錄中的任何伺服器都不匹配。出於安全考慮，拒絕刪除。",
   "DELETE_FILES_CONFIRM_REQUIRED": "刪除這些檔案需要 confirm: true",
+  "DELETE_FILES_FOLDER_SHARED": "也在使用此遊戲資料夾：{{names}}。刪除它也會刪除它們的遊戲檔案。確認後仍可刪除。",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "「{{name}}」使用同一個遊戲資料夾，且正在執行。請先停止它。",
   "PATH_NOT_A_DIRECTORY": "路徑不是目錄",
   "DIRECTORY_READ_FAILED": "無法讀取 {{path}}（{{code}}）。{{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "無法讀取 {{path}}（{{code}}）。請以可讀取此資料夾的帳號執行面板。",

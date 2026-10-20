@@ -317,6 +317,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "Andere Server nutzen diesen Spielordner",
+    "desc": "Diesen Spielordner nutzen auch: {{names}}. Beim Löschen verschwinden auch ihre Spieldateien; diese Server starten erst wieder, wenn das Spiel neu installiert ist."
+  },
   "clearInstallDialog": {
     "title": "Installationsordner leeren?",
     "descriptionBefore": "Dies löscht endgültig alles in",

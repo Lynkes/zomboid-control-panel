@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "Exclusão recusada: a pasta de dados do Zomboid deste servidor está dentro da pasta que você vai excluir, então isso também destruiria o save do mundo. Mova o caminho de dados para fora da pasta de instalação em Configurações ou faça você mesmo um backup antes.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "Este caminho não corresponde a nenhum servidor registrado no painel. Exclusão recusada por segurança.",
   "DELETE_FILES_CONFIRM_REQUIRED": "Excluir estes arquivos requer confirm: true",
+  "DELETE_FILES_FOLDER_SHARED": "Também usam esta pasta do jogo: {{names}}. Excluí-la remove os arquivos do jogo deles também. Confirme para excluí-la mesmo assim.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "\"{{name}}\" usa a mesma pasta do jogo e está em execução. Pare-o primeiro.",
   "PATH_NOT_A_DIRECTORY": "O caminho não é um diretório",
   "DIRECTORY_READ_FAILED": "Não é possível ler {{path}} ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "Não é possível ler {{path}} ({{code}}). Execute o painel com uma conta que possa ler esta pasta.",

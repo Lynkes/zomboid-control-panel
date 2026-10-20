@@ -2260,7 +2260,9 @@ export interface MountDiscoveryCandidate {
   installPath: string | null;
   dataPath: string | null;
   source: string;
-  status: "ready" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
+  // "no-config": install and save data found, but no Server/<name>.ini to
+  // read the name and RCON settings from -- handled like install-only.
+  status: "ready" | "no-config" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
   reason: string;
   serverNames: string[];
   hasStartScript: boolean;
@@ -4321,8 +4323,15 @@ export const serversDetectApi = {
   // same shape as serverApi.wipe below: every caller of this function is
   // already behind its own confirmation dialog before it's ever invoked, so
   // there's no real call site where the confirmation isn't already implied.
-  deleteFiles: (path: string): Promise<unknown> =>
-    apiPost("/server/delete-files", { path, confirm: true }),
+  // confirmShared: the dialog listed the other profiles that use the same
+  // game folder (the server refuses with DELETE_FILES_FOLDER_SHARED without
+  // it when there are any).
+  deleteFiles: (path: string, options?: { confirmShared?: boolean }): Promise<unknown> =>
+    apiPost("/server/delete-files", {
+      path,
+      confirm: true,
+      ...(options?.confirmShared ? { confirmShared: true } : {}),
+    }),
 };
 
 // Update Checker API

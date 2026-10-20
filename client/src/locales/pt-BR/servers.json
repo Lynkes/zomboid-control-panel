@@ -318,6 +318,10 @@
     "stalledMessage": "Isto está demorando mais que o esperado e o painel não recebeu resposta do SteamCMD. Ele ainda pode estar rodando em segundo plano. Você pode fechar esta janela e verificar o status do servidor separadamente.",
     "closeAnyway": "Fechar mesmo assim"
   },
+  "sharedInstallWarning": {
+    "title": "Outros servidores usam esta pasta do jogo",
+    "desc": "Também usam esta pasta do jogo: {{names}}. Excluí-la remove os arquivos do jogo deles também; eles não vão iniciar até o jogo ser instalado de novo."
+  },
   "clearInstallDialog": {
     "title": "Esvaziar pasta de instalação?",
     "descriptionBefore": "Isso exclui permanentemente tudo em",
