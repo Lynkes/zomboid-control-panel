@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
 - **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.
 - **PanelBridge newer than the panel's:** a PanelBridge.lua in the game folder newer than the one the panel ships now reads "Newer than this panel's" instead of an "Update now" that never did anything.
+- **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
 
 ## [1.4.17] - 2026-10-18
 

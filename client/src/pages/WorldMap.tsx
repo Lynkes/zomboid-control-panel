@@ -1025,6 +1025,14 @@ export default function WorldMap() {
       setPoiCategories([])
       setMapVersionStatus('loading')
       setContextMenu(null)
+      // Dialogs opened for the previous server: their targets (a vehicle id,
+      // map coordinates) mean nothing on the new one, and confirming "Remove
+      // vehicle" would delete whatever has that id there. Airdrop markers
+      // were dropped on the old server's map too.
+      setRemoveVehicleTarget(null)
+      setSpawnDialog(null)
+      setDropDialog(null)
+      setAirdropMarkers([])
       hasFittedRef.current = false
       void detectServerVersion()
       // continuous-bug-hunt round 26: re-fetch immediately (bumps each
