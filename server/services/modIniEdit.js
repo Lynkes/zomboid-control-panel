@@ -241,3 +241,41 @@ export function applyModListFix(content, { action, params = {} }, { order = null
   }
   return { content: text, changed: text !== content };
 }
+
+// The three mod-list lines "Fix everything" changes, for its Undo.
+const MOD_LIST_LINES = [
+  { key: "Mods", re: MODS_RE, lineRe: MODS_LINE_RE },
+  { key: "WorkshopItems", re: WORKSHOP_ITEMS_RE, lineRe: WORKSHOP_ITEMS_LINE_RE },
+  { key: "Map", re: MAP_RE, lineRe: MAP_LINE_RE },
+];
+
+/** { Mods, WorkshopItems, Map }: each line's value as written, null when the line is missing. */
+export function readModListLines(content) {
+  const out = {};
+  for (const { key, re } of MOD_LIST_LINES) {
+    const match = String(content ?? "").match(re);
+    out[key] = match ? match[1].replace(/\r$/, "") : null;
+  }
+  return out;
+}
+
+/**
+ * Puts the lines readModListLines() read back: a value is written as it was
+ * (it came from this file), a line that was missing goes again. Returns
+ * { content, changed }.
+ */
+export function restoreModListLines(content, lines) {
+  let text = String(content ?? "");
+  for (const { key, re, lineRe } of MOD_LIST_LINES) {
+    const value = lines?.[key];
+    if (value === undefined) continue;
+    if (value === null) {
+      if (re.test(text)) text = text.replace(new RegExp(`${lineRe.source}(?:\r?\n)?`, "m"), "");
+      continue;
+    }
+    const current = text.match(re);
+    if (current && current[1].replace(/\r$/, "") === value) continue;
+    text = setIniLine(text, lineRe, key, String(value).replace(/[\r\n]/g, ""));
+  }
+  return { content: text, changed: text !== String(content ?? "") };
+}

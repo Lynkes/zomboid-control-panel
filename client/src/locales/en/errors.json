@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "The fix request is invalid: {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "This fix is not offered for that problem.",
   "MODS_HEALTH_ISSUE_GONE": "This problem is gone or has changed. Check again.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "There is nothing to undo any more: the panel restarted or another server is active.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA and modIdB are required",
   "MODS_IGNORED_PAIR_INVALID": "Invalid pair",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA and modIdB are required and must be valid mod IDs",

@@ -1295,6 +1295,9 @@ export const ErrorCode = Object.freeze({
   /** server/routes/modsSmart.js -- POST /health/fix, the recomputed health check has no issue with
    * that id any more (fixed, or the mod list changed). */
   MODS_HEALTH_ISSUE_GONE: "MODS_HEALTH_ISSUE_GONE",
+  /** server/routes/modsSmart.js -- POST /autofix/restore, no "Fix everything" snapshot with that
+   * id for the active server (the panel restarted, it expired, or another server is active). */
+  MODS_AUTOFIX_SNAPSHOT_NOT_FOUND: "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND",
   /** server/routes/mods.js -- DELETE /ignored-pairs, modIdA/modIdB missing or fail MOD_ID_RE. Own
    * wording from MODS_IGNORED_PAIR_INVALID_IDS above (POST route's fuller
    * message) -- kept separate. */

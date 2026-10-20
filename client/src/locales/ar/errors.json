@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "طلب الإصلاح غير صالح: {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "هذا الإصلاح غير متاح لهذه المشكلة.",
   "MODS_HEALTH_ISSUE_GONE": "هذه المشكلة لم تعد موجودة أو تغيّرت. تحقّق مرة أخرى.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "لم يعد هناك ما يمكن التراجع عنه: أُعيد تشغيل اللوحة أو أن خادمًا آخر نشط.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "modIdA و modIdB مطلوبان",
   "MODS_IGNORED_PAIR_INVALID": "زوج غير صالح",
   "MODS_IGNORED_PAIR_INVALID_IDS": "modIdA و modIdB مطلوبان ويجب أن يكونا معرّفَي مود صالحين",

@@ -228,6 +228,21 @@ export function compareTranslationEntries(copies) {
  *   lost        defined only by the losing copy -- gone from the game
  *   overridden  both define it, with different bodies -- winner's applies
  */
+/**
+ * Two layered bodies (vehicle, xuiSkin) of one name: the game applies the
+ * later on top of the earlier, key by key, so only a key both set with a
+ * different value is overridden. `a` / `b` are Map<key, { hash }> (the
+ * layers of every file of each mod). Returns the clashing keys, sorted.
+ */
+export function compareLayeredDefinitions(a, b) {
+  const clashing = [];
+  for (const [key, layer] of a) {
+    const other = b.get(key);
+    if (other && other.hash !== layer.hash) clashing.push(key);
+  }
+  return clashing.sort();
+}
+
 export function compareScriptFileCopies(winnerDefs, loserDefs) {
   const lost = [];
   const overridden = [];

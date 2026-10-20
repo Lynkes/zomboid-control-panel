@@ -308,6 +308,7 @@
   "MODS_HEALTH_FIX_INVALID": "Запит на виправлення недійсний: {{field}}",
   "MODS_HEALTH_FIX_NOT_OFFERED": "Це виправлення не пропонується для цієї проблеми.",
   "MODS_HEALTH_ISSUE_GONE": "Цієї проблеми вже немає або вона змінилася. Перевірте ще раз.",
+  "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND": "Більше нічого скасувати: панель перезапустилася або активний інший сервер.",
   "MODS_IGNORED_PAIR_IDS_REQUIRED": "Потрібні modIdA та modIdB",
   "MODS_IGNORED_PAIR_INVALID": "Некоректна пара",
   "MODS_IGNORED_PAIR_INVALID_IDS": "Потрібні modIdA та modIdB, і вони мають бути коректними ID модів",
