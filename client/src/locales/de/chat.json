@@ -49,7 +49,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge läuft nicht",
-    "description": "Server-Broadcasts können nicht gesendet werden. Admin- und allgemeiner Chat gehen über RCON als normale Nachricht raus, die alle Spieler sehen.",
+    "description": "Server-Broadcasts gehen weiterhin über RCON raus. Admin- und allgemeiner Chat ebenfalls, als normale Nachricht, die alle Spieler sehen.",
     "action": "PanelBridge-Einstellungen"
   },
   "quickBroadcasts": {
@@ -75,6 +75,9 @@
     "adminSentDesc": "Nur für Admins im Spiel sichtbar.",
     "generalSentTitle": "Im Chat gepostet",
     "generalSentDesc": "In den öffentlichen Chat-Stream gepostet.",
+    "rconFallbackTitle": "An alle Spieler gesendet",
+    "adminRconFallbackDesc": "Der Admin-Chat war nicht verfügbar, daher ging die Nachricht über RCON als [ADMIN]-Nachricht raus, die alle Spieler sehen.",
+    "generalRconFallbackDesc": "Der allgemeine Chat war nicht verfügbar, daher ging die Nachricht über RCON als Servernachricht raus, die alle Spieler sehen.",
     "broadcastSentTitle": "Broadcast gesendet",
     "broadcastSentDesc": "Nachricht an alle verbundenen Spieler zugestellt.",
     "errorTitle": "Fehler",

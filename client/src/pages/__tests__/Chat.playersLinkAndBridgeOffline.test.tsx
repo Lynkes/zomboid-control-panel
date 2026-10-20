@@ -9,8 +9,9 @@ import { ApiError, configApi, panelBridgeApi, playersApi } from '@/lib/api'
 
 // UX restructure (slice C): an online player opens in Players, the header
 // button says it only refreshes players, and a PanelBridge that isn't
-// running (server broadcasts fail, the other channels fall back to RCON)
-// is said once, with a link to the bridge settings.
+// running (every channel then goes out over RCON only; server broadcasts
+// still work, admin chat reaches every player) is said once, with a link to
+// the bridge settings.
 
 Element.prototype.scrollIntoView = vi.fn()
 
@@ -108,6 +109,9 @@ describe('Chat with PanelBridge not running', () => {
     const alert = await screen.findByText("PanelBridge isn't running")
     const box = alert.closest('[role="status"]') as HTMLElement
     expect(within(box).getByRole('link', { name: 'PanelBridge settings' })).toHaveAttribute('href', '/settings?tab=bridge')
+    // /chat/alert sends a plain broadcast over RCON first: it still works.
+    expect(box).toHaveTextContent('Server broadcasts still go out over RCON')
+    expect(box).not.toHaveTextContent("can't be sent")
   })
 
   it('stays quiet for other chat-info failures, and clears after a server switch', async () => {

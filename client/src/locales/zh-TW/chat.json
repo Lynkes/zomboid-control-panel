@@ -49,7 +49,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge 未執行",
-    "description": "無法傳送伺服器廣播。管理員聊天與一般聊天會透過 RCON 以普通訊息送出，所有玩家都看得到。",
+    "description": "伺服器廣播仍會透過 RCON 送出。管理員聊天與一般聊天也會透過 RCON 以普通訊息送出，所有玩家都看得到。",
     "action": "PanelBridge 設定"
   },
   "quickBroadcasts": {
@@ -75,6 +75,9 @@
     "adminSentDesc": "僅遊戲內管理員可見。",
     "generalSentTitle": "已釋出到聊天",
     "generalSentDesc": "已釋出到公共聊天流。",
+    "rconFallbackTitle": "已傳送給所有玩家",
+    "adminRconFallbackDesc": "管理員聊天無法使用，因此訊息透過 RCON 以 [ADMIN] 訊息送出，所有玩家都看得到。",
+    "generalRconFallbackDesc": "一般聊天無法使用，因此訊息透過 RCON 以伺服器訊息送出，所有玩家都看得到。",
     "broadcastSentTitle": "廣播已傳送",
     "broadcastSentDesc": "訊息已送達所有線上玩家。",
     "errorTitle": "錯誤",

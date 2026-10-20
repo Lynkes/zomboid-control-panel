@@ -49,7 +49,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge isn't running",
-    "description": "Server broadcasts can't be sent. Admin and general chat go out over RCON as a plain message every player sees.",
+    "description": "Server broadcasts still go out over RCON. Admin and general chat do too, as a plain message every player sees.",
     "action": "PanelBridge settings"
   },
   "quickBroadcasts": {
@@ -75,6 +75,9 @@
     "adminSentDesc": "Visible only to admins in-game.",
     "generalSentTitle": "Posted to Chat",
     "generalSentDesc": "Posted into the public chat stream.",
+    "rconFallbackTitle": "Sent to every player",
+    "adminRconFallbackDesc": "Admin chat wasn't available, so it went out over RCON as an [ADMIN] message every player sees.",
+    "generalRconFallbackDesc": "General chat wasn't available, so it went out over RCON as a server message every player sees.",
     "broadcastSentTitle": "Broadcast Sent",
     "broadcastSentDesc": "Message delivered to all connected players.",
     "errorTitle": "Error",

@@ -51,7 +51,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge no está en marcha",
-    "description": "No se pueden enviar difusiones del servidor. El chat de administradores y el general salen por RCON como un mensaje normal que ven todos los jugadores.",
+    "description": "Las difusiones del servidor siguen saliendo por RCON. El chat de administradores y el general también, como un mensaje normal que ven todos los jugadores.",
     "action": "Ajustes de PanelBridge"
   },
   "quickBroadcasts": {
@@ -77,6 +77,9 @@
     "adminSentDesc": "Visible solo para administradores en el juego.",
     "generalSentTitle": "Publicado en el chat",
     "generalSentDesc": "Publicado en el flujo de chat público.",
+    "rconFallbackTitle": "Enviado a todos los jugadores",
+    "adminRconFallbackDesc": "El chat de administradores no estaba disponible, así que salió por RCON como un mensaje [ADMIN] que ven todos los jugadores.",
+    "generalRconFallbackDesc": "El chat general no estaba disponible, así que salió por RCON como un mensaje del servidor que ven todos los jugadores.",
     "broadcastSentTitle": "Difusión enviada",
     "broadcastSentDesc": "Mensaje entregado a todos los jugadores conectados.",
     "errorTitle": "Error",
