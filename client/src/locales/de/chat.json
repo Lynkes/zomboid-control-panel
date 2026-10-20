@@ -2,14 +2,14 @@
   "pageHeader": {
     "title": "Ingame-Chat",
     "description": "Sende Nachrichten an alle verbundenen Spieler und verfolge ihren Chat in Echtzeit.",
-    "refresh": "Aktualisieren"
+    "refresh": "Spieler aktualisieren"
   },
   "chatWindow": {
     "streamLabel": "Chat-Stream",
     "msgCount_one": "{{count}} Nachricht",
     "msgCount_other": "{{count}} Nachrichten",
-    "live": "LIVE",
-    "offline": "OFFLINE",
+    "live": "Live",
+    "offline": "Offline",
     "messagesAria": "Chat-Nachrichten"
   },
   "emptyState": {
@@ -29,31 +29,38 @@
   },
   "input": {
     "aria": "Chat-Nachricht",
-    "placeholderAdmin": "nur für Admins…",
-    "placeholderGeneral": "als Admin posten…",
-    "placeholderServer": "an alle Spieler senden…",
-    "sendButton": "senden",
+    "placeholderAdmin": "Nur für Admins…",
+    "placeholderGeneral": "Als Admin posten…",
+    "placeholderServer": "An alle Spieler senden…",
+    "sendButton": "Senden",
     "noPermission": "Du hast keine Berechtigung, Chat-Nachrichten zu senden."
   },
   "footer": {
-    "adminOnly": "nur für Admins — für normale Spieler ausgeblendet",
-    "noPlayersOnline": "keine Spieler online — nur Server-Protokoll",
+    "adminOnly": "Nur für Admins — für normale Spieler ausgeblendet",
+    "noPlayersOnline": "Keine Spieler online — nur Server-Protokoll",
     "broadcastingTo_one": "Broadcast an {{count}} Spieler",
     "broadcastingTo_other": "Broadcast an {{count}} Spieler"
   },
   "playersPanel": {
     "label": "Spieler",
     "onlineCount": "{{count}} online",
-    "noPlayersConnected": "keine Spieler verbunden"
+    "noPlayersConnected": "Keine Spieler verbunden",
+    "openPlayer": "{{name}} unter Spieler öffnen"
+  },
+  "bridgeOffline": {
+    "title": "PanelBridge läuft nicht",
+    "description": "Server-Broadcasts können nicht gesendet werden. Admin- und allgemeiner Chat gehen über RCON als normale Nachricht raus, die alle Spieler sehen.",
+    "action": "PanelBridge-Einstellungen"
   },
   "quickBroadcasts": {
     "label": "Schnell-Broadcasts",
-    "edit": "bearbeiten",
-    "done": "fertig",
+    "description": "Eine Liste für das ganze Panel: Alle Admins sehen dieselben Vorlagen. Wähle eine aus, um sie ins Nachrichtenfeld zu übernehmen.",
+    "edit": "Bearbeiten",
+    "done": "Fertig",
     "editAria": "Schnell-Broadcasts bearbeiten",
     "doneAria": "Bearbeiten der Schnell-Broadcasts beendet",
-    "noPresets": "// keine Schnell-Broadcasts — zum Hinzufügen auf Bearbeiten klicken",
-    "addPlaceholder": "neuen Schnell-Broadcast hinzufügen…",
+    "noPresets": "Noch keine Schnell-Broadcasts. Zum Hinzufügen auf Bearbeiten klicken.",
+    "addPlaceholder": "Neuen Schnell-Broadcast hinzufügen…",
     "addAria": "Schnell-Broadcast hinzufügen",
     "saveAria": "Speichern",
     "cancelAria": "Abbrechen",
