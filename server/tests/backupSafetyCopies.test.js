@@ -279,7 +279,7 @@ describe("everything else that reads backup names still recognises them", () => 
 });
 
 describe("POST /backup/create", () => {
-  it("does not let a request body choose the service-only safety flags", async () => {
+  it("does not let a request body choose the service-only safety flags (or the panel database: see backupIncludeDbRedaction.test.js)", async () => {
     vi.resetModules();
     vi.doMock("../database/init.js", () => ({ getActiveServer: vi.fn(async () => ({ isRemote: false })) }));
     const { default: router } = await import("../routes/backup.js");
@@ -301,7 +301,7 @@ describe("POST /backup/create", () => {
 
     expect(createBackup).toHaveBeenCalledTimes(1);
     const options = createBackup.mock.calls[0][0];
-    expect(options.includeDb).toBe(true);
+    expect(options.includeDb).toBeUndefined();
     expect(options.isPreRestore).toBeUndefined();
     expect(options.isPreWipe).toBeUndefined();
   });

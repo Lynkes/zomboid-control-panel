@@ -29,6 +29,7 @@ import {
   publicRestoreMessage,
 } from "../utils/restoreMessage.js";
 import { captureBackupSnapshot } from "../utils/backupSnapshot.js";
+import { redactPanelDbForBackup } from "../utils/panelDbRedaction.js";
 import {
   describeRefusal,
   logRefusalOnce,
@@ -960,9 +961,21 @@ export class BackupService {
       totalFiles = 1000; // Fallback estimate
     }
 
-    // Get database path if needed (before entering Promise callback)
-    let dbPathToInclude = null;
-    if (options.includeDb) {
+    // SECURITY (2026-10-20, access-control audit): whether the panel
+    // database goes in is the stored setting's decision alone, never the
+    // caller's -- POST /backup/create used to pass its request body through,
+    // so any backups.manage holder could add it with {"includeDb":true}. The
+    // safety copies taken before a restore or a wipe leave it out, as they
+    // always have. And what goes in is a redacted copy (utils/
+    // panelDbRedaction.js): no password hashes, sessions or other secrets,
+    // since a backup leaves the machine with backups.download.
+    const includeDb =
+      !options.isPreRestore &&
+      !options.isPreWipe &&
+      (await this.getSettings()).includeDb === true;
+    const skippedFiles = [];
+    let redactedDbJson = null;
+    if (includeDb) {
       // Same defect class as database/init.js's createDatabaseBackup() (fixed
       // alongside this, 2026-09-05 backup-restore-round-trip hunt): db.json
       // writes are debounced (up to WRITE_DEBOUNCE_MS=500ms, longer under
@@ -973,12 +986,15 @@ export class BackupService {
       const { getDataPaths } = await import("../utils/paths.js");
       const dbPath = getDataPaths().dbPath;
       if (fs.existsSync(dbPath)) {
-        dbPathToInclude = dbPath;
-        totalFiles++;
         try {
-          if (sourceBytes !== null) sourceBytes += fs.statSync(dbPath).size;
-        } catch {
-          /* the archive step reports an unreadable db.json */
+          const parsed = JSON.parse(await fs.promises.readFile(dbPath, "utf-8"));
+          redactedDbJson = JSON.stringify(redactPanelDbForBackup(parsed), null, 2);
+          totalFiles++;
+          if (sourceBytes !== null) sourceBytes += Buffer.byteLength(redactedDbJson);
+        } catch (error) {
+          // Never the raw file instead: reported like any other skip.
+          log.warn(`Panel database left out of the backup: ${error.message}`);
+          skippedFiles.push("db.json");
         }
       }
     }
@@ -1008,9 +1024,9 @@ export class BackupService {
 
     let filesProcessed = 0;
     // Every archive addition (saves-folder walk, the snapshot, db.json) goes
-    // through waitForArchiveEntry, so this collects every skip precisely --
+    // through waitForArchiveEntry, so skippedFiles (declared above, where an
+    // unreadable db.json is already counted) collects every skip precisely --
     // not a sampled backstop, the complete account.
-    const skippedFiles = [];
 
     return new Promise((resolve, reject) => {
       // Set by the FIRST failure on the output stream, the archive or the
@@ -1289,9 +1305,9 @@ export class BackupService {
           );
           if (snapshotResult.skipped) skippedFiles.push("panel-server-snapshot.json");
 
-          if (dbPathToInclude) {
+          if (redactedDbJson !== null) {
             const dbResult = await waitForArchiveEntry(archive, () =>
-              archive.file(dbPathToInclude, { name: "db.json" }),
+              archive.append(redactedDbJson, { name: "db.json" }),
             );
             if (dbResult.skipped) skippedFiles.push("db.json");
           }
