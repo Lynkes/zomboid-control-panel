@@ -140,11 +140,23 @@ describe('TemplatePreviewDialog fits the window', () => {
     expect(error.compareDocumentPosition(apply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('shows a viewer only the diff: no pinned apply block, no buttons', async () => {
-    const dialog = await openPreview({ canManage: false })
+  // SECURITY (2026-10-20): the comparison reads the server's live settings,
+  // so it is templates.manage's (POST /templates/:id/preview); a viewer gets
+  // a note instead of a diff -- and still no apply block or buttons.
+  it('shows a viewer the permission note: no diff, no pinned apply block, no buttons', async () => {
+    vi.mocked(serversApi.getResolvedActive).mockResolvedValue({ server })
+    vi.mocked(serverApi.getStatus).mockResolvedValue({ running: false } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    vi.mocked(serversApi.getComposedStatus).mockRejectedValue(new Error('not composed'))
+    render(
+      <ConfirmProvider>
+        <TemplatePreviewDialog template={template} canManage={false} onClose={vi.fn()} onApplied={vi.fn()} />
+      </ConfirmProvider>,
+    )
+    await screen.findByText('Comparison not available')
+    const dialog = screen.getByRole('dialog')
+    expect(templatesApi.preview).not.toHaveBeenCalled()
     expect(within(dialog).queryByRole('button', { name: 'Apply Template' })).not.toBeInTheDocument()
     expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
-    expect(dialog.querySelector('[data-dialog-body]')).not.toBeNull()
   })
 
   it("caps a long value's width and wraps it anywhere instead of widening the row", async () => {

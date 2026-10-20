@@ -8,6 +8,8 @@
   "remoteServerTitle": "Remote-Server",
   "remoteServerDesc": "Das Anwenden von Vorlagen auf Remote-Servern wird noch nicht unterstützt.",
   "previewFailedTitle": "Vorschau fehlgeschlagen",
+  "previewNoAccessTitle": "Vergleich nicht verfügbar",
+  "previewNoAccessDesc": "Der Vergleich einer Vorlage mit den aktuellen Servereinstellungen erfordert die Berechtigung „Servervorlagen verwalten“, über die diese Rolle nicht verfügt.",
   "applyConfirmTitle": "„{{name}}“ anwenden?",
   "applyConfirmDescription": "Dies überschreibt die aktuelle Konfiguration des Servers mit den {{count}} Änderungen dieser Vorlage. Spieler bemerken den Unterschied erst beim nächsten Neustart des Servers, und du kannst es rückgängig machen, indem du eine andere Vorlage anwendest.",
   "applyConfirmButton": "Vorlage anwenden"

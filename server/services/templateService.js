@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import { createLogger } from "../utils/logger.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigDirOf, serverConfigDirRefusal } from "../utils/serverConfigPath.js";
-import { sanitizeErrorParams } from "../utils/sanitize.js";
+import { maskSecretValue, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getServer, getSetting, setSetting } from "../database/init.js";
 import {
   getUserTemplates,
@@ -21,7 +21,10 @@ import {
   createTemplate,
   validateTemplate,
   diffTemplate as computeDiff,
+  isIniKeyExcluded,
+  TEMPLATE_SECRET_KEY_RE,
   resolveIniExclusions,
+  withoutExcludedIniKeys,
 } from "../utils/templateSchema.js";
 import {
   readIniValues,
@@ -72,6 +75,10 @@ export function _resetBuiltinCacheForTests() {
   builtinCache = null;
 }
 
+// Every read below leaves out the serverIni keys a template may not carry
+// (withoutExcludedIniKeys(), SECURITY 2026-10-20): one stored before a key
+// joined the floor -- a DiscordToken, Mods= -- is listed, exported, previewed
+// and applied without it.
 export async function listTemplates() {
   const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
   const builtins = loadBuiltinTemplates().filter(
@@ -81,15 +88,15 @@ export async function listTemplates() {
     ...t,
     isBuiltin: false,
   }));
-  return [...builtins, ...userTemplates];
+  return [...builtins, ...userTemplates].map(withoutExcludedIniKeys);
 }
 
 export async function getTemplate(id) {
   const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
   const builtin = loadBuiltinTemplates().find((t) => t.meta.id === id);
-  if (builtin) return hiddenBuiltinIds.has(id) ? null : builtin;
+  if (builtin) return hiddenBuiltinIds.has(id) ? null : withoutExcludedIniKeys(builtin);
   const userTemplate = await getUserTemplate(id);
-  return userTemplate ? { ...userTemplate, isBuiltin: false } : null;
+  return userTemplate ? withoutExcludedIniKeys({ ...userTemplate, isBuiltin: false }) : null;
 }
 
 export async function saveTemplate(input) {
@@ -168,9 +175,9 @@ export async function deleteTemplate(id) {
 export async function listHiddenBuiltinTemplates() {
   const hiddenBuiltinIds = await getHiddenBuiltinTemplateIds();
   if (hiddenBuiltinIds.size === 0) return [];
-  return loadBuiltinTemplates().filter((template) =>
-    hiddenBuiltinIds.has(template.meta.id),
-  );
+  return loadBuiltinTemplates()
+    .filter((template) => hiddenBuiltinIds.has(template.meta.id))
+    .map(withoutExcludedIniKeys);
 }
 
 export async function unhideTemplate(id) {
@@ -282,7 +289,15 @@ export async function previewTemplate(templateId, serverId) {
   }
 
   const currentConfig = await readCurrentConfig(template, paths);
-  return { success: true, diff: computeDiff(template, currentConfig) };
+  const diff = computeDiff(template, currentConfig);
+  // A secret-like key never reaches the diff (isIniKeyExcluded()); should
+  // one ever, its values go out masked, as Server Files shows them.
+  diff.serverIni = diff.serverIni.map((change) =>
+    TEMPLATE_SECRET_KEY_RE.test(change.key)
+      ? { ...change, from: maskSecretValue(change.from), to: maskSecretValue(change.to) }
+      : change,
+  );
+  return { success: true, diff };
 }
 
 function prepareIniChange(template, paths, result) {
@@ -293,7 +308,7 @@ function prepareIniChange(template, paths, result) {
   // actual apply-time write site. See 2026-08-24 conv-template-privesc.
   const exclusions = resolveIniExclusions(template);
   const requested = Object.fromEntries(
-    Object.entries(template.serverIni || {}).filter(([key]) => !exclusions.includes(key)),
+    Object.entries(template.serverIni || {}).filter(([key]) => !isIniKeyExcluded(key, exclusions)),
   );
   if (Object.keys(requested).length === 0) return null;
   if (!fs.existsSync(paths.iniPath)) {

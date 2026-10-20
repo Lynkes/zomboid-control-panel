@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **RCON connection changes:** a server's RCON host, port and password now need the Edit server configuration permission, a new host or port needs the password typed again, and the per-server RCON status is limited to roles that manage servers or run RCON.
 - **Backups and the panel database:** only the backup setting decides whether a backup includes the panel database (a request can no longer add it), and the copy it includes leaves out password hashes, sessions and other secrets.
+- **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
 
 ## [1.4.17] - 2026-10-18
 
