@@ -53,12 +53,12 @@ function SkillRow({ perk, gain }: { perk: CharacterPerk; gain?: { levels: number
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="min-w-0 flex-1 truncate text-sm">{perkLabel(tPz, perk)}</span>
         {perk.passive && (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">
             {t('character.skills.passive')}
           </Badge>
         )}
         {gain && gain.levels > 0 && (
-          <Badge variant="outline" className="border-primary/40 bg-primary/10 px-1.5 py-0 text-[10px] font-mono tabular-nums text-primary">
+          <Badge variant="outline" className="border-primary/40 bg-primary/10 px-1.5 py-0 text-[10px] tabular-nums text-primary">
             {t('character.skills.since', { levels: gain.levels, time: formatShortTime(gain.since, language) })}
           </Badge>
         )}
@@ -79,10 +79,10 @@ function SkillRow({ perk, gain }: { perk: CharacterPerk; gain?: { levels: number
           </span>
         )}
         {boostPercent !== undefined && (
-          <span className="text-[11px] text-muted-foreground">{t('character.skills.xpBoost', { percent: boostPercent })}</span>
+          <span className="text-xs text-muted-foreground">{t('character.skills.xpBoost', { percent: boostPercent })}</span>
         )}
         {typeof perk.multiplier === 'number' && perk.multiplier > 1 && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t('character.skills.bookMultiplier', { multiplier: formatNumber(perk.multiplier, language, 1) })}
           </span>
         )}
@@ -151,7 +151,7 @@ export function CharacterSkills({
             if (visible.length === 0) return null
             return (
               <div key={category.id || 'none'} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="label-micro">
                   {categoryLabel(tPz, category)}
                 </p>
                 <ul className="divide-y divide-border/40">

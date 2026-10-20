@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus } from '@/lib/api'
 import en from '../../locales/en/backups.json'
 
@@ -87,7 +88,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -103,8 +104,10 @@ describe('Backups.tsx: the Auto-Backup status row is not hidden behind having at
 
     // The row itself (previously entirely absent with zero backups).
     expect(await screen.findByText(en.statusCards.autoBackup)).toBeInTheDocument()
-    // The one control that turns scheduling on/off must be reachable too.
-    expect(screen.getByRole('switch', { name: en.statusCards.toggleAria })).toBeInTheDocument()
+    // The one control that turns scheduling on/off must be reachable too:
+    // the Auto-Backup cell opens "Schedule & retention", where it is.
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(en.statusCards.autoBackup) }))
+    expect(await screen.findByRole('switch', { name: en.statusCards.toggleAria })).toBeInTheDocument()
     // The failure itself, not silently indistinguishable from "not configured".
     // The failed-attempt <p> carries the raw message as its title attribute.
     expect(screen.getByTitle(failingStatus.lastScheduledBackupAttempt!.message!)).toBeInTheDocument()

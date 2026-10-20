@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Map Cleanup",
     "description": "Reset damaged or over-looted map areas so the world can regenerate cleanly",
+    "warningTitle": "Deleting chunks can't be undone",
     "warning": "Deleting chunks resets those areas — constructions, loot, and zombies will be lost. Stop the server first and keep backups enabled."
   },
   "activePathDefaultLabel": "Active server data path",
@@ -64,7 +65,8 @@
     "all": "All",
     "clear": "Clear",
     "invert": "Invert",
-    "selectAllTip": "\"All\" selects every chunk this save has ever generated, not just the ones visible on screen right now. Deleting that selection resets the entire map."
+    "selectAllTip": "\"All\" selects every chunk this save has ever generated, not just the ones visible on screen right now. Deleting that selection resets the entire map.",
+    "title": "Map tools"
   },
   "deleteButton_one": "Delete {{count}} Chunk",
   "deleteButton_other": "Delete {{count}} Chunks",

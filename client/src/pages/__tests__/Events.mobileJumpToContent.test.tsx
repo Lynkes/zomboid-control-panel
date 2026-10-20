@@ -99,7 +99,7 @@ describe('Events -- narrow-viewport nav selection scrolls the content panel into
     stubMatchMedia(true)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     fireEvent.click(nav)
 
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
@@ -109,17 +109,52 @@ describe('Events -- narrow-viewport nav selection scrolls the content panel into
     stubMatchMedia(false)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     fireEvent.click(nav)
 
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
+  })
+
+  // A phone-width viewport: min-width queries fail, max-width ones match.
+  function stubPhoneViewport() {
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+      matches: !query.includes('min-width'),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })))
+  }
+
+  it('below lg, Recent actions come after the section, so the select leads straight into the controls', async () => {
+    stubPhoneViewport()
+    renderEvents()
+
+    const panelTitle = await screen.findByRole('heading', { name: /rain and storms/i })
+    const recent = screen.getByText(/no recent actions/i)
+    // DOCUMENT_POSITION_FOLLOWING: the recent-actions list sits after the section heading.
+    expect(panelTitle.compareDocumentPosition(recent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // ...and not inside the section nav (the rail is hidden below lg).
+    expect(screen.getByRole('navigation', { name: /sections/i }).parentElement!.contains(recent)).toBe(false)
+  })
+
+  it('at lg and up, Recent actions sit under the section rail', async () => {
+    stubMatchMedia(true)
+    renderEvents()
+
+    const recent = await screen.findByText(/no recent actions/i)
+    const panelTitle = screen.getByRole('heading', { name: /rain and storms/i })
+    expect(recent.compareDocumentPosition(panelTitle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('does not throw when matchMedia is unavailable (every other Events.tsx test, and some real embedded webviews)', async () => {
     vi.stubGlobal('matchMedia', undefined)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     expect(() => fireEvent.click(nav)).not.toThrow()
   })
 })

@@ -85,7 +85,7 @@ beforeEach(() => {
 
 async function openClockSection() {
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-  act(() => { fireEvent.click(screen.getByText('Game clock')) })
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Game clock' })) })
   await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 }
 

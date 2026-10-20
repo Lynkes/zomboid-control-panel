@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "Jugadores",
-    "description": "Gestionar los jugadores conectados y sus permisos",
+    "description": "Modera a los jugadores, edita sus personajes y gestiona los baneos y la lista blanca.",
     "updated": "Actualizado {{time}}",
+    "moreActions": "Más acciones",
     "refresh": "Actualizar"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Añadir usuario a la lista blanca…",
+    "unban": "Desbanear jugador…",
+    "unbanSteamId": "Desbanear Steam ID…",
+    "voiceBan": "Baneo de voz…",
+    "banSteamId": "Banear Steam ID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge no está conectado",
+    "bridgeOfflineDesc": "Lo necesitan los poderes, la importación y exportación de personajes y la salud de la lista. Expulsar, banear y la lista blanca siguen funcionando.",
+    "bridgeOfflineAction": "Configurar PanelBridge"
   },
   "permissions": {
     "noModerate": "Esta acción requiere el permiso players.moderate, del cual este rol no dispone.",
@@ -27,6 +40,7 @@
     "online": "En línea",
     "onlineCaption_one": "jugador",
     "onlineCaption_other": "jugadores",
+    "rosterDetail": "Vistos antes, ahora sin conexión",
     "peakToday": "Pico de hoy",
     "roster": "Lista",
     "rosterCaption": "vistos",
@@ -37,11 +51,15 @@
     "onlineCaption_many": "jugadores"
   },
   "roster": {
-    "headerLabel": "lista",
+    "headerLabel": "Jugadores",
     "subheaderLive": "en vivo",
     "subheaderHistory": "historial",
     "subheaderBans": "baneos",
     "subheaderAccounts": "cuentas",
+    "listsAria": "Listas de jugadores",
+    "tabActivity": "Actividad",
+    "activityReload": "Recargar",
+    "activitySearchAll": "Buscar en todo el registro",
     "tabOnline": "En línea",
     "tabRoster": "Lista",
     "tabBanned": "Baneados",
@@ -104,8 +122,8 @@
     "subheaderLabel": "expediente",
     "targetAcquired": "objetivo.adquirido",
     "standby": "espera",
-    "online": "en línea",
-    "offline": "sin conexión",
+    "online": "En línea",
+    "offline": "Sin conexión",
     "connected": "conectado",
     "lastSeen": "visto por última vez",
     "played": "jugado",
@@ -120,6 +138,9 @@
     "kickButton": "Expulsar",
     "banTitle": "Banear jugador",
     "banButton": "Banear",
+    "teleport": "Teletransportar…",
+    "showOnMap": "Ver en el mapa",
+    "showOnMapOffline": "{{player}} no está conectado, así que no aparece en el mapa.",
     "moreActionsAria": "Más acciones del jugador",
     "enableGodMode": "Activar Modo Dios",
     "disableGodMode": "Desactivar Modo Dios",
@@ -131,10 +152,12 @@
     "removeFromWhitelist": "Quitar de la lista blanca",
     "notOnWhitelistReason": "{{player}} no está en la lista blanca — no hay nada que quitar.",
     "importExportCharacter": "Importar/exportar personaje",
-    "noTargetTitle": "ningún objetivo seleccionado",
-    "noTargetDesc": "Elegir un jugador de la lista para ver su expediente, o escribir un nombre de usuario en <1>› Objetivo manual</1>."
+    "noTargetTitle": "Selecciona un jugador",
+    "noTargetDesc": "Elige a alguien de la lista o escribe un nombre de usuario en Objetivo manual para actuar sobre un jugador sin conexión."
   },
   "tabs": {
+    "notes": "Notas",
+    "listAria": "Herramientas para {{player}}",
     "character": "Personaje",
     "moderation": "Moderación",
     "spawn": "Generar",
@@ -366,6 +389,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Crea su cuenta en un servidor con lista blanca",
+    "removeFromWhitelistDesc": "Ya no podrá entrar en un servidor con lista blanca",
     "kickDesc": "Expulsar jugador con motivo",
     "banDesc": "Permanente · dos pasos",
     "accessLevelLabel": "Nivel de acceso",
@@ -560,7 +585,7 @@
     "tableAction": "Acción",
     "tableDetails": "Detalles",
     "loadingRow": "Cargando...",
-    "noLogsRow": "Aún no hay registros de actividad — las acciones de moderación sobre este jugador (baneos, expulsiones, cambios en la whitelist) aparecerán aquí.",
+    "noLogsRow": "Todavía no hay actividad. Aquí aparecen las conexiones, las muertes y las acciones de moderación (expulsiones, baneos, cambios en la lista blanca).",
     "detailsFallback": "-",
     "deleteConfirmTitle": "¿Eliminar esta nota?",
     "deleteConfirmDesc": "La nota de administrador y las etiquetas guardadas para {{player}} se eliminarán de forma permanente. Esta acción no se puede deshacer.",

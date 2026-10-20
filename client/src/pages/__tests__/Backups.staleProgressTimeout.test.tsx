@@ -4,6 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { SocketContext } from '@/contexts/SocketContext'
 import type { Socket } from 'socket.io-client'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // 2026-08-31 bug hunt: handleCreateBackup's optimistic 'preparing' state
@@ -91,7 +92,7 @@ function renderBackups(socket: Pick<Socket, 'on' | 'off'>) {
   return render(
     <SocketContext.Provider value={socket as Socket}>
       <TooltipProvider>
-        <Backups />
+        <MemoryRouter><Backups /></MemoryRouter>
       </TooltipProvider>
     </SocketContext.Provider>,
   )

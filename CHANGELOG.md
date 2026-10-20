@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
+- **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
 
 ### Fixed
 

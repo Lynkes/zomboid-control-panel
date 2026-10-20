@@ -1,9 +1,8 @@
 {
   "pageHeader": {
-    "title": "Consola de eventos",
-    "description": "Clima, tiempo, sonidos, acciones de jugadores y herramientas de puente",
-    "eyebrow": "control del mundo",
-    "refreshPlayers": "actualizar jugadores"
+    "title": "Eventos y clima",
+    "description": "Cambia el clima y la hora, reproduce sonidos, genera hordas y vehículos o usa las herramientas del puente.",
+    "refreshPlayers": "Actualizar jugadores"
   },
   "common": {
     "playersUnavailable": "lista de jugadores no disponible",
@@ -11,10 +10,6 @@
     "noPermissionEndangerOrImpersonate": "Esta acción requiere el permiso players.endanger_or_impersonate, que este rol no tiene."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "en línea",
-    "offline": "fuera de línea",
-    "configureLink": "configurar →",
     "eventTarget": "Objetivo del evento",
     "allOnline": "todos en línea",
     "specific": "específico",
@@ -35,7 +30,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge está fuera de línea",
-    "description": "Estos controles necesitan el puente Lua. Debe conectarse desde <1>Ajustes</1> antes de iniciar el servidor de PZ."
+    "description": "Estos controles necesitan el puente Lua. Debe conectarse desde Ajustes antes de iniciar el servidor de PZ.",
+    "action": "Abrir ajustes de PanelBridge"
   },
   "groups": {
     "weather": "Clima",
@@ -235,7 +231,7 @@
   "utilities": {
     "sublabel": "red eléctrica y de agua",
     "refresh": "actualizar",
-    "b42Warning": "b42 multijugador · los cambios de sandbox aún no se propagan a los clientes conectados",
+    "b42Warning": "Multijugador de Build 42: los cambios de sandbox aún no llegan a los clientes conectados.",
     "power": "electricidad",
     "water": "agua",
     "statusOnline": "en línea",
@@ -298,7 +294,10 @@
     "clearNear": "despejar cerca de {{target}}",
     "clearNearConfirmTitle": "¿Despejar zombis cerca de este jugador?",
     "clearNearConfirmDescTargeted": "Esto elimina instantáneamente todos los zombis dentro del radio elegido de {{player}} -- incluidos los que esté combatiendo. Los zombis reaparecen con el tiempo, pero esto termina ese encuentro ahora mismo para esa persona.",
-    "clearNearConfirmDescRandom": "Esto elimina instantáneamente todos los zombis dentro del radio elegido de un jugador en línea aleatorio -- incluidos los que esté combatiendo. Los zombis reaparecen con el tiempo, pero esto termina ese encuentro ahora mismo para esa persona."
+    "clearNearConfirmDescRandom": "Esto elimina instantáneamente todos los zombis dentro del radio elegido de un jugador en línea aleatorio -- incluidos los que esté combatiendo. Los zombis reaparecen con el tiempo, pero esto termina ese encuentro ahora mismo para esa persona.",
+    "spawnConfirmTitle": "¿Generar {{size}} zombis?",
+    "spawnConfirmDescTargeted": "Una horda de {{size}} zombis aparece de inmediato cerca de {{player}}. Se queda en el mundo hasta que la maten o la despejen.",
+    "spawnConfirmDescRandom": "Una horda de {{size}} zombis aparece de inmediato cerca de un jugador conectado al azar. Se queda en el mundo hasta que la maten o la despejen."
   },
   "vehicles": {
     "sublabel": "RCON · aparece junto a un jugador",
@@ -399,8 +398,6 @@
     "lastRun": "Última ejecución: {{time}}",
     "notRunYet": "Aún no se ha ejecutado",
     "bridgeFileLink": "Enlace al archivo del bridge: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Se requiere conexión con el bridge",
-    "bridgeConnectionRequiredDesc": "Estas operaciones requieren una conexión activa con PanelBridge. Configurar PanelBridge en Ajustes primero.",
     "moderationConfirmTitle": "¿Ejecutar {{operation}}?",
     "moderationConfirmDescription": "Esto envía un comando de moderación real a través del puente en vivo{{target}}{{reason}}. Verifica los valores anteriores antes de continuar.",
     "moderationConfirmTarget": " dirigido a {{target}}",

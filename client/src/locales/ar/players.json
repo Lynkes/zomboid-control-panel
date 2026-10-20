@@ -15,9 +15,22 @@
   ],
   "pageHeader": {
     "title": "اللاعبون",
-    "description": "إدارة اللاعبين المتصلين وصلاحياتهم",
+    "description": "أشرف على اللاعبين وعدّل شخصياتهم وأدِر الحظر والقائمة البيضاء.",
     "updated": "تم التحديث {{time}}",
+    "moreActions": "إجراءات أخرى",
     "refresh": "تحديث"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "إضافة مستخدم إلى القائمة البيضاء…",
+    "unban": "إلغاء حظر لاعب…",
+    "unbanSteamId": "إلغاء حظر معرّف Steam…",
+    "voiceBan": "حظر صوتي…",
+    "banSteamId": "حظر معرّف Steam…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge غير متصل",
+    "bridgeOfflineDesc": "تحتاجه القدرات واستيراد الشخصيات وتصديرها والصحة في القائمة. الطرد والحظر والقائمة البيضاء تعمل دونه.",
+    "bridgeOfflineAction": "إعداد PanelBridge"
   },
   "permissions": {
     "noModerate": "يتطلب هذا الإجراء صلاحية players.moderate، وهذا الدور لا يملكها.",
@@ -41,6 +54,7 @@
     "online": "متصل",
     "onlineCaption_one": "لاعب",
     "onlineCaption_other": "لاعبين",
+    "rosterDetail": "شوهدوا من قبل، غير متصلين الآن",
     "peakToday": "الذروة اليوم",
     "roster": "القائمة",
     "rosterCaption": "شوهد",
@@ -54,11 +68,15 @@
     "onlineCaption_many": "لاعبين"
   },
   "roster": {
-    "headerLabel": "القائمة",
+    "headerLabel": "اللاعبون",
     "subheaderLive": "مباشر",
     "subheaderHistory": "السجل",
     "subheaderBans": "الحظر",
     "subheaderAccounts": "الحسابات",
+    "listsAria": "قوائم اللاعبين",
+    "tabActivity": "النشاط",
+    "activityReload": "إعادة التحميل",
+    "activitySearchAll": "البحث في السجل كاملًا",
     "tabOnline": "متصل",
     "tabRoster": "القائمة",
     "tabBanned": "محظور",
@@ -143,6 +161,9 @@
     "kickButton": "طرد",
     "banTitle": "حظر اللاعب",
     "banButton": "حظر",
+    "teleport": "نقل آني…",
+    "showOnMap": "عرض على الخريطة",
+    "showOnMapOffline": "{{player}} غير متصل، لذا لا يظهر على الخريطة.",
     "moreActionsAria": "إجراءات إضافية للاعب",
     "enableGodMode": "تفعيل وضع God Mode",
     "disableGodMode": "تعطيل وضع God Mode",
@@ -154,10 +175,12 @@
     "removeFromWhitelist": "إزالة من القائمة البيضاء",
     "notOnWhitelistReason": "{{player}} ليس في القائمة البيضاء — لا يوجد ما يُزال.",
     "importExportCharacter": "استيراد/تصدير الشخصية",
-    "noTargetTitle": "لم يتم اختيار هدف",
-    "noTargetDesc": "اختر لاعبًا من القائمة لعرض ملفه، أو اكتب اسم مستخدم ضمن <1>› هدف يدوي</1>."
+    "noTargetTitle": "اختر لاعبًا",
+    "noTargetDesc": "اختر أحدًا من القائمة، أو اكتب اسم مستخدم في «هدف يدوي» لتتصرف مع لاعب غير متصل."
   },
   "tabs": {
+    "notes": "الملاحظات",
+    "listAria": "أدوات {{player}}",
     "character": "الشخصية",
     "moderation": "الإشراف",
     "spawn": "التوليد",
@@ -392,6 +415,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "ينشئ حسابه على خادم يقتصر على القائمة البيضاء",
+    "removeFromWhitelistDesc": "لن يتمكن بعد الآن من دخول خادم يقتصر على القائمة البيضاء",
     "kickDesc": "طرد اللاعب مع ذكر السبب",
     "banDesc": "دائم · خطوتان",
     "accessLevelLabel": "مستوى الصلاحية",
@@ -590,7 +615,7 @@
     "tableAction": "الإجراء",
     "tableDetails": "التفاصيل",
     "loadingRow": "جارٍ التحميل...",
-    "noLogsRow": "لا توجد سجلات نشاط بعد — ستظهر هنا إجراءات الإشراف المتخذة بحق هذا اللاعب (حظر، طرد، تغييرات القائمة البيضاء).",
+    "noLogsRow": "لا يوجد نشاط بعد. تظهر هنا الاتصالات والوفيات وإجراءات الإشراف (الطرد والحظر وتغييرات القائمة البيضاء).",
     "detailsFallback": "-"
   },
   "importExport": {

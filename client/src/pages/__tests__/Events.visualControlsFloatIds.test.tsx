@@ -109,7 +109,7 @@ describe('Events -- visual controls pin each slider to its real ClimateFloat id'
   it('Apply all sends setClimateFloat with the expected id for every one of the five controls', async () => {
     renderEvents()
 
-    const visualNav = await screen.findByText('Visual rendering')
+    const visualNav = await screen.findByRole('button', { name: 'Visual rendering' })
     visualNav.click()
 
     // Sliders mount with the values getClimateFloats reported (the same

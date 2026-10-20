@@ -163,12 +163,13 @@ describe('WorldMap.tsx dossier follows the live player', () => {
 
     getServerInfo.mockResolvedValue(serverInfoWith([]))
     // The next poll (every 3 s) finds nobody online.
-    await waitFor(() => expect(within(card).getByText('offline')).toBeInTheDocument(), { timeout: 8000 })
+    await waitFor(() => expect(within(card).getByText('Offline')).toBeInTheDocument(), { timeout: 8000 })
     expect(within(card).getByText('This player is no longer online.')).toBeInTheDocument()
     expect(within(card).getByText('Kate')).toBeInTheDocument()
     expect(within(card).queryByText('40%')).toBeNull()
     expect(within(card).getByRole('button', { name: /Heal/ })).toBeDisabled()
-    expect(within(card).getByText('God').closest('button')).toBeDisabled()
+    // The way to the player's other controls stays: Players knows them offline too.
+    expect(within(card).getByRole('link', { name: 'Open player controls' })).toHaveAttribute('href', '/players?player=Kate')
   }, 20000)
 
   it('prints whole squares in the coordinate HUD, never the fractional cursor position', async () => {

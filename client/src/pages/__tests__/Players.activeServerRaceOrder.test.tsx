@@ -121,16 +121,16 @@ afterEach(() => {
   socketHandlers.clear()
 })
 
-// "Online" is not a unique string on this page (the roster tab strip has its
-// own "Online" tab label) -- scope to the summary strip's card, whose label
-// is a <p> (the tab strip's is a <span>), then read the numeric value inside
-// that same card.
+// "Online" is not a unique string on this page (the roster list tabs have
+// their own "Online" label) -- scope to the summary StatStrip's cell, whose
+// label is the .label-micro span, then read the numeric value inside that
+// same cell.
 function onlineSummaryCount(): HTMLElement {
-  const label = screen.getAllByText('Online').find((el) => el.tagName === 'P')
-  if (!label) throw new Error('Online summary label (a <p>) not found')
-  const card = label.closest('div.group')
-  if (!card) throw new Error('Online summary label has no div.group ancestor')
-  return within(card as HTMLElement).getByText(/^\d+$/)
+  const label = screen.getAllByText('Online').find((el) => el.classList.contains('label-micro'))
+  if (!label) throw new Error('Online summary label (.label-micro) not found')
+  const cell = label.closest('li')
+  if (!cell) throw new Error('Online summary label has no <li> ancestor')
+  return within(cell as HTMLElement).getByText(/^\d+$/)
 }
 
 describe('Players.tsx: an older, slower roster response must not overwrite a newer one', () => {
@@ -188,11 +188,12 @@ describe('Players.tsx: an older, slower whitelist response must not overwrite a 
     renderPlayers()
     await waitFor(() => expect(getWhitelist).toHaveBeenCalledTimes(1))
 
-    // Switch to the whitelist tab -- itself triggers a second fetch (the
-    // tab button's own onClick calls fetchWhitelist()); resolve it with the
-    // same OLD-server data so the list is visibly populated before the race.
+    // Switch to the whitelist list -- itself triggers a second fetch (the
+    // list switch calls fetchWhitelist()); resolve it with the same
+    // OLD-server data so the list is visibly populated before the race.
+    // Radix tabs switch on mousedown, not click.
     getWhitelist.mockResolvedValueOnce({ success: true, available: true, accounts: [{ id: 1, username: 'OldUser', role: 'user' }], allowedSteamIds: [] })
-    await act(async () => { fireEvent.click(screen.getByText('Whitelist')) })
+    await act(async () => { fireEvent.mouseDown(screen.getByRole('tab', { name: /^Whitelist/ }), { button: 0 }) })
     await waitFor(() => expect(screen.getByText('OldUser')).toBeInTheDocument())
     expect(getWhitelist).toHaveBeenCalledTimes(2)
 

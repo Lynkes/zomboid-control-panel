@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, fireEvent, waitFor, act } from '@testing-library/react'
+import { cleanup, render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // pz-bughunt round 17 (every write that trusts the server-side active
@@ -111,7 +112,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -122,8 +123,14 @@ describe('Backups.tsx: serverChangedSinceLoad also guards deleteOlderThan/saveSe
     deleteOlderThan.mockResolvedValue({ success: true, deleted: 3, message: 'Deleted 3 backups' })
 
     renderBackups()
-    const openButton = await screen.findByRole('button', { name: /delete older/i })
-    fireEvent.click(openButton)
+    // "Delete older…" is in the list toolbar's "More" menu.
+    const deleteOlderItem = async () => {
+      if (!screen.queryByRole('menu')) {
+        fireEvent.pointerDown(await screen.findByRole('button', { name: 'More list actions' }), { button: 0, ctrlKey: false })
+      }
+      return within(await screen.findByRole('menu')).getByRole('menuitem', { name: /delete older/i })
+    }
+    fireEvent.click(await deleteOlderItem())
     expect(await screen.findByRole('button', { name: /delete older backups/i })).toBeInTheDocument()
 
     const resolveReload = hangReload()
@@ -132,14 +139,14 @@ describe('Backups.tsx: serverChangedSinceLoad also guards deleteOlderThan/saveSe
     // The dialog closes immediately, before the reload even resolves --
     // same treatment as restoreDialog/deleteDialog.
     await waitFor(() => expect(screen.queryByRole('button', { name: /delete older backups/i })).not.toBeInTheDocument())
-    await waitFor(() => expect(screen.getByRole('button', { name: /delete older/i })).toBeDisabled())
+    await waitFor(async () => expect(await deleteOlderItem()).toHaveAttribute('aria-disabled', 'true'))
 
-    fireEvent.click(screen.getByRole('button', { name: /delete older/i }))
+    fireEvent.click(await deleteOlderItem())
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(deleteOlderThan).not.toHaveBeenCalled()
 
     resolveReload()
-    await waitFor(() => expect(screen.getByRole('button', { name: /delete older/i })).not.toBeDisabled())
+    await waitFor(async () => expect(await deleteOlderItem()).not.toHaveAttribute('aria-disabled'))
   })
 
   it('handleSaveSettings: disables Save Settings and never calls updateSettings after a switch', async () => {
@@ -147,7 +154,9 @@ describe('Backups.tsx: serverChangedSinceLoad also guards deleteOlderThan/saveSe
     updateSettings.mockResolvedValue({ success: true })
 
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
+    // Save shows (in the save bar) once the form holds an edit.
+    fireEvent.change(await screen.findByLabelText('Maximum Backups to Keep'), { target: { value: '12' } })
     const saveButton = await screen.findByRole('button', { name: /save settings/i })
     expect(saveButton).not.toBeDisabled()
 
@@ -168,7 +177,7 @@ describe('Backups.tsx: serverChangedSinceLoad also guards deleteOlderThan/saveSe
     updateSettings.mockResolvedValue({ success: true })
 
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const toggle = await screen.findByRole('switch', { name: /toggle scheduled backups/i })
     expect(toggle).not.toBeDisabled()
 

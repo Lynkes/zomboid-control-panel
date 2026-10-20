@@ -262,8 +262,8 @@ describe('Players.tsx Character tab', () => {
       sheetResponse(undefined, { availability: 'playerOffline', sheet: null, cached: null, hintSource: null }),
     )
     renderPlayers()
-    await waitFor(() => expect(screen.getAllByText('Roster').some((el) => el.closest('button'))).toBe(true), { timeout: 3000 })
-    fireEvent.click(screen.getAllByText('Roster').find((el) => el.closest('button'))!)
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^Roster/ })).toBeInTheDocument(), { timeout: 3000 })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^Roster/ }), { button: 0 })
     await waitFor(() => expect(screen.getByText('GhostPlayer')).toBeInTheDocument(), { timeout: 3000 })
     fireEvent.click(screen.getByText('GhostPlayer'))
     await waitFor(() => expect(screen.getAllByText('GhostPlayer').length).toBeGreaterThan(1), { timeout: 3000 })
@@ -325,25 +325,25 @@ describe('Players.tsx Character tab', () => {
   })
 })
 
-describe('Players.tsx Notes & Log tab', () => {
+describe('Players.tsx Activity list', () => {
   const LOG = { id: 1, player_name: 'TestPlayer', action: 'KICKED_FOR_TEST', details: 'detail', logged_at: '2026-09-29T10:00:00Z' }
 
-  it('opening /players?tab=notes (a reload, or Back) reads the activity log', async () => {
+  it('opening /players?list=activity (a reload, or Back) reads the activity log', async () => {
     setUpFixtures()
     vi.mocked(playersApi.getActivityLogs).mockResolvedValue({ logs: [LOG] } as never)
-    renderPlayers(['/players?tab=notes'])
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Notes & Log' })).toHaveAttribute('aria-selected', 'true'))
+    renderPlayers(['/players?list=activity'])
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true'))
     expect(await screen.findByText('KICKED_FOR_TEST')).toBeInTheDocument()
-    expect(screen.queryByText(/No activity logs yet/)).toBeNull()
+    expect(screen.queryByText(/No activity yet/)).toBeNull()
   })
 
-  it('switching to the tab reads it too, however the tab is chosen', async () => {
+  it('switching to the list reads it too, however the list is chosen', async () => {
     setUpFixtures()
     vi.mocked(playersApi.getActivityLogs).mockResolvedValue({ logs: [LOG] } as never)
     renderPlayers()
     await selectTestPlayer()
     expect(playersApi.getActivityLogs).not.toHaveBeenCalled()
-    openTab('Notes & Log')
+    openTab('Activity')
     expect(await screen.findByText('KICKED_FOR_TEST')).toBeInTheDocument()
   })
 })

@@ -17,7 +17,7 @@ export function CharacterHintsBadge({ hints, onOpen }: { hints: CharacterHint[] 
       onClick={onOpen}
       aria-label={`${t('character.hints.badge', { count })}. ${t('character.hints.badgeAria')}`}
       className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wider transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         strong
           ? 'border-warning/50 bg-warning/10 text-warning hover:bg-warning/20'
           : 'border-border/70 bg-muted/40 text-muted-foreground hover:bg-muted/60',

@@ -158,7 +158,7 @@ describe("Chat.tsx: sending on the 'server' channel (default) gates on server.wo
     renderChat()
 
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
 
     // bug-hunt-2026-08-27 (Angela's fixture-masking finding): Send's
     // disabled expression is `sending || !message.trim() ||
@@ -184,7 +184,7 @@ describe("Chat.tsx: sending on the 'server' channel (default) gates on server.wo
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
     fireEvent.change(input, { target: { value: 'hello players' } })
 
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
     expect(sendButton).not.toBeDisabled()
 
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -202,7 +202,7 @@ describe("Chat.tsx: sending on the 'admin'/'general' channels gates on players.e
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Chat channel' }), { target: { value: 'admin' } })
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
 
     // Same fixture-masking risk as the 'server' channel tests above: type
     // first, so `!message.trim()` alone can't be the reason Send is
@@ -223,7 +223,7 @@ describe("Chat.tsx: sending on the 'admin'/'general' channels gates on players.e
 
     fireEvent.change(screen.getByRole('combobox', { name: 'Chat channel' }), { target: { value: 'general' } })
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
 
     fireEvent.change(input, { target: { value: 'pretend to be someone else' } })
     expect(sendButton).toBeDisabled()
@@ -244,7 +244,7 @@ describe("Chat.tsx: sending on the 'admin'/'general' channels gates on players.e
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
     fireEvent.change(input, { target: { value: 'real admin notice' } })
 
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
     expect(sendButton).not.toBeDisabled()
 
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -263,7 +263,7 @@ describe("Chat.tsx: sending on the 'admin'/'general' channels gates on players.e
     const input = await screen.findByRole('textbox', { name: 'Chat message' })
     fireEvent.change(input, { target: { value: 'hello from "Admin"' } })
 
-    const sendButton = screen.getByRole('button', { name: 'send' })
+    const sendButton = screen.getByRole('button', { name: 'Send' })
     expect(sendButton).not.toBeDisabled()
 
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -287,7 +287,7 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     // !canManagePresets` -- with the draft still empty,
     // `!newPresetDraft.trim()` alone already disables it regardless of
     // the capability check. Type first, then assert.
-    const addInput = screen.getByPlaceholderText('add a new quick broadcast…')
+    const addInput = screen.getByPlaceholderText('Add a new quick broadcast…')
     fireEvent.change(addInput, { target: { value: 'A new preset' } })
     expect(screen.getByLabelText('Add quick broadcast')).toBeDisabled()
     fireEvent.click(screen.getByLabelText('Add quick broadcast'))
@@ -314,7 +314,7 @@ describe('Chat.tsx: quick-broadcast preset management gates on panel.settings', 
     // "Add quick broadcast" is also legitimately disabled on an empty draft
     // -- unrelated to capability -- so only assert its non-disabled state
     // once there is something to add.
-    const addInput = screen.getByPlaceholderText('add a new quick broadcast…')
+    const addInput = screen.getByPlaceholderText('Add a new quick broadcast…')
     fireEvent.change(addInput, { target: { value: 'A new preset' } })
     expect(screen.getByLabelText('Add quick broadcast')).not.toBeDisabled()
     fireEvent.click(screen.getByLabelText('Add quick broadcast'))
@@ -369,8 +369,8 @@ describe('Chat.tsx: chat delivery-method status (getChatInfo)', () => {
     renderChat()
 
     await screen.findByRole('textbox', { name: 'Chat message' })
-    expect(screen.queryByText('chat delivery: native')).not.toBeInTheDocument()
-    expect(screen.queryByText(/chat delivery: RCON fallback/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Chat delivery: native')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Chat delivery: RCON fallback/)).not.toBeInTheDocument()
   })
 
   it('shows "native" when the native ChatServer API is available', async () => {
@@ -383,7 +383,7 @@ describe('Chat.tsx: chat delivery-method status (getChatInfo)', () => {
 
     renderChat()
 
-    await waitFor(() => expect(screen.getByText('chat delivery: native')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('Chat delivery: native')).toBeInTheDocument())
     expect(screen.queryByText(/RCON fallback/)).not.toBeInTheDocument()
   })
 
@@ -397,8 +397,8 @@ describe('Chat.tsx: chat delivery-method status (getChatInfo)', () => {
 
     renderChat()
 
-    await waitFor(() => expect(screen.getByText(/chat delivery: RCON fallback/)).toBeInTheDocument())
-    expect(screen.queryByText('chat delivery: native')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText(/Chat delivery: RCON fallback/)).toBeInTheDocument())
+    expect(screen.queryByText('Chat delivery: native')).not.toBeInTheDocument()
   })
 
   it('is not fetched at all when the role lacks server.world_events', async () => {

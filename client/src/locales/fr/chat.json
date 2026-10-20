@@ -2,14 +2,14 @@
   "pageHeader": {
     "title": "Chat en jeu",
     "description": "Diffusez des messages à tous les joueurs connectés et suivez leur chat en temps réel.",
-    "refresh": "Actualiser"
+    "refresh": "Actualiser les joueurs"
   },
   "chatWindow": {
-    "streamLabel": "flux de chat",
+    "streamLabel": "Flux de chat",
     "msgCount_one": "{{count}} message",
     "msgCount_other": "{{count}} messages",
-    "live": "EN DIRECT",
-    "offline": "HORS LIGNE",
+    "live": "En direct",
+    "offline": "Hors ligne",
     "messagesAria": "Messages du chat",
     "msgCount_many": "{{count}} messages"
   },
@@ -25,37 +25,44 @@
     "tip": "Diffusion serveur affiche une bannière que chaque joueur voit immédiatement. Chat admin n'est visible que par les autres admins — les joueurs ne le voient jamais. Chat général publie un message d'apparence normale de la part de \"{{adminLabel}}\" dans le chat habituel de tout le monde, facile à manquer et indiscernable d'un vrai joueur nommé {{adminLabel}}."
   },
   "deliveryStatus": {
-    "native": "livraison du chat : native",
-    "rconFallback": "livraison du chat : repli RCON (API de chat native indisponible)"
+    "native": "Livraison du chat : native",
+    "rconFallback": "Livraison du chat : repli RCON (API de chat native indisponible)"
   },
   "input": {
     "aria": "Message de chat",
-    "placeholderAdmin": "admins uniquement…",
-    "placeholderGeneral": "publié en tant qu'Admin…",
-    "placeholderServer": "diffusé à tous les joueurs…",
-    "sendButton": "envoyer",
+    "placeholderAdmin": "Admins uniquement…",
+    "placeholderGeneral": "Publié en tant qu'Admin…",
+    "placeholderServer": "Diffusé à tous les joueurs…",
+    "sendButton": "Envoyer",
     "noPermission": "Vous n'avez pas la permission d'envoyer des messages de chat."
   },
   "footer": {
-    "adminOnly": "admins uniquement — masqué pour les joueurs",
-    "noPlayersOnline": "aucun joueur en ligne — journal serveur uniquement",
-    "broadcastingTo_one": "diffusion à {{count}} joueur",
-    "broadcastingTo_other": "diffusion à {{count}} joueurs",
-    "broadcastingTo_many": "diffusion à {{count}} joueurs"
+    "adminOnly": "Admins uniquement — masqué pour les joueurs",
+    "noPlayersOnline": "Aucun joueur en ligne — journal serveur uniquement",
+    "broadcastingTo_one": "Diffusion à {{count}} joueur",
+    "broadcastingTo_other": "Diffusion à {{count}} joueurs",
+    "broadcastingTo_many": "Diffusion à {{count}} joueurs"
   },
   "playersPanel": {
-    "label": "joueurs",
+    "label": "Joueurs",
     "onlineCount": "{{count}} en ligne",
-    "noPlayersConnected": "aucun joueur connecté"
+    "noPlayersConnected": "Aucun joueur connecté",
+    "openPlayer": "Ouvrir {{name}} dans Joueurs"
+  },
+  "bridgeOffline": {
+    "title": "PanelBridge n'est pas lancé",
+    "description": "Les annonces serveur ne peuvent pas être envoyées. Le chat admin et le chat général passent par RCON comme un message simple que tous les joueurs voient.",
+    "action": "Réglages PanelBridge"
   },
   "quickBroadcasts": {
-    "label": "messages rapides",
-    "edit": "modifier",
-    "done": "terminé",
+    "label": "Messages rapides",
+    "description": "Une seule liste pour tout le panneau : tous les admins voient les mêmes messages. Choisissez-en un pour le placer dans la zone de message.",
+    "edit": "Modifier",
+    "done": "Terminé",
     "editAria": "Modifier les messages rapides",
     "doneAria": "Terminer la modification",
-    "noPresets": "// aucun message rapide — cliquez sur modifier pour en ajouter",
-    "addPlaceholder": "ajouter un nouveau message rapide…",
+    "noPresets": "Aucun message rapide. Cliquez sur Modifier pour en ajouter.",
+    "addPlaceholder": "Ajouter un nouveau message rapide…",
     "addAria": "Ajouter un message rapide",
     "saveAria": "Enregistrer",
     "cancelAria": "Annuler",

@@ -4,6 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { SocketContext } from '@/contexts/SocketContext'
 import type { Socket } from 'socket.io-client'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import {
   ApiError,
   backupApi,
@@ -169,7 +170,7 @@ function renderBackups(socket: Pick<Socket, 'on' | 'off' | 'emit'>) {
   return render(
     <SocketContext.Provider value={socket as Socket}>
       <TooltipProvider>
-        <Backups />
+        <MemoryRouter><Backups /></MemoryRouter>
       </TooltipProvider>
     </SocketContext.Provider>,
   )
