@@ -1759,6 +1759,11 @@ export const ErrorCode = Object.freeze({
    * changed again, or the panel restarted since the refusal), so nothing
    * was pinned. The operator runs Verify again and compares the new key. */
   SFTP_HOST_KEY_NOT_PRESENTED: "SFTP_HOST_KEY_NOT_PRESENTED",
+  /** 400, utils/sftpSavedTarget.js -- a PanelBridge SFTP request (Verify,
+   * Start, remote logs, remote config) or an app-settings save names another
+   * host, port or username than the saved ones without entering a password:
+   * the saved password is only used with the saved target. */
+  SFTP_PASSWORD_REQUIRED: "SFTP_PASSWORD_REQUIRED",
   /** Same file, sibling of SFTP_CHROOTED_ACCOUNT above -- wrong username or
    * password, or the account can't complete the SSH handshake at all. */
   SFTP_AUTH_FAILED: "SFTP_AUTH_FAILED",

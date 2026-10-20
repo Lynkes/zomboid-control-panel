@@ -22,7 +22,7 @@ import {
   getRoleByName,
   logPlayerAction,
 } from "../database/init.js";
-import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "../utils/exportFolderName.js";
 import { persistSandboxValues } from "./serverFiles.js";
@@ -51,9 +51,11 @@ import {
   formatSftpError,
   classifySftpErrorCode,
   validateSftpBridgeConfig,
+  validateSftpLogConfig,
   listSftpLogs,
   readSftpLogTail,
 } from "../services/panelBridgeSftp.js";
+import { SftpPasswordRequiredError, sftpPasswordForRequest } from "../utils/sftpSavedTarget.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   listRemoteConfigFiles,
@@ -92,35 +94,61 @@ const SFTP_SETTING_KEYS = {
 
 const SFTP_LOG_PATH_KEY = "panelBridgeSftpLogPath";
 
+function savedSftpCredentials(settings) {
+  return {
+    host: settings[SFTP_SETTING_KEYS.host],
+    port: settings[SFTP_SETTING_KEYS.port],
+    username: settings[SFTP_SETTING_KEYS.username],
+    password: settings[SFTP_SETTING_KEYS.password],
+  };
+}
+
+// SECURITY (2026-10-20): `validated` is the target the connection will use;
+// the saved password is put in only when that is the saved host, port and
+// username (utils/sftpSavedTarget.js). Any other target needs the password
+// in the request, else SftpPasswordRequiredError.
+function withSftpPassword(validated, input, settings) {
+  return {
+    ...validated,
+    password: sftpPasswordForRequest(
+      { host: validated.host, port: validated.port, username: validated.username, password: input?.password },
+      savedSftpCredentials(settings),
+    ),
+  };
+}
+
 async function resolveSftpConfig(input = {}) {
   const settings = await getAllSettings();
-  const password = input.password && !isMaskedSecret(input.password)
-    ? input.password
-    : settings[SFTP_SETTING_KEYS.password] || "";
-  return validateSftpBridgeConfig({
+  const validated = validateSftpBridgeConfig({
     host: input.host ?? settings[SFTP_SETTING_KEYS.host],
     port: input.port ?? settings[SFTP_SETTING_KEYS.port],
     username: input.username ?? settings[SFTP_SETTING_KEYS.username],
-    password,
+    password: "",
     bridgePath: input.bridgePath ?? settings[SFTP_SETTING_KEYS.bridgePath],
     pollIntervalSeconds: input.pollIntervalSeconds ?? settings[SFTP_SETTING_KEYS.pollIntervalSeconds],
   });
+  return withSftpPassword(validated, input, settings);
 }
 
 // The log transport reuses the bridge credentials but has its own remote path
 // and does not require a configured bridgePath.
 async function resolveSftpLogConfig(input = {}) {
   const settings = await getAllSettings();
-  const password = input.password && !isMaskedSecret(input.password)
-    ? input.password
-    : settings[SFTP_SETTING_KEYS.password] || "";
-  return {
+  const validated = validateSftpLogConfig({
     host: input.host ?? settings[SFTP_SETTING_KEYS.host],
     port: input.port ?? settings[SFTP_SETTING_KEYS.port],
     username: input.username ?? settings[SFTP_SETTING_KEYS.username],
-    password,
+    password: "",
     logPath: input.logPath ?? settings[SFTP_LOG_PATH_KEY],
-  };
+  });
+  return withSftpPassword(validated, input, settings);
+}
+
+// The coded refusal for a request that named another SFTP target without its
+// password; null for any other error.
+function sftpPasswordRefusal(error) {
+  if (!(error instanceof SftpPasswordRequiredError)) return null;
+  return { error: error.message, code: error.code };
 }
 
 // Valid PanelBridge actions (defense-in-depth — Lua side also validates)
@@ -1178,6 +1206,8 @@ router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) =>
     const result = await testSftpBridge(config);
     res.json(result);
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     // error (English, unchanged) is the pre-2026-08-26-classification fallback
     // for any client that doesn't read `code` -- code + params.detail let an
     // updated client show the exact same classification, translated, with
@@ -1240,6 +1270,8 @@ router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, re
     }
     res.json({ success: true, bridgePath: cachePath, transport: bridge.getStatus().transport });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({
       error: sanitizeError(formatSftpError(error)),
       code: classifySftpErrorCode(error),
@@ -1257,6 +1289,8 @@ router.post("/sftp/logs/list", requirePermission("bridge.setup"), async (req, re
     if (req.body?.logPath) await setSetting(SFTP_LOG_PATH_KEY, config.logPath);
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
@@ -1268,6 +1302,8 @@ router.post("/sftp/logs/tail", requirePermission("bridge.setup"), async (req, re
     const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
@@ -1277,17 +1313,14 @@ router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, 
   let config;
   try {
     const settings = await getAllSettings();
-    const password =
-      req.body?.password && !isMaskedSecret(req.body.password)
-        ? req.body.password
-        : settings[SFTP_SETTING_KEYS.password] || "";
-    config = validateRemoteConfigTransport({
+    const validated = validateRemoteConfigTransport({
       host: req.body?.host ?? settings[SFTP_SETTING_KEYS.host],
       port: req.body?.port ?? settings[SFTP_SETTING_KEYS.port],
       username: req.body?.username ?? settings[SFTP_SETTING_KEYS.username],
-      password,
+      password: "",
       configPath: req.body?.configPath ?? settings[SFTP_CONFIG_PATH_KEY],
     });
+    config = withSftpPassword(validated, req.body, settings);
     const result = await listRemoteConfigFiles(config);
     if (req.body?.configPath) {
       await setSetting(SFTP_CONFIG_PATH_KEY, config.configPath);
@@ -1295,6 +1328,8 @@ router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, 
     }
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
