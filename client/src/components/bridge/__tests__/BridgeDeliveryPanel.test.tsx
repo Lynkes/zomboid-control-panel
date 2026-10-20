@@ -643,6 +643,52 @@ describe('BridgeDeliveryPanel: "Restart now" asks first', () => {
   })
 })
 
+// A server change drops the status, which unmounted the switch and checksum
+// dialogs while their open state stayed set: both reopened by themselves
+// over the newly active server's status.
+describe('BridgeDeliveryPanel: dialogs opened for one server close when the active server changes', () => {
+  const otherServer = (status: DeliveryStatus) => ({ ...status, serverId: 'srv-2', serverName: 'Other Server' })
+
+  it('closes the switch dialog and says why', async () => {
+    planDelivery.mockResolvedValue(makePlan())
+    const { rerender } = renderPanel(makeLocalStatus())
+    await panelReady()
+    fireEvent.click(within(option('workshop')).getByRole('button', { name: en.action.switchToWorkshop }))
+    await screen.findByRole('dialog')
+
+    getDelivery.mockResolvedValue(otherServer(makeLocalStatus()))
+    rerender(panelTree({ activeServerId: 'srv-2' }))
+    await screen.findByText(en.appliesTo.replace('{{server}}', 'Other Server'))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.serverChangedTitle, description: en.serverChangedBody }))
+    expect(planDelivery).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes the checksum dialog', async () => {
+    const { rerender } = renderPanel(makeWorkshopStatus())
+    await panelReady()
+    fireEvent.click(within(screen.getByTestId('bridge-delivery-checksum-offer')).getByRole('button', { name: en.checksumOffer.turnOn }))
+    await screen.findByRole('dialog')
+
+    getDelivery.mockResolvedValue(otherServer(makeWorkshopStatus()))
+    rerender(panelTree({ activeServerId: 'srv-2' }))
+    await screen.findByText(en.appliesTo.replace('{{server}}', 'Other Server'))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(toastMock).toHaveBeenCalledWith(expect.objectContaining({ title: en.serverChangedTitle }))
+  })
+
+  it('says nothing when no dialog was open', async () => {
+    const { rerender } = renderPanel(makeLocalStatus())
+    await panelReady()
+    getDelivery.mockResolvedValue(otherServer(makeLocalStatus()))
+    rerender(panelTree({ activeServerId: 'srv-2' }))
+    await screen.findByText(en.appliesTo.replace('{{server}}', 'Other Server'))
+    expect(toastMock).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.serverChangedTitle }))
+  })
+})
+
 describe('BridgeDeliveryPanel: start, install, and loading the status', () => {
   it('workshop-stopped offers Start server', async () => {
     start.mockResolvedValue({})

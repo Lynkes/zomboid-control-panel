@@ -97,7 +97,9 @@
     "openPlayerControls": "Open player controls",
     "healedTitle": "Healed",
     "healedDesc": "{{username}} healed",
-    "godModeEnabled": "God mode enabled"
+    "godModeEnabled": "God mode enabled",
+    "offline": "offline",
+    "offlineReason": "This player is no longer online."
   },
   "contextMenu": {
     "ariaLabel": "Map actions",

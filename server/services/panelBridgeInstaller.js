@@ -124,14 +124,31 @@ export function checkBridgeInstalled(server) {
   // codeql[js/path-injection] targetPath is resolveTargetPath(server): the admin-configured game install dir joined with the constant media/lua/server/PanelBridge.lua suffix -- the only tracked sources are routes/server.js POST /install and POST /quick-setup installPath, both behind requirePermission("server.install") and isValidPath() (absolute, no ".." before or after normalize) -- so this only ever touches that one fixed-name file inside the folder the admin chose as the game install.
   const installed = Boolean(targetPath && fs.existsSync(targetPath));
   const targetContent = installed ? readContent(targetPath) : null;
+  const version = targetContent ? extractVersion(targetContent) : null;
+  const bundledVersion = sourceContent ? extractVersion(sourceContent) : null;
+  // installBridge() refuses to replace a copy whose VERSION is newer than
+  // the bundled one, so that copy never "needs an update": flagging it gave
+  // an "Update now" that did nothing, forever. Same comparison as there.
+  const newerThanBundled = Boolean(
+    installed &&
+      targetContent !== sourceContent &&
+      version &&
+      bundledVersion &&
+      compareModVersions(version, bundledVersion) > 0,
+  );
   const needsUpdate = Boolean(
-    installed && sourceContent !== null && (targetContent === null || targetContent !== sourceContent),
+    installed &&
+      sourceContent !== null &&
+      (targetContent === null || targetContent !== sourceContent) &&
+      !newerThanBundled,
   );
 
   return {
     installed,
-    version: targetContent ? extractVersion(targetContent) : null,
+    version,
+    bundledVersion,
     needsUpdate,
+    newerThanBundled,
     sourcePath,
     targetPath,
   };

@@ -748,7 +748,20 @@ export default function WorldMap() {
       canvasRef.current?.focus()
     }
   }, [contextMenu])
-  const [selectedPlayer, setSelectedPlayer] = useState<MapPlayer | null>(null)
+  // A click only says WHO is selected: the dossier reads that player live
+  // from `players` (refreshed every poll) as selectedPlayer below, so HP,
+  // position and stats follow the game and a player who logs off reads as
+  // offline. Keeping the clicked object froze all of it at click time (after
+  // Heal the bar kept the old HP). The snapshot only names an offline player.
+  const [selectedPlayerSnapshot, setSelectedPlayer] = useState<MapPlayer | null>(null)
+  const selectedPlayer = useMemo(
+    () => (selectedPlayerSnapshot
+      ? players.find((p) => p.username === selectedPlayerSnapshot.username) ?? null
+      : null),
+    [players, selectedPlayerSnapshot],
+  )
+  const dossierPlayer = selectedPlayer ?? selectedPlayerSnapshot
+  const dossierOffline = selectedPlayerSnapshot !== null && selectedPlayer === null
   const [bridgeConnected, setBridgeConnected] = useState(false)
   // Inits true (bridge-tri-state sweep, 2026-09-10): checkBridgeStatus sets
   // this true itself once it runs, but that's a mount-effect tick after the
@@ -1025,6 +1038,14 @@ export default function WorldMap() {
       setPoiCategories([])
       setMapVersionStatus('loading')
       setContextMenu(null)
+      // Dialogs opened for the previous server: their targets (a vehicle id,
+      // map coordinates) mean nothing on the new one, and confirming "Remove
+      // vehicle" would delete whatever has that id there. Airdrop markers
+      // were dropped on the old server's map too.
+      setRemoveVehicleTarget(null)
+      setSpawnDialog(null)
+      setDropDialog(null)
+      setAirdropMarkers([])
       hasFittedRef.current = false
       void detectServerVersion()
       // continuous-bug-hunt round 26: re-fetch immediately (bumps each
@@ -3514,9 +3535,11 @@ export default function WorldMap() {
           <div className="flex items-stretch rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg font-mono text-[11px] tabular-nums overflow-hidden">
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-e border-border/40">
               <Crosshair className={cn('w-3 h-3', cursorWorldPos ? 'text-primary/80' : 'text-muted-foreground/40')} />
+              {/* The square under the cursor, floored like every map action
+                  targets it (cursorWorldPos itself stays fractional). */}
               {cursorWorldPos ? (
                 <span className="text-foreground">
-                  <span className="text-muted-foreground/60">x</span>{cursorWorldPos.x.toString().padStart(5, ' ')}<span className="mx-1 text-muted-foreground/40">·</span><span className="text-muted-foreground/60">y</span>{cursorWorldPos.y.toString().padStart(5, ' ')}
+                  <span className="text-muted-foreground/60">x</span>{Math.floor(cursorWorldPos.x).toString().padStart(5, ' ')}<span className="mx-1 text-muted-foreground/40">·</span><span className="text-muted-foreground/60">y</span>{Math.floor(cursorWorldPos.y).toString().padStart(5, ' ')}
                 </span>
               ) : (
                 <span className="text-muted-foreground/50">{t('hud.hoverForCoords')}</span>
@@ -3537,7 +3560,7 @@ export default function WorldMap() {
             coordinate bar on narrow viewports so the two fixed-position
             overlays stack instead of colliding; side-by-side once there's
             room (>= sm). */}
-        {selectedPlayer && (
+        {dossierPlayer && (
           <div className="absolute end-3 z-10 w-60 bottom-14 sm:bottom-3">
             <div className="relative rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
               <span aria-hidden className="pointer-events-none absolute top-0 start-0 h-2 w-2 border-s-2 border-t-2 border-primary/50" />
@@ -3549,7 +3572,9 @@ export default function WorldMap() {
                   <span className="text-primary/60">//</span>
                   <span>{t('dossier.label')}</span>
                   <span className="text-muted-foreground/50">·</span>
-                  <span className="text-emerald-400/90">{t('dossier.targetAcquired')}</span>
+                  {dossierOffline
+                    ? <span className="text-muted-foreground">{t('dossier.offline')}</span>
+                    : <span className="text-emerald-400/90">{t('dossier.targetAcquired')}</span>}
                 </span>
                 <button
                   onClick={() => setSelectedPlayer(null)}
@@ -3563,23 +3588,28 @@ export default function WorldMap() {
                 <div className="flex items-center gap-2">
                   <span
                     className="w-2.5 h-2.5 rounded-full ring-1 ring-black/30 flex-none"
-                    style={{ backgroundColor: getPlayerColor(selectedPlayer, 0.9) }}
+                    style={{ backgroundColor: getPlayerColor(dossierPlayer, 0.9) }}
                   />
                   <span className="text-sm font-semibold truncate">
-                    {selectedPlayer.displayName || selectedPlayer.username}
+                    {dossierPlayer.displayName || dossierPlayer.username}
                   </span>
                 </div>
               </div>
+              {dossierOffline ? (
+                // Gone from the server: the last position and vitals are no
+                // longer true, so none are shown.
+                <p className="px-3 py-2 text-xs text-muted-foreground">{t('dossier.offlineReason')}</p>
+              ) : (
               <div className="px-3 py-2 text-xs space-y-1.5">
                 <div className="flex justify-between items-baseline">
                   <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.pos')}</span>
-                  <span className="font-mono tabular-nums">{Math.round(selectedPlayer.x)}, {Math.round(selectedPlayer.y)}</span>
+                  <span className="font-mono tabular-nums">{Math.round(dossierPlayer.x)}, {Math.round(dossierPlayer.y)}</span>
                 </div>
                 <div className="flex justify-between items-baseline">
                   <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.floor')}</span>
-                  <span className="font-mono tabular-nums">{selectedPlayer.z}</span>
+                  <span className="font-mono tabular-nums">{dossierPlayer.z}</span>
                 </div>
-                {selectedPlayer.health !== undefined && (
+                {dossierPlayer.health !== undefined && (
                   <div className="flex justify-between items-center">
                     <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.hp')}</span>
                     <div className="flex items-center gap-1.5">
@@ -3587,22 +3617,22 @@ export default function WorldMap() {
                         <div
                           className="h-full transition-all"
                           style={{
-                            width: `${Math.max(0, Math.min(100, selectedPlayer.health))}%`,
+                            width: `${Math.max(0, Math.min(100, dossierPlayer.health))}%`,
                             backgroundColor:
-                              selectedPlayer.health > 50 ? 'hsl(var(--success))'
-                              : selectedPlayer.health > 25 ? 'hsl(var(--warning))'
+                              dossierPlayer.health > 50 ? 'hsl(var(--success))'
+                              : dossierPlayer.health > 25 ? 'hsl(var(--warning))'
                               : 'hsl(var(--destructive))',
                           }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(selectedPlayer.health)}%</span>
+                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(dossierPlayer.health)}%</span>
                     </div>
                   </div>
                 )}
                 {([
-                  { key: 'hunger', value: selectedPlayer.hunger, label: t('dossier.hunger') },
-                  { key: 'thirst', value: selectedPlayer.thirst, label: t('dossier.thirst') },
-                  { key: 'fatigue', value: selectedPlayer.fatigue, label: t('dossier.fatigue') },
+                  { key: 'hunger', value: dossierPlayer.hunger, label: t('dossier.hunger') },
+                  { key: 'thirst', value: dossierPlayer.thirst, label: t('dossier.thirst') },
+                  { key: 'fatigue', value: dossierPlayer.fatigue, label: t('dossier.fatigue') },
                 ] as const).map(({ key, value, label }) => value === undefined ? null : (
                   // PZ's stats scale is 0 (fine) to 1 (critical) -- the
                   // inverse of the health bar above, so severity color
@@ -3626,13 +3656,13 @@ export default function WorldMap() {
                     </div>
                   </div>
                 ))}
-                {selectedPlayer.accessLevel && selectedPlayer.accessLevel !== 'none' && selectedPlayer.accessLevel !== 'user' && selectedPlayer.accessLevel !== '' && (
+                {dossierPlayer.accessLevel && dossierPlayer.accessLevel !== 'none' && dossierPlayer.accessLevel !== 'user' && dossierPlayer.accessLevel !== '' && (
                   <div className="flex justify-between items-baseline">
                     <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.role')}</span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-400">{selectedPlayer.accessLevel}</span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-400">{dossierPlayer.accessLevel}</span>
                   </div>
                 )}
-                {selectedPlayer.isInfected && (
+                {dossierPlayer.isInfected && (
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.status')}</span>
                     <span className="flex items-center gap-1 text-destructive font-mono text-[10px] uppercase tracking-[0.18em]">
@@ -3642,17 +3672,18 @@ export default function WorldMap() {
                   </div>
                 )}
               </div>
+              )}
               <div className="space-y-1 border-t border-border/40 bg-muted/20 px-2 py-1.5">
                 <div className="grid grid-cols-2 gap-1">
-                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null}>
+                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : dossierOffline ? t('dossier.offlineReason') : null}>
                   <Button
                     size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
-                    disabled={actionLoading !== null || !canGmTools}
+                    disabled={actionLoading !== null || !canGmTools || dossierOffline}
                     onClick={() => {
-                      if (!canGmTools) return
+                      if (!canGmTools || dossierOffline) return
                       setActionLoading('heal-card')
-                      panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
-                        .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
+                      panelBridgeApi.sendCommand('healPlayer', { username: dossierPlayer.username })
+                        .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: dossierPlayer.username }) }); fetchPlayerPositions() })
                         .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                         .finally(() => setActionLoading(null))
                     }}
@@ -3661,14 +3692,14 @@ export default function WorldMap() {
                   </Button>
                 </DisabledReason>
                 <div className="flex min-w-0 items-center gap-1">
-                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="min-w-0 flex-1">
+                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : dossierOffline ? t('dossier.offlineReason') : null} className="min-w-0 flex-1">
                     <Button
                       size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
-                      disabled={actionLoading !== null || !canGmTools}
+                      disabled={actionLoading !== null || !canGmTools || dossierOffline}
                       onClick={() => {
-                        if (!canGmTools) return
+                        if (!canGmTools || dossierOffline) return
                         setActionLoading('god-card')
-                        panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
+                        panelBridgeApi.sendCommand('setGodMode', { username: dossierPlayer.username, enabled: true })
                           .then((response) => {
                             const state = getBridgeVerifiedState('setGodMode', response?.data)
                             if (state === 'unverifiable') {
@@ -3690,7 +3721,7 @@ export default function WorldMap() {
                 </div>
                 </div>
                 <Link
-                  to={`/players?player=${encodeURIComponent(selectedPlayer.username)}`}
+                  to={`/players?player=${encodeURIComponent(dossierPlayer.username)}`}
                   onClick={() => setSelectedPlayer(null)}
                   className="flex min-h-7 items-center justify-center gap-1.5 rounded-sm border border-border/50 px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
                 >

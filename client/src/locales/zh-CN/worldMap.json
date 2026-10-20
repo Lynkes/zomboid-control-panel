@@ -97,7 +97,9 @@
     "openPlayerControls": "打开玩家控制",
     "healedTitle": "已治疗",
     "healedDesc": "{{username}} 已被治疗",
-    "godModeEnabled": "已启用无敌模式"
+    "godModeEnabled": "已启用无敌模式",
+    "offline": "离线",
+    "offlineReason": "该玩家已不在线。"
   },
   "contextMenu": {
     "ariaLabel": "地图操作",

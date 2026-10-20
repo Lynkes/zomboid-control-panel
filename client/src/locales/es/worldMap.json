@@ -97,7 +97,9 @@
     "openPlayerControls": "Abrir controles del jugador",
     "healedTitle": "Curado",
     "healedDesc": "{{username}} curado",
-    "godModeEnabled": "Modo Dios activado"
+    "godModeEnabled": "Modo Dios activado",
+    "offline": "desconectado",
+    "offlineReason": "Este jugador ya no está conectado."
   },
   "contextMenu": {
     "ariaLabel": "Acciones del mapa",

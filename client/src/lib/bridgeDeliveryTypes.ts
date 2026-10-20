@@ -5,7 +5,7 @@ export type DeliveryMethod = (typeof DELIVERY_METHODS)[number]
 
 export const DELIVERY_STATES = [
   'local-ok', 'local-update-pending', 'local-not-installed', 'local-unverified', 'local-workshop-loaded',
-  'workshop-restart-needed', 'workshop-waiting', 'workshop-confirmed', 'workshop-not-loaded',
+  'local-newer', 'workshop-restart-needed', 'workshop-waiting', 'workshop-confirmed', 'workshop-not-loaded',
   'workshop-stopped', 'workshop-start-failed', 'workshop-id-unknown',
 ] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]

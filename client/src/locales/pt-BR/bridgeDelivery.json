@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Como o PanelBridge é instalado",
   "appliesTo": "Aplica-se a {{server}}. Para alterar outro servidor, ative-o na página Meus servidores.",
+  "serverChangedTitle": "O servidor ativo mudou",
+  "serverChangedBody": "A janela do PanelBridge aberta era do servidor anterior, por isso foi fechada.",
   "current": "Atual",
   "recommended": "Recomendado",
   "preview": "Prévia",
@@ -80,6 +82,11 @@
     "local-update-pending": {
       "title": "Atualização pendente",
       "body": "A pasta do jogo tem um PanelBridge mais antigo que o deste painel. Atualize agora ou deixe a próxima inicialização copiá-lo (só enquanto “Manter atualizado o PanelBridge instalado pelo painel” estiver ativado)."
+    },
+    "local-newer": {
+      "title": "Mais recente que o do painel",
+      "body": "A pasta do jogo tem um PanelBridge mais recente que a v{{version}} que vem com este painel. O painel o deixa como está; atualize o painel para que os dois combinem.",
+      "bodyNoVersion": "A pasta do jogo tem um PanelBridge mais recente que o que vem com este painel. O painel o deixa como está; atualize o painel para que os dois combinem."
     },
     "local-not-installed": {
       "title": "Não instalado",

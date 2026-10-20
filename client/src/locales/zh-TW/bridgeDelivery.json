@@ -1,6 +1,8 @@
 {
   "sectionTitle": "PanelBridge 安裝方式",
   "appliesTo": "適用於 {{server}}。要變更其他伺服器，請先在「我的伺服器」頁面將其設為使用中的伺服器。",
+  "serverChangedTitle": "使用中的伺服器已變更",
+  "serverChangedBody": "開啟的 PanelBridge 對話框屬於先前的伺服器，因此已關閉。",
   "current": "目前",
   "recommended": "建議",
   "preview": "預覽版",
@@ -80,6 +82,11 @@
     "local-update-pending": {
       "title": "等待更新",
       "body": "遊戲資料夾中的 PanelBridge 比此面板內建的版本舊。請立即更新，或讓下次啟動時複製新版本（僅當「保持由面板安裝的 PanelBridge 為最新版本」已啟用時）。"
+    },
+    "local-newer": {
+      "title": "比此面板的版本新",
+      "body": "遊戲資料夾中的 PanelBridge 比此面板內建的 v{{version}} 新。面板不會變更它；請更新面板，讓兩者一致。",
+      "bodyNoVersion": "遊戲資料夾中的 PanelBridge 比此面板內建的版本新。面板不會變更它；請更新面板，讓兩者一致。"
     },
     "local-not-installed": {
       "title": "未安裝",

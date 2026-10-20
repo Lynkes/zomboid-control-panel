@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Kijan PanelBridge enstale",
   "appliesTo": "Sa aplike pou {{server}}. Pou chanje yon lòt sèvè, fè l aktif nan paj Sèvè m yo.",
+  "serverChangedTitle": "Sèvè aktif la chanje",
+  "serverChangedBody": "Fenèt PanelBridge ki te louvri a te pou sèvè anvan an, kidonk li fèmen.",
   "current": "Aktyèl",
   "recommended": "Rekòmande",
   "preview": "Previzyon",
@@ -80,6 +82,11 @@
     "local-update-pending": {
       "title": "Mizajou ap tann",
       "body": "Dosye jwèt la gen yon PanelBridge ki pi ansyen pase pa panèl sa a. Mete l ajou kounye a, oswa kite pwochen demaraj la kopye l (sèlman si “Kenbe PanelBridge panèl la enstale a ajou” aktive)."
+    },
+    "local-newer": {
+      "title": "Pi nouvo pase pa panèl la",
+      "body": "Dosye jwèt la gen yon PanelBridge ki pi nouvo pase v{{version}} panèl sa a vini avè l. Panèl la kite l jan l ye a; mete panèl la ajou pou de yo koresponn.",
+      "bodyNoVersion": "Dosye jwèt la gen yon PanelBridge ki pi nouvo pase sa panèl sa a vini avè l. Panèl la kite l jan l ye a; mete panèl la ajou pou de yo koresponn."
     },
     "local-not-installed": {
       "title": "Pa enstale",

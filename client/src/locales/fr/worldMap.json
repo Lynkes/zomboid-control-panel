@@ -97,7 +97,9 @@
     "openPlayerControls": "Ouvrir les contrôles du joueur",
     "healedTitle": "Soigné",
     "healedDesc": "{{username}} soigné",
-    "godModeEnabled": "Mode Dieu activé"
+    "godModeEnabled": "Mode Dieu activé",
+    "offline": "hors ligne",
+    "offlineReason": "Ce joueur n'est plus en ligne."
   },
   "contextMenu": {
     "ariaLabel": "Actions de la carte",

@@ -74,6 +74,15 @@ export const DELIVERY_STATE_VIEWS: Readonly<Record<DeliveryState, DeliveryStateV
     causesKey: null,
     actions: ['switchToWorkshop', 'switchToLocal'],
   },
+  // A loose copy newer than the bundled one: the panel never downgrades it,
+  // so there is nothing to update from here (no "Update now").
+  'local-newer': {
+    tone: 'neutral',
+    titleKey: 'state.local-newer.title',
+    bodyKey: 'state.local-newer.body',
+    causesKey: null,
+    actions: [],
+  },
   'workshop-restart-needed': {
     tone: 'neutral',
     titleKey: 'state.workshop-restart-needed.title',
@@ -237,6 +246,7 @@ export function leavesLifecycleToHost(status: DeliveryStatus): boolean {
 const VERSIONLESS_BODY_KEYS: Readonly<Record<string, string>> = {
   'state.local-ok.body': 'state.local-ok.bodyNoVersion',
   'state.local-ok.bodyGuided': 'state.local-ok.bodyGuidedNoVersion',
+  'state.local-newer.body': 'state.local-newer.bodyNoVersion',
   'state.workshop-confirmed.body': 'state.workshop-confirmed.bodyNoVersion',
 }
 
@@ -263,10 +273,12 @@ export function resolveStateCopy(status: DeliveryStatus): DeliveryStateCopy {
 //    definition of that state. The heartbeat is NOT that file -- a game
 //    server that kept running across a panel update still reports the copy
 //    it loaded at start (see getRunningVersionNote);
-//  - guided local-ok and workshop-confirmed: the live heartbeat.
+//  - guided local-ok and workshop-confirmed: the live heartbeat;
+//  - local-newer: the bundled version the copy on disk is newer than.
 // null when that signal carries no version (see resolveStateCopy).
 export function getStateVersion(status: DeliveryStatus): string | null {
   if (status.state === 'local-ok' && status.access === 'automatic') return status.bundledVersion || null
+  if (status.state === 'local-newer') return status.bundledVersion || null
   return status.live?.version || null
 }
 

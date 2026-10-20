@@ -109,6 +109,13 @@ describe("states: panel-installed (local)", () => {
     expect((await statusFor(makeServer(files))).state).toBe("local-update-pending");
   });
 
+  // The panel never downgrades a newer copy (installBridge()), so "Update
+  // waiting" with its "Update now" was a dead end that never cleared.
+  it("local-newer when the loose file is newer than the bundled one", async () => {
+    writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", 'local VERSION = "99.0.0"\n');
+    expect((await statusFor(makeServer(files))).state).toBe("local-newer");
+  });
+
   it("local-ok when the loose file matches the bundled one", async () => {
     writeLoose(files.installDir, "media/lua/server/PanelBridge.lua", bundledLua());
     const status = await statusFor(makeServer(files));

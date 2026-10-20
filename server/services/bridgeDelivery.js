@@ -788,6 +788,8 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
       if (workshopCopyWithChecksumOn(ctx.iniText)) return "local-workshop-loaded";
       const installed = checkBridgeInstalled(ctx.server);
       if (!installed.installed) return "local-not-installed";
+      // Never replaced by the panel (installBridge() refuses a downgrade).
+      if (installed.newerThanBundled) return "local-newer";
       if (installed.needsUpdate) return "local-update-pending";
       return "local-ok";
     }

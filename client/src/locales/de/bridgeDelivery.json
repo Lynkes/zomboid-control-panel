@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Wie PanelBridge installiert wird",
   "appliesTo": "Gilt für {{server}}. Um einen anderen Server zu ändern, mache ihn auf der Seite „Meine Server“ aktiv.",
+  "serverChangedTitle": "Aktiver Server gewechselt",
+  "serverChangedBody": "Der geöffnete PanelBridge-Dialog galt dem vorherigen Server und wurde deshalb geschlossen.",
   "current": "Aktiv",
   "recommended": "Empfohlen",
   "preview": "Vorschau",
@@ -80,6 +82,11 @@
     "local-update-pending": {
       "title": "Update ausstehend",
       "body": "Im Spielordner liegt ein älteres PanelBridge als das dieses Panels. Aktualisiere es jetzt oder lass es beim nächsten Start hineinkopieren (nur solange „Vom Panel installiertes PanelBridge aktuell halten“ an ist)."
+    },
+    "local-newer": {
+      "title": "Neuer als die des Panels",
+      "body": "Im Spielordner liegt ein neueres PanelBridge als das v{{version}} dieses Panels. Das Panel lässt es unverändert; aktualisiere das Panel, damit beide zusammenpassen.",
+      "bodyNoVersion": "Im Spielordner liegt ein neueres PanelBridge als das dieses Panels. Das Panel lässt es unverändert; aktualisiere das Panel, damit beide zusammenpassen."
     },
     "local-not-installed": {
       "title": "Nicht installiert",

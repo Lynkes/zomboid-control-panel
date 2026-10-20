@@ -3219,17 +3219,26 @@ export async function autoExportPlayer(username) {
     // sortBackupFilenamesNewestFirst(): a raw string sort would put
     // "-2.json" before ".json" ('-' < '.'), treating a collision's later
     // duplicate as older than the original it collided with.
+    //
+    // Only this function's own <name>_<timestamp>[-n].json files rotate.
+    // The import route's pre-import recovery copies (<name>_pre-import_<ts>)
+    // share this folder: counted here, "Bob_pre-import_..." sorted above
+    // every "Bob_2026-..." ('p' > '2'), so after a few imports each login's
+    // export was deleted in the same pass that wrote it, and recovery copies
+    // were deleted as if they were old auto-exports.
     const maxExports = Number(await getSetting("autoExportMaxPerPlayer")) || 3;
+    const autoExportFileName = new RegExp(
+      `^${safeUsername.replace(/[^a-zA-Z0-9_]/g, "\\$&")}_(\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z)(?:-(\\d+))?\\.json$`,
+    );
     const files = fs
       .readdirSync(exportDir)
-      .filter((f) => f.endsWith(".json"))
       .map((name) => {
-        const withoutExt = name.slice(0, -".json".length);
-        const match = withoutExt.match(/^(.*)-(\d+)$/);
+        const match = name.match(autoExportFileName);
         return match
-          ? { name, key: match[1], suffix: parseInt(match[2], 10) }
-          : { name, key: withoutExt, suffix: 1 };
+          ? { name, key: match[1], suffix: match[2] ? parseInt(match[2], 10) : 1 }
+          : null;
       })
+      .filter(Boolean)
       .sort((a, b) => {
         if (a.key !== b.key) return a.key < b.key ? 1 : -1; // newest first
         return b.suffix - a.suffix; // higher collision suffix = created later
