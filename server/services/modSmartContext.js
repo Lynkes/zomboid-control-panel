@@ -69,8 +69,10 @@ function itemFolder(workshopId, serverPath) {
  * Reads the active server's mod setup. `content` is the ini text,
  * `serverPath` the install folder (Workshop content), `extraModIds` ids to
  * profile and classify besides the ones that load (a client's unsaved order).
+ * `catalogOnly` stops after the mods and their links (no folder walks, no
+ * classification): enough for an order rule's loop check.
  */
-export async function loadModSmartContext({ content, serverPath, extraModIds = [] }) {
+export async function loadModSmartContext({ content, serverPath, extraModIds = [], catalogOnly = false }) {
   const lists = readModLists(content);
   const itemMods = new Map();
   const itemsOnDisk = new Set();
@@ -100,6 +102,7 @@ export async function loadModSmartContext({ content, serverPath, extraModIds = [
     }
   }
   const catalog = [...catalogMap.values()];
+  if (catalogOnly) return { ...lists, serverPath, catalog, catalogMap, legacyMods, itemMods, itemsOnDisk };
   const analysis = analyzeModOrder(lists.modsLine, catalog);
   const enabled = uniq([
     ...analysis.effectiveModOrder.filter((id) => catalogMap.has(id)),

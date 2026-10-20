@@ -116,7 +116,11 @@ router.post("/order-rules", requireModsManage, async (req, res) => {
     let requireEdges = [];
     const active = await quietActiveIni();
     if (active) {
-      const ctx = await loadModSmartContext({ content: readTextFile(active.iniPath), serverPath: active.serverPath });
+      const ctx = await loadModSmartContext({
+        content: readTextFile(active.iniPath),
+        serverPath: active.serverPath,
+        catalogOnly: true,
+      });
       requireEdges = requireEdgesOf(ctx);
     }
 

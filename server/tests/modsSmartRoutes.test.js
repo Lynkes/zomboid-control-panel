@@ -155,6 +155,10 @@ describe("order rules", () => {
     const res = await call("/order-rules", "post", { body: { before: "new1", after: "new2" } });
     expect(res.getStatusCode()).toBe(409);
     expect(res.getBody()).toMatchObject({ code: "MODS_ORDER_RULE_LIMIT", params: { max: 2000 } });
+    // A rule that is stored already still answers, even at the limit.
+    const existing = await call("/order-rules", "post", { body: { before: "a0", after: "b0" } });
+    expect(existing.getStatusCode()).toBe(200);
+    expect(existing.getBody()).toMatchObject({ existing: true, rule: { id: "r0" } });
   });
 });
 
@@ -455,6 +459,49 @@ describe("GET /insights", () => {
     expect(reasons).toEqual(new Set(["require", "rule"]));
     expect(body.constraints.find((c) => c.reason === "rule")).toMatchObject({ before: "Car0", after: "Car1", strength: "hard", ruleId: "r1" });
     expect(body.steamStatus).toMatchObject({ known: 2, total: 5 });
+  });
+});
+
+describe("GET /insights?refresh=1", () => {
+  it("fetches Steam now (tags, Required items from the public page), then rate-limits the next refresh", async () => {
+    addMod("3000", "Lib", { files: { "42/media/lua/shared/lib.lua": "x" } });
+    addMod("3001", "Addon", { lines: ["require=Lib"], files: { "42/media/scripts/a.txt": "x" } });
+    fx.writeIni("Mods=Lib;Addon\nWorkshopItems=3000;3001\n");
+    const page = (requires) =>
+      `<html><div class="workshopItemTitle">Item</div><div class="requiredItemsContainer" id="RequiredItems">${requires
+        .map((id) => `<a href="https://steamcommunity.com/workshop/filedetails/?id=${id}" target="_blank"><div class="requiredItem">Item ${id}</div></a>`)
+        .join("")}</div></html>`;
+    const fetchMock = vi.fn(async (url) => {
+      const href = String(url);
+      if (href.includes("GetPublishedFileDetails")) {
+        return new Response(
+          JSON.stringify({
+            response: {
+              publishedfiledetails: [
+                { publishedfileid: "3000", result: 1, title: "The Lib", tags: [{ tag: "Framework" }] },
+                { publishedfileid: "3001", result: 1, title: "The Addon", tags: [{ tag: "Vehicles" }], description: "Mod ID: Addon" },
+              ],
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (href.includes("filedetails/?id=3001")) return new Response(page(["3000"]), { status: 200 });
+      if (href.includes("filedetails/?id=3000")) return new Response(page([]), { status: 200 });
+      throw new Error(`unexpected ${href}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const body = (await call("/insights", "get", { query: { refresh: "1" } })).getBody();
+    expect(body.steamStatus).toMatchObject({ source: "page", known: 2, total: 2, stale: false });
+    expect(body.mods.Lib).toMatchObject({ kind: "framework", steamTags: ["Framework"] });
+    expect(body.workshopRequirements).toEqual([
+      { workshopId: "3001", title: "The Addon", requires: [{ workshopId: "3000", title: "Item 3000", installed: true, enabled: true }] },
+    ]);
+    expect(body.constraints.find((c) => c.reason === "require")).toMatchObject({ before: "Lib", after: "Addon", reasons: expect.arrayContaining(["require", "steamRequired"]) });
+    const calls = fetchMock.mock.calls.length;
+    const again = (await call("/insights", "get", { query: { refresh: "1" } })).getBody();
+    expect(again.steamStatus.rateLimited).toBe(true);
+    expect(fetchMock.mock.calls.length).toBe(calls);
   });
 });
 

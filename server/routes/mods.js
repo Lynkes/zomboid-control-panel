@@ -5419,16 +5419,16 @@ async function resolveActiveIniPathOrRespond(res) {
 
 // The Mods= entries of an ini text, in load order, as { raw, id } (raw is the
 // token as written, id what the game reads).
-export function modTokensOf(iniText) {
+function modTokensOf(iniText) {
   return splitModIdTokens(iniText.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m)?.[1]);
 }
 
-export function workshopItemsOf(iniText) {
+function workshopItemsOf(iniText) {
   return splitIniList(iniText.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1]);
 }
 
 // `line` in place of the ini's `key=` line, or appended when it has none.
-export function withIniLine(content, key, line) {
+function withIniLine(content, key, line) {
   const pattern = key === "Mods" ? /^[ \t]*Mods[ \t]*=.*/m : /^[ \t]*WorkshopItems[ \t]*=.*/m;
   return pattern.test(content) ? content.replace(pattern, () => line) : `${content.trimEnd()}\n${line}\n`;
 }
@@ -5436,7 +5436,7 @@ export function withIniLine(content, key, line) {
 // The Mods= line for `ids`, each written the way the ini already had it
 // (backslashes kept) and a new one as its id. Equal ids are interchangeable,
 // so each takes the next unused token of its own.
-export function modsLineFor(ids, tokens) {
+function modsLineFor(ids, tokens) {
   const unused = new Map();
   for (const token of tokens) {
     if (!unused.has(token.id)) unused.set(token.id, []);
@@ -5694,7 +5694,7 @@ function uniqueMemberIds(group) {
 
 // The Workshop item folders downloaded for this server (every content folder
 // getWorkshopPaths knows), sorted so the first match is always the same one.
-export function downloadedWorkshopIds(serverPath) {
+function downloadedWorkshopIds(serverPath) {
   const roots = new Set(getWorkshopPaths("0", serverPath).map((folder) => path.dirname(folder)));
   const ids = new Set();
   for (const root of roots) {

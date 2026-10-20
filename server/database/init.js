@@ -3204,7 +3204,7 @@ export async function getModOrderRules() {
 
 /**
  * Stores a new rule. `check(existingRules)` runs in the same synchronous step
- * as the push (after the limit check), so two requests cannot both pass a
+ * as the push (before the limit check), so two requests cannot both pass a
  * check made before the other's push; it returns a refusal (any truthy
  * value, returned as { refused }) or null. Returns { rule } or { limit: true }
  * or { refused }. `replaceIds` are removed in that same step (a rule the new
@@ -3219,9 +3219,9 @@ export async function createModOrderRule(
   const rules = db.data.mod_order_rules;
   const replacing = new Set(replaceIds);
   const kept = rules.filter((r) => !replacing.has(r?.id));
-  if (kept.length >= maxRules) return { limit: true };
   const refused = check ? check(kept) : null;
   if (refused) return { refused };
+  if (kept.length >= maxRules) return { limit: true };
   const rule = {
     id: generateId(),
     before,
