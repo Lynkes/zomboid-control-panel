@@ -20,6 +20,7 @@ import { getRefreshCookieOptions } from "../utils/refreshCookie.js";
 import { isExtensionOrigin } from "../utils/extensionOrigin.js";
 import { requirePermission, getCapabilitiesForRole } from "../services/permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { requireLoginsOn } from "../middleware/requireLoginsOn.js";
 import {
   decodeResetTokenFile,
   prepareResetTokenChecks,
@@ -494,7 +495,9 @@ router.post("/setup", setupLimiter, async (req, res) => {
     });
   } catch (error) {
     log.error(`Setup failed: ${escapeLogText(error.message)}`);
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(400).json(body);
   }
 });
 
@@ -805,7 +808,7 @@ router.get("/users", requirePermission("users.manage"), async (req, res) => {
  * users.manage holder could mint a brand-new admin account outright, zero
  * cooperation from an actual admin needed.
  */
-router.post("/users", requirePermission("users.manage"), async (req, res) => {
+router.post("/users", requirePermission("users.manage"), requireLoginsOn, async (req, res) => {
   try {
     const { username, password, role } = req.body || {};
     if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
@@ -858,6 +861,7 @@ router.post("/users", requirePermission("users.manage"), async (req, res) => {
 router.patch(
   "/users/:id/role",
   requirePermission("users.manage"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       const { roleId, role } = req.body || {};
@@ -904,7 +908,7 @@ router.patch(
  * fresh on every call, so a deleted user's existing tokens stop working on
  * their very next request, not at natural token expiry.
  */
-router.delete("/users/:id", requirePermission("users.manage"), async (req, res) => {
+router.delete("/users/:id", requirePermission("users.manage"), requireLoginsOn, async (req, res) => {
   try {
     const user = await authService.deleteUser(req.params.id, {
       actingUserId: req.user?.userId,
@@ -930,6 +934,7 @@ router.delete("/users/:id", requirePermission("users.manage"), async (req, res) 
 router.post(
   "/users/:id/sessions/revoke",
   requirePermission("users.manage"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       const user = await authService.revokeAllSessions(req.params.id, {
@@ -1012,6 +1017,7 @@ router.delete("/users/:id/identities", requireRole("admin"), async (req, res) =>
 router.post(
   "/regenerate-jwt-secret",
   requireRole("admin"),
+  requireLoginsOn,
   async (req, res) => {
     try {
       await authService.regenerateJwtSecret();
@@ -1112,7 +1118,7 @@ const localResetTokenLimiter = rateLimit({
  * account's own recovery net is reconnaissance a non-admin has no
  * legitimate reason to see either.
  */
-router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
+router.get("/recovery-codes", requireRole("admin"), requireLoginsOn, async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user)
@@ -1126,7 +1132,7 @@ router.get("/recovery-codes", requireRole("admin"), async (req, res) => {
   }
 });
 
-router.post("/recovery-codes", requireRole("admin"), async (req, res) => {
+router.post("/recovery-codes", requireRole("admin"), requireLoginsOn, async (req, res) => {
   try {
     const user = await getAuthenticatedUser(req);
     if (!user)
@@ -1182,6 +1188,11 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
     });
   } catch (error) {
     log.warn(`Recovery code redemption failed: ${escapeLogText(error.message)}`);
+    // A new password the policy refuses (services/passwordPolicy.js) is a 400
+    // with its code; anything about the code itself stays a bare 403.
+    if (error.code && error.status === 400) {
+      return res.status(400).json({ error: sanitizeError(error.message), code: error.code });
+    }
     res.status(403).json({ error: sanitizeError(error.message) });
   }
 });
@@ -1359,7 +1370,9 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     });
   } catch (error) {
     log.error(`Password reset failed: ${escapeLogText(error.message)}`);
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(400).json(body);
   }
 });
 

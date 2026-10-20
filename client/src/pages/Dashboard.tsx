@@ -1195,7 +1195,7 @@ export default function Dashboard() {
     label: t('actions.createBackup'),
     onClick: () => {
       if (!canManageBackups) return
-      void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+      void handleAction('Create backup', () => backupApi.createBackup().then(() => fetchMaintenance()))
     },
     busy: loading === 'Create backup',
     disabled: loading !== null || !canManageBackups,
@@ -1731,7 +1731,7 @@ export default function Dashboard() {
                     // this onClick fires before the disabled prop is
                     // consulted, so the real gate lives here too.
                     if (!canManageBackups) return
-                    handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                    handleAction('Create backup', () => backupApi.createBackup().then(() => fetchMaintenance()))
                   }}
                   disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
                 >
@@ -2270,7 +2270,7 @@ export default function Dashboard() {
                     disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
                     onClick={() => {
                       if (!canManageBackups) return
-                      handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+                      handleAction('Create backup', () => backupApi.createBackup().then(() => fetchMaintenance()))
                     }}
                   >
                     {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}

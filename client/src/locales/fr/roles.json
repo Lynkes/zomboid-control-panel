@@ -159,7 +159,7 @@
       },
       "world_events": {
         "label": "Déclencher des événements du monde",
-        "description": "Météo, climat, heure de la journée, son ambiant, hordes de zombies (les éliminer seulement, pas les faire apparaître sur quelqu'un), utilitaires, réglages visuels et messages diffusés attribués au serveur — des effets à l'échelle du monde, non ciblés sur un joueur en particulier. Faire apparaître des zombies ou des effets sonores sur un joueur nommé, la foudre/le tonnerre ciblés, et usurper l'identité d'un joueur dans le chat relèvent d'une permission distincte, players.endanger_or_impersonate."
+        "description": "Météo, climat, heure de la journée, son ambiant, alarmes, coups de feu et hélicoptères à l'échelle du monde, hordes de zombies (les éliminer seulement, pas les faire apparaître sur quelqu'un), libération de refuges (safehouses), utilitaires, réglages visuels et messages diffusés attribués au serveur — des effets à l'échelle du monde, non ciblés sur un joueur en particulier. Donne aussi accès au journal de console du serveur en direct (et à son nombre d'erreurs) et à la vérification des mises à jour du jeu. Faire apparaître des zombies ou des effets sonores sur un joueur nommé, la foudre/le tonnerre ciblés, et usurper l'identité d'un joueur dans le chat relèvent d'une permission distincte, players.endanger_or_impersonate."
       }
     },
     "rcon": {

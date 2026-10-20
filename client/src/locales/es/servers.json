@@ -248,6 +248,8 @@
     "rconPasswordLabel": "Contraseña de RCON",
     "rconPasswordAria": "Contraseña de RCON",
     "adminPasswordLabel": "Contraseña de administrador",
+    "rconConfigureRequired": "Cambiar el host, el puerto o la contraseña RCON requiere el permiso server.configure, del cual este rol no dispone.",
+    "rconPasswordReenter": "Vuelve a escribir la contraseña RCON para usar un host o puerto nuevo: la guardada solo se envía al host y al puerto para los que se guardó.",
     "adminPasswordTooltip": "Contraseña de administrador del servidor, pasada como argumento de inicio -adminpassword. Surte efecto en el próximo inicio del servidor.",
     "adminPasswordPlaceholder": "Establecer contraseña de administrador",
     "adminPasswordAria": "contraseña de administrador",

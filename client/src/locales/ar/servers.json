@@ -263,6 +263,8 @@
     "rconPasswordLabel": "كلمة مرور RCON",
     "rconPasswordAria": "كلمة مرور RCON",
     "adminPasswordLabel": "كلمة مرور المدير",
+    "rconConfigureRequired": "يتطلب تغيير مضيف RCON أو منفذه أو كلمة مروره صلاحية server.configure، وهي غير متاحة لهذا الدور.",
+    "rconPasswordReenter": "أدخل كلمة مرور RCON مرة أخرى لاستخدام مضيف أو منفذ جديد: لا تُرسل المحفوظة إلا إلى المضيف والمنفذ اللذين حُفظت لهما.",
     "adminPasswordTooltip": "كلمة مرور مدير الخادم، تُمرَّر كوسيط تشغيل باسم -adminpassword. تسري عند بدء تشغيل الخادم التالي.",
     "adminPasswordPlaceholder": "عيّن كلمة مرور المدير",
     "adminPasswordAria": "كلمة مرور المدير",

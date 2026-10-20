@@ -159,7 +159,7 @@
       },
       "world_events": {
         "label": "Lanse evènman mond",
-        "description": "Move tan, klima, lè nan jounen an, son anbyans, mas zonbi (retire yo sèlman, pa fè yo parèt sou yon moun), itilite, paramèt vizyèl ak mesaj anons ki soti nan sèvè a — efè sou tout mond lan, pa vize yon jwè spesifik. Fè zonbi oswa efè son parèt sou yon jwè ki gen non, loray/tonnè vize, ak fè tankou ou se yon lòt jwè nan chat se yon otorizasyon apa, players.endanger_or_impersonate."
+        "description": "Move tan, klima, lè nan jounen an, son anbyans, alam, tire ak elikoptè sou tout mond lan, mas zonbi (retire yo sèlman, pa fè yo parèt sou yon moun), libere safehouse, itilite, paramèt vizyèl ak mesaj anons ki soti nan sèvè a — efè sou tout mond lan, pa vize yon jwè spesifik. Li li tou jounal konsòl sèvè a an dirèk (ak kantite erè ladan l) ak verifikasyon mizajou jwèt la. Fè zonbi oswa efè son parèt sou yon jwè ki gen non, loray/tonnè vize, ak fè tankou ou se yon lòt jwè nan chat se yon otorizasyon apa, players.endanger_or_impersonate."
       }
     },
     "rcon": {

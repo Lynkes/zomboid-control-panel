@@ -15,6 +15,7 @@ interface PasswordInputProps {
   maxLength?: number
   id?: string
   autoComplete?: string
+  disabled?: boolean
 }
 
 // Defaults hidden (type="password") and toggles to type="text" on click —
@@ -29,6 +30,7 @@ export function PasswordInput({
   maxLength,
   id,
   autoComplete,
+  disabled,
 }: PasswordInputProps) {
   const { t } = useTranslation('passwordInput')
   const [visible, setVisible] = useState(false)
@@ -44,6 +46,7 @@ export function PasswordInput({
         placeholder={placeholder}
         maxLength={maxLength}
         autoComplete={autoComplete}
+        disabled={disabled}
         className={cn('pe-10', className)}
       />
       <Button

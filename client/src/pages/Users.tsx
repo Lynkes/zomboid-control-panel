@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut } from 'lucide-react'
+import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut, AlertTriangle } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { isDemoMode } from '@/lib/demo'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -38,6 +40,7 @@ import {
   type RoleInfo,
 } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from '@/lib/passwordPolicy'
 import { useDateFormat } from '@/lib/dateFormat'
 
 // POST /api/auth/users only accepts one of these three legacy names -- it
@@ -79,7 +82,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation(['users', 'errors'])
   const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, authEnabled } = useAuth()
   const confirm = useConfirm()
   const canLinkSso = currentUser?.role === 'admin'
 
@@ -413,6 +416,14 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       setFormError(t('createDialog.passwordRequired'))
       return
     }
+    if (!meetsPasswordMinLength(password)) {
+      setFormError(t('errors:PASSWORD_TOO_SHORT'))
+      return
+    }
+    if (exceedsPasswordMaxBytes(password)) {
+      setFormError(t('errors:PASSWORD_TOO_LONG_BYTES'))
+      return
+    }
     if (password !== confirmPassword) {
       setFormError(t('createDialog.passwordsDontMatch'))
       return
@@ -511,6 +522,16 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
             ) : undefined
           }
         />
+      )}
+
+      {/* Account and role changes wait for panel logins (server/middleware/
+          requireLoginsOn.js): made while they are off, they would outlive it. The
+          public demo runs with logins off and mocks every write: no note there. */}
+      {!authEnabled && !isDemoMode() && !permissionDenied && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{t('errors:ACCOUNT_CHANGES_NEED_LOGINS')}</AlertDescription>
+        </Alert>
       )}
 
       {permissionDenied ? (

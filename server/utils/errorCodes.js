@@ -116,6 +116,24 @@ export const ErrorCode = Object.freeze({
   /** server/routes/auth.js -- POST /api/auth/reset-password, newPassword
    * exceeds 128 characters. */
   RESET_PASSWORD_TOO_LONG: "RESET_PASSWORD_TOO_LONG",
+  /* --- access-control audit 2026-10-20 (accounts) --- */
+  /** server/middleware/requireLoginsOn.js -- 403 from the account and role
+   * writes (POST/PATCH/DELETE /api/auth/users*, /api/permissions/roles*,
+   * regenerate-jwt-secret, recovery codes) while panel logins are off
+   * (authEnabled: false): a change made then would outlive the setting. */
+  ACCOUNT_CHANGES_NEED_LOGINS: "ACCOUNT_CHANGES_NEED_LOGINS",
+  /** server/services/passwordPolicy.js -- a new password (setup, account
+   * creation, change, reset, recovery) is shorter than PASSWORD_MIN_LENGTH.
+   * Existing passwords keep working. */
+  PASSWORD_TOO_SHORT: "PASSWORD_TOO_SHORT",
+  /** server/services/passwordPolicy.js -- a new password is longer than bcrypt
+   * reads (PASSWORD_MAX_BYTES in UTF-8): anything past that would be
+   * ignored, so two passwords sharing those bytes would both sign in. */
+  PASSWORD_TOO_LONG_BYTES: "PASSWORD_TOO_LONG_BYTES",
+  /** server/services/passwordPolicy.js -- a new password is on the built-in
+   * list of the most common passwords, or one character repeated. */
+  PASSWORD_TOO_COMMON: "PASSWORD_TOO_COMMON",
+  /* --- end access-control audit 2026-10-20 (accounts) --- */
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
    * reset-token.txt exists on disk. Sent only to a caller on the panel host
    * (security sweep 2026-10-05, A2); anyone else gets RESET_TOKEN_INVALID. */
@@ -649,6 +667,26 @@ export const ErrorCode = Object.freeze({
    * that has one) and the caller's role doesn't hold files.manage
    * (RCE-STARTCMD). */
   SERVER_LAUNCH_TARGET_ADMIN_ONLY: "SERVER_LAUNCH_TARGET_ADMIN_ONLY",
+  /* --- access-control audit 2026-10-20 (servers) --- */
+  /** server/routes/servers.js -- PUT /:id (403): the edit changes the RCON
+   * host, port or password, and the caller's role doesn't hold
+   * server.configure (the capability that governs the RCON connection
+   * everywhere else). Also POST / (403) when a server imported from an ini
+   * would point that ini's RCON password at a host other than this one. */
+  SERVER_RCON_CHANGE_REQUIRES_CONFIGURE: "SERVER_RCON_CHANGE_REQUIRES_CONFIGURE",
+  /** server/routes/servers.js -- PUT /:id (400): the RCON host or port
+   * changes but no RCON password was entered. The stored password is never
+   * sent to a host or port it was not saved for. Also server/routes/rcon.js
+   * POST /connect (400) for a host/port override without a password. */
+  SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET: "SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): the active server's RCON settings changed and the
+   * panel could not reconnect with them. */
+  SERVER_RCON_RECONNECT_FAILED: "SERVER_RCON_RECONNECT_FAILED",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): reloading the RCON connection after the edit threw. */
+  SERVER_RCON_RELOAD_FAILED: "SERVER_RCON_RELOAD_FAILED",
+  /* --- end access-control audit 2026-10-20 (servers) --- */
   /** server/services/scheduler.js -- performRestart()'s returned failure
    * when the pre-restart world save fails: the restart is called off and the
    * server is left running (forwarded by a failed Restart's

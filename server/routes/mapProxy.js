@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
 import { getActiveServer } from "../database/init.js";
+import { requirePermission } from "../services/permissions.js";
 import { listPersistedVehicles } from "../utils/vehiclesDb.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 const log = createLogger("API:MapProxy");
@@ -1204,7 +1205,12 @@ router.get("/resolve", async (req, res) => {
 
 let persistedVehicleCache = { key: null, expiresAt: 0, vehicles: [] };
 
-router.get("/vehicles", async (req, res) => {
+// SECURITY (2026-10-20, access-control audit): where every vehicle in the
+// world sits, read from the save -- the same kind of world-position data
+// as the players' own positions, so players.view's like those (it answered
+// any signed-in role). The World Map leaves the saved vehicles out for a
+// role without it.
+router.get("/vehicles", requirePermission("players.view"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
     if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) {

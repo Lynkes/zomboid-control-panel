@@ -117,6 +117,17 @@ describe('useSteamBranches', () => {
     expect(getBranches).toHaveBeenCalledTimes(1)
   })
 
+  // 2026-10-20: detection saves the path it finds, so it is a POST that only
+  // server.install may make. A refused (or failed) detection must not stop
+  // the branch lookup: it goes on with the path as typed.
+  it('looks the branches up with the typed path when detection is refused', async () => {
+    detectSteamCmd.mockRejectedValue(new Error('Insufficient permissions'))
+    renderHook(() => useHarness('D:\\typed'))
+    await settle()
+    expect(getBranches).toHaveBeenCalledTimes(1)
+    expect(getBranches).toHaveBeenCalledWith('D:\\typed')
+  })
+
   it('tries again after a failed lookup', async () => {
     getBranches.mockRejectedValueOnce(new Error('offline'))
     const { result } = renderHook(() => useHarness('D:\\steamcmd'))

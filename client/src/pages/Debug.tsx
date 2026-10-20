@@ -1508,7 +1508,7 @@ export default function Debug() {
           // /backup/create always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees result.success === false.
-          const result = await backupApi.createBackup({ includeDb: true });
+          const result = await backupApi.createBackup();
           const backupName = result?.backup?.name
             ? ` (${result.backup.name})`
             : "";

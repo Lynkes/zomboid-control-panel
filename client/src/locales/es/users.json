@@ -60,7 +60,7 @@
     "passwordRequired": "Introduce una contraseña.",
     "passwordsDontMatch": "Las contraseñas no coinciden.",
     "roleRequired": "Elige un rol.",
-    "passwordHint": "Usa al menos 6 caracteres."
+    "passwordHint": "Usa al menos 10 caracteres."
   },
   "toasts": {
     "userCreatedTitle": "Cuenta creada",

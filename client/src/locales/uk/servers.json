@@ -257,6 +257,8 @@
     "rconPasswordLabel": "Пароль RCON",
     "rconPasswordAria": "пароль RCON",
     "adminPasswordLabel": "Пароль адміністратора",
+    "rconConfigureRequired": "Зміна RCON-хоста, порту чи пароля потребує дозволу server.configure, якого ця роль не має.",
+    "rconPasswordReenter": "Введіть пароль RCON ще раз, щоб використати новий хост або порт: збережений надсилається лише на той хост і порт, для яких його збережено.",
     "adminPasswordTooltip": "Пароль адміністратора сервера, що передається аргументом запуску -adminpassword. Набуває чинності під час наступного запуску сервера.",
     "adminPasswordPlaceholder": "Задайте пароль адміністратора",
     "adminPasswordAria": "пароль адміністратора",

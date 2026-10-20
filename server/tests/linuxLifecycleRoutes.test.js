@@ -21,6 +21,7 @@ vi.mock("../database/init.js", () => ({
 
 vi.mock("../services/permissions.js", () => ({
   requirePermission: () => (_req, _res, next) => next(),
+  requireAnyPermission: () => (_req, _res, next) => next(),
 }));
 
 vi.mock("../services/serverManager.js", () => ({
@@ -62,6 +63,7 @@ vi.mock("../services/linuxServiceLifecycle.js", () => ({
 
 vi.mock("../services/rcon.js", () => ({
   normalizeRconHost: (host) => host,
+  resolveEnvRconHost: () => "127.0.0.1",
   testRconConnection: vi.fn(),
 }));
 

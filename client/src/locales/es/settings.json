@@ -630,7 +630,7 @@
     "showPassword": "Mostrar contraseña",
     "hidePassword": "Ocultar contraseña",
     "passwordsDontMatch": "Las contraseñas no coinciden",
-    "passwordTooShort": "La contraseña debe tener al menos 6 caracteres",
+    "passwordTooShort": "La contraseña debe tener al menos 10 caracteres",
     "changingButton": "Cambiando…",
     "changeButton": "Cambiar contraseña",
     "recoveryCodesTitle": "Códigos de recuperación",
@@ -1138,7 +1138,7 @@
       "title": "Las contraseñas no coinciden"
     },
     "passwordTooShort": {
-      "title": "La contraseña debe tener al menos 6 caracteres"
+      "title": "La contraseña debe tener al menos 10 caracteres"
     },
     "passwordChanged": {
       "title": "Contraseña cambiada",

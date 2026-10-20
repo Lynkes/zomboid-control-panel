@@ -10,6 +10,7 @@ import { Label } from '../components/ui/label'
 import { Checkbox } from '../components/ui/checkbox'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { Eye, EyeOff, Loader2, ArrowLeft, KeyRound } from 'lucide-react'
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from '../lib/passwordPolicy'
 
 type PanelStatus = 'checking' | 'online' | 'unreachable'
 type RecoveryMethod = 'code' | 'token'
@@ -228,8 +229,12 @@ export default function Login() {
       setError(t('errors.resetTokenTooShort'))
       return
     }
-    if (!newPassword || newPassword.length < 6) {
+    if (!newPassword || !meetsPasswordMinLength(newPassword)) {
       setError(t('errors.passwordTooShort'))
+      return
+    }
+    if (exceedsPasswordMaxBytes(newPassword)) {
+      setError(t('PASSWORD_TOO_LONG_BYTES', { ns: 'errors' }))
       return
     }
     if (newPassword !== confirmPassword) {

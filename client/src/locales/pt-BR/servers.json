@@ -250,6 +250,8 @@
     "rconPasswordLabel": "Senha RCON",
     "rconPasswordAria": "Senha RCON",
     "adminPasswordLabel": "Senha de admin",
+    "rconConfigureRequired": "Alterar o host, a porta ou a senha RCON requer a permissão server.configure, que este cargo não tem.",
+    "rconPasswordReenter": "Digite a senha RCON novamente para usar um novo host ou porta: a salva só é enviada ao host e à porta para os quais foi salva.",
     "adminPasswordTooltip": "Senha de admin do servidor, passada como argumento de inicialização -adminpassword. Entra em vigor na próxima inicialização do servidor.",
     "adminPasswordPlaceholder": "Definir senha de admin",
     "adminPasswordAria": "senha de admin",

@@ -995,7 +995,7 @@ export const serverApi = {
     apiPost("/server/install", config),
 
   detectSteamCmd: () =>
-    apiGet("/server/steamcmd/detect") as Promise<{
+    apiPost("/server/steamcmd/detect") as Promise<{
       found: boolean;
       path?: string;
       executable?: string;
@@ -2379,6 +2379,8 @@ export const serversApi = {
       server: ServerInstance;
       message: string;
       warnings?: string[];
+      // The same warnings, each with its code when it has one.
+      warningDetails?: Array<{ error: string; code?: string }>;
     }>,
   getLifecycleTemplate: (
     id: string | number,
@@ -4054,15 +4056,14 @@ export const backupApi = {
   // feedback, but the HTTP request itself stays open for the whole walk +
   // zip of the save directory. Same held-open-request shape as
   // panelUpdateApi.download; a big/modded world can easily exceed the
-  // generic 15s default.
-  createBackup: (options?: {
-    includeDb?: boolean;
-  }): Promise<{
+  // generic 15s default. It takes no options: whether the panel database
+  // goes in (as a redacted copy) is the stored backup setting's decision.
+  createBackup: (): Promise<{
     success: boolean;
     backup?: ServerBackupArchive;
     duration?: number;
     message?: string;
-  }> => apiPost("/backup/create", options || {}, { timeout: 10 * 60 * 1000 }),
+  }> => apiPost("/backup/create", {}, { timeout: 10 * 60 * 1000 }),
 
   // Delete a backup
   deleteBackup: (

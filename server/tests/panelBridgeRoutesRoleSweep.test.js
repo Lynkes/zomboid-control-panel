@@ -188,13 +188,22 @@ describe("panelBridge.js: /commands stays outside the matrix -- static API docum
 // asserts players/path/filePath/stats/queue are explicitly ABSENT, not
 // just that serverName is present, so a field re-added to modStatus later
 // can't silently ride back through unnoticed the way this one did.
-describe("panelBridge.js: /ping stays outside the matrix -- response is now allow-listed, nothing left to gate", () => {
-  it("GET /ping has no requirePermission gate ahead of its handler -- correct now that its response no longer carries modStatus.players/path/filePath (see panelBridgePingModStatusLeak.test.js)", async () => {
+// 2026-10-20 (access-control audit): the response was safe, but a ping
+// still queues a command to the game for any signed-in role. It now takes
+// a bridge capability: bridge.setup or bridge.diagnostics (the two that
+// see /status, which the Settings Ping button already needs) or
+// bridge.command (runs every other bridge action). Moderators hold none.
+describe("panelBridge.js: GET /ping -- a bridge capability", () => {
+  it.each(["admin", "technician"])("admits %s", async (role) => {
     const { default: router } = await import("../routes/panelBridge.js");
-    const layer = router.stack.find(
-      (entry) => entry.route?.path === "/ping" && entry.route.methods.get,
-    );
-    expect(layer.route.stack.length).toBe(1);
+    const { calledNext } = await runGate(router, "/ping", "get", role);
+    expect(calledNext).toBe(true);
+  });
+
+  it("refuses a moderator", async () => {
+    const { default: router } = await import("../routes/panelBridge.js");
+    const { calledNext } = await runGate(router, "/ping", "get", "moderator");
+    expect(calledNext).toBe(false);
   });
 });
 

@@ -340,7 +340,7 @@ describe('Debug.tsx: every automated fix reaches its own real API when granted i
     expect(fixButton).not.toBeDisabled()
 
     fireEvent.click(fixButton)
-    await waitFor(() => expect(createBackup).toHaveBeenCalledWith(expect.objectContaining({ includeDb: true })))
+    await waitFor(() => expect(createBackup).toHaveBeenCalled())
   })
 
   it('backups.manage withheld: the no-recent-backup fix is disabled and never calls backupApi.createBackup', async () => {

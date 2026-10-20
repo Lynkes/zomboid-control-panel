@@ -129,7 +129,7 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
 
   it("params.detail is JUST the joined capability list, not a full sentence -- the shape a future locale template's {{detail}} will interpolate, matching DISCORD_PERMISSIONS_CAPABILITY_REQUIRED's own params.detail precedent", async () => {
     await expect(
-      authService.createUser("newtech", "password123", "technician", {
+      authService.createUser("newtech", "Role-test-pass-91", "technician", {
         actingUserId: "u-support",
       }),
     ).rejects.toMatchObject({
@@ -144,7 +144,7 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
 
   it("refuses a users.manage-only (support) caller minting a brand-new ADMIN account -- the exploit this closes", async () => {
     await expect(
-      authService.createUser("newadmin", "password123", "admin", {
+      authService.createUser("newadmin", "Role-test-pass-91", "admin", {
         actingUserId: "u-support",
       }),
     ).rejects.toMatchObject({
@@ -155,7 +155,7 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
   });
 
   it("allows a users.manage-only (support) caller creating a MODERATOR account -- support's own capabilities are a superset of moderator's, so this is the delegation feature working as intended", async () => {
-    const user = await authService.createUser("newmod", "password123", "moderator", {
+    const user = await authService.createUser("newmod", "Role-test-pass-91", "moderator", {
       actingUserId: "u-support",
     });
     expect(user.role).toBe("moderator");
@@ -163,7 +163,7 @@ describe("createUser() -- refuses creating a user in a role that exceeds the cal
   });
 
   it("allows a real admin caller minting a new admin account -- the fix does not regress the legitimate case", async () => {
-    const user = await authService.createUser("newadmin2", "password123", "admin", {
+    const user = await authService.createUser("newadmin2", "Role-test-pass-91", "admin", {
       actingUserId: "u-admin",
     });
     expect(user.role).toBe("admin");
@@ -392,7 +392,7 @@ describe("the admin role is worth every capability on the target side too", () =
 
   it("refuses the head role minting an admin", async () => {
     await expect(
-      authService.createUser("puppet", "password123", "admin", { actingUserId: "u-head" }),
+      authService.createUser("puppet", "Role-test-pass-91", "admin", { actingUserId: "u-head" }),
     ).rejects.toMatchObject(exceedsGrant);
     await expect(
       authService.changeUserRoleById("u-member", "role-admin", { actingUserId: "u-head" }),
@@ -426,7 +426,7 @@ describe("the admin role is worth every capability on the target side too", () =
 
   it("a real admin still does all of it", async () => {
     await expect(
-      authService.createUser("newadmin", "password123", "admin", { actingUserId: "u-owner" }),
+      authService.createUser("newadmin", "Role-test-pass-91", "admin", { actingUserId: "u-owner" }),
     ).resolves.toMatchObject({ role: "admin" });
     await expect(
       authService.changeUserRoleById("u-member", "role-admin", { actingUserId: "u-owner" }),

@@ -159,7 +159,7 @@
       },
       "world_events": {
         "label": "Executar eventos do mundo",
-        "description": "Clima e condições climáticas, hora do dia, som ambiente, hordas de zumbis (removê-las, não gerá-las contra alguém), energia e água, configurações visuais e mensagens de transmissão atribuídas ao servidor — efeitos no mundo inteiro, não direcionados a um jogador específico. Gerar zumbis ou efeitos sonoros perto de um jogador específico, relâmpagos ou trovões direcionados e se passar por um jogador no chat são uma permissão separada, players.endanger_or_impersonate."
+        "description": "Clima e condições climáticas, hora do dia, som ambiente, alarmes, tiros e helicópteros no mundo inteiro, hordas de zumbis (removê-las, não gerá-las contra alguém), liberação de abrigos (safehouses), energia e água, configurações visuais e mensagens de transmissão atribuídas ao servidor — efeitos no mundo inteiro, não direcionados a um jogador específico. Também lê o log do console do servidor ao vivo (e sua contagem de erros) e a verificação de atualizações do jogo. Gerar zumbis ou efeitos sonoros perto de um jogador específico, relâmpagos ou trovões direcionados e se passar por um jogador no chat são uma permissão separada, players.endanger_or_impersonate."
       }
     },
     "rcon": {

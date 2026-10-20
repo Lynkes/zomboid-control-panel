@@ -153,6 +153,7 @@ import {
 } from "@/hooks/useBackupScheduleCheck";
 import { BridgeDeliveryPanel } from "@/components/bridge/BridgeDeliveryPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from "@/lib/passwordPolicy";
 import {
   Dialog,
   DialogContent,
@@ -2843,11 +2844,15 @@ export default function Settings() {
       toast({ title: t("toasts.passwordsDontMatch.title"), variant: "destructive" });
       return;
     }
-    if (newPassword.length < 6) {
+    if (!meetsPasswordMinLength(newPassword)) {
       toast({
         title: t("toasts.passwordTooShort.title"),
         variant: "destructive",
       });
+      return;
+    }
+    if (exceedsPasswordMaxBytes(newPassword)) {
+      toast({ title: t("PASSWORD_TOO_LONG_BYTES", { ns: "errors" }), variant: "destructive" });
       return;
     }
     setChangingPassword(true);
@@ -2963,11 +2968,15 @@ export default function Settings() {
       toast({ title: t("toasts.passwordsDontMatch.title"), variant: "destructive" });
       return;
     }
-    if (localPasswordResetPassword.length < 6) {
+    if (!meetsPasswordMinLength(localPasswordResetPassword)) {
       toast({
         title: t("toasts.passwordTooShort.title"),
         variant: "destructive",
       });
+      return;
+    }
+    if (exceedsPasswordMaxBytes(localPasswordResetPassword)) {
+      toast({ title: t("PASSWORD_TOO_LONG_BYTES", { ns: "errors" }), variant: "destructive" });
       return;
     }
 
@@ -6439,7 +6448,7 @@ export default function Settings() {
                         )
                           return;
                         if (newPassword !== confirmPassword) return;
-                        if (newPassword.length < 6) return;
+                        if (!meetsPasswordMinLength(newPassword)) return;
                         handleChangePassword();
                       }}
                     >
@@ -6528,7 +6537,7 @@ export default function Settings() {
                             <XCircle className="w-3 h-3" /> {t("security.passwordsDontMatch")}
                           </p>
                         )}
-                      {newPassword && newPassword.length < 6 && (
+                      {newPassword && !meetsPasswordMinLength(newPassword) && (
                         <p
                           className="text-xs text-destructive flex items-center gap-1"
                           role="alert"
@@ -6544,7 +6553,7 @@ export default function Settings() {
                           !newPassword ||
                           !confirmPassword ||
                           newPassword !== confirmPassword ||
-                          newPassword.length < 6
+                          !meetsPasswordMinLength(newPassword)
                         }
                         className="gap-2"
                       >
@@ -6820,7 +6829,7 @@ export default function Settings() {
                                       </p>
                                     )}
                                   {localPasswordResetPassword &&
-                                    localPasswordResetPassword.length < 6 && (
+                                    !meetsPasswordMinLength(localPasswordResetPassword) && (
                                       <p
                                         className="text-xs text-destructive flex items-center gap-1"
                                         role="alert"
@@ -6839,7 +6848,7 @@ export default function Settings() {
                                       !localPasswordResetConfirm ||
                                       localPasswordResetPassword !==
                                         localPasswordResetConfirm ||
-                                      localPasswordResetPassword.length < 6
+                                      !meetsPasswordMinLength(localPasswordResetPassword)
                                     }
                                   >
                                     {resettingLocalPassword ? (

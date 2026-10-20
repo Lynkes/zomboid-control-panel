@@ -684,6 +684,8 @@ export default function WorldMap() {
   const canRunBridgeCommand = can('bridge.command')
   const canWorldEvents = can('server.world_events')
   const canGmTools = can('players.gm_tools')
+  // GET /map/vehicles (vehicles parked in the save) is players.view's.
+  const canViewPlayers = can('players.view')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
@@ -1618,7 +1620,7 @@ export default function WorldMap() {
         // BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS's own comment for the
         // client/server timeout race this sizing avoids losing.
         showVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed', {}, { timeout: BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS }) : Promise.resolve(null),
-        showVehicles ? mapApi.vehicles() : Promise.resolve(null),
+        showVehicles && canViewPlayers ? mapApi.vehicles() : Promise.resolve(null),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
       if (!mountedRef.current || overlaysGuard.isStale(requestId)) return
@@ -1651,7 +1653,7 @@ export default function WorldMap() {
     } finally {
       overlayFetchGateRef.current.leave()
     }
-  }, [hasActiveServer, showVehicles, overlaysGuard])
+  }, [hasActiveServer, showVehicles, canViewPlayers, overlaysGuard])
   useEffect(() => { fetchOverlaysRef.current = fetchOverlays }, [fetchOverlays])
 
   // ─── Polling ────────────────────────────────────────────

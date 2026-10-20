@@ -248,6 +248,8 @@
     "rconPasswordLabel": "Mot de passe RCON",
     "rconPasswordAria": "Mot de passe RCON",
     "adminPasswordLabel": "Mot de passe admin",
+    "rconConfigureRequired": "Modifier l'hôte, le port ou le mot de passe RCON nécessite la permission server.configure, que ce rôle ne possède pas.",
+    "rconPasswordReenter": "Saisissez à nouveau le mot de passe RCON pour utiliser un nouvel hôte ou port : celui enregistré n'est envoyé qu'à l'hôte et au port pour lesquels il a été enregistré.",
     "adminPasswordTooltip": "Mot de passe admin du serveur transmis comme argument de lancement -adminpassword. Prend effet au prochain démarrage du serveur.",
     "adminPasswordPlaceholder": "Définir le mot de passe admin",
     "adminPasswordAria": "mot de passe admin",

@@ -4364,16 +4364,13 @@ async function start() {
       console.log("  ║     Password Reset (CLI Mode)        ║");
       console.log("  ╚══════════════════════════════════════╝");
       console.log(`\n  Admin account: ${users[0].username}`);
-      const newPassword = await ask("  Enter new password (min 6 chars): ");
+      // The same rules as every new panel password (services/passwordPolicy.js).
+      const { PASSWORD_MIN_LENGTH, newPasswordProblem } = await import("./services/passwordPolicy.js");
+      const newPassword = await ask(`  Enter new password (min ${PASSWORD_MIN_LENGTH} chars): `);
 
-      if (!newPassword || newPassword.length < 6) {
-        console.log("  ERROR: Password must be at least 6 characters.\n");
-        rl.close();
-        process.exit(1);
-      }
-
-      if (newPassword.length > 128) {
-        console.log("  ERROR: Password must be 128 characters or fewer.\n");
+      const passwordProblem = newPasswordProblem(newPassword || "");
+      if (passwordProblem) {
+        console.log(`  ERROR: ${passwordProblem.message}.\n`);
         rl.close();
         process.exit(1);
       }

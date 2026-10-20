@@ -630,7 +630,7 @@
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
     "passwordsDontMatch": "Les mots de passe ne correspondent pas",
-    "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères",
+    "passwordTooShort": "Le mot de passe doit comporter au moins 10 caractères",
     "changingButton": "Changement...",
     "changeButton": "Changer le mot de passe",
     "recoveryCodesTitle": "Codes de récupération",
@@ -1138,7 +1138,7 @@
       "title": "Les mots de passe ne correspondent pas"
     },
     "passwordTooShort": {
-      "title": "Le mot de passe doit comporter au moins 6 caractères"
+      "title": "Le mot de passe doit comporter au moins 10 caractères"
     },
     "passwordChanged": {
       "title": "Mot de passe modifié",

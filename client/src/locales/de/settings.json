@@ -629,7 +629,7 @@
     "showPassword": "Passwort anzeigen",
     "hidePassword": "Passwort verbergen",
     "passwordsDontMatch": "Passwörter stimmen nicht überein",
-    "passwordTooShort": "Das Passwort muss mindestens 6 Zeichen umfassen",
+    "passwordTooShort": "Das Passwort muss mindestens 10 Zeichen umfassen",
     "changingButton": "Wird geändert...",
     "changeButton": "Passwort ändern",
     "recoveryCodesTitle": "Wiederherstellungscodes",
@@ -1136,7 +1136,7 @@
       "title": "Passwörter stimmen nicht überein"
     },
     "passwordTooShort": {
-      "title": "Passwort muss mindestens 6 Zeichen lang sein"
+      "title": "Passwort muss mindestens 10 Zeichen lang sein"
     },
     "passwordChanged": {
       "title": "Passwort geändert",

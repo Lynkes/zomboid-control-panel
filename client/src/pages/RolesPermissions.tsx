@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ShieldCheck, ShieldAlert, Plus, Pencil, Trash2, Loader2, Lock, ChevronDown } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, Plus, Pencil, Trash2, Loader2, Lock, ChevronDown, AlertTriangle } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
@@ -30,6 +30,8 @@ import {
 } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { isDemoMode } from '@/lib/demo'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import {
   permissionsApi,
@@ -71,7 +73,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
   const { t } = useTranslation(['roles', 'errors'])
   const { toast } = useToast()
   const confirm = useConfirm()
-  const { can } = useAuth()
+  const { can, authEnabled } = useAuth()
 
   // Moving a deleted role's members onto another role is assigning it to
   // them, so deleteRole() (server/services/permissions.js) refuses any
@@ -526,6 +528,16 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
             ) : undefined
           }
         />
+      )}
+
+      {/* Account and role changes wait for panel logins (server/middleware/
+          requireLoginsOn.js): made while they are off, they would outlive it. The
+          public demo runs with logins off and mocks every write: no note there. */}
+      {!authEnabled && !isDemoMode() && !permissionDenied && (
+        <Alert variant="warning">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>{t('errors:ACCOUNT_CHANGES_NEED_LOGINS')}</AlertDescription>
+        </Alert>
       )}
 
       {permissionDenied ? (

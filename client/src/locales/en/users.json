@@ -49,7 +49,7 @@
     "usernamePlaceholder": "e.g. jsmith",
     "usernameHint": "Use a local username, not an email address. Link Google/SSO after creating the account.",
     "passwordLabel": "Password",
-    "passwordHint": "Use at least 6 characters.",
+    "passwordHint": "Use at least 10 characters.",
     "confirmPasswordLabel": "Confirm password",
     "roleLabel": "Role",
     "roleTip": "Sets what this account can do from the moment it signs in — the exact list of allowed actions lives in Roles & Permissions, not here. You can change it any time after creating the account, so a close guess is fine now.",

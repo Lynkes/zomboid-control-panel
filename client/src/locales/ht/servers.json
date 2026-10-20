@@ -248,6 +248,8 @@
     "rconPasswordLabel": "Modpas RCON",
     "rconPasswordAria": "Modpas RCON",
     "adminPasswordLabel": "Modpas Admin",
+    "rconConfigureRequired": "Pou chanje lame, pò oswa modpas RCON an, ou bezwen pèmisyon server.configure, e wòl sa a pa genyen li.",
+    "rconPasswordReenter": "Antre modpas RCON an ankò pou itilize yon nouvo lame oswa pò: sa ki anrejistre a voye sèlman bay lame ak pò li te anrejistre pou yo a.",
     "adminPasswordTooltip": "Modpas admin sèvè a pase kòm agiman lanse -adminpassword. Pran efè nan pwochen demaraj sèvè a.",
     "adminPasswordPlaceholder": "Defini modpas admin",
     "adminPasswordAria": "modpas admin",
