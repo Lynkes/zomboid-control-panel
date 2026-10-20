@@ -182,11 +182,13 @@
     "stepLocked": "Schließe zuerst den aktuellen Schritt ab"
   },
   "management": {
-    "pageHeaderTitle": "Discord-Bot",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Discord-Bot, Slash-Commands und Ereignisbenachrichtigungen verwalten",
     "statusRunning": "Läuft",
     "statusStopped": "Gestoppt",
     "refreshAria": "Status aktualisieren",
+    "setupGuide": "Einrichtungsanleitung",
+    "closeGuide": "Zurück zu den Bot-Einstellungen",
     "botStatus": {
       "title": "Bot-Status",
       "runtimeLabel": "Laufzeit",

@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "帳號",
+    "title": "面板帳號",
     "role": "角色",
     "created": "建立時間",
     "lastSignIn": "上次登入",
     "never": "從未",
     "actions": "操作",
+    "rowActions": "{{username}} 的操作",
     "removeTooltip": "移除 {{username}}",
     "linkSsoTooltip": "將 SSO 連結至 {{username}}",
     "unlinkSsoTooltip": "解除 {{username}} 的 SSO 連結",

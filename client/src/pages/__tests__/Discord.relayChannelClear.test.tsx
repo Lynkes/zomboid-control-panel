@@ -134,12 +134,16 @@ describe('Discord.tsx: emptying the relay channel clears it', () => {
   })
 
   it('legit: an untouched relay channel is resent as stored, and none stays none', async () => {
+    // Save shows only once the form has an edit: change another field.
+    const editAutoStart = () => fireEvent.click(screen.getByRole('switch', { name: /Auto-start on panel launch/ }))
     await renderWithRelayChannel(RELAY_CHANNEL)
+    editAutoStart()
     expect(await savedConfigBody()).toHaveProperty('chatRelayChannelId', RELAY_CHANNEL)
 
     cleanup()
     vi.mocked(fetch).mockClear()
     await renderWithRelayChannel('')
+    editAutoStart()
     expect(await savedConfigBody()).toHaveProperty('chatRelayChannelId', '')
   })
 })

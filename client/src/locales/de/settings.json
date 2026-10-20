@@ -40,7 +40,7 @@
     "general": {
       "label": "Allgemein",
       "tip": "Panel-Port, Neustart und Erscheinungsbild",
-      "description": "Port, auf dem diese Verwaltungsoberfläche lauscht, sowie das Design."
+      "description": "Panel-Port und Neustart, Design, Datumsformat und Wertebereiche der Einstellungen."
     },
     "updates": {
       "label": "Updates",
@@ -80,7 +80,7 @@
     "backups": {
       "label": "Backups",
       "tip": "Zeitplan für Welt-Backups und Charakterexporte",
-      "description": "Automatische Welt-Backups und Exportkopien pro Charakter."
+      "description": "Kopien exportierter Charaktere. Welt-Backups und ihr Zeitplan liegen unter Welt-Backups."
     },
     "about": {
       "label": "Info",
@@ -90,7 +90,7 @@
     "users": {
       "label": "Benutzer",
       "tip": "Panel-Konten und ihre zugewiesenen Rollen",
-      "description": "Panel-Konten anlegen, entfernen und ihre Rolle ändern."
+      "description": "Panel-Konten anlegen und entfernen. Welche Rolle ein Konto hat, legst du unter Rollen und Berechtigungen fest."
     },
     "roles": {
       "label": "Rollen und Berechtigungen",
@@ -98,7 +98,7 @@
       "description": "Welche Berechtigungen jede Rolle gewährt und welche Panel-Konten sie besitzen."
     },
     "sso": {
-      "label": "Anmeldung",
+      "label": "Single Sign-on",
       "tip": "Single-Sign-on-Anbieter (OIDC)",
       "description": "Panel-Konten die Anmeldung über einen externen Identitätsanbieter ermöglichen."
     }
@@ -141,8 +141,8 @@
     "ymd": "Jahr-Monat-Tag ({{example}})"
   },
   "general": {
-    "cardTitle": "Panel-Einstellungen",
-    "cardDescription": "Port, auf dem dieses Panel lauscht, und wie es aussieht.",
+    "cardTitle": "Port und Neustart",
+    "cardDescription": "Der Port, auf dem dieses Panel lauscht, und der Neustart des Panels, um ihn zu übernehmen.",
     "portLabel": "Panel-Port",
     "portHelp": "Port, über den auf das Panel zugegriffen wird (Standard: 3001).",
     "restartRequiredTitle": "Neustart erforderlich",
@@ -346,7 +346,7 @@
     "reverseProxyTitle": "Hinweis zum Reverse Proxy",
     "reverseProxyDesc": "Wenn TLS von Nginx, Caddy oder Cloudflare Tunnel terminiert wird, lass HTTPS im Panel deaktiviert und leite lokales HTTP per Proxy weiter.",
     "restartRequiredTitle": "Neustart erforderlich",
-    "restartRequiredDesc": "HTTPS-Änderungen erfordern einen Neustart. Speichere zuerst und starte dann über die Paneleinstellungen neu.",
+    "restartRequiredDesc": "HTTPS-Änderungen erfordern einen Neustart. Speichere zuerst und starte dann unter Einstellungen › Allgemein neu.",
     "certPathPlaceholder": "Path to the certificate PEM file",
     "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
@@ -393,6 +393,7 @@
     "sectionRemoteConfigLogs": "Remote-Konfiguration & Protokolle",
     "sectionInstallUpdates": "Installation & Updates",
     "howItWorksButton": "Funktionsweise",
+    "openInDiagnostics": "In Diagnose öffnen",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "Eine Lua-Mod, die innerhalb von Project Zomboid läuft und diesem Panel direkten Zugriff auf die laufende Spielwelt gibt.",
     "unlocksTitle": "Was du damit freischaltest",
@@ -611,6 +612,9 @@
     "backupsPathLabel": "Backups:",
     "characterExportsCardTitle": "Charakterexporte",
     "characterExportsCardDesc": "Charakterkopien pro Spieler, getrennt von den Welt-Backups gespeichert.",
+    "worldBackupsLinkTitle": "Welt-Backups",
+    "worldBackupsLinkDesc": "Automatische Backups, ihr Zeitplan, wie viele behalten werden, Wiederherstellen und Herunterladen: alles auf der Seite Welt-Backups.",
+    "openWorldBackups": "Welt-Backups öffnen",
     "autoExportLabel": "Charakter beim Beitritt eines Spielers exportieren",
     "autoExportDesc": "Läuft etwa zehn Sekunden nachdem der Spieler geladen wurde, sodass ein einzelner Charakter wiederhergestellt werden kann, ohne die Welt zurückzusetzen. Erfordert eine Verbindung zu PanelBridge.",
     "copiesKeptLabel": "Aufbewahrte Kopien pro Spieler",
@@ -703,6 +707,7 @@
       "label": "Geplante Aufgaben",
       "detail": "Neustarts, Ankündigungen und wiederkehrende Befehle."
     },
+    "elsewhereBackups": { "label": "Welt-Backups", "detail": "Backup-Zeitplan, wie viele behalten werden, Wiederherstellen und Herunterladen." },
     "elsewhereServerConfig": {
       "label": "Spielserverkonfiguration",
       "detail": "Server-INI-Optionen und Sandbox-Regeln."
@@ -711,7 +716,7 @@
       "label": "Chat-Schnellnachrichten",
       "detail": "Vordefinierte Nachrichten, die über der Chat-Eingabe angezeigt werden."
     },
-    "aboutCardTitle": "Info",
+    "aboutCardTitle": "Version und Links",
     "aboutCardDesc": "Panelversion, Laufzeitinfos und hilfreiche Links.",
     "installedVersionLabel": "Installierte Version",
     "latestAvailableLabel": "Neueste verfügbare Version",

@@ -182,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Discord Bot",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Manage your Discord bot, slash commands, and event notifications",
     "statusRunning": "Running",
     "statusStopped": "Stopped",
     "refreshAria": "Refresh status",
+    "setupGuide": "Setup guide",
+    "closeGuide": "Back to bot settings",
     "botStatus": {
       "title": "Bot Status",
       "runtimeLabel": "Runtime",

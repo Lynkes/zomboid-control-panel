@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "调试与日志",
+    "title": "诊断",
     "description": "本面板的实时诊断、近期历史记录及环境详情"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "日志",
     "crashes": "崩溃记录",
     "health": "实时状态",
-    "system": "环境"
+    "system": "环境",
+    "ariaLabel": "诊断分区",
+    "groups": {
+      "now": "当前",
+      "history": "历史",
+      "system": "系统"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "选择或配置一个具有有效安装路径的活动服务器。"
     },
     "serverZomboidData": {
-      "label": "打开设置",
-      "note": "在设置中配置 Zomboid 数据路径。"
+      "label": "打开服务器列表",
+      "note": "在“服务器列表”页面编辑此服务器时设置 Zomboid 数据文件夹。"
     },
     "serverStartScriptOrJre": {
       "label": "打开服务器查找器",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "打开服务器配置",
-      "note": "在服务器配置中设置 RCON 密码（并在设置中填入相同的值）。"
+      "note": "在服务器配置中设置 RCON 密码，并在“服务器列表”页面编辑此服务器时填入相同的值。"
     },
     "serverBridgeMod": {
       "label": "打开「设置 › PanelBridge」",

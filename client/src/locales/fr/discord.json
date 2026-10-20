@@ -182,11 +182,13 @@
     "stepLocked": "Terminez d'abord l'étape en cours"
   },
   "management": {
-    "pageHeaderTitle": "Bot Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Gérez votre bot Discord, ses commandes slash et ses notifications d'événements",
     "statusRunning": "En cours",
     "statusStopped": "Arrêté",
     "refreshAria": "Actualiser l'état",
+    "setupGuide": "Guide de configuration",
+    "closeGuide": "Retour aux réglages du bot",
     "botStatus": {
       "title": "État du bot",
       "runtimeLabel": "Exécution",

@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Обліковий запис",
+    "title": "Облікові записи панелі",
     "role": "Роль",
     "created": "Створено",
     "lastSignIn": "Останній вхід",
     "never": "Ніколи",
     "actions": "Дії",
+    "rowActions": "Дії для {{username}}",
     "removeTooltip": "Видалити {{username}}",
     "linkSsoTooltip": "Пов’язати SSO з {{username}}",
     "unlinkSsoTooltip": "Від’єднати SSO від {{username}}",

@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "Identidad",
-    "title": "Inicio de sesión",
+    "title": "Inicio de sesión único",
     "description": "Permite iniciar sesión con una cuenta existente de un proveedor de identidad (Google Workspace, Okta, Authentik y similares), en lugar de — nunca en sustitución de — un nombre de usuario y contraseña. El inicio de sesión local siempre sigue funcionando."
   },
   "loading": "Cargando ajustes de inicio de sesión…",

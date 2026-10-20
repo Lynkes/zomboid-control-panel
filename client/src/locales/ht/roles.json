@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Kapasite",
+    "title": "Kapasite pa wòl",
     "scrollHint": "Woule adwat pou wè tout wòl yo →",
     "seededBadge": "Entegre",
     "memberCount_one": "{{count}} manm",

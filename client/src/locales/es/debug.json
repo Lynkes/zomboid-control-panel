@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Depuración y registros",
+    "title": "Diagnóstico",
     "description": "Diagnósticos en tiempo real, historial reciente y detalles del entorno de este panel"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Registros",
     "crashes": "Fallos",
     "health": "Estado en vivo",
-    "system": "Entorno"
+    "system": "Entorno",
+    "ariaLabel": "Secciones de diagnóstico",
+    "groups": {
+      "now": "Ahora",
+      "history": "Historial",
+      "system": "Sistema"
+    }
   },
   "fixActions": {
     "links": {
@@ -90,8 +96,8 @@
       "note": "Seleccionar o configurar un servidor activo con una ruta de instalación válida."
     },
     "serverZomboidData": {
-      "label": "Abrir ajustes",
-      "note": "Configurar la ruta de datos de Zomboid en Ajustes."
+      "label": "Abrir servidores",
+      "note": "Configurar la carpeta de datos de Zomboid al editar este servidor en la página Servidores."
     },
     "serverStartScriptOrJre": {
       "label": "Abrir buscador de servidores",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Abrir configuración del servidor",
-      "note": "Configurar la contraseña de RCON en la configuración del servidor (y el valor correspondiente en Ajustes)."
+      "note": "Configurar la contraseña de RCON en la configuración del servidor, y el mismo valor al editar este servidor en la página Servidores."
     },
     "serverBridgeMod": {
       "label": "Abrir Ajustes › PanelBridge",

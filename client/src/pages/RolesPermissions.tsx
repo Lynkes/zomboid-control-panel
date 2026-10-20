@@ -1,11 +1,12 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ShieldCheck, ShieldAlert, Plus, Pencil, Trash2, Loader2, Lock, ChevronDown, AlertTriangle } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, Plus, Pencil, Trash2, Loader2, Lock, ChevronDown, AlertTriangle, Users as UsersIcon } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { SectionCard } from '@/components/ui/section-card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -491,43 +492,34 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
   }
 
   if (loading) {
-    return (
-      <PageSkeleton
-        variant="list"
-        eyebrow={t('pageHeader.eyebrow')}
-        title={t('pageHeader.title')}
-        description={t('pageHeader.description')}
-      />
+    // Inside Settings the page header is already there ("Settings › Roles &
+    // Permissions"): a compact matrix skeleton, not a second page skeleton.
+    return embedded ? (
+      <div role="status" aria-busy="true" aria-label={t('loading')} className="rounded-xl border border-border/60 bg-card">
+        <div className="flex gap-4 border-b border-border/40 bg-muted/40 p-3">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 border-b border-border/30 p-3 last:border-0">
+            <Skeleton className="h-4 w-48" />
+            <Skeleton className="ms-auto h-4 w-4" />
+            <Skeleton className="h-4 w-4" />
+            <Skeleton className="h-4 w-4" />
+          </div>
+        ))}
+      </div>
+    ) : (
+      <PageSkeleton variant="list" title={t('pageHeader.title')} description={t('pageHeader.description')} />
     )
   }
 
   return (
-    <div className={embedded ? 'space-y-4' : 'space-y-6 page-transition'}>
-      {embedded ? (
-        !permissionDenied && (
-          <div className="flex justify-end">
-            <Button ref={addRoleButtonRef} onClick={openCreateDialog}>
-              <Plus className="h-4 w-4" />
-              {t('toolbar.newRole')}
-            </Button>
-          </div>
-        )
-      ) : (
-        <PageHeader
-          eyebrow={t('pageHeader.eyebrow')}
-          title={t('pageHeader.title')}
-          description={t('pageHeader.description')}
-          icon={<ShieldCheck className="h-6 w-6" />}
-          tone="config"
-          actions={
-            !permissionDenied ? (
-              <Button ref={addRoleButtonRef} onClick={openCreateDialog}>
-                <Plus className="h-4 w-4" />
-                {t('toolbar.newRole')}
-              </Button>
-            ) : undefined
-          }
-        />
+    <div className={embedded ? 'space-y-6' : 'space-y-6 page-transition'}>
+      {!embedded && (
+        <PageHeader title={t('pageHeader.title')} description={t('pageHeader.description')} />
       )}
 
       {/* Account and role changes wait for panel logins (server/middleware/
@@ -556,8 +548,18 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
         />
       ) : (
         <>
-          <Card>
-            <CardContent className="p-0">
+          <SectionCard
+            flush
+            icon={ShieldCheck}
+            title={t('matrix.title')}
+            description={embedded ? t('pageHeader.description') : undefined}
+            actions={
+              <Button ref={addRoleButtonRef} size="sm" onClick={openCreateDialog}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                {t('toolbar.newRole')}
+              </Button>
+            }
+          >
               {roles.length > 1 && (
                 <p className="border-b border-border/60 bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground sm:hidden">
                   {t('matrix.scrollHint')}
@@ -567,7 +569,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 <table className="w-full min-w-[720px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-border/60">
-                      <th className="sticky left-0 top-0 z-30 border-b border-border/60 bg-muted px-3 py-2 text-start align-top text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      <th className="label-micro sticky start-0 top-0 z-30 border-b border-border/60 bg-muted px-3 py-2 text-start align-top">
                         {t('matrix.capabilityColumnHeader')}
                       </th>
                       {roles.map((role) => (
@@ -657,7 +659,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                       return (
                       <Fragment key={group.group}>
                         <tr className="border-t border-border/50 bg-muted/30">
-                          <td colSpan={roles.length + 1} className="sticky left-0 bg-muted/30 p-0">
+                          <td colSpan={roles.length + 1} className="sticky start-0 bg-muted/30 p-0">
                             <button
                               type="button"
                               onClick={() => toggleGroup(group.group)}
@@ -679,7 +681,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                         </tr>
                         {!collapsed && group.capabilities.map((cap) => (
                           <tr key={cap.key} className="border-b border-border/30 last:border-0 hover:bg-muted/10">
-                            <td className="sticky left-0 z-10 bg-card px-3 py-2 align-middle">
+                            <td className="sticky start-0 z-10 bg-card px-3 py-2 align-middle">
                               <div className="flex items-center gap-1.5">
                                 <span className="font-medium text-foreground">{capabilityLabel(cap)}</span>
                                 {/* impeccable-2026-08-31: this used to be a permanently-visible
@@ -726,15 +728,13 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
+          </SectionCard>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('userAssignment.title')}</CardTitle>
-              <CardDescription>{t('userAssignment.description')}</CardDescription>
-            </CardHeader>
-            <CardContent>
+          <SectionCard
+            icon={UsersIcon}
+            title={t('userAssignment.title')}
+            description={t('userAssignment.description')}
+          >
               {usersDenied ? (
                 <EmptyState
                   compact
@@ -761,9 +761,9 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-border/60 text-start text-xs uppercase tracking-wide text-muted-foreground">
-                        <th className="px-3 py-2">{t('userAssignment.usernameColumn')}</th>
-                        <th className="px-3 py-2">{t('userAssignment.roleColumn')}</th>
+                      <tr className="border-b border-border/60 text-start">
+                        <th className="label-micro px-3 py-2 text-start">{t('userAssignment.usernameColumn')}</th>
+                        <th className="label-micro px-3 py-2 text-start">{t('userAssignment.roleColumn')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -803,8 +803,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
                   </table>
                 </div>
               )}
-            </CardContent>
-          </Card>
+          </SectionCard>
         </>
       )}
 
@@ -832,7 +831,7 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
             <div className="space-y-3">
               {groups.map((group) => (
                 <div key={group.group}>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <p className="label-micro mb-1.5">
                     {groupLabel(group.group)}
                   </p>
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">

@@ -182,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "بوت Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "أدر بوت Discord لديك وأوامر السلاش وإشعارات الأحداث",
     "statusRunning": "يعمل",
     "statusStopped": "متوقّف",
     "refreshAria": "تحديث الحالة",
+    "setupGuide": "دليل الإعداد",
+    "closeGuide": "العودة إلى إعدادات البوت",
     "botStatus": {
       "title": "حالة البوت",
       "runtimeLabel": "حالة التشغيل",

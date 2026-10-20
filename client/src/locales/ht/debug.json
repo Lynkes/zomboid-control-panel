@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Debogaj & Jounal",
+    "title": "Dyagnostik",
     "description": "Dyagnostik an tan reyèl, istorik resan, ak detay anviwònman pou panèl sa a"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Jounal",
     "crashes": "Kraze",
     "health": "Estati an Dirèk",
-    "system": "Anviwònman"
+    "system": "Anviwònman",
+    "ariaLabel": "Seksyon dyagnostik yo",
+    "groups": {
+      "now": "Kounye a",
+      "history": "Istorik",
+      "system": "Sistèm"
+    }
   },
   "fixActions": {
     "links": {
@@ -90,8 +96,8 @@
       "note": "Chwazi oswa konfigire yon sèvè aktif ak yon chemen enstalasyon valab."
     },
     "serverZomboidData": {
-      "label": "Louvri Paramèt",
-      "note": "Defini chemen done Zomboid nan Paramèt."
+      "label": "Louvri Sèvè",
+      "note": "Defini dosye done Zomboid la lè w ap modifye sèvè sa a nan paj Sèvè yo."
     },
     "serverStartScriptOrJre": {
       "label": "Louvri Chèchè Sèvè",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Louvri Konfigirasyon Sèvè",
-      "note": "Defini modpas RCON nan Konfigirasyon Sèvè (ak menm valè a nan Paramèt)."
+      "note": "Defini modpas RCON nan Konfigirasyon Sèvè, ak menm valè a lè w ap modifye sèvè sa a nan paj Sèvè yo."
     },
     "serverBridgeMod": {
       "label": "Louvri Paramèt › PanelBridge",

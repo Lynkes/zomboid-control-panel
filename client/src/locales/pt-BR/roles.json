@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Permissão",
+    "title": "Permissões por cargo",
     "scrollHint": "Role para a direita para ver todos os cargos →",
     "seededBadge": "Predefinido",
     "memberCount_one": "{{count}} membro",
