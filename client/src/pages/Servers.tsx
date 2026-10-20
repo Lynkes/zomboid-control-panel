@@ -541,7 +541,8 @@ export default function Servers() {
     setOperation: setSteamOperation,
     steamcmdPath,
     setSteamcmdPath,
-    installedBranch: updateInfo?.installed?.branch,
+    // The update check reads the ACTIVE server's install only.
+    installedBranch: steamOperation?.server.isActive ? updateInfo?.installed?.branch : undefined,
     t,
   })
 
@@ -1692,8 +1693,10 @@ export default function Servers() {
     // Prefer the branch that's actually installed on disk (from steamcmd appmanifest),
     // then fall back to the server's stored branch, then to Steam's default 'public'.
     // Steam's stable branch is named 'public'; map legacy 'stable' to it so it matches the fetched list.
+    // The update check only reads the ACTIVE server's install: for any other
+    // server it would preselect a branch that isn't that server's.
     const normalize = (v: string | undefined | null) => (v || '').trim().toLowerCase()
-    const installed = normalize(updateInfo?.installed?.branch)
+    const installed = server.isActive ? normalize(updateInfo?.installed?.branch) : ''
     const stored = normalize(server.branch)
     const pick = installed || stored
     const initialBranch = !pick || pick === 'stable' ? 'public' : pick
