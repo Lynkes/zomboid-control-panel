@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react'
+import { Fragment, useId, type ReactNode } from 'react'
 import { MoreHorizontal, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -39,6 +39,7 @@ export function RowActions({ primary, items, ariaLabel, className }: RowActionsP
   const regular = items.filter((item) => !item.destructive)
   const destructive = items.filter((item) => item.destructive)
   const groups = [regular, destructive].filter((group) => group.length > 0)
+  const hintIdPrefix = useId()
 
   return (
     <div className={cn('flex shrink-0 items-center gap-1', className)}>
@@ -56,9 +57,13 @@ export function RowActions({ primary, items, ariaLabel, className }: RowActionsP
                 {index > 0 && <DropdownMenuSeparator />}
                 {group.map((item) => {
                   const Icon = item.icon
+                  // The hint describes the item; the label stays its name.
+                  const hintId = !item.disabled && item.hint ? `${hintIdPrefix}-${item.label}` : undefined
                   return (
                     <DropdownMenuItem
                       key={item.label}
+                      aria-label={hintId ? item.label : undefined}
+                      aria-describedby={hintId}
                       disabled={item.disabled}
                       onSelect={item.onSelect}
                       className={cn(
@@ -75,7 +80,7 @@ export function RowActions({ primary, items, ariaLabel, className }: RowActionsP
                           <span className="text-xs font-normal text-muted-foreground">{item.reason}</span>
                         )}
                         {!item.disabled && item.hint && (
-                          <span className="text-xs font-normal text-muted-foreground">{item.hint}</span>
+                          <span id={hintId} className="text-xs font-normal text-muted-foreground">{item.hint}</span>
                         )}
                       </span>
                     </DropdownMenuItem>
