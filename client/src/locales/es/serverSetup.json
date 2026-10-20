@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "Nuevo servidor",
-    "title": "Configuración del servidor",
     "description": "Elige cómo quieres poner en línea un servidor de Project Zomboid.",
     "fullCard": {
-      "recommendedBadge": "Recomendado",
-      "title": "Instalación nueva",
-      "description": "Descarga y configura un servidor dedicado nuevo desde cero",
       "bullet1": "Descarga los archivos del servidor mediante SteamCMD",
       "bullet1Size": "(~3 GB)",
       "bullet2": "Elige la rama de versión del juego",
-      "bullet3": "Genera automáticamente los archivos de configuración e inicio",
-      "cta": "Comenzar instalación"
+      "bullet3": "Genera automáticamente los archivos de configuración e inicio"
     },
     "quickCard": {
-      "title": "Usar archivos existentes",
-      "description": "Registra un servidor con archivos ya descargados",
       "bullet1": "No requiere descarga",
       "bullet2": "Apunta a una carpeta de servidor de PZ existente",
-      "bullet3": "Configuración rápida en 3 pasos",
-      "cta": "Registrar servidor"
+      "bullet3": "Configuración rápida en 3 pasos"
     },
     "tips": {
       "title": "¿No sabes cuál elegir?",
-      "description": "Si nunca has configurado un servidor de Project Zomboid, elige <1>Instalación nueva</1>: descargará todo lo necesario automáticamente."
+      "description": "Si nunca has configurado un servidor de Project Zomboid, elige <1>Instalar un servidor nuevo</1>: descargará todo lo necesario automáticamente."
     }
   },
   "resumeBanner": {
     "title": "Puede que una instalación siga en curso",
     "description": "Una sesión anterior empezó a instalar en {{installPath}} (hace {{elapsed}}) y la página se cerró o recargó antes de terminar. Puede que siga descargándose en segundo plano.",
-    "continueButton": "Continuar configuración",
-    "dismissButton": "Descartar"
+    "continueButton": "Continuar configuración"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> ya existe. Si un servidor con este nombre la usó antes, este empezará con sus ajustes y su mundo. Para empezar de cero, elige otro nombre de servidor u otra carpeta."
   },
   "full": {
-    "pageTitle": "Instalación nueva",
-    "pageDescription": "Descarga, configura y registra un servidor dedicado nuevo.",
     "step1": {
       "title": "Configurar SteamCMD",
       "description": "SteamCMD es necesario para descargar y actualizar los archivos del servidor dedicado de Project Zomboid.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Configuración rápida",
-    "pageDescription": "Crear y registrar un servidor usando archivos de servidor dedicado existentes.",
     "step1": {
       "title": "Seleccionar archivos del servidor",
       "description": "Elige la carpeta existente del servidor dedicado de Project Zomboid.",
@@ -303,9 +289,9 @@
     "serverStartingDesc": "Redirigiendo al tablero…",
     "startFailedTitle": "Error al iniciar",
     "registerFailedTitle": "Archivos del servidor instalados, pero falló el registro",
-    "registerFailedDesc": "Los archivos del juego están en el disco, pero el panel no pudo añadir este servidor a su base de datos, así que aún no aparecerá en Mis servidores. Revisa el registro de arriba y vuelve a ejecutar la instalación: repetirla es seguro.",
+    "registerFailedDesc": "Los archivos del juego están en el disco, pero el panel no pudo añadir este servidor a su base de datos, así que aún no aparecerá en Servidores. Revisa el registro de arriba y vuelve a probar Añadir un servidor: repetirlo es seguro.",
     "activateFailedLog": "Advertencia: El servidor se registró, pero no se pudo establecer como servidor activo.",
     "activateFailedTitle": "Servidor registrado, pero no activado",
-    "activateFailedDesc": "El servidor se añadió a Mis servidores, pero el panel no pudo cambiar a él automáticamente. Ve a Mis servidores y selecciónalo manualmente antes de iniciarlo."
+    "activateFailedDesc": "El servidor se añadió a Servidores, pero el panel no pudo cambiar a él automáticamente. Ve a Servidores y selecciónalo manualmente antes de iniciarlo."
   }
 }

@@ -93,6 +93,13 @@ export const ROUTES: RouteMeta[] = [
     shortcut: '2',
     layout: 'wide',
     loader: { variant: 'console', descriptionKey: 'console:pageHeader.description' },
+    deepLinks: {
+      param: 'tab',
+      items: [
+        { id: 'log', labelKey: 'console:tabs.serverLog' },
+        { id: 'rcon', labelKey: 'console:tabs.rconConsole' },
+      ],
+    },
     load: () => import('../pages/Console'),
   },
   {

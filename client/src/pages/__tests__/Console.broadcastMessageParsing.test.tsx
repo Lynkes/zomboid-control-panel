@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (console page hunt): the broadcast box built
 // `servermsg "<text with " escaped as \">"`. PZ's RCON parser
@@ -70,7 +71,7 @@ async function openBroadcastAndType(text: string) {
   render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

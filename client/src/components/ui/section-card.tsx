@@ -76,9 +76,8 @@ export function SectionCard({
 
   const header = (
     <div className={cn('flex flex-wrap items-start gap-x-3 gap-y-2', pad, children !== undefined && isOpen && 'pb-0')}>
-      {/* A floor under the title block: when the actions don't fit beside
-          it (a phone), they wrap below instead of squeezing the title and
-          description into a one-word column. */}
+      {/* A floor on the title column: with a 0 basis alone it shrank to a
+          word per line before the actions would wrap below it on a phone. */}
       <div className="min-w-[min(100%,14rem)] flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <Heading id={headingId} className="min-w-0">

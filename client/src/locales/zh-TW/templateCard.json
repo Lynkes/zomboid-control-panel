@@ -5,7 +5,9 @@
   "settingsOverridden_other": "{{count}} 項設定已覆蓋",
   "modsCount_one": "{{count}} 個模組",
   "modsCount_other": "{{count}} 個模組",
-  "preview": "預覽",
+  "preview": "預覽並套用",
   "exportTitle": "匯出模板",
-  "deleteTitle": "刪除模板"
+  "deleteTitle": "刪除模板",
+  "hideTitle": "隱藏模板",
+  "actionsAria": "{{name}} 的操作"
 }

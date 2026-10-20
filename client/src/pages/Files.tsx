@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, FolderTree, Keyboard, Loader2, Lock, RefreshCw } from 'lucide-react'
+import { FolderCog, Keyboard, Loader2, Lock, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { EmptyState, type EmptyStateAction } from '@/components/EmptyState'
 import { HelpTip } from '@/components/HelpTip'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ToastAction } from '@/components/ui/toast'
 import { useToast } from '@/components/ui/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
+import { useUrlParamState } from '@/hooks/useUrlParamState'
 import { ApiError } from '@/lib/api'
 import {
   baseName,
@@ -27,7 +29,7 @@ import {
 } from '@/lib/filesApi'
 import { formatBytes } from '@/lib/formatBytes'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
-import { copyText } from '@/lib/utils'
+import { cn, copyText } from '@/lib/utils'
 import {
   FM_LIMITS,
   type ConfirmToken,
@@ -55,7 +57,6 @@ import { NameDialog } from '@/components/files/NameDialog'
 import { RecentChanges } from '@/components/files/RecentChanges'
 import { RemoteRootsDialog } from '@/components/files/RemoteRootsDialog'
 import { RootList, RootSelect, ServerPicker } from '@/components/files/RootList'
-import { ServerStateAlert } from '@/components/files/ServerStateAlert'
 import { TailViewer } from '@/components/files/TailViewer'
 import { TrashView } from '@/components/files/TrashView'
 import { UploadQueue, UploadReplaceDialog, type ReplaceChoice } from '@/components/files/UploadQueue'
@@ -94,14 +95,18 @@ import {
 // game install, launch, Zomboid and server-settings folders, locally, through
 // Docker mounts, or over SFTP for the active remote server.
 //
-// Where you are lives in the URL (/files?server=&root=&path=&open=), so a
-// link opens the same folder or file. `open` names a file relative to
+// Where you are lives in the URL (/files?server=&root=&path=&open=&view=), so
+// a link opens the same folder or file. `open` names a file relative to
 // `path`; opening one pushes a history entry, so the Back button closes the
 // editor (through its unsaved-changes guard) instead of leaving the page.
-// The last folder per server and root is remembered in localStorage; file
-// content never is.
+// `view=trash` shows that folder's Trash instead of the folder. The last
+// folder per server and root is remembered in localStorage; file content
+// never is.
 
 const ROOT_PREFERENCE: RootId[] = ['data', 'config', 'install', 'launch']
+const VIEWS = ['files', 'trash'] as const
+// The page's main surface (the file browser and the page-level states).
+const SURFACE = 'rounded-xl border border-border/60 bg-card text-card-foreground'
 const LARGE_DOWNLOAD_BYTES = 200 * 1024 * 1024
 const SFTP_ERROR_CODES = new Set(['FM_SFTP_ERROR', 'FM_SFTP_TIMEOUT'])
 const ACCESS_ERROR_CODES = new Set(['PERMISSION_DENIED', 'AUTH_REQUIRED', 'HTTP_403'])
@@ -140,6 +145,7 @@ interface Location {
   root: string | null
   path: string | null
   open: string | null
+  view: 'trash' | null
 }
 
 function buildSearch(location: Location): string {
@@ -150,6 +156,7 @@ function buildSearch(location: Location): string {
   // all means "the last folder visited here".
   if (location.path !== null) params.set('path', location.path)
   if (location.open) params.set('open', location.open)
+  if (location.view) params.set('view', location.view)
   const search = params.toString()
   return search ? `?${search}` : ''
 }
@@ -194,6 +201,9 @@ export default function Files() {
   const paramRoot = params.get('root')
   const paramPath = params.get('path')
   const paramOpen = params.get('open')
+  // Read here; written through goTo() with the rest of the location.
+  const [view] = useUrlParamState('view', VIEWS, 'files')
+  const viewParam: Location['view'] = view === 'trash' ? 'trash' : null
 
   // ---- Profiles ----
   const [profiles, setProfiles] = useState<ProfileFiles[] | null>(null)
@@ -308,9 +318,10 @@ export default function Files() {
       root: next.root !== undefined ? next.root : rootId,
       path: next.path !== undefined ? next.path : currentPath,
       open: next.open !== undefined ? next.open : null,
+      view: next.view !== undefined ? next.view : viewParam,
     }
     navigate({ search: buildSearch(target) }, { replace: options?.replace })
-  }, [currentPath, navigate, paramServer, profile?.id, rootId, selectedProfileId])
+  }, [currentPath, navigate, paramServer, profile?.id, rootId, selectedProfileId, viewParam])
 
   // Make the URL say where we are once it's known (replace, not push). Not
   // while another server is being loaded: the profile shown is still the
@@ -318,12 +329,10 @@ export default function Files() {
   useEffect(() => {
     if (!profile || !rootId || profile.id !== selectedProfileId) return
     if (paramServer === profile.id && paramRoot === rootId && (paramPath ?? '') === currentPath) return
-    navigate({ search: buildSearch({ server: profile.id, root: rootId, path: currentPath, open: paramOpen }) }, { replace: true })
-  }, [currentPath, navigate, paramOpen, paramPath, paramRoot, paramServer, profile, rootId, selectedProfileId])
+    navigate({ search: buildSearch({ server: profile.id, root: rootId, path: currentPath, open: paramOpen, view: viewParam }) }, { replace: true })
+  }, [currentPath, navigate, paramOpen, paramPath, paramRoot, paramServer, profile, rootId, selectedProfileId, viewParam])
 
   // ---- Listing ----
-  const [view, setView] = useState<'files' | 'trash'>('files')
-  const [trashRefreshKey, setTrashRefreshKey] = useState(0)
   const [listing, setListing] = useState<ListResponse | null>(null)
   const [listError, setListError] = useState<unknown>(null)
   const [listLoading, setListLoading] = useState(false)
@@ -589,8 +598,7 @@ export default function Files() {
     const mode = openModeFor(entry)
     if (mode === 'blocked') return
     if (mode === 'enter') {
-      setView('files')
-      goTo({ path: entry.path })
+      goTo({ path: entry.path, view: null })
       return
     }
     showFile(entry, mode === 'edit' ? 'edit' : mode === 'tail' ? 'tail' : 'details')
@@ -1226,122 +1234,173 @@ export default function Files() {
   const selectionCanDownload = selectedEntries.length > 0 && selectedEntries.every(canReadEntry)
 
   // ---- Rendering ----
+  const trashOpen = view === 'trash' && !!root?.available
+  // The folder's Trash is the header's one action: the count says whether
+  // there is anything to restore. A link, so it opens in place and survives
+  // a reload (?view=trash).
+  const trashSearch = buildSearch({
+    server: selectedProfileId ?? profile?.id ?? paramServer,
+    root: rootId,
+    path: currentPath,
+    open: null,
+    view: 'trash',
+  })
+  const headerActions: ReactNode[] = []
+  if (canManage && profile && root?.available) {
+    headerActions.push(
+      <Button key="trash" asChild variant="ghost" size="sm">
+        <Link to={{ search: trashSearch }} aria-current={trashOpen ? 'page' : undefined}>
+          <Trash2 aria-hidden="true" />
+          {t('roots.trash', { count: root.trashItemCount ?? 0 })}
+        </Link>
+      </Button>,
+    )
+  }
+  if (canManage && profile?.remote) {
+    headerActions.push(
+      <Button key="remote" variant="outline" size="sm" onClick={() => setRemoteOpen(true)} aria-label={t('roots.setRemoteFolders')}>
+        <FolderCog aria-hidden="true" />
+        <span className="hidden sm:inline">{t('roots.setRemoteFolders')}</span>
+      </Button>,
+    )
+  }
+
   const header = (
     <PageHeader
       title={t('page.title')}
       description={t('page.description')}
-      eyebrow={t('page.eyebrow')}
-      tone="config"
-      icon={<FolderTree className="h-5 w-5" aria-hidden="true" />}
-      actions={
-        profile ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void loadProfile(profile.id)
-              if (view === 'files') void loadListing({ keepSelection: true })
-              else setTrashRefreshKey((key) => key + 1)
-            }}
-            disabled={listLoading}
-          >
-            {listLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-            {t('page.refresh')}
-          </Button>
-        ) : undefined
-      }
+      meta={profile?.remote ? (
+        <span>
+          {t('page.sftpConnected', {
+            host: isolateLtrForRtl(profile.remote.host),
+            port: profile.remote.port,
+            user: isolateLtrForRtl(profile.remote.username),
+          })}
+        </span>
+      ) : undefined}
+      actions={headerActions.length > 0 ? headerActions : undefined}
     />
   )
 
+  const pageState = (body: ReactNode) => (
+    <div className="space-y-6">
+      {header}
+      {body}
+    </div>
+  )
+
   const accessDenied = (
-    <Card>
-      <CardContent className="pt-6">
-        <EmptyState type="accessDenied" title={t('access.denied')} />
-      </CardContent>
-    </Card>
+    <div className={cn(SURFACE, 'p-5')}>
+      <EmptyState type="accessDenied" title={t('access.denied')} />
+    </div>
   )
 
   // Logins can only be off when db.json says authEnabled: false (no page
   // turns them on or off), so this says how to undo that instead of linking
-  // to Panel Settings, which has no such switch.
+  // to Settings, which has no such switch.
   const authDisabled = (
-    <Card>
-      <CardContent className="pt-6">
-        <EmptyState type="accessDenied" title={t('access.authDisabled')} description={t('access.authDisabledHow')} />
-      </CardContent>
-    </Card>
+    <div className={cn(SURFACE, 'p-5')}>
+      <EmptyState type="accessDenied" title={t('access.authDisabled')} description={t('access.authDisabledHow')} />
+    </div>
   )
 
   const pageLevelError = (error: unknown, retry: () => void) => {
     if (errorCodeOf(error) === 'FM_AUTH_DISABLED') return authDisabled
     if (isAccessError(error)) return accessDenied
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <EmptyState type="noData" title={describeFilesError(error)} action={{ label: t('actions.retry'), onClick: retry }} />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (!canManage) {
-    return (
-      <div className="space-y-5">
-        {header}
-        {accessDenied}
+      <div className={cn(SURFACE, 'p-5')}>
+        <EmptyState type="noData" title={describeFilesError(error)} action={{ label: t('actions.retry'), onClick: retry }} />
       </div>
     )
   }
 
-  if (pageError) {
-    return (
-      <div className="space-y-5">
-        {header}
-        {pageLevelError(pageError, () => void loadProfiles())}
-      </div>
-    )
-  }
+  if (!canManage) return pageState(accessDenied)
+
+  if (pageError) return pageState(pageLevelError(pageError, () => void loadProfiles()))
 
   if (profiles === null || (selectedProfileId && !profile && !profileError)) {
-    return (
-      <div className="space-y-5">
-        {header}
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-label={t('page.title')} />
+    // The page's own layout in outline (rail, then the list) while the
+    // server's folders load, instead of a spinner in the middle.
+    return pageState(
+      <div
+        role="status"
+        aria-busy="true"
+        aria-label={t('pageSkeleton.labels.named', { ns: 'shell', title: t('page.title') })}
+        className="md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:items-start md:gap-6 xl:grid-cols-[17rem_minmax(0,1fr)]"
+      >
+        <div className="hidden space-y-2 md:block" aria-hidden="true">
+          {[0, 1, 2].map((index) => <Skeleton key={index} className="h-14 w-full rounded-md" />)}
         </div>
-      </div>
+        <div className={cn(SURFACE, 'space-y-3 p-4 sm:p-5')} aria-hidden="true">
+          <Skeleton className="h-9 w-full max-w-md" />
+          {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-9 w-full" />)}
+        </div>
+      </div>,
     )
   }
 
   if (profiles.length === 0) {
-    return (
-      <div className="space-y-5">
-        {header}
-        <Card>
-          <CardContent className="pt-6">
-            <EmptyState
-              type="serverOffline"
-              title={t('nav.noServerBanner.title', { ns: 'shell' })}
-              description={t('nav.noServerBanner.description', { ns: 'shell' })}
-              action={{ label: t('nav.noServerBanner.cta', { ns: 'shell' }), to: '/servers' }}
-            />
-          </CardContent>
-        </Card>
-      </div>
+    return pageState(
+      <div className={cn(SURFACE, 'p-5')}>
+        <EmptyState
+          type="serverOffline"
+          title={t('nav.noServerBanner.title', { ns: 'shell' })}
+          description={t('nav.noServerBanner.description', { ns: 'shell' })}
+          action={{ label: t('nav.noServerBanner.cta', { ns: 'shell' }), to: '/servers' }}
+        />
+      </div>,
     )
   }
 
   if (profileError || !profile) {
-    return (
-      <div className="space-y-5">
-        {header}
-        {pageLevelError(profileError, () => selectedProfileId && void loadProfile(selectedProfileId))}
-      </div>
-    )
+    return pageState(pageLevelError(profileError, () => selectedProfileId && void loadProfile(selectedProfileId)))
   }
 
   const rootLabel = rootId ? t(`roots.labels.${rootId}`) : ''
   const writable = folderWritable
+
+  const checkStateAgain = async () => {
+    if (checkingState) return
+    setCheckingState(true)
+    await loadProfile(profile.id, true)
+    setCheckingState(false)
+  }
+
+  // Page-level notes, under the header (DESIGN.md PageAlerts): whether the
+  // server is running (world saves are locked, game files need a
+  // confirmation; a remote server's state can't be seen at all), and what
+  // is true of the whole folder shown (read-only, a warning).
+  const pageAlerts: PageAlert[] = []
+  if (profile.remote) {
+    pageAlerts.push({ id: 'server-state', tone: 'info', title: t('serverState.remoteUnknown') })
+  } else if (profile.serverState === 'running' || profile.serverState === 'unknown') {
+    const state = profile.serverState
+    pageAlerts.push({
+      id: 'server-state',
+      tone: 'warning',
+      title: t(`serverState.${state}.title`),
+      description: (
+        <>
+          {t(`serverState.${state}.body`)}
+          {checkingState && <Loader2 className="ms-1.5 inline h-3.5 w-3.5 animate-spin align-[-2px]" aria-hidden="true" />}
+        </>
+      ),
+      action: { label: t('serverState.checkAgain'), onClick: () => void checkStateAgain() },
+    })
+  }
+  if (root?.available && root.writable === false) {
+    pageAlerts.push({
+      id: 'read-only',
+      tone: 'info',
+      title: t('roots.readOnly'),
+      description: root.readOnlyReason ? t(`roots.readOnlyReasons.${root.readOnlyReason}`) : undefined,
+    })
+  }
+  if (root?.available) {
+    for (const warning of root.warnings) {
+      pageAlerts.push({ id: `warning-${warning}`, tone: 'warning', title: t(`roots.warnings.${warning}`) })
+    }
+  }
 
   const unavailableAction = (reason: RootUnavailableReason | undefined): EmptyStateAction | undefined => {
     switch (reason) {
@@ -1432,8 +1491,8 @@ export default function Files() {
     }
     if (!listing) {
       return (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" aria-hidden="true" />
+        <div className="space-y-2" aria-hidden="true">
+          {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-9 w-full" />)}
         </div>
       )
     }
@@ -1504,52 +1563,35 @@ export default function Files() {
     </HelpTip>
   )
 
-  const rootNotices = root?.available && (root.writable === false || root.warnings.length > 0 || (view === 'files' && folderProtection)) ? (
-    <div className="space-y-2">
-      {view === 'files' && folderProtection && root.writable !== false && (
-        <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            <span className="font-medium text-foreground">{t('protected.badge')}</span>
-            <span aria-hidden="true">{' · '}</span>
-            <span>{t(`protected.areas.${folderProtection.area}`)}</span>
-          </span>
-        </p>
-      )}
-      {root.writable === false && (
-        <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
-          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>
-            <span className="font-medium text-foreground">{t('roots.readOnly')}</span>
-            {root.readOnlyReason && <> · {t(`roots.readOnlyReasons.${root.readOnlyReason}`)}</>}
-          </span>
-        </p>
-      )}
-      {root.warnings.map((warning) => (
-        <p key={warning} className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          {t(`roots.warnings.${warning}`)}
-        </p>
-      ))}
-    </div>
+  // Belongs to the folder shown, so it sits with the list, not with the
+  // page alerts: it changes as the operator moves between folders.
+  const protectionNotice = root?.available && view === 'files' && folderProtection && root.writable !== false ? (
+    <p className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs text-muted-foreground">
+      <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>
+        <span className="font-medium text-foreground">{t('protected.badge')}</span>
+        <span aria-hidden="true">{' · '}</span>
+        <span>{t(`protected.areas.${folderProtection.area}`)}</span>
+      </span>
+    </p>
   ) : null
 
   const rootListProps = {
     profile,
     selectedRoot: rootId,
-    trashOpen: view === 'trash',
+    trashOpen,
     onSelectRoot: (id: RootId) => {
-      setView('files')
       const remembered = validPath(readLastFolder(profile.id, id)) ?? ''
-      goTo({ root: id, path: remembered })
+      goTo({ root: id, path: remembered, view: null })
     },
     onOpenBookmark: (bookmark: { rootId: RootId; path: string }) => {
-      setView('files')
-      goTo({ root: bookmark.rootId, path: validPath(bookmark.path) ?? '' })
+      goTo({ root: bookmark.rootId, path: validPath(bookmark.path) ?? '', view: null })
     },
-    onOpenTrash: () => setView((current) => (current === 'trash' ? 'files' : 'trash')),
-    onSetRemoteFolders: () => setRemoteOpen(true),
+    onOpenTrash: () => {
+      if (!trashOpen) goTo({ view: 'trash' })
+    },
   }
+  const pickServer = (id: string) => goTo({ server: id, root: null, path: null, view: null })
 
   const nameDialogProps = (() => {
     if (!nameDialog) return null
@@ -1576,149 +1618,145 @@ export default function Files() {
   const fileEntryForView = fileView?.entry ?? null
 
   return (
-    <div className={selected.size > 0 && !isDesktop ? 'space-y-5 pb-24' : 'space-y-5'}>
+    <div className={cn('space-y-6', selected.size > 0 && !isDesktop && 'pb-24')}>
       {header}
+      <PageAlerts alerts={pageAlerts} />
 
-      <div className="grid gap-5 md:grid-cols-[17rem_minmax(0,1fr)] xl:grid-cols-[20rem_minmax(0,1fr)]">
+      <div className="md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:items-start md:gap-6 xl:grid-cols-[17rem_minmax(0,1fr)]">
+        {/* The rail: no card around it, like the kit's SubNav. It stays put
+            while a long folder scrolls. */}
         {isDesktop && (
-          <Card className="h-fit">
-            <CardContent className="space-y-4 pt-6">
-              <ServerPicker profiles={profiles} value={profile.id} onChange={(id) => { setView('files'); goTo({ server: id, root: null, path: null }) }} />
-              <RootList {...rootListProps} />
-            </CardContent>
-          </Card>
+          <aside className="nav-scroll space-y-5 md:sticky md:top-4 md:-mx-1 md:max-h-[calc(100dvh-2rem)] md:overflow-y-auto md:px-1 md:py-px">
+            <ServerPicker profiles={profiles} value={profile.id} onChange={pickServer} />
+            <RootList {...rootListProps} />
+          </aside>
         )}
 
-        <div className="min-w-0 space-y-5">
-          <Card className="relative" onDragOver={onDragOver} onDragEnter={onDragOver} onDragLeave={onDragLeave} onDrop={(event) => void onDrop(event)}>
-            <CardContent className="space-y-4 pt-6">
-              {!isDesktop && (
-                <div className="space-y-3">
-                  <ServerPicker profiles={profiles} value={profile.id} onChange={(id) => { setView('files'); goTo({ server: id, root: null, path: null }) }} />
-                  <RootSelect profile={profile} value={rootId} onChange={rootListProps.onSelectRoot} />
-                </div>
-              )}
-              <ServerStateAlert
-                profile={profile}
-                checking={checkingState}
-                onCheckAgain={async () => {
-                  setCheckingState(true)
-                  await loadProfile(profile.id, true)
-                  setCheckingState(false)
+        <div className="min-w-0 space-y-6">
+          <div
+            className={cn(SURFACE, 'relative space-y-4 p-4 sm:p-5')}
+            onDragOver={onDragOver}
+            onDragEnter={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={(event) => void onDrop(event)}
+          >
+            {!isDesktop && (
+              <div className="space-y-3">
+                <ServerPicker profiles={profiles} value={profile.id} onChange={pickServer} />
+                <RootSelect
+                  profile={profile}
+                  value={rootId}
+                  trashOpen={trashOpen}
+                  onChange={rootListProps.onSelectRoot}
+                  onOpenBookmark={rootListProps.onOpenBookmark}
+                  onOpenTrash={rootListProps.onOpenTrash}
+                />
+              </div>
+            )}
+            {protectionNotice}
+
+            {trashOpen && root ? (
+              <TrashView
+                profileId={profile.id}
+                root={root}
+                isDesktop={isDesktop}
+                runConfirmed={runConfirmed}
+                onBack={() => goTo({ view: null })}
+                onChanged={() => {
+                  setAuditKey((key) => key + 1)
+                  void loadProfile(profile.id)
                 }}
               />
-              {rootNotices}
+            ) : (
+              <>
+                {root?.available && (
+                  <FileToolbar
+                    breadcrumb={<FileBreadcrumb rootLabel={rootLabel} path={currentPath} onNavigate={(path) => goTo({ path })} compact={!isDesktop} />}
+                    shortcutsHelp={isDesktop ? shortcutsHelp : null}
+                    query={query}
+                    onQueryChange={(value) => {
+                      setQuery(value)
+                      if (search && value.trim() !== search.q) setSearch(null)
+                    }}
+                    onSearch={() => void runSearch()}
+                    searching={searching}
+                    searchActive={!!search}
+                    onClearQuery={clearQuery}
+                    sort={sort}
+                    order={order}
+                    sortLimited={!!listing?.sortLimited}
+                    onSortChange={(nextSort, nextOrder) => {
+                      setSort(listing?.sortLimited ? 'name' : nextSort)
+                      setOrder(nextOrder)
+                    }}
+                    canWrite={writable}
+                    onNewFile={() => setNameDialog({ kind: 'newFile', dir: currentPath })}
+                    onNewFolder={() => setNameDialog({ kind: 'newFolder', dir: currentPath })}
+                    onUploadFiles={() => fileInputRef.current?.click()}
+                    onUploadFolder={() => folderInputRef.current?.click()}
+                    selectionCount={selectedEntries.length}
+                    canDownloadSelection={selectionCanDownload}
+                    onDownload={() => void downloadEntries(selectedEntries)}
+                    onRefresh={() => {
+                      // The folder and what the rail says about it (free
+                      // space, Trash count, whether the server runs).
+                      void loadProfile(profile.id)
+                      void loadListing({ keepSelection: true })
+                    }}
+                    refreshing={listLoading}
+                  />
+                )}
 
-              {view === 'trash' && root?.available ? (
-                <TrashView
-                  profileId={profile.id}
-                  root={root}
-                  isDesktop={isDesktop}
-                  runConfirmed={runConfirmed}
-                  refreshKey={trashRefreshKey}
-                  onBack={() => setView('files')}
-                  onChanged={() => {
-                    setAuditKey((key) => key + 1)
-                    void loadProfile(profile.id)
-                  }}
-                />
-              ) : (
-                <>
-                  {root?.available && (
-                    <FileToolbar
-                      breadcrumb={<FileBreadcrumb rootLabel={rootLabel} path={currentPath} onNavigate={(path) => goTo({ path })} compact={!isDesktop} />}
-                      shortcutsHelp={isDesktop ? shortcutsHelp : null}
-                      query={query}
-                      onQueryChange={(value) => {
-                        setQuery(value)
-                        if (search && value.trim() !== search.q) setSearch(null)
-                      }}
-                      onSearch={() => void runSearch()}
-                      searching={searching}
-                      searchActive={!!search}
-                      onClearQuery={clearQuery}
-                      sort={sort}
-                      order={order}
-                      sortLimited={!!listing?.sortLimited}
-                      onSortChange={(nextSort, nextOrder) => {
-                        setSort(listing?.sortLimited ? 'name' : nextSort)
-                        setOrder(nextOrder)
-                      }}
-                      canWrite={writable}
-                      onNewFile={() => setNameDialog({ kind: 'newFile', dir: currentPath })}
-                      onNewFolder={() => setNameDialog({ kind: 'newFolder', dir: currentPath })}
-                      onUploadFiles={() => fileInputRef.current?.click()}
-                      onUploadFolder={() => folderInputRef.current?.click()}
-                      selectionCount={selectedEntries.length}
-                      canDownloadSelection={selectionCanDownload}
-                      canDeleteSelection={selectionCanMutate}
-                      onDownload={() => void downloadEntries(selectedEntries)}
-                      onDownloadZip={() => void downloadEntries(selectedEntries, { zip: true })}
-                      onDelete={() => void deleteEntries(selectedEntries, false)}
-                      onRefresh={() => void loadListing({ keepSelection: true })}
-                      refreshing={listLoading}
-                    />
-                  )}
+                {search && search.results.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+                    <span>{t('search.results', { count: search.results.length })}</span>
+                    {search.truncated && <span>· {t('search.truncated')}</span>}
+                    <Button variant="link" size="sm" className="h-auto px-0" onClick={clearQuery}>{t('list.clearFilter')}</Button>
+                  </div>
+                )}
 
-                  {search && search.results.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
-                      <span>{t('search.results', { count: search.results.length })}</span>
-                      {search.truncated && <span>· {t('search.truncated')}</span>}
-                      <Button variant="link" size="sm" className="h-auto px-0" onClick={clearQuery}>{t('list.clearFilter')}</Button>
-                    </div>
-                  )}
+                {jobLine && (
+                  <p aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    {jobLine.total !== null
+                      ? t('jobs.deleting', { done: jobLine.done, total: jobLine.total })
+                      : t('jobs.deletingUnknown', { done: jobLine.done })}
+                  </p>
+                )}
 
-                  {jobLine && (
-                    <p aria-live="polite" className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                      {jobLine.total !== null
-                        ? t('jobs.deleting', { done: jobLine.done, total: jobLine.total })
-                        : t('jobs.deletingUnknown', { done: jobLine.done })}
-                    </p>
-                  )}
+                {renderListBody()}
 
-                  {renderListBody()}
+                {!search && listing && root?.available && listing.entries.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {listing.entries.length < listing.total && (
+                      <>
+                        <span>{t('list.showing', { shown: listing.entries.length, total: listing.total })}</span>
+                        <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={loadingMore}>
+                          {loadingMore && <Loader2 className="animate-spin" aria-hidden="true" />}
+                          {t('list.loadMore')}
+                        </Button>
+                      </>
+                    )}
+                    {listing.sortLimited && <span>{t('list.sortLimited', { count: listing.total })}</span>}
+                    {listing.truncated && <span>{t('list.truncated')}</span>}
+                  </div>
+                )}
 
-                  {!search && listing && root?.available && listing.entries.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      {listing.entries.length < listing.total && (
-                        <>
-                          <span>{t('list.showing', { shown: listing.entries.length, total: listing.total })}</span>
-                          <Button variant="outline" size="sm" onClick={() => void loadMore()} disabled={loadingMore}>
-                            {loadingMore && <Loader2 className="animate-spin" aria-hidden="true" />}
-                            {t('list.loadMore')}
-                          </Button>
-                        </>
-                      )}
-                      {listing.sortLimited && <span>{t('list.sortLimited', { count: listing.total })}</span>}
-                      {listing.truncated && <span>{t('list.truncated')}</span>}
-                    </div>
-                  )}
-
-                  {root && (
-                    <BulkBar
-                      count={selectedEntries.length}
-                      canDownload={selectionCanDownload}
-                      canMutate={selectionCanMutate}
-                      onDownloadZip={() => void downloadEntries(selectedEntries, { zip: true })}
-                      onMove={() => setMovePaths(selectedEntries.map((entry) => entry.path))}
-                      onDelete={() => void deleteEntries(selectedEntries, false)}
-                      onClear={() => setSelected(new Set())}
-                    />
-                  )}
-                </>
-              )}
-              <DropOverlay visible={dragActive} folder={folderLabel} />
-            </CardContent>
-          </Card>
-
-          {!isDesktop && (
-            <Card>
-              <CardContent className="pt-6">
-                <RootList {...rootListProps} compact />
-              </CardContent>
-            </Card>
-          )}
+                {root && (
+                  <BulkBar
+                    count={selectedEntries.length}
+                    canDownload={selectionCanDownload}
+                    canMutate={selectionCanMutate}
+                    onDownloadZip={() => void downloadEntries(selectedEntries, { zip: true })}
+                    onMove={() => setMovePaths(selectedEntries.map((entry) => entry.path))}
+                    onDelete={() => void deleteEntries(selectedEntries, false)}
+                    onClear={() => setSelected(new Set())}
+                  />
+                )}
+              </>
+            )}
+            <DropOverlay visible={dragActive} folder={folderLabel} />
+          </div>
 
           <UploadQueue
             items={uploadQueue.items}
@@ -1783,6 +1821,7 @@ export default function Files() {
         <FileEditorDialog
           open
           profileId={profile.id}
+          profile={profile}
           root={root}
           entry={fileEntryForView}
           closeSignal={closeSignal}

@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "Serverdateien",
-    "eyebrow": "Dateien",
     "description": "Durchsuche und ändere die Dateien im Spielinstallationsordner und im Zomboid-Ordner jedes Servers.",
     "serverPicker": "Server",
     "activeBadge": "Aktiv",
@@ -30,13 +29,13 @@
       "permissions": "Das Konto des Panels darf hier nicht schreiben."
     },
     "unavailable": {
-      "missing": "Dieser Ordner existiert nicht. Prüfe den Pfad unter Meine Server.",
-      "notConfigured": "Für diesen Server ist kein Ordner festgelegt. Füge ihn unter Meine Server hinzu.",
+      "missing": "Dieser Ordner existiert nicht. Prüfe den Pfad unter Alle Server.",
+      "notConfigured": "Für diesen Server ist kein Ordner festgelegt. Füge ihn unter Alle Server hinzu.",
       "notMounted": "Der Container des Panels sieht diesen Ordner nicht. Binde ihn in deiner Docker-Konfiguration ein und starte das Panel dann neu.",
       "remoteNotActive": "Wechsle zu diesem Server, um seine Dateien per SFTP zu durchsuchen.",
       "remoteNotConfigured": "Trage zuerst den SFTP-Zugang und den Server-Ordner dieses Servers unter Einstellungen › PanelBridge ein.",
       "remoteInstallNotSet": "Lege den entfernten Spielinstallationsordner fest, um ihn zu durchsuchen.",
-      "tooBroad": "Das ist ein Laufwerksstamm, ein Systemordner oder ein Home-Ordner, deshalb öffnet der Dateimanager ihn nicht. Verweise den Server unter Meine Server auf seinen eigenen Ordner.",
+      "tooBroad": "Das ist ein Laufwerksstamm, ein Systemordner oder ein Home-Ordner, deshalb öffnet der Dateimanager ihn nicht. Verweise den Server unter Alle Server auf seinen eigenen Ordner.",
       "overlapsPanel": "Dieser Ordner liegt in den Ordnern des Panels selbst, deshalb öffnet der Dateimanager ihn nicht.",
       "unreadable": "Das Panel kann diesen Ordner nicht lesen ({{detail}}).",
       "sftpUnreachable": "Das Panel erreicht diesen Server nicht per SFTP."
@@ -135,7 +134,7 @@
       "panelBackups": "Welt-Backups. Lade sie auf der Seite Welt-Backups herunter, stelle sie dort wieder her oder lösche sie.",
       "bridgeIo": "Der Befehlsordner von PanelBridge. Nur das Panel und das Spiel schreiben hier.",
       "bridgeManaged": "Eine eigene Datei von PanelBridge. Ändere die Installationsart unter Einstellungen › PanelBridge.",
-      "launchScripts": "Das Panel schreibt dieses Startskript vor jedem Start neu. Ändere Speicher, Ports und Passwörter unter Meine Server."
+      "launchScripts": "Das Panel schreibt dieses Startskript vor jedem Start neu. Ändere Speicher, Ports und Passwörter unter Alle Server."
     },
     "containsProtected": "Dieser Ordner enthält etwas, das das Panel schützt, daher kann er nicht als Ganzes verschoben, umbenannt oder gelöscht werden.",
     "openBackups": "Welt-Backups öffnen",
@@ -257,6 +256,7 @@
     "previousVersion": "Die vorherige Version liegt im Papierkorb",
     "wrap": "Zeilen umbrechen",
     "escHint": "Drücke Esc und dann Tab, um den Editor zu verlassen.",
+    "editWithForm": "Im Formular unter Serverkonfiguration bearbeiten",
     "lineCount_one": "{{count}} Zeile",
     "lineCount_other": "{{count}} Zeilen",
     "bom": "BOM",
@@ -272,7 +272,7 @@
     },
     "hints": {
       "restartToApply": "Der Server liest diese Datei beim Start. Starte ihn neu, um deine Änderung anzuwenden.",
-      "panelRewritesKeys": "Das Panel schreibt RCONPassword und RCONPort in dieser Datei vor jedem Start neu. Ändere sie stattdessen unter Meine Server.",
+      "panelRewritesKeys": "Das Panel schreibt RCONPassword und RCONPort in dieser Datei vor jedem Start neu. Ändere sie stattdessen unter Alle Server.",
       "luaChecksum": "Geänderte Lua-Dateien des Spiels weichen von den Kopien der Spieler ab. Mit DoLuaChecksum=true können Spieler dann nicht mehr beitreten.",
       "steamUpdateOverwrites": "Steam-Updates und die Dateiüberprüfung ersetzen hier geänderte Spieldateien.",
       "bridgeWorkshopEntries": "Behalte ZCPB in Mods= und das zugehörige Workshop-Element in WorkshopItems=. Das Panel trägt sie beim nächsten Start wieder ein.",

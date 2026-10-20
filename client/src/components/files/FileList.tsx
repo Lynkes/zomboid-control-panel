@@ -67,7 +67,7 @@ function ProtectedBadge({ area }: { area: ProtectedArea }) {
         <Lock className="h-3.5 w-3.5" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-w-xs">
-        <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <DropdownMenuLabel className="label-micro">
           {t('protected.badge')}
         </DropdownMenuLabel>
         <p className="px-2 pb-2 text-sm leading-relaxed text-foreground">{explanation}</p>
@@ -294,7 +294,7 @@ export function FileList({
               <>
                 <bdi dir="ltr" className="block truncate">{entry.name}</bdi>
                 {showFolder && folder && (
-                  <bdi dir="ltr" className="block truncate font-mono text-[11px] text-muted-foreground">{folder}</bdi>
+                  <bdi dir="ltr" className="block truncate font-mono text-xs text-muted-foreground">{folder}</bdi>
                 )}
                 {!isDesktop && (sizeText || dateText) && (
                   <span className="block truncate text-xs text-muted-foreground">

@@ -112,6 +112,14 @@ function mockCommonLoads() {
 async function clickTab(name: RegExp) {
   fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0 })
   fireEvent.click(await screen.findByRole('button', { name: 'Discard edits' }))
+  // The tab is ?tab= now: the router applies it in a transition.
+  await waitFor(() => expect(screen.getByRole('tab', { name, hidden: true })).toHaveAttribute('aria-selected', 'true'))
+}
+
+async function editRawTextarea(value: string) {
+  const textarea = await screen.findByRole('textbox')
+  await waitFor(() => expect(textarea).toHaveValue('PVP=false'))
+  await act(async () => { fireEvent.change(textarea, { target: { value } }) })
 }
 
 async function makeServerChangedSinceLoadTrue() {
@@ -135,6 +143,8 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
 
     await clickTab(/spawn points/i)
     await waitFor(() => expect(getRaw).toHaveBeenCalledWith('spawnpoints'))
+    // Save sits in the SaveBar, which shows once the tab holds an edit.
+    await editRawTextarea('spawn=edited')
     const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
 
@@ -151,6 +161,7 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
 
     await clickTab(/spawn regions/i)
     await waitFor(() => expect(getRaw).toHaveBeenCalledWith('spawnregions'))
+    await editRawTextarea('region=edited')
     const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
 
@@ -169,7 +180,9 @@ describe('ServerConfig.tsx: the remaining write actions also block once the acti
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
     await makeServerChangedSinceLoadTrue()
 
-    fireEvent.click(screen.getByRole('button', { name: /backups/i }))
+    // Config file backups sit in the header's "More" menu.
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions' }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: /config file backups/i }))
     const dialog = await screen.findByRole('dialog')
     await waitFor(() => expect(getBackups).toHaveBeenCalled())
     const restoreButton = await within(dialog).findByRole('button', { name: /restore/i })

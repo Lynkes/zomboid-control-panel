@@ -199,7 +199,7 @@ describe('Scheduler.tsx: the create/edit-task dialog also discloses the effectiv
 
     renderScheduler()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
     const dialog = await screen.findByRole('dialog')
 
     expect(await within(dialog).findByText(/America\/New_York/)).toBeInTheDocument()
@@ -215,7 +215,7 @@ describe('Scheduler.tsx: the create/edit-task dialog also discloses the effectiv
 
     renderScheduler()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
     const dialog = await screen.findByRole('dialog')
 
     expect(within(dialog).queryByText(/undefined/)).not.toBeInTheDocument()

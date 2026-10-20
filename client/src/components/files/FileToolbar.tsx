@@ -1,17 +1,15 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Download,
-  FileArchive,
   FilePlus,
   FolderPlus,
   FolderUp,
   Loader2,
   RefreshCw,
   Search,
-  Trash2,
   Upload,
   X,
 } from 'lucide-react'
@@ -46,10 +44,7 @@ interface FileToolbarProps {
   onUploadFolder: () => void
   selectionCount: number
   canDownloadSelection: boolean
-  canDeleteSelection: boolean
   onDownload: () => void
-  onDownloadZip: () => void
-  onDelete: () => void
   onRefresh: () => void
   refreshing: boolean
 }
@@ -57,7 +52,7 @@ interface FileToolbarProps {
 // Everything above the file table (spec §A14.2). The one text box filters
 // the loaded folder as you type; Search (or Enter) looks for names in this
 // folder and below on the server. Write actions only appear on a writable
-// folder, and Download/Delete only once something is selected.
+// folder; what can be done with a selection is on the selection bar.
 export function FileToolbar({
   breadcrumb,
   shortcutsHelp,
@@ -78,15 +73,30 @@ export function FileToolbar({
   onUploadFolder,
   selectionCount,
   canDownloadSelection,
-  canDeleteSelection,
   onDownload,
-  onDownloadZip,
-  onDelete,
   onRefresh,
   refreshing,
 }: FileToolbarProps) {
   const { t } = useTranslation('files')
   const hasSelection = selectionCount > 0
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // "/" anywhere on the page (outside a field or a dialog) jumps to the
+  // filter box, like the kit's Toolbar search (DESIGN.md keyboard rules).
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== '/' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return
+      const active = document.activeElement as HTMLElement | null
+      const tag = active?.tagName.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || active?.isContentEditable) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
+      event.preventDefault()
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   return (
     <div className="space-y-3">
@@ -109,6 +119,7 @@ export function FileToolbar({
         >
           <div className="relative min-w-0 flex-1">
             <Input
+              ref={inputRef}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               onKeyDown={(event) => {
@@ -120,6 +131,7 @@ export function FileToolbar({
               placeholder={t('list.filterPlaceholder')}
               aria-label={t('list.filterPlaceholder')}
               aria-describedby="files-search-hint"
+              aria-keyshortcuts="/"
               className="min-h-11 pe-9 sm:min-h-9"
             />
             <span id="files-search-hint" className="sr-only">{t('search.placeholder')}</span>
@@ -193,22 +205,13 @@ export function FileToolbar({
             </DropdownMenu>
           </>
         )}
+        {/* Download as .zip, Move and Delete live on the selection bar
+            (BulkBar), which shows whenever something is selected; only the
+            plain download (a single file as itself) stays up here. */}
         {hasSelection && canDownloadSelection && (
-          <>
-            <Button variant="outline" size="sm" onClick={onDownload}>
-              <Download aria-hidden="true" />
-              {t('actions.download')}
-            </Button>
-            <Button variant="outline" size="sm" onClick={onDownloadZip}>
-              <FileArchive aria-hidden="true" />
-              {t('actions.downloadZip')}
-            </Button>
-          </>
-        )}
-        {hasSelection && canDeleteSelection && (
-          <Button variant="destructive" size="sm" onClick={onDelete}>
-            <Trash2 aria-hidden="true" />
-            {t('actions.delete')}
+          <Button variant="outline" size="sm" onClick={onDownload}>
+            <Download aria-hidden="true" />
+            {t('actions.download')}
           </Button>
         )}
       </div>

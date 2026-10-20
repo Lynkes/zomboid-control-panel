@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "服务器文件",
-    "eyebrow": "文件",
     "description": "浏览并修改每个服务器的游戏安装文件夹和 Zomboid 文件夹中的文件。",
     "serverPicker": "服务器",
     "activeBadge": "活动",
@@ -30,13 +29,13 @@
       "permissions": "面板的账户无法在此写入。"
     },
     "unavailable": {
-      "missing": "此文件夹不存在。请在「我的服务器」中检查路径。",
-      "notConfigured": "此服务器未设置文件夹。请在「我的服务器」中添加。",
+      "missing": "此文件夹不存在。请在「服务器列表」中检查路径。",
+      "notConfigured": "此服务器未设置文件夹。请在「服务器列表」中添加。",
       "notMounted": "面板的容器看不到此文件夹。请在 Docker 配置中挂载它，然后重启面板。",
       "remoteNotActive": "切换到此服务器后，即可通过 SFTP 浏览其文件。",
       "remoteNotConfigured": "请先在「设置 › PanelBridge」中添加此服务器的 SFTP 登录信息和 Server 文件夹。",
       "remoteInstallNotSet": "设置远程游戏安装文件夹后即可浏览。",
-      "tooBroad": "这是驱动器根目录、系统文件夹或主目录，文件管理器不会打开它。请在「我的服务器」中将服务器指向它自己的文件夹。",
+      "tooBroad": "这是驱动器根目录、系统文件夹或主目录，文件管理器不会打开它。请在「服务器列表」中将服务器指向它自己的文件夹。",
       "overlapsPanel": "此文件夹位于面板自身的文件夹内，文件管理器不会打开它。",
       "unreadable": "面板无法读取此文件夹（{{detail}}）。",
       "sftpUnreachable": "面板无法通过 SFTP 连接到此服务器。"
@@ -135,7 +134,7 @@
       "panelBackups": "世界备份。请在「世界备份」页面下载、恢复或删除它们。",
       "bridgeIo": "PanelBridge 的命令文件夹。只有面板和游戏会写入此处。",
       "bridgeManaged": "PanelBridge 自身的文件。请在「设置 › PanelBridge」中更改其安装方式。",
-      "launchScripts": "面板会在每次启动前重写此启动脚本。请在「我的服务器」中更改内存、端口和密码。"
+      "launchScripts": "面板会在每次启动前重写此启动脚本。请在「服务器列表」中更改内存、端口和密码。"
     },
     "containsProtected": "此文件夹包含受面板保护的内容，因此无法整体移动、重命名或删除。",
     "openBackups": "打开世界备份",
@@ -257,6 +256,7 @@
     "previousVersion": "上一个版本在回收站中",
     "wrap": "自动换行",
     "escHint": "按 Esc，再按 Tab，即可离开编辑器。",
+    "editWithForm": "在「服务器配置」中用表单编辑",
     "lineCount_one": "{{count}} 行",
     "lineCount_other": "{{count}} 行",
     "bom": "BOM",
@@ -272,7 +272,7 @@
     },
     "hints": {
       "restartToApply": "服务器在启动时读取此文件。重启服务器以应用你的更改。",
-      "panelRewritesKeys": "面板会在每次启动前重写此文件中的 RCONPassword 和 RCONPort。请改为在「我的服务器」中修改。",
+      "panelRewritesKeys": "面板会在每次启动前重写此文件中的 RCONPassword 和 RCONPort。请改为在「服务器列表」中修改。",
       "luaChecksum": "修改游戏 Lua 文件会使其与玩家的副本不一致。启用 DoLuaChecksum=true 时，玩家将无法加入。",
       "steamUpdateOverwrites": "Steam 更新和文件校验会替换在此修改过的游戏文件。",
       "bridgeWorkshopEntries": "请保留 Mods= 中的 ZCPB 以及 WorkshopItems= 中对应的创意工坊项目。面板会在下次启动时将其补回。",

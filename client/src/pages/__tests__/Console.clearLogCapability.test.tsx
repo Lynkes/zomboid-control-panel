@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (console page hunt, capability gate sweep): the Server
 // Log tab's "clear" button calls POST /server/console-log/clear, which the
@@ -69,12 +70,12 @@ async function renderWithLog() {
   render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )
   await screen.findByText('boot ok')
-  return screen.getByRole('button', { name: /^clear$/i })
+  return screen.getByRole('button', { name: /^clear log$/i })
 }
 
 describe('Console.tsx: clearing the server log is gated on server.configure', () => {

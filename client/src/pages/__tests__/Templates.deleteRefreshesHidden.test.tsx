@@ -80,9 +80,12 @@ describe('Templates.tsx -- hiding a built-in refreshes the hidden section', () =
       </MemoryRouter>,
     )
 
-    fireEvent.click(await screen.findByTitle('Delete template'))
+    // A built-in's only removal is Hide (it can be restored), in its card's "…" menu.
+    fireEvent.pointerDown(await screen.findByRole('button', { name: 'Actions for Vanilla Apocalypse' }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Hide template' }))
 
     await waitFor(() => expect(deleteTemplate).toHaveBeenCalledWith('vanilla-apocalypse'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Hidden built-ins (1)' }))
     expect(
       await screen.findByRole('button', { name: 'Restore Vanilla Apocalypse' }),
     ).toBeInTheDocument()

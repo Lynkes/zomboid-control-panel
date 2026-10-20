@@ -123,7 +123,7 @@ describe('Scheduler.tsx: the Timezone card surfaces the system auto-restart and 
 
     renderScheduler()
 
-    await screen.findByText('Scheduler Timezone')
+    await screen.findByText('Timezone')
     expect(screen.queryByText(/Automatic backup:/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Periodic auto-restart:/)).not.toBeInTheDocument()
   })

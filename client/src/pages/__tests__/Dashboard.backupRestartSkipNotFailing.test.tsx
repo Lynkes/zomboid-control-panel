@@ -215,7 +215,8 @@ describe('Dashboard.tsx: a backup given up on for a stuck restart is explained i
     })
     renderDashboard()
 
-    const verdict = await screen.findByRole('status', { name: /./ })
+    // The band's own name is translated too.
+    const verdict = await screen.findByRole('status', { name: 'Situação do servidor' })
     expect(await within(verdict).findByText('Backup agendado falhando')).toBeInTheDocument()
     expect(within(verdict).getByText(/^Não executado: o reinício do servidor estava em andamento havia 28 min \(aviso de 5 min\) sem terminar/)).toBeInTheDocument()
     expect(screen.queryByText(ENGLISH)).not.toBeInTheDocument()

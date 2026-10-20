@@ -5,6 +5,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // UX sense-check (2026-09-18, operator ask): first-time-operator pass over
 // the Console page. Three gaps found and fixed here, each proven by a test
@@ -98,7 +99,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )
@@ -119,7 +120,7 @@ describe('Console -- clear-log confirm names the target server', () => {
   it('shows the active server name in the confirm dialog title, not a generic "the server" phrase', async () => {
     renderConsole()
 
-    const clearButton = await screen.findByRole('button', { name: 'clear' })
+    const clearButton = await screen.findByRole('button', { name: 'Clear log' })
     fireEvent.click(clearButton)
 
     const dialog = await screen.findByRole('alertdialog')
@@ -157,7 +158,7 @@ describe('Console -- quick commands fill, they do not execute', () => {
     renderConsole()
     await switchToRconTab()
 
-    const help = await screen.findByRole('button', { name: 'Help: quick' })
+    const help = await screen.findByRole('button', { name: 'Help: Quick commands' })
     fireEvent.click(help)
 
     await waitFor(() =>

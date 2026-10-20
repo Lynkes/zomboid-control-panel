@@ -5,6 +5,10 @@
     "eyebrow": "Wartung",
     "newTask": "Neue Aufgabe"
   },
+  "settings": {
+    "title": "Zeitplaner-Einstellungen",
+    "description": "Die Zeitzone aller Zeitpläne und der Countdown, den Spieler vor einem Neustart sehen."
+  },
   "fetchError": {
     "title": "Zeitplaner-Daten konnten nicht geladen werden",
     "fallback": "Zeitplaner-Daten konnten nicht geladen werden. Das Backend ist möglicherweise nicht erreichbar.",
@@ -118,8 +122,10 @@
     "welcome": "Willkommen! Bitte lest die Regeln am Spawnpunkt"
   },
   "scheduledTasks": {
-    "title": "Geplante Aufgaben",
-    "description": "Verwalte automatisierte Befehle.",
+    "title": "Aufgaben",
+    "description": "Befehle, die nach Zeitplan laufen. Führe einen sofort aus, bearbeite oder pausiere ihn.",
+    "activeCount": "{{active}} von {{total}} aktiv",
+    "modUpdatePending": "Neustart nach Mod-Update ausstehend",
     "emptyTitle": "Keine geplanten Aufgaben",
     "emptyDesc": "Erstelle eine Aufgabe, um Neustarts, Speicherungen, Servernachrichten oder PanelBridge-Befehle (Wetter, Versorgung) nach einem Cron-Zeitplan auszuführen.",
     "emptyActionLabel": "Geplante Aufgabe erstellen",
@@ -178,7 +184,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = täglich um 6 Uhr"
   },
   "timezone": {
-    "title": "Zeitzone des Planers",
+    "title": "Zeitzone",
     "description": "Jeder Zeitplan unten -- deine Aufgaben, die automatische Sicherung und der automatische Neustart -- läuft in dieser Zeitzone.",
     "inputLabel": "IANA-Zeitzonenname",
     "noMatches": "Keine passende Zeitzone gefunden",
@@ -189,7 +195,9 @@
     "backupScheduleOff": "inaktiv",
     "autoRestartOn": "an",
     "autoRestartOff": "aus",
-    "backupHealthTitle": "Status des Backup-Zeitplans",
+    "backupHealthTitle": "Automatische Backups",
+    "backupHealthDesc": "Das letzte geplante Welt-Backup und das nächste.",
+    "backupHealthLink": "Backup-Zeitplan",
     "backupLastAttemptOk": "Letzter Versuch erfolgreich · {{date}}",
     "backupLastAttemptFailed": "Letzter Versuch fehlgeschlagen · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Letzter Versuch wegen Neustart übersprungen · {{date}}",
@@ -199,7 +207,9 @@
     "savedDesc": "Zeitpläne laufen jetzt in {{tz}}.",
     "saveFailedFallback": "Zeitzone konnte nicht gespeichert werden",
     "fallbackTitle": "Gespeicherte Zeitzone ist nicht mehr gültig",
-    "fallbackDesc": "„{{configured}}“ konnte nicht verwendet werden (möglicherweise wurde sie aus der Zeitzonendatenbank entfernt, oder dieses Panel wurde von einem anderen Rechner wiederhergestellt). Zeitpläne laufen bis zur Behebung in {{effective}}."
+    "fallbackDesc": "„{{configured}}“ konnte nicht verwendet werden (möglicherweise wurde sie aus der Zeitzonendatenbank entfernt, oder dieses Panel wurde von einem anderen Rechner wiederhergestellt). Zeitpläne laufen bis zur Behebung in {{effective}}.",
+    "fallbackAction": "Zeitzone ändern",
+    "emptyReason": "Wähle zuerst eine Zeitzone."
   },
   "restartWarning": {
     "title": "Neustartwarnungen",
@@ -211,6 +221,7 @@
     "saveButton": "Warnungen speichern",
     "saved": "Neustartwarnungen gespeichert",
     "saveFailed": "Neustartwarnungen konnten nicht gespeichert werden",
+    "emptyReason": "Schreibe zuerst die Countdown-Nachricht.",
     "languages": {
       "en": "Englisch",
       "zh-CN": "Chinesisch (vereinfacht)",

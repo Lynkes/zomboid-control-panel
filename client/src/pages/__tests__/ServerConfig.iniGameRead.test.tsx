@@ -247,11 +247,11 @@ describe('ServerConfig.tsx INI tab: values compared with their default as the ga
     renderIniTab()
 
     await waitFor(() => expect(getIni).toHaveBeenCalled())
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Search server settings' }), { target: { value: 'Max Players' } })
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Search server settings' }), { target: { value: 'Max Players' } })
     expect(await screen.findByText('Default: 32')).not.toHaveClass('text-warning')
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Search server settings' }), { target: { value: '' } })
-    fireEvent.click(screen.getByRole('button', { name: 'modified' }))
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search server settings' }), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Modified' }))
     await waitFor(() => expect(screen.queryByText('Max Players')).not.toBeInTheDocument())
     expect(screen.queryByText('Public Server')).not.toBeInTheDocument()
   })

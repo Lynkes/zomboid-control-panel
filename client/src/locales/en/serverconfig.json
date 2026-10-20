@@ -1,5 +1,5 @@
 {
-  "loading": "loading configuration…",
+  "loading": "Loading configuration…",
   "loadErrorTitle": "Configuration data could not be fully loaded",
   "retry": "Retry",
   "noAccess": {
@@ -18,14 +18,15 @@
   "pageHeader": {
     "title": "Server Configuration",
     "description": "Edit the live INI, sandbox, spawn, and mod settings for this server.",
-    "eyebrow": "config",
     "unsavedChanges": "Unsaved changes",
-    "templates": "Saved Configs",
-    "backups": "Backups",
-    "refresh": "Refresh"
+    "templates": "Config snapshots",
+    "backups": "Config file backups",
+    "refresh": "Refresh",
+    "more": "More actions",
+    "templatesPage": "Templates",
+    "openInFiles": "Open folder in Server Files"
   },
   "activeServerStrip": {
-    "label": "Active server",
     "noServerSelected": "No server selected",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -53,7 +54,8 @@
     "removeConfirm": "Remove \"{{modId}}\" from Mods=? This only stages the change here — nothing is written to disk until you save.",
     "removeConfirmButton": "Remove",
     "removedTitle": "Mods= entry removed",
-    "removedToast": "Removed \"{{modId}}\" from Mods=. Unsaved — review and save below."
+    "removedToast": "Removed \"{{modId}}\" from Mods=. Unsaved — review and save below.",
+    "openActiveMods": "Open active mods"
   },
   "tabs": {
     "serverSettings": "Server Settings",
@@ -62,7 +64,8 @@
     "spawnRegions": "Spawn Regions",
     "modSettings": "Mod Settings",
     "unsavedChangesAria": "unsaved changes",
-    "fileMissingAria": "file missing"
+    "fileMissingAria": "file missing",
+    "listAria": "Configuration files"
   },
   "stopServerAlert": {
     "title": "The server is running",
@@ -78,17 +81,13 @@
     "form": "Form",
     "raw": "Raw",
     "downloadIniAria": "Download INI backup",
-    "downloadIniTooltip": "Download INI backup",
     "downloadSandboxAria": "Download Sandbox backup",
-    "downloadSandboxTooltip": "Download Sandbox backup",
     "downloadSpawnPointsAria": "Download Spawn Points backup",
-    "downloadSpawnPointsTooltip": "Download Spawnpoints backup",
     "downloadSpawnRegionsAria": "Download Spawn Regions backup",
-    "downloadSpawnRegionsTooltip": "Download Spawnregions backup",
     "wiki": "Wiki",
-    "map": "map",
+    "map": "Map",
     "saveAndReload": "Save & reload",
-    "save": "save",
+    "save": "Save",
     "copied": "Copied!",
     "copyToClipboard": "Copy to clipboard"
   },
@@ -97,29 +96,19 @@
     "sandboxPlaceholder": "Search sandbox settings…",
     "aria": "Search server settings",
     "sandboxAria": "Search sandbox settings",
-    "clearAria": "Clear search",
     "filterAria": "Filter settings",
-    "filterAll": "all",
-    "filterModified": "modified",
-    "filterUnsaved": "unsaved",
+    "filterAll": "All",
+    "filterModified": "Modified",
+    "filterUnsaved": "Unsaved",
     "noMatches": "No settings match “{{query}}”."
   },
   "categoriesNav": {
     "iniAria": "Server settings categories",
     "sandboxAria": "Sandbox categories",
-    "categoriesLabel": "Categories",
-    "expandAllAria": "Expand all category groups",
-    "collapseAllAria": "Collapse all category groups",
-    "expandAll": "Expand all",
-    "collapseAll": "Collapse all",
-    "modifiedCountTitle_one": "{{count}} unsaved change",
-    "modifiedCountTitle_other": "{{count}} unsaved changes",
     "matchCount_one": "{{count}} match",
     "matchCount_other": "{{count}} matches",
     "uncategorizedIniLabel": "Uncategorized / Unknown",
-    "uncategorizedIniTitle": "Keys present in your INI file but not in the schema (newer vanilla keys, mod-injected keys, or custom)",
-    "uncategorizedSandboxLabel": "Additional Settings",
-    "uncategorizedSandboxTitle": "Sandbox settings not yet grouped by the editor"
+    "uncategorizedSandboxLabel": "Additional Settings"
   },
   "uncategorizedIni": {
     "empty": "No uncategorized keys.",
@@ -152,12 +141,10 @@
     "luaChecksumBody": "The panel-installed PanelBridge adds server-side Lua files players don't have, so with <1>DoLuaChecksum</1> on they can't connect. Turn it off, or switch PanelBridge to Steam Workshop delivery in Settings › PanelBridge to keep it on.",
     "luaChecksumWorkshopNote": "PanelBridge comes from the Steam Workshop, so you can turn this on. Settings › PanelBridge walks you through it.",
     "luaChecksumWorkshopUnconfirmed": "If PanelBridge still loads from the game folder, players can't join with this on.",
-    "disableNow": "disable now"
+    "disableNow": "Turn off now"
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "world, zombies, survival",
-    "build42Title": "Build 42 Optimized",
     "build42Body": "Sandbox values and option wording in this editor are aligned to Project Zomboid Build 42 defaults.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -166,11 +153,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Spawn points",
-    "sectionSublabel": "mod-managed · player start locations",
-    "infoTab": "info",
+    "sectionSublabel": "Player start locations, usually managed by a mod",
     "modManagedTitle": "Spawn points are mod-managed",
-    "modManagedBody": "Spawn locations are typically handled by mods like “Spawn Select.” Switch to <1>raw</1> to inspect or edit the file directly.",
-    "openRawFile": "open raw file"
+    "modManagedBody": "Spawn locations are typically handled by mods like “Spawn Select.” Switch to <1>Raw</1> to inspect or edit the file directly.",
+    "openRawFile": "Open raw file"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Spawn regions",
@@ -190,23 +176,22 @@
     "fileAriaServerFile": "Region {{index}} server file",
     "fileAriaMapPath": "Region {{index}} map file path",
     "deleteAria": "Delete spawn region {{name}}",
-    "addRegion": "add region"
+    "addRegion": "Add region"
   },
   "modSettingsTab": {
     "sectionLabel": "Mod sandbox options",
     "sectionSublabelLoaded_one": "{{count}} mod · live from bridge",
     "sectionSublabelLoaded_other": "{{count}} mods · live from bridge",
-    "sectionSublabelIdle": "panelbridge · live",
+    "sectionSublabelIdle": "Live from PanelBridge",
     "modifiedBadge": "{{count}} modified",
-    "refresh": "refresh",
-    "load": "load",
+    "refresh": "Refresh",
+    "load": "Load",
     "searchPlaceholder": "Search mod settings…  (press /)",
-    "clearSearchAria": "Clear search",
     "modifiedFilterNoneTitle": "No options differ from default",
     "modifiedFilterTitle": "Show only options changed from default",
-    "modifiedFilter": "modified",
+    "modifiedFilter": "Modified",
     "collapseAll": "Collapse all",
-    "expandAll": "expand all",
+    "expandAll": "Expand all",
     "notLoadedTitle": "Mod settings not loaded",
     "notLoadedDescPrefix": "Click load to fetch sandbox options from all installed mods via PanelBridge",
     "notLoadedDescSuffix": ". The PZ server must be running with PanelBridge active.",
@@ -231,7 +216,7 @@
     "offCaps": "OFF",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Reset to default: {{value}}",
-    "resetToDefaultLabel": "def: {{value}}",
+    "resetToDefaultLabel": "Reset to {{value}}",
     "resetToDefaultTooltip": "Reset to default: {{value}}",
     "noModifiedOptions": "No options have been modified from their defaults.",
     "showAllOptions": "Show all options",
@@ -242,20 +227,11 @@
     "enumBridgeOutdatedDesc": "It saves the last choice of a list setting as the one before it, so the panel won't send a last choice until PanelBridge is updated and the server restarts. Settings › PanelBridge shows what this server needs. Where a setting's choices can't be listed, type the choice's number (1 is the first).",
     "enumLastChoiceHeldBack": "The last choice ({{max}}) can't be picked here until PanelBridge is updated.",
     "enumLastChoiceItem": "Choice {{value}}",
-    "enumTooManyChoices": "Too many choices to list. Type the choice's number (1 is the first)."
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} unsaved change",
-    "unsavedChange_other": "{{count}} unsaved changes",
-    "iniScope": "server ini",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s to save · applies on reload",
-    "discard": "discard",
-    "save": "save",
-    "saveAndReload": "save & reload"
+    "enumTooManyChoices": "Too many choices to list. Type the choice's number (1 is the first).",
+    "manageMods": "Manage mods"
   },
   "backupsDialog": {
-    "title": "Configuration Backups",
+    "title": "Config file backups",
     "description": "Restore a previous version of your configuration files. Backups are created automatically when you save.",
     "filterLabel": "Filter:",
     "filterAll": "All Files",
@@ -276,14 +252,14 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "Saved Configs",
+    "title": "Config snapshots",
     "applyTip": "Applying a saved config replaces ALL of your current settings — it doesn't merge with what's there now. The panel backs up what's live before applying, so Restore can undo it, but the server must be stopped first.",
-    "description": "Save your current configuration, or load one you saved earlier.",
+    "description": "Save the current settings as a snapshot, or apply one you saved earlier.",
     "savedCount_one": "{{count}} config saved",
     "savedCount_other": "{{count}} configs saved",
-    "saveCurrentAsTemplate": "Save Current Config",
+    "saveCurrentAsTemplate": "Save current config",
     "emptyTitle": "No saved configs yet",
-    "emptyDesc": "Click 'Save Current Config' to create your first one",
+    "emptyDesc": "Click 'Save current config' to create your first one",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Created: {{date}}",
     "apply": "Apply",
@@ -293,7 +269,7 @@
     "close": "Close"
   },
   "saveTemplateDialog": {
-    "title": "Save Current Config",
+    "title": "Save current config",
     "description": "Save your current INI and/or Sandbox settings so you can load them again later.",
     "nameLabel": "Name *",
     "namePlaceholder": "e.g., PvE Casual, Hardcore Survival...",

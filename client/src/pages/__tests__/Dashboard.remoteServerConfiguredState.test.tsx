@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
@@ -138,21 +138,19 @@ describe('Dashboard.tsx: a remote server is never told it is unconfigured by the
     expect(screen.queryByText('Not configured')).not.toBeInTheDocument()
   })
 
-  it('local server, status.configured false: still shows "not configured" (regression guard -- this case is real)', async () => {
+  it('local server, status.configured false: still shows "not configured" (regression guard -- this case is real), once, with its fix', async () => {
     const local = makeServer({ isRemote: false, installPath: 'C:/servers/ashenwood', serverName: 'Ashenwood', name: 'Ashenwood' })
     await setUpCommon(local)
 
     renderDashboard()
 
     await screen.findByText('Ashenwood')
-    // getAllByText, not getByText: the verdict headline renders twice by
-    // design (a visible span plus a sr-only duplicate for the icon-only
-    // status dot -- see VerdictBand), so a single-match query throws
-    // "multiple elements found" every time, which waitFor swallows and
-    // retries into the ground until the (deliberately long, see
-    // test-setup.ts) asyncUtilTimeout.
-    await waitFor(() => expect(screen.getAllByText('No server configured').length).toBeGreaterThan(0))
-    expect(screen.getByText('Not configured')).toBeInTheDocument()
+    const verdict = await screen.findByRole('status', { name: 'Server verdict' })
+    expect(await within(verdict).findByText('No server configured')).toBeInTheDocument()
+    // The fix for a server without a launch folder is editing it on Servers.
+    expect(within(verdict).getByRole('link', { name: /Edit server/ })).toHaveAttribute('href', '/servers')
+    // The separate "Not configured" banner only repeated the verdict.
+    expect(screen.queryByText('Not configured')).not.toBeInTheDocument()
   })
 
   it('remote server, offline, status.configured false: Live Activity\'s empty state reads "not running", not "not configured" (third consumer of the same signal, caught in review after the verdict/banner fix)', async () => {

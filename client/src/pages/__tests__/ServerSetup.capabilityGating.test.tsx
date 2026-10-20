@@ -7,6 +7,7 @@ import type { Socket } from "socket.io-client";
 import ServerSetup from "../ServerSetup";
 import { configApi, serverApi, serversApi } from "@/lib/api";
 import enServerSetup from "../../locales/en/serverSetup.json";
+import enServers from "../../locales/en/servers.json";
 
 // bug-hunt-2026-08-27: ServerSetup.tsx mixes THREE capabilities on one page
 // (server.install, panel.settings, server.control) -- god's own "may
@@ -110,9 +111,9 @@ function createFakeSocket() {
   };
 }
 
-function renderServerSetup(socket: Socket | null = null) {
+function renderServerSetup(socket: Socket | null = null, entry = "/server-setup") {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <SocketContext.Provider value={socket}>
         <TooltipProvider>
           <ServerSetup />
@@ -131,7 +132,7 @@ afterEach(() => {
 describe("ServerSetup.tsx: Save SteamCMD path gates on panel.settings, not server.install", () => {
   async function openManualSteamCmdSection() {
     renderServerSetup();
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
     await screen.findByText(enServerSetup.full.step1.title);
     fireEvent.click(screen.getByRole("button", { name: enServerSetup.full.step1.manualTrigger }));
     const pathInput = await screen.findByPlaceholderText(enServerSetup.full.step1.manualPathPlaceholder);
@@ -161,7 +162,7 @@ describe("ServerSetup.tsx: Save SteamCMD path gates on panel.settings, not serve
   it("leaves the auto-download button gated on server.install alone, unaffected by a panel.settings denial", async () => {
     mockCan = (capability) => capability !== "panel.settings";
     renderServerSetup();
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
     await screen.findByText(enServerSetup.full.step1.title);
 
     const downloadButton = screen.getByRole("button", { name: enServerSetup.full.step1.installButton });
@@ -175,7 +176,7 @@ describe("ServerSetup.tsx: Save SteamCMD path gates on panel.settings, not serve
   it("reaches serverApi.downloadSteamCmd when the auto-download button is clicked, holding server.install", async () => {
     mockCan = () => true;
     renderServerSetup();
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
     await screen.findByText(enServerSetup.full.step1.title);
 
     const downloadButton = screen.getByRole("button", { name: enServerSetup.full.step1.installButton });
@@ -197,8 +198,9 @@ describe("ServerSetup.tsx: Save SteamCMD path gates on panel.settings, not serve
 // role that lacks server.install entirely.
 describe("ServerSetup.tsx: Browse folder buttons (shared handleBrowseFolder) gate on server.install", () => {
   async function openManualSteamCmdBrowseButton() {
-    renderServerSetup();
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    // Straight into the wizard by its link: a role without server.install
+    // can't pick the mode on the choice screen (see the block below).
+    renderServerSetup(null, "/server-setup?mode=fresh&step=1");
     await screen.findByText(enServerSetup.full.step1.title);
     fireEvent.click(screen.getByRole("button", { name: enServerSetup.full.step1.manualTrigger }));
     await screen.findByPlaceholderText(enServerSetup.full.step1.manualPathPlaceholder);
@@ -238,7 +240,7 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
     const { socket } = createFakeSocket();
     const { container } = renderServerSetup(socket);
 
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.quickCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.existing.label) }));
     await screen.findByText(enServerSetup.quick.step1.title);
     fireEvent.change(screen.getByPlaceholderText(enServerSetup.quick.step1.locationPlaceholder), {
       target: { value: "/opt/pz-server" },
@@ -308,5 +310,35 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
     mockCan = () => true;
     await reachQuickPostCreate({ rconHost: "projectzomboid" });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: "projectzomboid" }));
+  });
+});
+
+// UX restructure (slice B): the mode choice says up front that installing
+// needs server.install, instead of letting the operator fill in a whole
+// wizard whose Install / Create button then refuses.
+describe("ServerSetup.tsx: the add-a-server choices gate on server.install", () => {
+  it("disables Install a new server and Use existing server files, with the reason, for a role without server.install", async () => {
+    mockCan = (capability) => capability !== "server.install";
+    renderServerSetup();
+
+    const fresh = await screen.findByRole("button", { name: new RegExp(enServers.addServer.fresh.label) });
+    const existing = screen.getByRole("button", { name: new RegExp(enServers.addServer.existing.label) });
+    expect(fresh).toBeDisabled();
+    expect(existing).toBeDisabled();
+    expect(fresh).toHaveTextContent(enServerSetup.common.noPermissionInstall);
+    fireEvent.click(fresh);
+    expect(screen.queryByText(enServerSetup.full.step1.title)).not.toBeInTheDocument();
+    // Connecting a remote server is the Servers page's own flow, not gated here.
+    expect(screen.getByRole("link", { name: new RegExp(enServers.addServer.remote.label) })).toHaveAttribute(
+      "href",
+      "/servers?add=remote",
+    );
+  });
+
+  it("enables both for a role holding server.install", async () => {
+    mockCan = () => true;
+    renderServerSetup();
+    expect(await screen.findByRole("button", { name: new RegExp(enServers.addServer.fresh.label) })).toBeEnabled();
+    expect(screen.getByRole("button", { name: new RegExp(enServers.addServer.existing.label) })).toBeEnabled();
   });
 });

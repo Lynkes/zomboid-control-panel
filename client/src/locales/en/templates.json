@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Simulation Templates",
-    "description": "Apply a curated ruleset to your server, or save your own configuration to reuse later.",
+    "title": "Templates",
+    "description": "Rulesets you can apply to any server; a config snapshot only restores one server's files.",
+    "snapshotsLink": "Config snapshots live in Server Configuration",
     "import": "Import",
-    "saveCurrentConfig": "Save Current Config"
+    "saveCurrentConfig": "Save current config"
   },
+  "loading": "Loading templates",
   "emptyState": {
     "loadErrorTitle": "Couldn't load templates",
     "retry": "Retry",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Save your current server configuration as a template, or import one from a file."
   },
   "hiddenSection": {
-    "title": "Hidden built-in templates",
+    "toggle": "Hidden built-ins ({{n}})",
     "description": "Hidden from the list above but not deleted. Restore one to bring it back.",
     "restoreButton": "Restore",
     "restoreAria": "Restore {{name}}"

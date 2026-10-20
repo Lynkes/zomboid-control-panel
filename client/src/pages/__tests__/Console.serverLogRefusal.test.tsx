@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
 import enErrors from '../../locales/en/errors.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // PT3 (security sweep 2026-10-05, final round): when the panel won't read a
 // server's console log -- its data folder no longer meets the data-folder
@@ -64,7 +65,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )
@@ -102,7 +103,7 @@ describe("Console -- the server log says why the panel won't read it", () => {
     })
     renderConsole()
     expect(await screen.findByText(enConsole.serverLog.unavailableTitle)).toBeInTheDocument()
-    const shown = screen.getByText(/My Servers page/)
+    const shown = screen.getByText(/Servers page/)
     expect(shown.textContent).toBe(enErrors.SERVER_CONSOLE_LOG_NO_DATA_FOLDER)
     expect(screen.queryByText('raw server text')).not.toBeInTheDocument()
   })

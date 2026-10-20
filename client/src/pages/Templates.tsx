@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { LayoutTemplate, Plus, Upload, Loader2, RotateCcw } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ArrowRight, Plus, Upload, Loader2, RotateCcw } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
+import { SectionCard } from '@/components/ui/section-card'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useToast } from '@/components/ui/use-toast'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { templatesApi, SimTemplate } from '@/lib/api'
@@ -156,16 +159,25 @@ export default function Templates() {
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        icon={<LayoutTemplate className="h-6 w-6" />}
-        tone="config"
+        // Templates and config snapshots are easy to confuse: name where the
+        // other one lives.
+        meta={
+          <Link
+            to="/server-config?open=snapshots"
+            className="inline-flex items-center gap-1 rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          >
+            {t('pageHeader.snapshotsLink')}
+            <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+          </Link>
+        }
         actions={canManage ? (
           <>
-            <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <Upload className="h-4 w-4" />
-              {t('pageHeader.import')}
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)} aria-label={t('pageHeader.import')}>
+              <Upload className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">{t('pageHeader.import')}</span>
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
+            <Button variant="command" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
               {t('pageHeader.saveCurrentConfig')}
             </Button>
           </>
@@ -173,8 +185,20 @@ export default function Templates() {
       />
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        // The header stays; only the list waits (a skeleton of the cards).
+        <div role="status" aria-busy="true" aria-label={t('loading')} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="space-y-3 rounded-xl border border-border/60 bg-card p-5">
+              <Skeleton className="h-5 w-2/3" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-4/5" />
+              <div className="flex gap-1.5 pt-1">
+                <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="h-5 w-12 rounded-full" />
+              </div>
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ))}
         </div>
       ) : loadError ? (
         <EmptyState
@@ -206,16 +230,18 @@ export default function Templates() {
       )}
 
       {canManage && hiddenTemplates.length > 0 && (
-        <div className="space-y-3 rounded-lg border border-border/70 bg-muted/15 p-4">
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">{t('hiddenSection.title')}</h2>
-            <p className="text-xs text-muted-foreground">{t('hiddenSection.description')}</p>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        <SectionCard
+          title={t('hiddenSection.toggle', { n: hiddenTemplates.length })}
+          description={t('hiddenSection.description')}
+          density="compact"
+          collapsible
+          defaultOpen={false}
+        >
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {hiddenTemplates.map((template) => (
-              <div
+              <li
                 key={template.meta.id}
-                className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/60 px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2"
               >
                 <span className="truncate text-sm text-muted-foreground">{template.meta.name}</span>
                 <Button
@@ -226,16 +252,16 @@ export default function Templates() {
                   aria-label={t('hiddenSection.restoreAria', { name: template.meta.name })}
                 >
                   {restoringId === template.meta.id ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <RotateCcw className="h-3.5 w-3.5" />
+                    <RotateCcw className="h-4 w-4" aria-hidden="true" />
                   )}
                   {t('hiddenSection.restoreButton')}
                 </Button>
-              </div>
+              </li>
             ))}
-          </div>
-        </div>
+          </ul>
+        </SectionCard>
       )}
 
       <TemplatePreviewDialog

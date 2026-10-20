@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
 import errorsEn from '../../locales/en/errors.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (round 13, client error-code display sweep): a failed
 // /rcon/execute response can carry `code: RCON_EXECUTE_DISCONNECTED` (server/
@@ -87,7 +88,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

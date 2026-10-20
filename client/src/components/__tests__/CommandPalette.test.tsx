@@ -123,7 +123,9 @@ describe('CommandPalette', () => {
   it('shows why a page that needs a server cannot open, and does not open it', async () => {
     const { input } = renderPalette({ servers: [], activeServer: null })
     fireEvent.change(input, { target: { value: 'console' } })
-    const consoleOption = within(listbox()).getByRole('option', { name: /^Console/ })
+    // Scoped to Pages: the Console's own tabs are deep links in another group.
+    const pages = within(listbox()).getByRole('group', { name: 'Pages' })
+    const consoleOption = within(pages).getByRole('option', { name: /^Console/ })
     expect(consoleOption).toHaveAttribute('aria-disabled', 'true')
     expect(consoleOption).toHaveTextContent('Add a server first')
     fireEvent.click(consoleOption)

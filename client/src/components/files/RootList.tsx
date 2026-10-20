@@ -1,32 +1,44 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, Bookmark as BookmarkIcon, FolderCog, FolderOpen, Lock, Trash2 } from 'lucide-react'
+import { AlertTriangle, Bookmark as BookmarkIcon, FolderOpen, Lock, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { HelpTip } from '@/components/HelpTip'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { formatBytes } from '@/lib/formatBytes'
 import { cn } from '@/lib/utils'
-import { isolateLtrForRtl } from '@/lib/paramTranslation'
 import type { Bookmark, ProfileFiles, RootDescriptor, RootId } from '@/types/files'
 import { unavailableText } from './filesUi'
 
-// The left column of Server Files (spec §A14.2): which server, which of its
-// folders, shortcuts into them, and that folder's Trash. On a phone the
-// folders collapse into one Select (RootSelect) above the list.
+// The left rail of Server Files (spec §A14.2): which server, which of its
+// folders, shortcuts into them, and that folder's Trash. The rows look like
+// the kit's SubNav (DESIGN.md): a tint, medium weight and a 2px start bar on
+// the one that is open, styled from aria-current. On a phone the rail
+// collapses into one Select (RootSelect) above the list, which holds the
+// shortcuts and Trash too.
 
 function sortedRoots(profile: ProfileFiles): RootDescriptor[] {
   const order: RootId[] = ['data', 'config', 'install', 'launch']
   return [...profile.roots].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
 }
 
-function BackendBadge({ root }: { root: RootDescriptor }) {
-  const { t } = useTranslation('files')
-  return (
-    <Badge variant="secondary" className="shrink-0 px-2 py-0 text-[10px] font-medium">
-      {t(`roots.backend.${root.backend}`)}
-    </Badge>
+function visibleBookmarks(profile: ProfileFiles, roots: RootDescriptor[]): Bookmark[] {
+  return profile.bookmarks.filter((bookmark) => roots.some((root) => root.id === bookmark.rootId && root.available))
+}
+
+const railItem = (active: boolean) =>
+  cn(
+    'group relative flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-start text-sm transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
+    active ? 'bg-primary/10 font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground',
   )
+
+function ActiveBar({ active }: { active: boolean }) {
+  if (!active) return null
+  return <span className="absolute start-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" />
+}
+
+function railIcon(active: boolean, extra?: string) {
+  return cn('mt-0.5 h-4 w-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground', extra)
 }
 
 interface ServerPickerProps {
@@ -41,7 +53,7 @@ export function ServerPicker({ profiles, value, onChange }: ServerPickerProps) {
   if (profiles.length <= 1) return null
   return (
     <div className="space-y-1.5">
-      <Label htmlFor="files-server-picker" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <Label htmlFor="files-server-picker" className="label-micro">
         {t('page.serverPicker')}
       </Label>
       <Select value={value ?? undefined} onValueChange={onChange}>
@@ -67,33 +79,85 @@ export function ServerPicker({ profiles, value, onChange }: ServerPickerProps) {
   )
 }
 
+const TRASH_VALUE = '__trash__'
+const BOOKMARK_PREFIX = '__bookmark__:'
+
 interface RootSelectProps {
   profile: ProfileFiles
   value: RootId | null
+  trashOpen: boolean
   onChange: (rootId: RootId) => void
+  onOpenBookmark: (bookmark: Bookmark) => void
+  onOpenTrash: () => void
 }
 
-/** The phone layout's folder chooser. */
-export function RootSelect({ profile, value, onChange }: RootSelectProps) {
+/** The phone layout's folder chooser: the folders, then the shortcuts, then this folder's Trash. */
+export function RootSelect({ profile, value, trashOpen, onChange, onOpenBookmark, onOpenTrash }: RootSelectProps) {
   const { t } = useTranslation('files')
+  const roots = sortedRoots(profile)
+  const bookmarks = visibleBookmarks(profile, roots)
+  const selected = roots.find((root) => root.id === value) ?? null
+
+  const choose = (next: string) => {
+    if (next === TRASH_VALUE) {
+      if (!trashOpen) onOpenTrash()
+      return
+    }
+    if (next.startsWith(BOOKMARK_PREFIX)) {
+      const bookmark = bookmarks[Number(next.slice(BOOKMARK_PREFIX.length))]
+      if (bookmark) onOpenBookmark(bookmark)
+      return
+    }
+    onChange(next as RootId)
+  }
+
   return (
     <div className="space-y-1.5">
-      <Label htmlFor="files-root-select" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <Label htmlFor="files-root-select" className="label-micro">
         {t('roots.heading')}
       </Label>
-      <Select value={value ?? undefined} onValueChange={(next) => onChange(next as RootId)}>
+      <Select value={trashOpen && selected?.available ? TRASH_VALUE : value ?? undefined} onValueChange={choose}>
         <SelectTrigger id="files-root-select" className="min-h-11">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {sortedRoots(profile).map((root) => (
-            <SelectItem key={root.id} value={root.id}>
-              <span className="flex items-center gap-2">
-                {t(`roots.labels.${root.id}`)}
-                {!root.available && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
-              </span>
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {roots.map((root) => (
+              <SelectItem key={root.id} value={root.id} className="min-h-11">
+                <span className="flex items-center gap-2">
+                  {t(`roots.labels.${root.id}`)}
+                  {!root.available && <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectGroup>
+          {bookmarks.length > 0 && (
+            <>
+              <SelectSeparator />
+              <SelectGroup>
+                <SelectLabel className="label-micro">{t('roots.bookmarks.heading')}</SelectLabel>
+                {bookmarks.map((bookmark, index) => (
+                  <SelectItem key={`${bookmark.rootId}:${bookmark.path}`} value={`${BOOKMARK_PREFIX}${index}`} className="min-h-11">
+                    <span className="flex items-center gap-2">
+                      <BookmarkIcon className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                      {t(`roots.bookmarks.${bookmark.kind}`)}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </>
+          )}
+          {selected?.available && (
+            <>
+              <SelectSeparator />
+              <SelectItem value={TRASH_VALUE} className="min-h-11">
+                <span className="flex items-center gap-2">
+                  <Trash2 className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+                  {t('roots.trash', { count: selected.trashItemCount ?? 0 })}
+                </span>
+              </SelectItem>
+            </>
+          )}
         </SelectContent>
       </Select>
     </div>
@@ -107,152 +171,104 @@ interface RootListProps {
   onSelectRoot: (rootId: RootId) => void
   onOpenBookmark: (bookmark: Bookmark) => void
   onOpenTrash: () => void
-  onSetRemoteFolders: () => void
-  /** Hide the folder cards (the phone layout shows RootSelect instead). */
-  compact?: boolean
 }
 
-export function RootList({
-  profile,
-  selectedRoot,
-  trashOpen,
-  onSelectRoot,
-  onOpenBookmark,
-  onOpenTrash,
-  onSetRemoteFolders,
-  compact = false,
-}: RootListProps) {
+function RailGroup({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  return (
+    <div className={cn('space-y-1', className)}>
+      <p className="label-micro px-2.5">{label}</p>
+      <ul className="space-y-px">{children}</ul>
+    </div>
+  )
+}
+
+/** The desktop rail: folders (path and free space under each name), shortcuts, Trash. */
+export function RootList({ profile, selectedRoot, trashOpen, onSelectRoot, onOpenBookmark, onOpenTrash }: RootListProps) {
   const { t, i18n } = useTranslation('files')
   const roots = sortedRoots(profile)
   const selected = roots.find((root) => root.id === selectedRoot) ?? null
-  const bookmarks = profile.bookmarks.filter((bookmark) => roots.some((root) => root.id === bookmark.rootId && root.available))
+  const bookmarks = visibleBookmarks(profile, roots)
 
   return (
-    <div className="space-y-4">
-      {!compact && (
-        <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('roots.heading')}</p>
-          <ul className="space-y-2">
-            {roots.map((root) => {
-              const isSelected = root.id === selectedRoot
-              return (
-                <li key={root.id}>
-                  <button
-                    type="button"
-                    onClick={() => onSelectRoot(root.id)}
-                    aria-current={isSelected && !trashOpen ? 'true' : undefined}
-                    className={cn(
-                      'w-full rounded-lg border p-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                      isSelected && !trashOpen
-                        ? 'border-primary/50 bg-primary/10'
-                        : 'border-border/60 bg-muted/25 hover:bg-muted/50',
+    <nav aria-label={t('roots.heading')} className="space-y-5">
+      <RailGroup label={t('roots.heading')}>
+        {roots.map((root) => {
+          const active = root.id === selectedRoot && !trashOpen
+          const facts = root.available
+            ? [
+                t(`roots.backend.${root.backend}`),
+                root.freeBytes !== null && root.totalBytes !== null
+                  ? t('roots.space', { free: formatBytes(root.freeBytes, i18n.language), total: formatBytes(root.totalBytes, i18n.language) })
+                  : null,
+              ].filter(Boolean).join(' · ')
+            : null
+          return (
+            <li key={root.id}>
+              <button type="button" onClick={() => onSelectRoot(root.id)} aria-current={active ? 'true' : undefined} className={railItem(active)}>
+                <ActiveBar active={active} />
+                {root.available ? (
+                  <FolderOpen className={railIcon(active)} aria-hidden="true" />
+                ) : (
+                  <Lock className={railIcon(false)} aria-hidden="true" />
+                )}
+                <span className="min-w-0 flex-1 space-y-0.5">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{t(`roots.labels.${root.id}`)}</span>
+                    {root.available && root.writable === false && (
+                      <span title={root.readOnlyReason ? t(`roots.readOnlyReasons.${root.readOnlyReason}`) : undefined} className="inline-flex shrink-0">
+                        <Lock className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+                        <span className="sr-only">{t('roots.readOnly')}</span>
+                      </span>
                     )}
-                  >
-                    <span className="flex items-center gap-2">
-                      <FolderOpen className={cn('h-4 w-4 shrink-0', root.available ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">{t(`roots.labels.${root.id}`)}</span>
-                      <BackendBadge root={root} />
+                    {root.warnings.map((warning) => (
+                      <span key={warning} title={t(`roots.warnings.${warning}`)} className="inline-flex shrink-0">
+                        <AlertTriangle className="h-3 w-3 text-warning" aria-hidden="true" />
+                        <span className="sr-only">{t(`roots.warnings.${warning}`)}</span>
+                      </span>
+                    ))}
+                  </span>
+                  {root.displayPath && (
+                    <bdi dir="ltr" className="block truncate font-mono text-xs font-normal text-muted-foreground" title={root.displayPath}>
+                      {root.displayPath}
+                    </bdi>
+                  )}
+                  {facts && <span className="block truncate text-xs font-normal text-muted-foreground">{facts}</span>}
+                  {!root.available && root.unavailableReason && (
+                    <span className="line-clamp-3 block text-xs font-normal text-muted-foreground">
+                      {unavailableText(root.unavailableReason, root.unavailableDetail)}
                     </span>
-                    {root.displayPath && (
-                      <span className="mt-1 block truncate text-xs text-muted-foreground" title={root.displayPath}>
-                        <bdi dir="ltr" className="font-mono">{root.displayPath}</bdi>
-                      </span>
-                    )}
-                    {root.available ? (
-                      <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                        {root.freeBytes !== null && root.totalBytes !== null && (
-                          <span className="text-xs text-muted-foreground">
-                            {t('roots.space', { free: formatBytes(root.freeBytes, i18n.language), total: formatBytes(root.totalBytes, i18n.language) })}
-                          </span>
-                        )}
-                        {root.writable === false && (
-                          <Badge variant="outline" className="px-1.5 py-0 text-[10px]" title={root.readOnlyReason ? t(`roots.readOnlyReasons.${root.readOnlyReason}`) : undefined}>
-                            <Lock className="me-1 h-3 w-3" aria-hidden="true" />
-                            {t('roots.readOnly')}
-                          </Badge>
-                        )}
-                        {root.warnings.map((warning) => (
-                          <Badge key={warning} variant="outline" className="border-warning/50 px-1.5 py-0 text-[10px] text-warning" title={t(`roots.warnings.${warning}`)}>
-                            <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                            <span className="sr-only">{t(`roots.warnings.${warning}`)}</span>
-                          </Badge>
-                        ))}
-                      </span>
-                    ) : (
-                      root.unavailableReason && (
-                        <span className="mt-1.5 block text-xs text-muted-foreground">
-                          {unavailableText(root.unavailableReason, root.unavailableDetail)}
-                        </span>
-                      )
-                    )}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      {profile.remote && (
-        <p className="text-xs text-muted-foreground">
-          {t('page.sftpConnected', {
-            host: isolateLtrForRtl(profile.remote.host),
-            port: profile.remote.port,
-            user: isolateLtrForRtl(profile.remote.username),
-          })}
-        </p>
-      )}
-
-      {profile.remote && (
-        <Button variant="outline" size="sm" className="w-full" onClick={onSetRemoteFolders}>
-          <FolderCog aria-hidden="true" />
-          {t('roots.setRemoteFolders')}
-        </Button>
-      )}
+                  )}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </RailGroup>
 
       {bookmarks.length > 0 && (
-        <div className="space-y-2 border-t border-border/40 pt-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('roots.bookmarks.heading')}</p>
-          <ul className="flex flex-wrap gap-2 md:flex-col md:gap-1">
-            {bookmarks.map((bookmark) => (
-              <li key={`${bookmark.rootId}:${bookmark.path}`}>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start gap-2 px-2 font-normal"
-                  onClick={() => onOpenBookmark(bookmark)}
-                  title={bookmark.path}
-                >
-                  <BookmarkIcon className="text-muted-foreground" aria-hidden="true" />
-                  <span className="truncate">{t(`roots.bookmarks.${bookmark.kind}`)}</span>
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <RailGroup label={t('roots.bookmarks.heading')}>
+          {bookmarks.map((bookmark) => (
+            <li key={`${bookmark.rootId}:${bookmark.path}`}>
+              <button type="button" onClick={() => onOpenBookmark(bookmark)} title={bookmark.path} className={railItem(false)}>
+                <BookmarkIcon className={railIcon(false)} aria-hidden="true" />
+                <span className="min-w-0 truncate">{t(`roots.bookmarks.${bookmark.kind}`)}</span>
+              </button>
+            </li>
+          ))}
+        </RailGroup>
       )}
 
       {selected?.available && (
-        <div className="border-t border-border/40 pt-3">
-          <Button
-            variant={trashOpen ? 'secondary' : 'ghost'}
-            size="sm"
-            className="w-full justify-start gap-2 px-2"
-            onClick={onOpenTrash}
-            aria-pressed={trashOpen}
-          >
-            <Trash2 className="text-muted-foreground" aria-hidden="true" />
-            {t('roots.trash', { count: selected.trashItemCount ?? 0 })}
-          </Button>
-          {selected.writable === false && selected.readOnlyReason && (
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Lock className="h-3 w-3" aria-hidden="true" />
-              {t('roots.readOnly')}
-              <HelpTip label={t('roots.readOnly')}>{t(`roots.readOnlyReasons.${selected.readOnlyReason}`)}</HelpTip>
-            </div>
-          )}
-        </div>
+        <ul className="border-t border-border/50 pt-3">
+          <li>
+            <button type="button" onClick={onOpenTrash} aria-current={trashOpen ? 'true' : undefined} className={railItem(trashOpen)}>
+              <ActiveBar active={trashOpen} />
+              <Trash2 className={railIcon(trashOpen)} aria-hidden="true" />
+              <span className="min-w-0 truncate">{t('roots.trash', { count: selected.trashItemCount ?? 0 })}</span>
+            </button>
+          </li>
+        </ul>
       )}
-    </div>
+    </nav>
   )
 }

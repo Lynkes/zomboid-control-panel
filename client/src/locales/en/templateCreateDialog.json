@@ -3,7 +3,7 @@
   "failedToSave": "Failed to save template",
   "toastSavedTitle": "Template Saved",
   "toastSavedDesc": "\"{{name}}\" is ready to reuse.",
-  "title": "Save Current Config as Template",
+  "title": "Save current config as a template",
   "description": "Captures this server's current server.ini and sandbox settings.",
   "nameLabel": "Name",
   "namePlaceholder": "My Ruleset",

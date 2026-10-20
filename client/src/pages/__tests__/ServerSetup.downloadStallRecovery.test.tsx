@@ -6,6 +6,7 @@ import { SocketContext } from "@/contexts/SocketContext";
 import ServerSetup from "../ServerSetup";
 import { configApi, debugApi, serverApi } from "@/lib/api";
 import enServerSetup from "../../locales/en/serverSetup.json";
+import enServers from "../../locales/en/servers.json";
 
 // bug-hunt-2026-09-06 (client silent-failure lane, dispatched after tonight's
 // server uploadStream crash): handleAutoDownloadSteamCmd's only terminal
@@ -100,7 +101,7 @@ describe("ServerSetup.tsx: auto-download SteamCMD surfaces an honest stall statu
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       renderServerSetup();
-      fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+      fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
       await screen.findByText(enServerSetup.full.step1.title);
 
       const installButton = screen.getByRole("button", { name: enServerSetup.full.step1.installButton });

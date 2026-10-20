@@ -1,5 +1,7 @@
 {
   "noUpdateYet": "aucune mise à jour pour l'instant",
+  "verdictAria": "Bilan du serveur",
+  "workListAria": "Sections du serveur",
   "updatedJustNow": "mis à jour à l'instant",
   "updatedSecondsAgo": "mis à jour il y a {{count}}s",
   "updatedMinutesAgo": "mis à jour il y a {{count}}min",

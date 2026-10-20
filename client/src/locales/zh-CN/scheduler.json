@@ -5,6 +5,10 @@
     "eyebrow": "维护",
     "newTask": "新建任务"
   },
+  "settings": {
+    "title": "计划任务设置",
+    "description": "所有计划使用的时区，以及重启前玩家看到的倒计时。"
+  },
   "fetchError": {
     "title": "计划任务数据加载失败",
     "fallback": "计划任务数据加载失败，后端可能无法访问。",
@@ -118,8 +122,10 @@
     "welcome": "欢迎！请在出生点阅读规则"
   },
   "scheduledTasks": {
-    "title": "计划任务",
-    "description": "管理自动执行的命令。",
+    "title": "任务",
+    "description": "按计划运行的命令。可立即运行、编辑或暂停。",
+    "activeCount": "{{active}}/{{total}} 个已启用",
+    "modUpdatePending": "模组更新重启待处理",
     "emptyTitle": "暂无计划任务",
     "emptyDesc": "创建一个任务，按 cron 计划执行重启、保存、服务器消息或 PanelBridge 命令(天气、设施)。",
     "emptyActionLabel": "新建计划任务",
@@ -178,7 +184,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = 每天 6 点"
   },
   "timezone": {
-    "title": "计划任务时区",
+    "title": "时区",
     "description": "以下所有计划——你的任务、自动备份和自动重启——都按此时区运行。",
     "inputLabel": "IANA 时区名称",
     "noMatches": "没有匹配的时区",
@@ -189,7 +195,9 @@
     "backupScheduleOff": "未启用",
     "autoRestartOn": "开启",
     "autoRestartOff": "关闭",
-    "backupHealthTitle": "备份计划状态",
+    "backupHealthTitle": "自动备份",
+    "backupHealthDesc": "最近一次计划的世界备份和下一次备份。",
+    "backupHealthLink": "备份计划",
     "backupLastAttemptOk": "上次尝试成功 · {{date}}",
     "backupLastAttemptFailed": "上次尝试失败 · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "上次尝试因重启被跳过 · {{date}}",
@@ -199,7 +207,9 @@
     "savedDesc": "计划现在按 {{tz}} 运行。",
     "saveFailedFallback": "保存时区失败",
     "fallbackTitle": "已保存的时区不再有效",
-    "fallbackDesc": "无法使用“{{configured}}”（可能已从时区数据库中移除，或此面板是从另一台机器恢复的）。在此问题解决之前，计划按 {{effective}} 运行。"
+    "fallbackDesc": "无法使用“{{configured}}”（可能已从时区数据库中移除，或此面板是从另一台机器恢复的）。在此问题解决之前，计划按 {{effective}} 运行。",
+    "fallbackAction": "更改时区",
+    "emptyReason": "请先选择时区。"
   },
   "restartWarning": {
     "title": "重启警告",
@@ -211,6 +221,7 @@
     "saveButton": "保存警告",
     "saved": "重启警告已保存",
     "saveFailed": "保存重启警告失败",
+    "emptyReason": "请先填写倒计时消息。",
     "languages": {
       "en": "英语",
       "zh-CN": "简体中文",
