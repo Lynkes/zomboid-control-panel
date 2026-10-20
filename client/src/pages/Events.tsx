@@ -79,7 +79,7 @@ import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
-import { percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval } from '@/lib/weatherUnits'
+import { percentOfRange, percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval, sliderStepForRange } from '@/lib/weatherUnits'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -2943,9 +2943,9 @@ export default function Events() {
                       <Telescope className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.viewDistance')}
                     </Label>
-                    <span className="text-xs font-medium tabular-nums text-primary">{viewDistance}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{percentOfRange(viewDistance, viewDistanceBounds)}%</span>
                   </div>
-                  <Slider aria-label={t('visual.viewDistanceAria')} value={[viewDistance]} onValueChange={([val]) => { markClimateDirty(); setViewDistance(val) }} min={viewDistanceBounds.min} max={viewDistanceBounds.max} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('visual.viewDistanceAria')} value={[viewDistance]} onValueChange={([val]) => { markClimateDirty(); setViewDistance(val) }} min={viewDistanceBounds.min} max={viewDistanceBounds.max} step={sliderStepForRange(viewDistanceBounds)} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2954,9 +2954,9 @@ export default function Events() {
                       <SunMedium className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.dayLight')}
                     </Label>
-                    <span className="text-xs font-medium tabular-nums text-primary">{dayLight}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{percentOfRange(dayLight, dayLightBounds)}%</span>
                   </div>
-                  <Slider aria-label={t('visual.dayLightAria')} value={[dayLight]} onValueChange={([val]) => { markClimateDirty(); setDayLight(val) }} min={dayLightBounds.min} max={dayLightBounds.max} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('visual.dayLightAria')} value={[dayLight]} onValueChange={([val]) => { markClimateDirty(); setDayLight(val) }} min={dayLightBounds.min} max={dayLightBounds.max} step={sliderStepForRange(dayLightBounds)} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">

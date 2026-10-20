@@ -324,6 +324,11 @@ export function shouldShowDockerCardActions<T>(
   return container != null
 }
 
+// Edit dialog sections: separated by a rule in one column; on wide screens
+// each is a panel that the two-column flow never splits.
+const EDIT_SECTION_FIRST = 'space-y-4 lg:mb-5 lg:break-inside-avoid lg:rounded-lg lg:border lg:border-border/60 lg:p-4'
+const EDIT_SECTION = `${EDIT_SECTION_FIRST} border-t border-border/60 pt-5`
+
 export default function Servers() {
   const { t } = useTranslation('servers')
   const { formatDate, formatDateTime } = useDateFormat()
@@ -3090,7 +3095,9 @@ export default function Servers() {
             tall on a laptop at 125-150% zoom. DialogContent caps the dialog
             to the viewport; DialogBody makes only the fields scroll, so the
             title and Save/Cancel stay on screen at any window height. */}
-        <DialogContent className="max-w-lg">
+        {/* Wide screens: the sections flow into two balanced columns, each a
+            panel, so the form reads across instead of scrolling down. */}
+        <DialogContent className="max-w-lg lg:max-w-5xl">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
@@ -3099,17 +3106,17 @@ export default function Servers() {
           </DialogHeader>
 
           {editingServer && (
-            <DialogBody className="space-y-6">
+            <DialogBody className="space-y-6 lg:block lg:columns-2 lg:gap-5 lg:space-y-0">
               {/* Remote server indicator */}
               {editingServer.isRemote && (
-                <Alert className="border-primary/20 bg-primary/5">
+                <Alert className="border-primary/20 bg-primary/5 lg:mb-5 lg:[column-span:all]">
                   <Globe className="h-4 w-4 text-primary" />
                   <AlertTitle>{t('editDialog.remoteTitle')}</AlertTitle>
                   <AlertDescription>{t('editDialog.remoteDesc')}</AlertDescription>
                 </Alert>
               )}
 
-              <section aria-labelledby="edit-server-identity" className="space-y-4">
+              <section aria-labelledby="edit-server-identity" className={EDIT_SECTION_FIRST}>
                 <h3 id="edit-server-identity" className="text-sm font-medium text-foreground">{t('editDialog.sectionIdentity')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -3145,7 +3152,7 @@ export default function Servers() {
               </section>
 
               {!editingServer.isRemote && (
-              <section aria-labelledby="edit-server-paths" className="space-y-4 border-t border-border/60 pt-5">
+              <section aria-labelledby="edit-server-paths" className={EDIT_SECTION}>
                 <h3 id="edit-server-paths" className="text-sm font-medium text-foreground">{t('editDialog.sectionPaths')}</h3>
                 <div className="space-y-2">
                   <Label>{t('editDialog.installPathLabel')}</Label>
@@ -3195,7 +3202,7 @@ export default function Servers() {
               </section>
               )}
 
-              <section aria-labelledby="edit-server-network" className="space-y-4 border-t border-border/60 pt-5">
+              <section aria-labelledby="edit-server-network" className={EDIT_SECTION}>
                 <h3 id="edit-server-network" className="text-sm font-medium text-foreground">{t('editDialog.sectionNetwork')}</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -3300,7 +3307,7 @@ export default function Servers() {
               </section>
 
               {!editingServer.isRemote && (
-              <section aria-labelledby="edit-server-launch" className="space-y-4 border-t border-border/60 pt-5">
+              <section aria-labelledby="edit-server-launch" className={EDIT_SECTION}>
                 <h3 id="edit-server-launch" className="text-sm font-medium text-foreground">{t('editDialog.sectionLaunch')}</h3>
                 {managedLifecycleSupported && !editingServer.dockerContainerName && !editingServer.dockerContainerId && (
                   <div className="space-y-3 rounded-md border border-border/60 p-3">
@@ -3435,7 +3442,7 @@ export default function Servers() {
               </section>
               )}
 
-              <section aria-labelledby="edit-server-docker" className="space-y-4 border-t border-border/60 pt-5">
+              <section aria-labelledby="edit-server-docker" className={EDIT_SECTION}>
                 <h3 id="edit-server-docker" className="text-sm font-medium text-foreground">{t('editDialog.sectionDocker')}</h3>
                 <div className="space-y-2">
                   <Label>{t('editDialog.dockerContainerLabel')}</Label>
