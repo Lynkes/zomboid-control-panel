@@ -12,7 +12,7 @@
     "retry": "Erneut versuchen"
   },
   "pageHeader": {
-    "title": "Mod-Manager",
+    "title": "Mods",
     "description": "Steam-Workshop-Mods auf deinem Server hinzufügen, aktualisieren und konfigurieren",
     "eyebrow": "Workshop",
     "addMod": "Mod hinzufügen"
@@ -40,7 +40,11 @@
     "importCollection": "Sammlung importieren",
     "autoRestartSettings": "Automatische Neustarteinstellungen",
     "autoRestart": "Automatischer Neustart",
-    "autoRestartAria": "Automatischen Neustart bei Mod-Aktualisierung umschalten"
+    "autoRestartAria": "Automatischen Neustart bei Mod-Aktualisierung umschalten",
+    "autoRestartOn": "Auto-Neustart: an",
+    "autoRestartOff": "Auto-Neustart: aus",
+    "autoRestartOnAria": "Automatischer Neustart ist an. Einstellungen öffnen",
+    "autoRestartOffAria": "Automatischer Neustart ist aus. Einstellungen öffnen"
   },
   "restartPending": {
     "title": "Neustart ausstehend",
@@ -102,8 +106,8 @@
       "hint": "Über Workshop-ID oder URL hinzufügen"
     },
     "collection": {
-      "label": "Sammlung importieren",
-      "hint": "Holt alle Elemente aus einer Steam-Sammlung"
+      "label": "Sammlungen",
+      "hint": "Sammlung importieren oder deine eigene synchron halten"
     },
     "order": {
       "label": "Ladereihenfolge",
@@ -120,7 +124,10 @@
     "tools": {
       "label": "Werkzeuge",
       "hint": "Reparatur, Deduplizierung und Bereinigung"
-    }
+    },
+    "groupLibrary": "Bibliothek",
+    "groupServer": "Auf dem Server",
+    "groupTools": "Werkzeuge"
   },
   "collectionDialog": {
     "title": "Steam-Workshop-Sammlung importieren",
@@ -145,7 +152,8 @@
     "openWorkshopAria": "Workshop-Seite öffnen (öffnet in neuem Tab)",
     "cancel": "Abbrechen",
     "adding": "Wird hinzugefügt …",
-    "addToServer": "{{count}} Mods zum Server hinzufügen"
+    "addToServer": "{{count}} Mods zum Server hinzufügen",
+    "fetchAria": "Sammlung abrufen"
   },
   "addModDialog": {
     "title": "Workshop-Mod hinzufügen",
@@ -202,7 +210,8 @@
     "currentMaxDelay": "• Maximale Verzögerung: {{minutes}} Minuten",
     "cancel": "Abbrechen",
     "saving": "Wird gespeichert …",
-    "saveSettings": "Einstellungen speichern"
+    "saveSettings": "Einstellungen speichern",
+    "autoRestartHint": "Startet den Server selbstständig neu, wenn Steam ein Update für eine seiner Mods veröffentlicht."
   },
   "installedTab": {
     "searchPlaceholder": "Mods durchsuchen…",
@@ -220,6 +229,7 @@
     "collectionDrift": "{{count}} abweichend",
     "collectionSyncTooltip": "Erfasste Mods → Steam-Workshop-Sammlung synchronisieren",
     "collectionSync": "Synchronisieren",
+    "collectionSyncAria": "Sammlung synchronisieren",
     "collectionChecking": "Sammlung wird geprüft…",
     "selectedCount": "{{count}} ausgewählt",
     "deselect": "Auswahl aufheben",
@@ -255,7 +265,12 @@
     "modFallback": "Mod {{id}}",
     "selectAria": "{{name}} auswählen",
     "removeModAria": "Mod entfernen: {{name}}",
-    "removeFromServer": "Vom Server entfernen"
+    "removeFromServer": "Vom Server entfernen",
+    "loading": "Mods werden geladen",
+    "selectionAria": "Ausgewählte Mods",
+    "allDeactivatedTitle": "Keine erfasste Mod ist auf dem Server",
+    "allDeactivatedDesc_one": "{{count}} erfasste Mod ist deaktiviert. Aktiviere sie unter „Deaktiviert“ wieder.",
+    "allDeactivatedDesc_other": "{{count}} erfasste Mods sind deaktiviert. Aktiviere sie unter „Deaktiviert“ wieder."
   },
   "disabledPanel": {
     "title": "Deaktivierte Mods auf der Festplatte",
@@ -268,7 +283,11 @@
     "enable": "Aktivieren",
     "deleteFromDisk": "Von der Festplatte löschen",
     "scanFailedTitle": "Deaktivierte Mods konnten nicht gescannt werden",
-    "scanFailedDesc": "Der Scan des Workshop-Ordners ist fehlgeschlagen. Versuche es erneut zu aktualisieren."
+    "scanFailedDesc": "Der Scan des Workshop-Ordners ist fehlgeschlagen. Versuche es erneut zu aktualisieren.",
+    "sectionTitle": "Auf der Festplatte, nicht auf dem Server",
+    "description": "In den Workshop-Ordner heruntergeladen, aber nicht in WorkshopItems= des Servers eingetragen, daher lädt der Server sie nicht.",
+    "notScanned": "Noch nicht gescannt.",
+    "deleteFromDiskAria": "{{name}} von der Festplatte löschen"
   },
   "ignoredPanel": {
     "count_one": "{{count}} ignorierte Mod",
@@ -282,7 +301,8 @@
     "selectAll": "Alle auswählen",
     "selectRow": "{{name}} auswählen",
     "removeSelected": "Ausgewählte entfernen ({{n}})",
-    "reTrackHint": "Nimmt diese Mod von der Ignorierliste, damit Synchronisierung und Collection-Import sie wieder hinzufügen können. Serverkonfiguration und Mod-Dateien bleiben unverändert."
+    "reTrackHint": "Nimmt diese Mod von der Ignorierliste, damit Synchronisierung und Collection-Import sie wieder hinzufügen können. Serverkonfiguration und Mod-Dateien bleiben unverändert.",
+    "description": "Synchronisierung und Sammlungsimport fügen diese nicht wieder hinzu."
   },
   "serverConfigTab": {
     "summaryMods": "Mods",
@@ -312,8 +332,8 @@
     "groupNeedsTwo": "Wähle mindestens 2 Mods für eine Gruppe aus.",
     "selectRowAria": "{{name}} auswählen",
     "previewLockHint": "Wende die vorgeschlagene Reihenfolge unten erst an oder brich sie ab, bevor du von Hand umsortierst.",
-    "filteredHint": "Es werden nur Mods angezeigt, die zu „{{query}}“ passen (Filter aus „Aktiv auf dem Server“). Solange der Filter gesetzt ist, ist Ziehen deaktiviert; die Pfeilschaltflächen verschieben Mods weiterhin innerhalb der gesamten Ladereihenfolge.",
-    "autoSort": "Automatisch nach Abhängigkeiten sortieren",
+    "filteredHint": "Es werden nur Mods angezeigt, die zu „{{query}}“ passen. Solange gefiltert wird, ist Ziehen deaktiviert; die Pfeilschaltflächen verschieben Mods weiterhin innerhalb der gesamten Ladereihenfolge.",
+    "autoSort": "Automatisch sortieren",
     "proposedOrder_one": "Vorgeschlagene Reihenfolge: {{count}} Mod würde verschoben",
     "proposedOrder_other": "Vorgeschlagene Reihenfolge: {{count}} Mods würden verschoben",
     "basedOnDependencies_one": "Basierend auf {{count}} in mod.info deklarierten Abhängigkeit. Mods ohne Abhängigkeit behalten deine Reihenfolge.",
@@ -336,7 +356,27 @@
     "movedAnnouncement": "{{name}} auf Position {{position}} von {{total}} verschoben",
     "unsavedChanges": "Nicht gespeicherte Änderungen der Reihenfolge",
     "reset": "Zurücksetzen",
-    "saveOrder": "Reihenfolge speichern"
+    "saveOrder": "Reihenfolge speichern",
+    "searchPlaceholder": "Nach Mod-ID oder Name filtern …",
+    "searchAria": "Ladereihenfolge filtern",
+    "showGroups": "Gruppen anzeigen",
+    "blockCount_one": "{{count}} Mod",
+    "blockCount_other": "{{count}} Mods",
+    "blockTogether": "Zusammengehalten",
+    "blockApart": "Mitglieder liegen auseinander",
+    "gather": "Zusammenführen",
+    "gatheredAnnouncement": "{{name}} zusammengeführt",
+    "blockToTopAria": "Gruppe {{name}} ganz nach oben verschieben",
+    "blockUpAria": "Gruppe {{name}} nach oben verschieben",
+    "blockDownAria": "Gruppe {{name}} nach unten verschieben",
+    "blockToBottomAria": "Gruppe {{name}} ganz nach unten verschieben",
+    "blockAlreadyFirst": "Die Gruppe lädt bereits zuerst",
+    "blockAlreadyLast": "Die Gruppe lädt bereits zuletzt",
+    "blockMovedAnnouncement": "Gruppe {{name}} auf Position {{position}} von {{total}} verschoben",
+    "collapseBlockAria": "Gruppe {{name}} einklappen",
+    "expandBlockAria": "Gruppe {{name}} ausklappen",
+    "blockConflictsAria_one": "{{count}} Dateikonflikt betrifft {{name}}. Anzeigen",
+    "blockConflictsAria_other": "{{count}} Dateikonflikte betreffen {{name}}. Anzeigen"
   },
   "addModsTab": {
     "syncTitle": "Mod-IDs aus Downloads synchronisieren",
@@ -375,7 +415,8 @@
     "applyPreset": "Preset anwenden",
     "deleteDialogTitle": "Preset „{{name}}“ löschen?",
     "deleteDialogDesc": "Dieses Preset wird unwiderruflich gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
-    "deletePreset": "Preset löschen"
+    "deletePreset": "Preset löschen",
+    "actionsAria": "Aktionen für Preset {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -553,7 +594,13 @@
     "removeWorkshopDialogTitle": "Workshop-Item entfernen?",
     "removeWorkshopDialogDesc": "Dadurch werden das Workshop-Item und seine Mod-IDs aus der Server-INI entfernt. Workshop-Dateien auf der Festplatte werden nicht gelöscht.",
     "cancel": "Abbrechen",
-    "remove": "Entfernen"
+    "remove": "Entfernen",
+    "hasNoteChip": "Mit Notiz ({{count}})",
+    "updatesChip": "Update verfügbar ({{count}})",
+    "noFilterMatches": "Kein Workshop-Item passt zu diesen Filtern.",
+    "select": "Auswählen",
+    "selectItemAria": "{{name}} auswählen",
+    "selectionAria": "Ausgewählte Workshop-Items"
   },
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
@@ -783,6 +830,110 @@
     "scanFailedGeneric": "Scan fehlgeschlagen",
     "scanParseFailed": "Scan-Ergebnisse konnten nicht analysiert werden",
     "comparingFileContents": "Dateiinhalte werden verglichen...",
-    "groupingResults": "Ergebnisse werden gruppiert..."
+    "groupingResults": "Ergebnisse werden gruppiert...",
+    "noSortRulesDesc": "Keine aktivierte Mod deklariert eine Abhängigkeit, und keine Gruppe legt eine Reihenfolge oder Position fest, daher gibt es nichts zum Sortieren.",
+    "loadOrderRulesMetDesc": "Alle Abhängigkeiten, Gruppenreihenfolgen und Gruppenpositionen sind bereits erfüllt."
+  },
+  "listMode": {
+    "aria": "Liste anzeigen als",
+    "list": "Liste",
+    "groups": "Gruppen"
+  },
+  "sort": {
+    "aria": "Sortieren nach",
+    "status": "Sortierung: Update-Status",
+    "name": "Sortierung: Name",
+    "updated": "Sortierung: zuletzt aktualisiert",
+    "config": "Sortierung: Konfigurationsreihenfolge",
+    "loadOrder": "Sortierung: Ladereihenfolge"
+  },
+  "filters": {
+    "filteredBy": "Gefiltert nach:",
+    "activeAria": "Aktive Filter",
+    "removeAria": "Filter entfernen: {{name}}",
+    "clearAll": "Filter zurücksetzen",
+    "updatesOnly": "Nur Updates",
+    "updates": "Update verfügbar",
+    "hasNote": "Mit Notiz",
+    "ungrouped": "In keiner Gruppe",
+    "allGroups": "Alle Gruppen",
+    "inGroup": "In {{name}}",
+    "groupAria": "Nach Gruppe filtern",
+    "multiId": "Nur Multi-ID",
+    "needsAttention": "Handlungsbedarf",
+    "notEnabled": "Nicht aktiviert",
+    "missingDep": "Fehlende Abhängigkeit"
+  },
+  "whatChanged": {
+    "label": "Änderungen",
+    "updateLabel": "Update · Änderungen",
+    "aria": "Änderungen in {{name}}: Steam-Änderungshinweise (öffnet in neuem Tab)"
+  },
+  "rowMenu": {
+    "actionsAria": "Aktionen für {{name}}"
+  },
+  "notes": {
+    "addAction": "Notiz hinzufügen",
+    "editAction": "Notiz bearbeiten",
+    "addTitle": "Notiz hinzufügen",
+    "editTitle": "Notiz bearbeiten",
+    "dialogDesc": "Eine Notiz zu {{name}}. Alle Admins dieses Panels sehen sie.",
+    "label": "Notiz",
+    "placeholder": "Warum sie hier ist, welche Version bleiben soll, wen du vor dem Entfernen fragen solltest",
+    "counter": "{{count}} / {{max}}",
+    "save": "Notiz speichern",
+    "delete": "Notiz löschen",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "lastEdited": "Zuletzt bearbeitet von {{name}} am {{date}}",
+    "lastEditedNoName": "Zuletzt bearbeitet am {{date}}",
+    "sharedHint": "Für alle Admins dieses Panels sichtbar.",
+    "savedTitle": "Notiz gespeichert",
+    "deletedTitle": "Notiz gelöscht",
+    "saveFailedFallback": "Die Notiz konnte nicht gespeichert werden.",
+    "indicatorAria": "Notiz: {{text}}",
+    "inspectorTitle": "Notiz",
+    "empty": "Noch keine Notiz."
+  },
+  "collectionView": {
+    "importTitle": "Sammlung importieren",
+    "importDesc": "Füge alle Mods einer Steam-Workshop-Sammlung auf einmal zu diesem Server hinzu."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "Abhängigkeiten",
+      "groupOrder": "Gruppenreihenfolge",
+      "together": "Zusammengehalten",
+      "placement": "Platzierungen",
+      "winners": "Konfliktgewinner beibehalten"
+    },
+    "reason": {
+      "requires": "nach {{mod}}, von der sie abhängt",
+      "requiredBy": "vor {{mod}}, die von ihr abhängt",
+      "groupOrder": "hält die Reihenfolge von {{group}} ein",
+      "together": "mit {{group}} zusammengehalten",
+      "placementFirst": "{{group}} lädt zuerst",
+      "placementLast": "{{group}} lädt zuletzt",
+      "winner": "überschreibt weiterhin {{mod}}",
+      "keepsWinner": "bleibt vor {{mod}}, von der sie überschrieben wird"
+    },
+    "issue": {
+      "groupVsDependency": "{{group}} führt {{before}} vor {{after}}, aber eine Abhängigkeit verlangt das Gegenteil: Die Abhängigkeit gewinnt. Korrigiere die Gruppe mit „Mitglieder automatisch ordnen“.",
+      "groupVsGroup": "{{group}} führt {{before}} vor {{after}}, aber eine andere Gruppe verlangt das Gegenteil: Die zuerst aufgeführte Gruppe gewinnt.",
+      "split": "{{groups}} kann nicht als ein Block laden. Zwischen ihren Mods muss Folgendes laden: {{mods}}.",
+      "placement": "{{mods}} muss vor einer „Zuerst“-Gruppe laden und lädt daher ebenfalls zuerst ({{groups}}).",
+      "winner": {
+        "dependency": "{{newWinner}} überschreibt jetzt {{previousWinner}}: Eine Abhängigkeit verlangt, dass sie später lädt.",
+        "group": "{{newWinner}} überschreibt jetzt {{previousWinner}}: Eine Gruppenreihenfolge verlangt, dass sie später lädt.",
+        "placement": "{{newWinner}} überschreibt jetzt {{previousWinner}}: Eine Gruppenplatzierung verlangt, dass sie später lädt."
+      }
+    },
+    "issuesTitle_one": "{{count}} Regel kann nicht erfüllt werden",
+    "issuesTitle_other": "{{count}} Regeln können nicht erfüllt werden",
+    "moreIssues": "+{{count}} weitere",
+    "movesTo": "verschoben nach",
+    "otherMods": "Andere Mods",
+    "groupMoves_one": "{{count}} verschoben",
+    "groupMoves_other": "{{count}} verschoben"
   }
 }
