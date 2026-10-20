@@ -55,7 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (Ctrl+K), and mod lists that stay fast with 600+ mods.
+- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (press /), and mod lists that stay fast with 600+ mods.
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
 - **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
 - **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.

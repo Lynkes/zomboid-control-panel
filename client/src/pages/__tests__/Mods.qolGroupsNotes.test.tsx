@@ -338,6 +338,25 @@ describe('Groups and notes from a row', () => {
     await waitFor(() => expect(m.updateGroup).toHaveBeenCalledWith('g1', { modIds: ['ModA', 'ModB', 'ModC', 'ModD'] }))
   })
 
+  it('starts a new group with every selected mod, the ones not in the load order last', async () => {
+    prime()
+    renderMods()
+    await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
+    await openModsView('Active on server')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Select' }))
+    // Bravo is not enabled, so it is not in the load order.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Bravo Mod' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select Delta Mod' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add selected to group' }))
+    const picker = await screen.findByRole('dialog', { name: 'Add to a group' })
+    fireEvent.click(within(picker).getByRole('button', { name: 'New group…' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'New mod group' })
+    const members = Array.from(dialog.querySelectorAll('[data-member-id]')).map((el) => el.getAttribute('data-member-id'))
+    expect(members).toEqual(['ModD', 'ModB'])
+  })
+
   it("shows a group member's colour dots and offers to remove it from the group", async () => {
     prime({ groups: [{ ...VEHICLES, modIds: ['ModA', 'ModB', 'ModC'] }] })
     renderMods()

@@ -7025,8 +7025,10 @@ export default function Mods() {
           groups={groupsStore.groups}
           onAdd={handleAddToGroup}
           onCreateNew={() => {
-            const modIds = orderedModIds.filter((id) => addToGroup.modIds.includes(id))
-            setGroupEditor({ group: null, initialModIds: modIds.length > 0 ? modIds : addToGroup.modIds })
+            // In load order; picked mods that are not enabled (not in it) follow.
+            const inOrder = orderedModIds.filter((id) => addToGroup.modIds.includes(id))
+            const modIds = [...new Set([...inOrder, ...addToGroup.modIds])]
+            setGroupEditor({ group: null, initialModIds: modIds })
             setAddToGroup(null)
           }}
           onClose={() => setAddToGroup(null)}
