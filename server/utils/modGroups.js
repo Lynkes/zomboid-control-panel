@@ -35,6 +35,11 @@ export const MOD_GROUP_COLORS = Object.freeze([
   "pink",
 ]);
 
+// Where the load-order planner puts a group (utils/modSmartSort.js): "first"
+// as early as its constraints allow, "last" as late; null, the default,
+// wherever its mods are.
+export const MOD_GROUP_PLACEMENTS = Object.freeze(["first", "last"]);
+
 // How many times the whole list of groups is re-applied before giving up on
 // groups that keep undoing each other.
 const MAX_PASSES = 10;
@@ -271,12 +276,18 @@ export function isGroupColor(value) {
   return value === null || (typeof value === "string" && MOD_GROUP_COLORS.includes(value));
 }
 
+/** "first", "last", or null for "wherever its mods are". */
+export function isGroupPlacement(value) {
+  return value === null || (typeof value === "string" && MOD_GROUP_PLACEMENTS.includes(value));
+}
+
 /**
  * Validates the fields of a create (every field required, description
  * optional) or an update (`partial`: only the fields that are given).
- * `color` (one of MOD_GROUP_COLORS or null) and `keepTogether` (a boolean)
- * are optional in both and only come back when given; a stored group
- * without them reads as color null, keepTogether false (normalizeGroup).
+ * `color` (one of MOD_GROUP_COLORS or null), `keepTogether` (a boolean) and
+ * `placement` ("first", "last" or null) are optional in both and only come
+ * back when given; a stored group without them reads as color null,
+ * keepTogether false, placement null (normalizeGroup).
  * Returns { ok: true, value } with the cleaned fields, or { ok: false, field }
  * naming the first field that is wrong.
  */
@@ -307,15 +318,20 @@ export function validateGroupFields(input, { partial = false } = {}) {
     if (typeof body.keepTogether !== "boolean") return { ok: false, field: "keepTogether" };
     value.keepTogether = body.keepTogether;
   }
+  if (body.placement !== undefined) {
+    if (!isGroupPlacement(body.placement)) return { ok: false, field: "placement" };
+    value.placement = body.placement;
+  }
   return { ok: true, value };
 }
 
 /**
  * Validates a shared group file: { schema: 1, kind: "zcp-mod-group", name,
- * description?, modIds, color?, keepTogether? }. Returns { ok: true, value:
- * { name, description, modIds, color?, keepTogether? } } or { ok: false }.
+ * description?, modIds, color?, keepTogether?, placement? }. Returns { ok:
+ * true, value: { name, description, modIds, color?, keepTogether?,
+ * placement? } } or { ok: false }.
  *
- * The two display options are taken when they are valid and otherwise left
+ * The options are taken when they are valid and otherwise left
  * out (the group gets the defaults): a file from another panel version with a
  * colour this one does not know still imports.
  */
@@ -329,20 +345,22 @@ export function validateGroupDocument(document) {
     modIds: document.modIds,
     ...(isGroupColor(document.color) ? { color: document.color } : {}),
     ...(typeof document.keepTogether === "boolean" ? { keepTogether: document.keepTogether } : {}),
+    ...(isGroupPlacement(document.placement) ? { placement: document.placement } : {}),
   });
   return fields.ok ? { ok: true, value: fields.value } : { ok: false };
 }
 
 /**
  * A stored group as the API answers it: every field of the contract, with
- * color null and keepTogether false for a group saved before they existed
- * (or holding a value this version does not know).
+ * color null, keepTogether false and placement null for a group saved before
+ * they existed (or holding a value this version does not know).
  */
 export function normalizeGroup(group) {
   return {
     ...group,
     color: isGroupColor(group?.color) ? group.color : null,
     keepTogether: group?.keepTogether === true,
+    placement: isGroupPlacement(group?.placement) ? group.placement : null,
   };
 }
 

@@ -1279,13 +1279,22 @@ export const ErrorCode = Object.freeze({
   /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce, POST
    * /groups/:id/disable, POST /groups/suggestions/dismiss) -- a field is missing or outside its
    * limits. Sends `{ field }`: "name", "description", "modIds", "color", "keepTogether",
-   * "enforce", "keepShared" or "key". */
+   * "placement", "enforce", "keepShared" or "key". */
   MODS_GROUP_INVALID: "MODS_GROUP_INVALID",
   /** server/routes/mods.js -- (sites: POST /groups, POST /groups/import) -- the panel already holds
    * the most mod groups it keeps. Sends `{ max }`. */
   MODS_GROUP_LIMIT_REACHED: "MODS_GROUP_LIMIT_REACHED",
   /** server/routes/mods.js -- PUT/DELETE /groups/:id, no stored mod group with that id. */
   MODS_GROUP_NOT_FOUND: "MODS_GROUP_NOT_FOUND",
+  /** server/routes/modsSmart.js -- POST /health/fix, the body is not { issueId, action, params? }.
+   * Sends `{ field }`: "issueId", "action" or "params". */
+  MODS_HEALTH_FIX_INVALID: "MODS_HEALTH_FIX_INVALID",
+  /** server/routes/modsSmart.js -- POST /health/fix, the issue does not offer that action (with
+   * those params): a fix is always one of the issue's own fixes. */
+  MODS_HEALTH_FIX_NOT_OFFERED: "MODS_HEALTH_FIX_NOT_OFFERED",
+  /** server/routes/modsSmart.js -- POST /health/fix, the recomputed health check has no issue with
+   * that id any more (fixed, or the mod list changed). */
+  MODS_HEALTH_ISSUE_GONE: "MODS_HEALTH_ISSUE_GONE",
   /** server/routes/mods.js -- DELETE /ignored-pairs, modIdA/modIdB missing or fail MOD_ID_RE. Own
    * wording from MODS_IGNORED_PAIR_INVALID_IDS above (POST route's fuller
    * message) -- kept separate. */
@@ -1379,6 +1388,21 @@ export const ErrorCode = Object.freeze({
    * after filtering to /^\d{1,15}$/, zero ids survived. Identical wording,
    * shared code. */
   MODS_NO_VALID_WORKSHOP_IDS: "MODS_NO_VALID_WORKSHOP_IDS",
+  /** server/routes/modsSmart.js -- POST /order-rules, the rule would close a loop with the stored
+   * rules and the require= links of the active server's mods. Sends `{ count }` (mods in the loop);
+   * the body also carries `details: { cycle, edges }`. */
+  MODS_ORDER_RULE_CYCLE: "MODS_ORDER_RULE_CYCLE",
+  /** server/routes/modsSmart.js -- POST /order-rules, a field is missing or invalid. Sends
+   * `{ field }`: "before", "after", "self", "note", "source" or "replaceOpposite". */
+  MODS_ORDER_RULE_INVALID: "MODS_ORDER_RULE_INVALID",
+  /** server/routes/modsSmart.js -- POST /order-rules, the panel already keeps the most order rules
+   * it keeps. Sends `{ max }`. */
+  MODS_ORDER_RULE_LIMIT: "MODS_ORDER_RULE_LIMIT",
+  /** server/routes/modsSmart.js -- DELETE /order-rules/:id, no stored rule with that id. */
+  MODS_ORDER_RULE_NOT_FOUND: "MODS_ORDER_RULE_NOT_FOUND",
+  /** server/routes/modsSmart.js -- POST /load-order/plan, a body field is invalid. Sends
+   * `{ field }`: "order", "mode", "groups" or "conflictPairs". */
+  MODS_PLAN_INVALID: "MODS_PLAN_INVALID",
   /** server/routes/mods.js -- POST /presets, trimmed name is empty or exceeds 100 chars. */
   MODS_PRESET_NAME_LENGTH_INVALID: "MODS_PRESET_NAME_LENGTH_INVALID",
   /** server/routes/mods.js -- POST /presets, `name` missing or not a string. */

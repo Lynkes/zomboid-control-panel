@@ -123,6 +123,7 @@ import {
   translationPathInfo,
 } from "../utils/modConflictRules.js";
 import { downloadWorkshopItem } from "../services/workshopDownload.js";
+import { addConflictSuggestions, refreshConflictSuggestions } from "../services/modSmartScan.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
 // keeps exporting getModDetailsFromWorkshop for its existing importers.
@@ -215,7 +216,7 @@ export function filterOwnedClientModIds(clientModIds, ownedModIds) {
 // position (bridgeDelivery.protectBridgeIniEntries). Nothing is ever added
 // that wasn't there before, and reorders are kept. Wrapping the one writer
 // instead of editing its ~18 call sites keeps a future route from missing it.
-async function writeIniWithBackup(iniPath, content) {
+export async function writeIniWithBackup(iniPath, content) {
   let before = "";
   try {
     before = readTextFile(iniPath);
@@ -229,7 +230,7 @@ async function writeIniWithBackup(iniPath, content) {
 // sanitizeIniValue strips \r\n;= to prevent injection
 // sanitizeIniList joins sanitized values with semicolons
 
-function getSanitizedIniPath(serverConfigPath, serverName) {
+export function getSanitizedIniPath(serverConfigPath, serverName) {
   if (!serverConfigPath || typeof serverName !== "string") {
     return null;
   }
@@ -5350,6 +5351,7 @@ const MOD_GROUP_FIELD_ERRORS = {
   modIds: `modIds must list 1-${MOD_GROUP_LIMITS.modIdsMax} mod IDs of at most ${MOD_GROUP_LIMITS.modIdMax} characters`,
   color: `color must be null or one of ${MOD_GROUP_COLORS.join(", ")}`,
   keepTogether: "keepTogether must be true or false",
+  placement: 'placement must be null, "first" or "last"',
   enforce: "enforce must be true or false",
   keepShared: "keepShared must be true or false",
   key: "key must be a suggestion key from GET /groups/suggestions",
@@ -5387,7 +5389,7 @@ async function isModGroupEnforcementOn() {
 // The active server's ini (and install folder, from the same read of the
 // active server), resolved like the preset routes do. Answers with the coded
 // error itself and returns null when there is no ini to read.
-async function resolveActiveServerIniOrRespond(res) {
+export async function resolveActiveServerIniOrRespond(res) {
   const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
   const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
@@ -5713,7 +5715,7 @@ function downloadedWorkshopIds(serverPath) {
 // Which Workshop item holds each of `modIds` on disk (mod.info id): the items
 // in WorkshopItems= first, in their order, then the other downloaded items.
 // Each item is read once, and only while an id is still not placed.
-function locateModsOnDisk(modIds, listedWorkshopIds, serverPath) {
+export function locateModsOnDisk(modIds, listedWorkshopIds, serverPath) {
   const owner = new Map();
   const wanted = new Set(modIds);
   if (!serverPath || wanted.size === 0) return owner;
@@ -8016,6 +8018,30 @@ function cachedConflictWinners(workshopIds, modIds, serverPath) {
   return conflictWinnersFromPairs(lastScanResult.pairs);
 }
 
+// The pairs of the last scan that share gameplay files (not only intended
+// overrides), as [modA, modB]; only while that scan matches the config. The
+// load-order planner keeps the later one of each pair later.
+export function cachedConflictPairs(workshopIds, modIds, serverPath) {
+  if (!lastScanResult || Date.now() - lastScanTimestamp > SCAN_CACHE_TTL_MS) return [];
+  const snapshot = createConflictScanSnapshots(workshopIds, modIds);
+  if (
+    snapshot.workshop !== lastScanWorkshopSnapshot ||
+    snapshot.mods !== lastScanModSnapshot ||
+    serverPath !== lastScanServerPath
+  ) {
+    return [];
+  }
+  const pairs = [];
+  for (const pair of lastScanResult.pairs || []) {
+    const a = pair.modA?.modId;
+    const b = pair.modB?.modId;
+    if (!a || !b || a === b) continue;
+    if (!pair.files.some((f) => f.severity !== "info" && f.kind !== "declared-incompatible")) continue;
+    pairs.push([a, b]);
+  }
+  return pairs;
+}
+
 export function conflictWinnersFromPairs(pairs) {
   const winners = [];
   for (const pair of pairs || []) {
@@ -8441,6 +8467,8 @@ router.get("/conflicts/cached", async (req, res) => {
   }
   // Check if config has changed since last scan
   try {
+    // Order rules added since the scan answer the pairs they decide.
+    await refreshConflictSuggestions(lastScanResult);
     const { workshopIds, modIdsFromIni } = await readIniModLists();
     const currentServerPath = await getServerPath();
     const currentSnapshot = createConflictScanSnapshots(
@@ -8564,6 +8592,7 @@ router.get("/conflicts", async (req, res) => {
       warnings,
       scanStart,
     });
+    await addConflictSuggestions(result, { fileIndex, modInfoMap, effectiveOrder: order.effectiveModOrder });
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
     lastScanWorkshopSnapshot = snapshots.workshop;
     lastScanModSnapshot = snapshots.mods;
@@ -8797,6 +8826,7 @@ router.get("/conflicts/stream", async (req, res) => {
       warnings,
       scanStart,
     });
+    await addConflictSuggestions(result, { fileIndex, modInfoMap, effectiveOrder: order.effectiveModOrder });
     lastScanResult = result;
     lastScanTimestamp = Date.now();
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
