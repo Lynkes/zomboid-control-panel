@@ -31,6 +31,7 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { isDemoMode } from '@/lib/demo'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import {
   permissionsApi,
@@ -530,8 +531,9 @@ export default function RolesPermissions({ embedded = false }: { embedded?: bool
       )}
 
       {/* Account and role changes wait for panel logins (server/middleware/
-          requireLoginsOn.js): made while they are off, they would outlive it. */}
-      {!authEnabled && !permissionDenied && (
+          requireLoginsOn.js): made while they are off, they would outlive it. The
+          public demo runs with logins off and mocks every write: no note there. */}
+      {!authEnabled && !isDemoMode() && !permissionDenied && (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>{t('errors:ACCOUNT_CHANGES_NEED_LOGINS')}</AlertDescription>

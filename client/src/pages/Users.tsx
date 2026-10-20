@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut, AlertTriangle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { isDemoMode } from '@/lib/demo'
 import { useAuth } from '@/contexts/AuthContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { PageHeader } from '@/components/PageHeader'
@@ -524,8 +525,9 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {/* Account and role changes wait for panel logins (server/middleware/
-          requireLoginsOn.js): made while they are off, they would outlive it. */}
-      {!authEnabled && !permissionDenied && (
+          requireLoginsOn.js): made while they are off, they would outlive it. The
+          public demo runs with logins off and mocks every write: no note there. */}
+      {!authEnabled && !isDemoMode() && !permissionDenied && (
         <Alert variant="warning">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>{t('errors:ACCOUNT_CHANGES_NEED_LOGINS')}</AlertDescription>
