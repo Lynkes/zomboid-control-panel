@@ -137,9 +137,88 @@ function demoModsStatus() {
   }
 }
 
+// The demo server's Mods= order. Mutable so Save Order and Mod groups' "Apply
+// group order" show up in the Load order tab for as long as the page lives.
+let demoModLoadOrder = ['TchernoLib', 'Brita', 'RavenCreek', 'AuthenticZLite']
+
+interface DemoModGroup {
+  id: string
+  name: string
+  description: string
+  modIds: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+// Mod groups, in memory: create / edit / delete / import behave until reload.
+// "Survivor gear" starts out of order and "KI5 Vehicles" has members this demo
+// server does not have, so the badges and the "not on this server" text show.
+let demoModGroups: DemoModGroup[] = [
+  {
+    id: 'demo-group-1',
+    name: 'Weapons stack',
+    description: 'The library first, then the weapon pack.',
+    modIds: ['TchernoLib', 'Brita'],
+    createdAt: '2026-06-10T18:30:00.000Z',
+    updatedAt: '2026-06-10T18:30:00.000Z',
+  },
+  {
+    id: 'demo-group-2',
+    name: 'Survivor gear',
+    description: 'Authentic Z has to load before Raven Creek.',
+    modIds: ['AuthenticZLite', 'RavenCreek'],
+    createdAt: '2026-06-12T09:00:00.000Z',
+    updatedAt: '2026-06-12T09:00:00.000Z',
+  },
+  {
+    id: 'demo-group-3',
+    name: 'KI5 Vehicles',
+    description: 'Library, core, add-ons, then the fixes.',
+    modIds: ['KI5Library', 'KI5Core', 'KI5AddOns', 'KI5Fixes'],
+    createdAt: '2026-06-14T16:45:00.000Z',
+    updatedAt: '2026-06-14T16:45:00.000Z',
+  },
+]
+let demoModGroupSeq = demoModGroups.length
+let demoModGroupsEnforce = false
+
+function demoModGroupsStatus() {
+  const groups = demoModGroups.map((group) => {
+    const present = group.modIds.filter(id => demoModLoadOrder.includes(id))
+    const positions = present.map(id => demoModLoadOrder.indexOf(id))
+    return {
+      id: group.id,
+      inOrder: positions.every((position, i) => i === 0 || positions[i - 1] < position),
+      present: present.length,
+      total: group.modIds.length,
+      missing: group.modIds.filter(id => !demoModLoadOrder.includes(id)),
+    }
+  })
+  return { groups, inOrder: groups.every(group => group.inOrder), conflicts: [] as string[] }
+}
+
+// Puts every group's members back in group order, within the slots they hold now.
+function demoApplyModGroups(write: boolean) {
+  const order = [...demoModLoadOrder]
+  for (let pass = 0; pass <= demoModGroups.length; pass++) {
+    for (const group of demoModGroups) {
+      const present = group.modIds.filter(id => order.includes(id))
+      const slots = present.map(id => order.indexOf(id)).sort((a, b) => a - b)
+      present.forEach((id, i) => { order[slots[i]] = id })
+    }
+  }
+  const moved = order.filter((id, i) => demoModLoadOrder[i] !== id)
+  if (write && moved.length > 0) demoModLoadOrder = order
+  return { changed: moved.length > 0, moved, order, written: write && moved.length > 0, conflicts: [] as string[] }
+}
+
+function demoModIdList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && id.trim() !== '').map(id => id.trim()) : []
+}
+
 function demoCurrentConfig() {
   const workshopIds = demoTrackedMods.filter(mod => mod.active !== false).map(mod => mod.workshop_id)
-  const modIds = ['TchernoLib', 'Brita', 'RavenCreek', 'AuthenticZLite']
+  const modIds = [...demoModLoadOrder]
   return {
     configured: true,
     modIds,
@@ -1356,6 +1435,96 @@ export function installDemoFetchShim(): void {
           { id: 1, name: 'Weekend PVE', description: 'Stable collection used for normal sessions.', mod_count: 4, created_at: '2026-06-01T12:00:00.000Z' },
           { id: 2, name: 'Event Night', description: 'Adds heavier loot and vehicle mods for short events.', mod_count: 7, created_at: '2026-06-10T18:30:00.000Z' },
         ],
+      })
+    }
+    if (path === '/api/mods/groups' && method === 'GET') {
+      return jsonResponse({ groups: demoModGroups, enforce: demoModGroupsEnforce })
+    }
+    if (path === '/api/mods/groups' && method === 'POST') {
+      const body = await readJsonBody(init)
+      const modIds = demoModIdList(body.modIds)
+      const name = typeof body.name === 'string' ? body.name.trim() : ''
+      if (!name || modIds.length === 0) {
+        return jsonResponse({ error: 'A group needs a name and mod IDs.', code: 'MODS_GROUP_INVALID' }, 400)
+      }
+      const now = new Date().toISOString()
+      const group: DemoModGroup = {
+        id: `demo-group-${++demoModGroupSeq}`,
+        name,
+        description: typeof body.description === 'string' ? body.description.trim() : '',
+        modIds,
+        createdAt: now,
+        updatedAt: now,
+      }
+      demoModGroups = [...demoModGroups, group]
+      return jsonResponse({ group }, 201)
+    }
+    if (path === '/api/mods/groups/status' && method === 'GET') {
+      return jsonResponse(demoModGroupsStatus())
+    }
+    if (path === '/api/mods/groups/apply' && method === 'POST') {
+      const body = await readJsonBody(init)
+      return jsonResponse(demoApplyModGroups(body.preview !== true))
+    }
+    if (path === '/api/mods/groups/enforce' && method === 'PUT') {
+      const body = await readJsonBody(init)
+      demoModGroupsEnforce = body.enforce === true
+      return jsonResponse({ enforce: demoModGroupsEnforce })
+    }
+    if (path === '/api/mods/groups/import' && method === 'POST') {
+      const body = await readJsonBody(init)
+      const doc = (body.document && typeof body.document === 'object' ? body.document : {}) as Record<string, unknown>
+      const modIds = demoModIdList(doc.modIds)
+      const name = typeof doc.name === 'string' ? doc.name.trim() : ''
+      if (doc.kind !== 'zcp-mod-group' || !name || modIds.length === 0) {
+        return jsonResponse({ error: 'This is not a mod group export.', code: 'MODS_GROUP_IMPORT_INVALID' }, 400)
+      }
+      const now = new Date().toISOString()
+      const group: DemoModGroup = {
+        id: `demo-group-${++demoModGroupSeq}`,
+        name,
+        description: typeof doc.description === 'string' ? doc.description.trim() : '',
+        modIds,
+        createdAt: now,
+        updatedAt: now,
+      }
+      demoModGroups = [...demoModGroups, group]
+      return jsonResponse({ group }, 201)
+    }
+    if (path.startsWith('/api/mods/groups/') && (method === 'PUT' || method === 'DELETE')) {
+      const id = decodeURIComponent(path.slice('/api/mods/groups/'.length))
+      const existing = demoModGroups.find(group => group.id === id)
+      if (!existing) return jsonResponse({ error: 'Group not found.', code: 'MODS_GROUP_NOT_FOUND' }, 404)
+      if (method === 'DELETE') {
+        demoModGroups = demoModGroups.filter(group => group.id !== id)
+        return jsonResponse({ success: true })
+      }
+      const body = await readJsonBody(init)
+      const modIds = body.modIds === undefined ? existing.modIds : demoModIdList(body.modIds)
+      const name = typeof body.name === 'string' ? body.name.trim() : existing.name
+      if (!name || modIds.length === 0) {
+        return jsonResponse({ error: 'A group needs a name and mod IDs.', code: 'MODS_GROUP_INVALID' }, 400)
+      }
+      const group: DemoModGroup = {
+        ...existing,
+        name,
+        description: typeof body.description === 'string' ? body.description.trim() : existing.description,
+        modIds,
+        updatedAt: new Date().toISOString(),
+      }
+      demoModGroups = demoModGroups.map(entry => (entry.id === id ? group : entry))
+      return jsonResponse({ group })
+    }
+    if (path === '/api/mods/save-order' && method === 'POST') {
+      const body = await readJsonBody(init)
+      const modIds = demoModIdList(body.modIds)
+      if (modIds.length > 0) demoModLoadOrder = modIds
+      const adjusted = demoModGroupsEnforce ? demoApplyModGroups(true).moved : []
+      return jsonResponse({
+        message: 'Mod load order saved successfully',
+        modCount: demoModLoadOrder.length,
+        groupsAdjusted: adjusted,
+        groupConflicts: [],
       })
     }
     if (path === '/api/mods/search-workshop-mods' && method === 'POST') {

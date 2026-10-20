@@ -11,6 +11,7 @@ import { normalizeMemoryGb } from "../utils/memory.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { findDuplicateLocalServer } from "../utils/serverDuplicate.js";
 import { parseClampedInteger } from "../utils/queryNumbers.js";
+import { uniqueGroupName } from "../utils/modGroups.js";
 import {
   rehydrateRconSecrets,
   redactRconSecretsForWrite,
@@ -166,6 +167,7 @@ const defaultData = {
   player_notes: [],
   player_stats: [],
   mod_presets: [],
+  mod_groups: [],
   user_templates: [],
   steamid_bans: [],
   performance_history: [],
@@ -1302,6 +1304,7 @@ function getDatabaseStatsSync() {
       player_notes: data.player_notes?.length ?? 0,
       player_stats: data.player_stats?.length ?? 0,
       mod_presets: data.mod_presets?.length ?? 0,
+      mod_groups: data.mod_groups?.length ?? 0,
       user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
@@ -2936,6 +2939,85 @@ export async function deleteModPreset(id) {
   if (index === -1) return false;
 
   db.data.mod_presets.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// ============================================
+// Mod Groups (panel-wide, shared by every admin)
+// ============================================
+// A group is a named, ordered list of mod IDs: the list order is the load
+// order those mods must keep in Mods= (utils/modGroups.js). Validation of the
+// fields lives with the routes; these only store.
+
+export async function getModGroups() {
+  const db = await getDb();
+  if (!db.data.mod_groups) db.data.mod_groups = [];
+  return db.data.mod_groups;
+}
+
+/**
+ * Stores a new group. Returns null (nothing stored) when `maxGroups` groups
+ * exist already -- checked here, in the same synchronous step as the push, so
+ * two requests cannot both pass a limit check made before the first push.
+ * `uniqueName` renames the group "name (2)", "name (3)"... when another group
+ * has that name (used by import).
+ */
+export async function createModGroup(
+  { name, description, modIds },
+  { maxGroups = Infinity, uniqueName = false } = {},
+) {
+  const db = await getDb();
+  if (!db.data.mod_groups) db.data.mod_groups = [];
+  if (db.data.mod_groups.length >= maxGroups) return null;
+
+  const now = new Date().toISOString();
+  const group = {
+    id: generateId(),
+    name: uniqueName
+      ? uniqueGroupName(
+          name,
+          db.data.mod_groups.map((g) => g.name),
+        )
+      : name,
+    description: description || "",
+    modIds: [...modIds],
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  db.data.mod_groups.push(group);
+  scheduleWrite();
+  return group;
+}
+
+/** Changes only the given fields (name, description, modIds). Null when the group does not exist. */
+export async function updateModGroup(id, updates) {
+  const db = await getDb();
+  const group = db.data.mod_groups?.find((g) => g.id === id);
+  if (!group) return null;
+
+  let changed = false;
+  for (const key of ["name", "description", "modIds"]) {
+    if (updates[key] === undefined) continue;
+    group[key] = key === "modIds" ? [...updates[key]] : updates[key];
+    changed = true;
+  }
+  if (changed) {
+    group.updatedAt = new Date().toISOString();
+    scheduleWrite();
+  }
+  return group;
+}
+
+export async function deleteModGroup(id) {
+  const db = await getDb();
+  if (!db.data.mod_groups) return false;
+
+  const index = db.data.mod_groups.findIndex((g) => g.id === id);
+  if (index === -1) return false;
+
+  db.data.mod_groups.splice(index, 1);
   scheduleWrite();
   return true;
 }
