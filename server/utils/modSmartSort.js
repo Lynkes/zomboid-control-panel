@@ -108,7 +108,9 @@ function groupMembers(group, present) {
  *   rules            stored order rules
  *   groups           stored mod groups (groupOrder between present members)
  *   steamRequires    Map<workshopId, requiredWorkshopId[]> (known items only)
- *   conflictWinners  [{ winner, loser }] of high conflicts
+ *   conflictPairs    [[modA, modB]] that ship the same files: the one later
+ *                    in `order` (today's winner) stays after the other
+ *   conflictWinners  [{ winner, loser }] decided elsewhere
  * Returns { order, constraints, missing, implicit }:
  *   constraints  [{ before, after, reason, strength, reasons?, declaredBy?,
  *                via?, ruleId?, group?, workshopId?, requiresWorkshopId?,
@@ -137,7 +139,7 @@ export function buildLoadOrderConstraints(input = {}) {
     }
     if (!existing.reasons.includes(reason)) existing.reasons.push(reason);
     if (rankOf(reason) < rankOf(existing.reason)) {
-      for (const field of ["declaredBy", "via", "ruleId", "group", "workshopId", "requiresWorkshopId", "source", "confidence"]) {
+      for (const field of ["declaredBy", "via", "ruleId", "group", "groupIndex", "workshopId", "requiresWorkshopId", "source", "confidence"]) {
         delete existing[field];
       }
       Object.assign(existing, extra, { reason, strength: CONSTRAINT_REASONS[reason].strength });
@@ -174,11 +176,11 @@ export function buildLoadOrderConstraints(input = {}) {
 
   // loadModAfter=, loadModBefore=, name-guessed patches, current winners.
   const presentMods = ids.map((id) => catalog.get(id)).filter(Boolean);
-  for (const edge of computeOrderingConstraints(presentMods, { conflictWinners: input.conflictWinners || [] })) {
+  for (const edge of computeOrderingConstraints(presentMods)) {
     for (const reason of edge.reasons || [edge.reason]) {
       if (reason === "require") continue;
       const extra = {};
-      if (edge.declaredBy && reason !== "conflictWinner") extra.declaredBy = edge.declaredBy;
+      if (edge.declaredBy) extra.declaredBy = edge.declaredBy;
       if (reason === "patch") Object.assign(extra, { source: "name", confidence: "low" });
       add(edge.before, edge.after, reason, extra);
     }
@@ -197,12 +199,14 @@ export function buildLoadOrderConstraints(input = {}) {
     add(rule.before, rule.after, "rule", { ruleId: rule.id });
   }
 
-  for (const group of Array.isArray(input.groups) ? input.groups : []) {
+  // Group order; a group earlier in the list wins over a later one that
+  // orders the same two mods the other way (groupIndex).
+  (Array.isArray(input.groups) ? input.groups : []).forEach((group, groupIndex) => {
     const members = groupMembers(group, present);
     for (let i = 0; i + 1 < members.length; i++) {
-      add(members[i], members[i + 1], "groupOrder", { group: String(group.id ?? "") });
+      add(members[i], members[i + 1], "groupOrder", { group: String(group?.id ?? ""), groupIndex });
     }
-  }
+  });
 
   // Steam "Required items", item level.
   if (input.steamRequires instanceof Map) {
@@ -225,6 +229,19 @@ export function buildLoadOrderConstraints(input = {}) {
         }
       }
     }
+  }
+
+  // Today's conflict winners: the weakest constraint, added last so it only
+  // joins a pair other reasons already order the same way, and is reported
+  // when a stronger one orders the pair the other way.
+  const position = new Map(ids.map((id, i) => [id, i]));
+  for (const pair of Array.isArray(input.conflictPairs) ? input.conflictPairs : []) {
+    if (!Array.isArray(pair) || !present.has(pair[0]) || !present.has(pair[1])) continue;
+    const [loser, winner] = position.get(pair[0]) < position.get(pair[1]) ? [pair[0], pair[1]] : [pair[1], pair[0]];
+    add(loser, winner, "conflictWinner");
+  }
+  for (const entry of Array.isArray(input.conflictWinners) ? input.conflictWinners : []) {
+    if (entry && typeof entry.winner === "string" && typeof entry.loser === "string") add(entry.loser, entry.winner, "conflictWinner");
   }
 
   const constraints = [...edges.values()].map((edge) => {
@@ -353,11 +370,10 @@ export function planLoadOrder(input = {}) {
   const groupById = new Map(groups.map((g) => [String(g?.id ?? ""), g]));
   const classification = input.classification instanceof Map ? input.classification : new Map();
 
-  // Loops are broken where the current order already disagrees, and tiers
-  // and placements reorder on top of the game's order; both can make the
-  // plan of a plan differ in rare shapes. Planning the result again until it
-  // holds still makes the answer a fixed point: applying it and planning
-  // again changes nothing.
+  // Loops are broken where the current order already disagrees, and the
+  // order is the best of a few candidates; both can make the plan of a plan
+  // differ in rare shapes. Planning the result again until it holds makes
+  // the answer a fixed point: applying it and planning again changes nothing.
   let solved = solve(input, ids);
   for (let round = 0; round < 6 && solved.needsCheck; round++) {
     const again = solve(input, solved.result);
@@ -365,24 +381,33 @@ export function planLoadOrder(input = {}) {
     solved = again;
     if (same) break;
   }
-  const { result, constraints, cycles, warnings, units, claimedBy, placementOf, placementGroupOf } = solved;
+  const { result, constraints, cycles, warnings, unitOfMod, units, isConstrained } = solved;
   const position = new Map(result.map((id, i) => [id, i]));
   const violatedInInput = (c) => index.get(c.before) > index.get(c.after);
 
   // ── What holds, what does not ──
   let satisfied = 0;
   const unsatisfied = [];
+  const winnersChanged = [];
   for (const c of constraints) {
     if (position.get(c.before) < position.get(c.after)) {
       satisfied++;
       continue;
     }
+    const why = c.state === "harder" || c.state === "placement" ? "conflictsWithHarder" : "cycle";
+    const by = c.state === "placement" ? "groupPlacement" : c.by;
     unsatisfied.push({
       before: c.before,
       after: c.after,
       reason: c.reason,
-      why: c.state === "harder" ? "conflictsWithHarder" : "cycle",
+      why,
+      ...(by ? { by } : {}),
+      ...(c.group !== undefined ? { group: c.group } : {}),
+      ...(c.ruleId !== undefined ? { ruleId: c.ruleId } : {}),
     });
+    if (c.reason === "conflictWinner" || c.reasons?.includes("conflictWinner")) {
+      winnersChanged.push({ previousWinner: c.after, newWinner: c.before, why, ...(by ? { by } : {}) });
+    }
   }
   for (const m of Array.isArray(input.missing) ? input.missing : []) {
     if (!index.has(m?.after)) continue;
@@ -418,54 +443,47 @@ export function planLoadOrder(input = {}) {
       activeOf.get(modId).push(c);
     }
   }
-  const memberNotes = new Map();
-  for (const unit of units) {
-    if (!unit.group) continue;
-    for (const id of unit.members) {
-      memberNotes.set(id, [{ code: "keepTogether", params: { group: String(unit.group.id), groupName: String(unit.group.name ?? "") } }]);
+  const groupNotes = (modId, { onlyIfApart = false } = {}) => {
+    const notes = [];
+    const unit = units[unitOfMod.get(modId)];
+    if (unit?.group && (!onlyIfApart || unit.apartIn(index))) {
+      notes.push({ code: "keepTogether", params: { group: String(unit.group.id), groupName: String(unit.group.name ?? "") } });
     }
-  }
-  for (const [id, group] of placementGroupOf) {
-    const notes = memberNotes.get(id) || [];
-    notes.push({ code: "groupPlacement", params: { group: String(group.id), groupName: String(group.name ?? ""), placement: group.placement } });
-    memberNotes.set(id, notes);
-  }
+    if (unit && unit.placement !== 1) {
+      for (const group of unit.placementGroups) {
+        if ((group.placement === "first") === (unit.placement === 0)) {
+          notes.push({ code: "groupPlacement", params: { group: String(group.id), groupName: String(group.name ?? ""), placement: group.placement } });
+        }
+      }
+    }
+    return notes;
+  };
+  const tierNote = (modId) => {
+    if (!tiered || !classification.has(modId)) return [];
+    const info = classification.get(modId);
+    return [{ code: "tier", params: { tier: info.tier, kind: info.kind } }];
+  };
   for (const id of result) {
-    for (const c of (activeOf.get(id) || []).sort((a, b) => rankOf(a.reason) - rankOf(b.reason))) pushExplanation(id, describe(c, id));
-    for (const note of memberNotes.get(id) || []) pushExplanation(id, note);
-    if (tiered && classification.has(id)) {
-      const info = classification.get(id);
-      pushExplanation(id, { code: "tier", params: { tier: info.tier, kind: info.kind } });
-    }
+    for (const c of (activeOf.get(id) || []).sort((a, b) => a.rank - b.rank)) pushExplanation(id, describe(c, id));
+    for (const note of groupNotes(id)) pushExplanation(id, note);
+    for (const note of tierNote(id)) pushExplanation(id, note);
   }
 
-  // ── Moves: the mods outside the longest run that kept its order ──
-  const violatedOf = new Map();
-  for (const c of constraints) {
-    if (!violatedInInput(c)) continue;
-    for (const modId of [c.after, c.before]) {
-      if (!violatedOf.has(modId)) violatedOf.set(modId, []);
-      violatedOf.get(modId).push(c);
-    }
-  }
-  // A mod a constraint, a block or a placement asked to move is the one that
-  // moved, when keeping it or another mod in place is a tie.
-  const asked = (id) => violatedOf.has(id) || claimedBy.has(id) || placementOf.has(id);
-  const kept = keptInPlace(result, index, (id) => (asked(id) ? 2 : 3));
+  // ── Moves: the fewest mods that explain the change. A mod no constraint,
+  // block, placement or tier names weighs more than all the others together,
+  // so it is never one of them. ──
+  const kept = keptInPlace(result, index, (id) => (isConstrained(id) ? 1 : n + 1));
+  const moved = new Set(result.filter((id) => !kept.has(id)));
   const moves = [];
   for (let to = 0; to < result.length; to++) {
     const modId = result[to];
-    if (kept.has(modId)) continue;
-    const reasons = (violatedOf.get(modId) || [])
-      .filter((c) => position.get(c.before) < position.get(c.after))
-      .sort((a, b) => rankOf(a.reason) - rankOf(b.reason))
+    if (!moved.has(modId)) continue;
+    const reasons = (activeOf.get(modId) || [])
+      .filter((c) => violatedInInput(c) || moved.has(c.before === modId ? c.after : c.before))
+      .sort((a, b) => a.rank - b.rank)
       .slice(0, SMART_SORT_LIMITS.maxMoveReasons)
       .map((c) => describe(c, modId));
-    for (const note of memberNotes.get(modId) || []) reasons.push(note);
-    if (tiered && classification.has(modId)) {
-      const info = classification.get(modId);
-      reasons.push({ code: "tier", params: { tier: info.tier, kind: info.kind } });
-    }
+    reasons.push(...groupNotes(modId, { onlyIfApart: true }), ...tierNote(modId));
     if (reasons.length === 0) reasons.push({ code: "displaced", params: {} });
     moves.push({ modId, from: index.get(modId), to, reasons, confidence: moveConfidence(reasons) });
   }
@@ -485,6 +503,7 @@ export function planLoadOrder(input = {}) {
     satisfied,
     unsatisfied,
     cycles,
+    winnersChanged,
     implicit: Array.isArray(input.implicit) ? input.implicit.filter((m) => m && typeof m.modId === "string") : [],
     warnings,
     stats: {
@@ -497,9 +516,16 @@ export function planLoadOrder(input = {}) {
   };
 }
 
+// A group earlier in the list orders a pair before a later group does.
+function rankValue(c) {
+  return rankOf(c.reason) + (c.reason === "groupOrder" && Number.isInteger(c.groupIndex) ? Math.min(c.groupIndex, 9999) * 1e-4 : 0);
+}
+
 // One pass: the constraints between `ids`, loops broken (where `ids`, the
-// order this pass starts from, already disagrees), blocks, then the order.
+// order this pass starts from, already disagrees), blocks, placement, then
+// the order.
 function solve(input, ids) {
+  const n = ids.length;
   const index = new Map(ids.map((id, i) => [id, i]));
   const tiered = input.mode === "tiered";
   const useGroups = input.useGroups !== false;
@@ -514,33 +540,33 @@ function solve(input, ids) {
     if (!index.has(raw.before) || !index.has(raw.after) || raw.before === raw.after) continue;
     if (!useGroups && raw.reason === "groupOrder") continue;
     const key = `${raw.before}\u0000${raw.after}`;
+    const rank = rankValue(raw);
     const existing = byKey.get(key);
-    if (existing && rankOf(existing.reason) <= rankOf(raw.reason)) continue;
-    byKey.set(key, { ...raw, strength: CONSTRAINT_REASONS[raw.reason].strength, from: index.get(raw.before), to: index.get(raw.after), state: "active" });
+    if (existing && existing.rank <= rank) continue;
+    byKey.set(key, { ...raw, strength: CONSTRAINT_REASONS[raw.reason].strength, rank, state: "active" });
     if (byKey.size >= SMART_SORT_LIMITS.maxConstraints) break;
   }
   const constraints = [...byKey.values()];
   // A pair constrained both ways: the weaker side yields to the stronger.
   for (const c of constraints) {
     const reverse = byKey.get(`${c.after}\u0000${c.before}`);
-    if (reverse && rankOf(reverse.reason) < rankOf(c.reason)) c.state = "harder";
+    if (reverse && reverse.rank < c.rank) {
+      c.state = "harder";
+      c.by = reverse.reason;
+    }
   }
-  const violatedInInput = (c) => c.from > c.to;
+  const violatedInInput = (c) => index.get(c.before) > index.get(c.after);
 
   // ── Groups: blocks kept together, placement ──
-  const placementOf = new Map();
-  const placementGroupOf = new Map();
+  const placementGroupsOf = new Map(); // modId -> [group] with a placement
   const blockGroups = [];
   const claimedBy = new Map();
   for (const group of groups) {
     const present = groupMembers(group, index);
-    const placement = PLACEMENT_RANK[group?.placement];
-    if (placement !== undefined) {
+    if (PLACEMENT_RANK[group?.placement] !== undefined) {
       for (const id of present) {
-        if (!placementOf.has(id)) {
-          placementOf.set(id, placement);
-          placementGroupOf.set(id, group);
-        }
+        if (!placementGroupsOf.has(id)) placementGroupsOf.set(id, []);
+        placementGroupsOf.get(id).push(group);
       }
     }
     if (group?.keepTogether !== true) continue;
@@ -577,8 +603,10 @@ function solve(input, ids) {
   };
 
   // Breaks every loop among `nodes` (indices into `nodeMods`) over `edges`
-  // ({ from, to, alive, members, rank }). Returns the components that could
-  // only be solved by splitting a block (when `canSplit(component)`).
+  // ({ from, to, alive, members, rank }): in each strongly connected
+  // component the weakest constraints go, the ones the current order already
+  // breaks first. Returns the components that could only be solved by
+  // splitting a block (when `canSplit(component, weakest)`).
   function breakCycles(nodeCount, nodes, edges, nodeMods, canSplit) {
     const outEdges = Array.from({ length: nodeCount }, () => []);
     edges.forEach((edge, i) => outEdges[edge.from].push(i));
@@ -593,6 +621,8 @@ function solve(input, ids) {
       for (const component of scc(set)) {
         markGeneration++;
         for (const node of component) mark[node] = markGeneration;
+        // Weakest first, constraint by constraint: an edge between two units
+        // can carry a strong constraint and a weak one at once.
         const internal = [];
         let weakest = -1;
         for (const node of component) {
@@ -600,7 +630,7 @@ function solve(input, ids) {
             const edge = edges[e];
             if (!edge.alive || mark[edge.to] !== markGeneration) continue;
             internal.push(edge);
-            if (edge.rank > weakest) weakest = edge.rank;
+            for (const c of edge.members) if (c.state === "active" && c.rank > weakest) weakest = c.rank;
           }
         }
         if (internal.length === 0) continue;
@@ -608,32 +638,58 @@ function solve(input, ids) {
           splits.push(component);
           continue;
         }
-        const candidates = internal.filter((e) => e.rank === weakest);
-        let drop = candidates.filter((e) => e.members.some(violatedInInput));
+        const candidates = [];
+        for (const edge of internal) for (const c of edge.members) if (c.state === "active" && c.rank === weakest) candidates.push(c);
+        let drop = candidates.filter(violatedInInput);
         // None of the weakest is broken by the current order (the order breaks
         // a stronger one): drop one of them at a time in a small loop, all of
         // them in a big tangle (one at a time there is quadratic).
         if (drop.length === 0 && candidates.length > 8) drop = candidates;
         if (drop.length === 0) {
-          drop = [
-            candidates.reduce((best, e) => {
-              const a = e.members[0];
-              const b = best.members[0];
-              return a.before < b.before || (a.before === b.before && a.after < b.after) ? e : best;
-            }),
-          ];
+          drop = [candidates.reduce((best, c) => (c.before < best.before || (c.before === best.before && c.after < best.after) ? c : best))];
         }
         const componentMods = cycleReports < SMART_SORT_LIMITS.maxCycleReports ? component.flatMap((node) => nodeMods[node]) : [];
-        reportDrop(componentMods, drop.flatMap((edge) => edge.members), weakest === 0);
-        for (const edge of drop) edge.alive = false;
+        reportDrop(componentMods, drop, Math.floor(weakest) === 0);
+        for (const edge of internal) edge.alive = edge.members.some((c) => c.state === "active");
         work.push(component);
       }
     }
     return splits;
   }
 
+  // Mods that load between members of a block: reachable from a member and
+  // reaching a member, over the constraints still standing.
+  function modsBetween(members, scope) {
+    const inScope = new Set(scope);
+    const isMember = new Set(members);
+    const succ = new Map();
+    const pred = new Map();
+    for (const c of constraints) {
+      if (c.state !== "active" || !inScope.has(c.before) || !inScope.has(c.after)) continue;
+      if (!succ.has(c.before)) succ.set(c.before, []);
+      succ.get(c.before).push(c.after);
+      if (!pred.has(c.after)) pred.set(c.after, []);
+      pred.get(c.after).push(c.before);
+    }
+    const walk = (adjacency) => {
+      const seen = new Set();
+      const stack = [...members];
+      while (stack.length > 0) {
+        for (const next of adjacency.get(stack.pop()) || []) {
+          if (isMember.has(next) || seen.has(next)) continue;
+          seen.add(next);
+          stack.push(next);
+        }
+      }
+      return seen;
+    };
+    const down = walk(succ);
+    const up = walk(pred);
+    return [...down].filter((id) => up.has(id)).sort((a, b) => index.get(a) - index.get(b));
+  }
+
   // ── Units: a block per group kept together, else one mod each ──
-  let blocks = blockGroups.map((b) => ({ ...b, split: false }));
+  const blocks = blockGroups.map((b) => ({ ...b, split: false }));
   let units;
   let unitOf;
   for (let attempt = 0; attempt <= blocks.length; attempt++) {
@@ -641,9 +697,8 @@ function solve(input, ids) {
     unitOf = new Map();
     for (const block of blocks) {
       if (block.split) continue;
-      const unit = { members: block.members, group: block.group };
       for (const id of block.members) unitOf.set(id, units.length);
-      units.push(unit);
+      units.push({ members: block.members, group: block.group });
     }
     for (const id of ids) {
       if (unitOf.has(id)) continue;
@@ -665,7 +720,7 @@ function solve(input, ids) {
         }
         const edge = memberEdges.get(key);
         edge.members.push(c);
-        edge.rank = Math.min(edge.rank, rankOf(c.reason));
+        edge.rank = Math.min(edge.rank, c.rank);
       }
       const edgeList = [...memberEdges.values()];
       breakCycles(unit.members.length, unit.members.map((_, i) => i), edgeList, unit.members.map((id) => [id]), null);
@@ -687,7 +742,7 @@ function solve(input, ids) {
       if (!unitEdges.has(key)) unitEdges.set(key, { from, to, alive: true, members: [], rank: 99 });
       const edge = unitEdges.get(key);
       edge.members.push(c);
-      edge.rank = Math.min(edge.rank, rankOf(c.reason));
+      edge.rank = Math.min(edge.rank, c.rank);
     }
     const edgeList = [...unitEdges.values()];
     // A loop between units that disappears when its blocks are taken apart is
@@ -708,7 +763,6 @@ function solve(input, ids) {
       memberEdges.forEach((edge, i) => outEdges[edge.from].push(i));
       return stronglyConnected(mods.map((_, i) => i), outEdges, memberEdges).length === 0;
     };
-    units.edges = edgeList;
     const splits = breakCycles(
       units.length,
       units.map((_, i) => i),
@@ -719,27 +773,99 @@ function solve(input, ids) {
     units.edges = edgeList.filter((e) => e.alive);
     if (splits.length === 0) break;
     for (const component of splits) {
+      const scope = component.flatMap((v) => units[v].members);
       for (const u of component) {
         const unit = units[u];
         if (!unit.group) continue;
         const block = blocks.find((b) => b.group === unit.group);
         if (block && !block.split) {
           block.split = true;
-          const others = component
-            .filter((v) => v !== u)
-            .flatMap((v) => units[v].members)
-            .sort((a, b) => index.get(a) - index.get(b))
-            .slice(0, SMART_SORT_LIMITS.maxCycleMods);
           warnings.push({
             code: "keepTogetherBroken",
-            params: { group: String(unit.group.id), groupName: String(unit.group.name ?? ""), mods: others },
+            params: {
+              group: String(unit.group.id),
+              groupName: String(unit.group.name ?? ""),
+              mods: modsBetween(unit.members, scope).slice(0, SMART_SORT_LIMITS.maxCycleMods),
+            },
           });
         }
       }
     }
   }
 
-  // ── Order: the game's way, pulling each unit's predecessors forward ──
+  // ── Placement: a group placed "first" loads before everything else with
+  // what it needs; one placed "last" after everything else with what needs
+  // it. A mod a "first" mod needs is never last (reported). ──
+  const count = units.length;
+  const preds = Array.from({ length: count }, () => []);
+  const succs = Array.from({ length: count }, () => []);
+  for (const edge of units.edges) {
+    // Today's conflict winners never drag a mod first or last.
+    if (edge.members.every((c) => c.reason === "conflictWinner")) continue;
+    preds[edge.to].push(edge.from);
+    succs[edge.from].push(edge.to);
+  }
+  const seedOf = units.map((unit) => {
+    let first = false;
+    let last = false;
+    const placementGroups = [];
+    const consider = (group) => {
+      if (!group || placementGroups.includes(group)) return;
+      placementGroups.push(group);
+      if (group.placement === "first") first = true;
+      if (group.placement === "last") last = true;
+    };
+    if (unit.group && PLACEMENT_RANK[unit.group.placement] !== undefined) consider(unit.group);
+    for (const id of unit.members) for (const group of placementGroupsOf.get(id) || []) consider(group);
+    unit.placementGroups = placementGroups;
+    return { first, last };
+  });
+  const closure = (starts, adjacency) => {
+    const seen = new Set(starts);
+    const stack = [...starts];
+    while (stack.length > 0) {
+      for (const next of adjacency[stack.pop()]) {
+        if (seen.has(next)) continue;
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+    return seen;
+  };
+  const firstSet = closure(
+    seedOf.map((s, u) => (s.first ? u : -1)).filter((u) => u !== -1),
+    preds,
+  );
+  const lastSeeds = seedOf.map((s, u) => (s.last && !firstSet.has(u) ? u : -1)).filter((u) => u !== -1);
+  const lastSet = closure(lastSeeds, succs);
+  const placementConflicts = [];
+  units.forEach((unit, u) => {
+    if (seedOf[u].last && firstSet.has(u)) placementConflicts.push(u);
+    else if (lastSet.has(u) && firstSet.has(u)) placementConflicts.push(u);
+    unit.placement = firstSet.has(u) ? 0 : lastSet.has(u) ? 2 : 1;
+  });
+  if (placementConflicts.length > 0) {
+    const groupIds = new Set();
+    const mods = [];
+    for (const u of placementConflicts) {
+      for (const group of units[u].placementGroups) groupIds.add(String(group.id));
+      for (const below of closure([u], succs)) {
+        for (const group of units[below].placementGroups) if (group.placement === "first") groupIds.add(String(group.id));
+      }
+      mods.push(...units[u].members);
+    }
+    mods.sort((a, b) => index.get(a) - index.get(b));
+    warnings.push({ code: "placementConflict", params: { groups: [...groupIds], mods: mods.slice(0, SMART_SORT_LIMITS.maxCycleMods) } });
+  }
+  // A conflict winner against a placement gives way to the placement.
+  units.edges = units.edges.filter((edge) => {
+    if (units[edge.from].placement <= units[edge.to].placement) return true;
+    if (!edge.members.every((c) => c.reason === "conflictWinner")) return true;
+    for (const c of edge.members) c.state = "placement";
+    return false;
+  });
+
+  // ── Order: the best of a few candidate orders ──
   const keyOf = units.map((unit) => {
     let tier = Infinity;
     let first = Infinity;
@@ -747,31 +873,121 @@ function solve(input, ids) {
       first = Math.min(first, index.get(id));
       tier = Math.min(tier, classification.get(id)?.tier ?? 2);
     }
-    let placement = 1;
-    if (unit.group && PLACEMENT_RANK[unit.group.placement] !== undefined) placement = PLACEMENT_RANK[unit.group.placement];
-    else if (!unit.group && placementOf.has(unit.members[0])) placement = placementOf.get(unit.members[0]);
-    return { placement, tier: tiered ? tier : 0, first };
+    return { placement: unit.placement, tier: tiered ? tier : 0, first };
   });
-  // First the game's order (the current order, each unit right after what
-  // it must follow); then, when groups are placed first/last or tiers count,
-  // a priority order over that one.
-  let unitOrder = pullUpOrder(units.length, units.edges, keyOf.map((k) => [k.first]));
-  if (tiered || keyOf.some((k) => k.placement !== 1)) {
-    unitOrder = priorityOrder(units.length, units.edges, unitOrder, keyOf);
-  }
-  const result = unitOrder.flatMap((u) => units[u].members);
   const priority = tiered || keyOf.some((k) => k.placement !== 1);
-  const split = blocks.some((b) => b.split);
+  const firstKeys = keyOf.map((k) => [k.first]);
+  let candidates = [
+    // The game's way: each unit right after what it must follow, pulled forward.
+    pullUpOrder(count, units.edges, firstKeys),
+    // The other way: a unit that must follow waits, the others go ahead.
+    kahnOrder(count, units.edges, keyOf, false),
+    // From the bottom: a unit that must come first is pushed up.
+    kahnOrder(count, units.edges, keyOf, true),
+  ];
+  if (priority) candidates = candidates.map((base) => priorityOrder(count, units.edges, base, keyOf));
+
+  const incident = new Set();
+  for (const c of constraints) {
+    incident.add(c.before);
+    incident.add(c.after);
+  }
+  const isConstrained = (id) =>
+    incident.has(id) ||
+    units[unitOf.get(id)].group !== null ||
+    units[unitOf.get(id)].placement !== 1 ||
+    (tiered && classification.has(id));
+  const weight = (id) => (isConstrained(id) ? 1 : n + 1);
+  let result = null;
+  let fewest = Infinity;
+  for (const unitOrder of candidates) {
+    const order = unitOrder.flatMap((u) => units[u].members);
+    const movedCount = order.length - keptInPlace(order, index, weight).size;
+    if (movedCount < fewest) {
+      fewest = movedCount;
+      result = order;
+    }
+  }
+  for (const unit of units) {
+    unit.apartIn = (positions) => {
+      const at = unit.members.map((id) => positions.get(id)).sort((a, b) => a - b);
+      return at[at.length - 1] - at[0] !== at.length - 1;
+    };
+  }
   return {
     result,
     constraints,
     cycles,
     warnings,
     units,
-    claimedBy,
-    placementOf,
-    placementGroupOf,
-    needsCheck: priority || split || cycles.length > 0,
+    unitOfMod: unitOf,
+    isConstrained,
+    needsCheck: priority || blocks.some((b) => b.split) || cycles.length > 0 || fewest > 0,
+  };
+}
+
+/**
+ * Kahn's algorithm over units: forward picks the ready unit with the
+ * smallest key (placement, tier, current position); backward builds from the
+ * end, picking the unit with the largest key whose successors are all placed.
+ */
+function kahnOrder(count, edges, keyOf, backward) {
+  const out = Array.from({ length: count }, () => []);
+  const remaining = new Int32Array(count);
+  for (const edge of edges) {
+    if (backward) {
+      out[edge.to].push(edge.from);
+      remaining[edge.from]++;
+    } else {
+      out[edge.from].push(edge.to);
+      remaining[edge.to]++;
+    }
+  }
+  const key = (u) => [keyOf[u].placement, keyOf[u].tier, keyOf[u].first];
+  const better = backward ? (a, b) => compareKeys(key(a), key(b)) > 0 : (a, b) => compareKeys(key(a), key(b)) < 0;
+  const heap = createHeap(better);
+  for (let u = 0; u < count; u++) if (remaining[u] === 0) heap.push(u);
+  const order = [];
+  while (heap.size() > 0) {
+    const u = heap.pop();
+    order.push(u);
+    for (const next of out[u]) if (--remaining[next] === 0) heap.push(next);
+  }
+  if (order.length !== count) return Array.from({ length: count }, (_, i) => i);
+  return backward ? order.reverse() : order;
+}
+
+function createHeap(before) {
+  const items = [];
+  return {
+    size: () => items.length,
+    push(value) {
+      items.push(value);
+      for (let i = items.length - 1; i > 0; ) {
+        const parent = (i - 1) >> 1;
+        if (!before(items[i], items[parent])) break;
+        [items[i], items[parent]] = [items[parent], items[i]];
+        i = parent;
+      }
+    },
+    pop() {
+      const top = items[0];
+      const last = items.pop();
+      if (items.length > 0) {
+        items[0] = last;
+        for (let i = 0; ; ) {
+          const l = 2 * i + 1;
+          const r = l + 1;
+          let m = i;
+          if (l < items.length && before(items[l], items[m])) m = l;
+          if (r < items.length && before(items[r], items[m])) m = r;
+          if (m === i) break;
+          [items[i], items[m]] = [items[m], items[i]];
+          i = m;
+        }
+      }
+      return top;
+    },
   };
 }
 

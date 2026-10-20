@@ -180,7 +180,7 @@ describe("planLoadOrder: contradictions", () => {
     // B require=s A (A first), but A says loadModAfter=B.
     const result = plan(["B", "A"], [mod("A", { loadAfter: ["B"] }), mod("B", { require: ["A"] })]);
     expect(result.order).toEqual(["A", "B"]);
-    expect(result.unsatisfied).toEqual([{ before: "B", after: "A", reason: "loadAfter", why: "conflictsWithHarder" }]);
+    expect(result.unsatisfied).toEqual([{ before: "B", after: "A", reason: "loadAfter", why: "conflictsWithHarder", by: "require" }]);
   });
 
   it("a rule beats a declared loadModAfter= in the other direction", () => {
@@ -189,7 +189,7 @@ describe("planLoadOrder: contradictions", () => {
     expect(result.order).toEqual(["A", "B"]);
     expect(result.moves).toHaveLength(1);
     expect(result.explanations.A).toEqual([{ code: "rule", params: { relation: "before", other: "B", ruleId: "r1" } }]);
-    expect(result.unsatisfied).toEqual([{ before: "B", after: "A", reason: "loadAfter", why: "conflictsWithHarder" }]);
+    expect(result.unsatisfied).toEqual([{ before: "B", after: "A", reason: "loadAfter", why: "conflictsWithHarder", by: "rule" }]);
   });
 
   it("finishes on loops everywhere (every pair both ways) and still returns every mod", () => {
