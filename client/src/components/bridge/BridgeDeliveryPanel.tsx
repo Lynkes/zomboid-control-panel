@@ -566,6 +566,18 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
             <AlertDescription className="break-words">{t('banner.steamModeOff')}</AlertDescription>
           </Alert>
         )}
+        {/* Only a warning: the server keeps running what it downloaded. */}
+        {s.disk?.workshopItem?.integrity === 'mismatch' && (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-item-modified">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription className="break-words">
+              {t('banner.workshopItemModified', {
+                version: s.disk.workshopItem.version ?? '?',
+                folder: s.disk.workshopItem.folder,
+              })}
+            </AlertDescription>
+          </Alert>
+        )}
         {listing === 'unavailable' && (
           <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-steam-unavailable">
             <AlertTriangle className="h-4 w-4 text-warning" />

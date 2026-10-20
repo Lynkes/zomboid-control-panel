@@ -134,6 +134,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",
+    "workshopItemModified": "Fichye PanelBridge {{version}} sèvè a telechaje nan Steam Workshop la pa koresponn ak sa ki te pibliye pou vèsyon sa a (dosye: {{folder}}). Petèt yon moun chanje atik Workshop la oswa fichye ki telechaje yo. Jiskaske ou verifye sa, pase sou enstalasyon pa panèl la, ki itilize kopi ki vini ak panèl la.",
     "steamModeOff": "Sèvè sa a mache san Steam, kidonk li pa ka telechaje PanelBridge nan Workshop la. Jwèt la limen Steam sèlman lè Java demare ak -Dzomboid.steam=1 epi sèvè a pa demare ak -nosteam: ajoute -Dzomboid.steam=1 sou liy java script demaraj la oswa kòmand demaraj sèvè sa a, retire -nosteam si li la, epi redemare sèvè a.",
     "steamListingHidden": "Paj piblik Steam Workshop la pa montre atik PanelBridge la kounye a. Sa ka rive pandan Steam ap revize yon atik ki nouvo oswa ki mete ajou, oswa pou yon atik ki pa nan lis piblik la, epi sèvè yo ka toujou telechaje l. Si yon demaraj echwe akoz sa, paj sa a ap di l.",
     "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mod ak Workshop).",

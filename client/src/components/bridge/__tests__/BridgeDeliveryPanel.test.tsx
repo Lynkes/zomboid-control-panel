@@ -928,3 +928,32 @@ describe('BridgeDeliveryPanel: RTL (ar)', () => {
     expect(offenders).toEqual([])
   })
 })
+
+// The Workshop item a server downloaded holds server Lua other than the
+// PanelBridge.lua published for its version: a warning, nothing is blocked.
+describe('BridgeDeliveryPanel: a modified Workshop download', () => {
+  const folder = `D:\\PZServer\\steamapps\\workshop\\content\\108600\\${WORKSHOP_ID}`
+  const withItem = (integrity: 'verified' | 'mismatch' | 'unverified') => {
+    const base = makeWorkshopStatus()
+    return makeWorkshopStatus({
+      disk: { ...base.disk!, workshopItem: { folder, version: '1.7.71', source: 'candidate', integrity, serverLuaSha256: null } },
+    })
+  }
+
+  it('warns, naming the version and the folder', async () => {
+    renderPanel(withItem('mismatch'))
+    await panelReady()
+    const warning = screen.getByTestId('bridge-delivery-item-modified')
+    expect(warning).toHaveTextContent(
+      en.banner.workshopItemModified.replace('{{version}}', '1.7.71').replace('{{folder}}', folder),
+    )
+    // The switch back to the panel's own copy stays available.
+    expect(screen.getByRole('button', { name: en.action.switchToLocal })).toBeEnabled()
+  })
+
+  it.each(['verified', 'unverified'] as const)('says nothing when the item is %s', async (integrity) => {
+    renderPanel(withItem(integrity))
+    await panelReady()
+    expect(screen.queryByTestId('bridge-delivery-item-modified')).toBeNull()
+  })
+})

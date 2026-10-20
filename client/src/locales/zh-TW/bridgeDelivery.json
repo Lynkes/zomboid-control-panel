@@ -134,6 +134,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam 回報 PanelBridge 的創意工坊專案無法使用。在其恢復或你切換為由面板安裝之前，伺服器將無法啟動。",
+    "workshopItemModified": "伺服器從 Steam 創意工坊下載的 PanelBridge {{version}} 檔案與該版本發布時的內容不一致（資料夾：{{folder}}）。創意工坊專案或已下載的檔案可能遭到變更。在確認之前，請切換為由面板安裝，這樣會使用面板隨附的副本。",
     "steamModeOff": "此伺服器在沒有 Steam 的情況下執行，因此無法從創意工坊下載 PanelBridge。只有 Java 以 -Dzomboid.steam=1 啟動、且伺服器啟動時未帶 -nosteam，遊戲才會啟用 Steam：請將 -Dzomboid.steam=1 加到此伺服器啟動腳本或啟動命令的 java 行中，如有 -nosteam 請將其移除，然後重新啟動伺服器。",
     "steamListingHidden": "Steam 的創意工坊公開頁面目前沒有顯示 PanelBridge 專案。Steam 審核新專案或更新後的專案時，或者專案未公開列出時，都可能出現這種情況，伺服器仍然可以下載它。如果因此導致啟動失敗，此頁面會告訴你。",
     "autoRestartOn": "PanelBridge 更新後會自動重新啟動此伺服器（設定 › 模組與創意工坊）。",
