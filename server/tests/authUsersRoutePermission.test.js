@@ -137,7 +137,7 @@ describe("GET/POST /api/auth/users — capability gate, not a hardcoded role nam
 
   it("POST /users: a custom role holding users.manage is admitted and can create an account", async () => {
     const req = {
-      body: { username: "newhire", password: "password123", role: "moderator" },
+      body: { username: "newhire", password: "Role-test-pass-91", role: "moderator" },
       user: { role: "front-desk" },
     };
     const res = createResponse();
@@ -149,7 +149,7 @@ describe("GET/POST /api/auth/users — capability gate, not a hardcoded role nam
 
   it("POST /users: a custom role WITHOUT users.manage is refused before any account is created", async () => {
     const req = {
-      body: { username: "newhire", password: "password123", role: "moderator" },
+      body: { username: "newhire", password: "Role-test-pass-91", role: "moderator" },
       user: { role: "bystander" },
     };
     const res = createResponse();

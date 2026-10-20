@@ -32,7 +32,7 @@
     "capsLockOn": "大寫鎖定已開啟",
     "showPassword": "顯示密碼",
     "hidePassword": "隱藏密碼",
-    "hint": "至少使用 6 個字元。",
+    "hint": "至少使用 10 個字元。",
     "strength": {
       "tooShort": "過短",
       "weak": "弱",
@@ -55,7 +55,7 @@
     "setupTokenRequired": "輸入面板啟動日誌或主控台輸出中列印的設定權杖。",
     "invalidSetupToken": "設定權杖無效或缺失。請檢視面板啟動日誌或主控台輸出以取得一次性權杖。",
     "invalidUsername": "使用者名稱必須為 3-32 個字元（字母、數字、_ 或 -）",
-    "passwordTooShort": "密碼必須至少為 6 個字元",
+    "passwordTooShort": "密碼必須至少為 10 個字元",
     "passwordsDontMatch": "密碼不一致",
     "invalidPort": "面板埠必須是 1024 到 65535 之間的整數",
     "setupFailed": "設定失敗"

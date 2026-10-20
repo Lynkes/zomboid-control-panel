@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
 import { ApiError } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
+import { PASSWORD_MIN_LENGTH, exceedsPasswordMaxBytes, meetsPasswordMinLength } from '../lib/passwordPolicy'
 import { toast } from '../components/ui/use-toast'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -23,11 +24,11 @@ type PasswordStrength = {
 function scorePassword(pw: string): PasswordStrength {
   if (!pw) return { score: 0, key: null, tone: 'empty' }
   let score = 0
-  if (pw.length >= 6) score++
-  if (pw.length >= 10) score++
+  if (pw.length >= PASSWORD_MIN_LENGTH) score++
+  if (pw.length >= 12) score++
   if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++
   if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++
-  if (pw.length >= 14) score = Math.min(4, score + 1)
+  if (pw.length >= 16) score = Math.min(4, score + 1)
   const map: Record<number, PasswordStrength> = {
     0: { score: 1, key: 'tooShort', tone: 'weak' },
     1: { score: 1, key: 'weak', tone: 'weak' },
@@ -57,7 +58,7 @@ export default function Setup() {
   const confirmHintId = 'setup-confirm-hint'
 
   const passwordsMatch = password === confirmPassword
-  const passwordLongEnough = password.length >= 6
+  const passwordLongEnough = meetsPasswordMinLength(password)
   const usernameValid = /^[a-zA-Z0-9_-]{3,32}$/.test(username)
   const panelPortNumber = Number(panelPort)
   const panelPortValid = Number.isInteger(panelPortNumber) && panelPortNumber >= 1024 && panelPortNumber <= 65535
@@ -84,6 +85,10 @@ export default function Setup() {
     }
     if (!passwordLongEnough) {
       setError(t('errors.passwordTooShort'))
+      return
+    }
+    if (exceedsPasswordMaxBytes(password)) {
+      setError(t('PASSWORD_TOO_LONG_BYTES', { ns: 'errors' }))
       return
     }
     if (!passwordsMatch) {

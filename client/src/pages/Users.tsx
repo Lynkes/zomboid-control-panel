@@ -39,6 +39,7 @@ import {
   type RoleInfo,
 } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from '@/lib/passwordPolicy'
 import { useDateFormat } from '@/lib/dateFormat'
 
 // POST /api/auth/users only accepts one of these three legacy names -- it
@@ -412,6 +413,14 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     }
     if (!password) {
       setFormError(t('createDialog.passwordRequired'))
+      return
+    }
+    if (!meetsPasswordMinLength(password)) {
+      setFormError(t('errors:PASSWORD_TOO_SHORT'))
+      return
+    }
+    if (exceedsPasswordMaxBytes(password)) {
+      setFormError(t('errors:PASSWORD_TOO_LONG_BYTES'))
       return
     }
     if (password !== confirmPassword) {

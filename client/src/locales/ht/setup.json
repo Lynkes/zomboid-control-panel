@@ -32,7 +32,7 @@
     "capsLockOn": "Caps Lock aktive",
     "showPassword": "Montre modpas",
     "hidePassword": "Kache modpas",
-    "hint": "Itilize omwen 6 karaktè.",
+    "hint": "Itilize omwen 10 karaktè.",
     "strength": {
       "tooShort": "Twò kout",
       "weak": "Fèb",
@@ -55,7 +55,7 @@
     "setupTokenRequired": "Antre jeton konfigirasyon ki enprime nan jounal demaraj panèl la oswa sòti konsòl la.",
     "invalidSetupToken": "Jeton konfigirasyon envalid oswa manke. Tcheke jounal demaraj panèl la oswa sòti konsòl pou jeton yon sèl fwa a.",
     "invalidUsername": "Non itilizatè a dwe gen 3-32 karaktè (lèt, chif, _ oswa -)",
-    "passwordTooShort": "Modpas la dwe gen omwen 6 karaktè",
+    "passwordTooShort": "Modpas la dwe gen omwen 10 karaktè",
     "passwordsDontMatch": "Modpas yo pa menm",
     "invalidPort": "Pò panèl la dwe yon nonb antye ant 1024 ak 65535",
     "setupFailed": "Konfigirasyon echwe"

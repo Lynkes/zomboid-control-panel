@@ -32,7 +32,7 @@
     "capsLockOn": "Feststelltaste ist aktiv",
     "showPassword": "Passwort anzeigen",
     "hidePassword": "Passwort verbergen",
-    "hint": "Mindestens 6 Zeichen verwenden.",
+    "hint": "Mindestens 10 Zeichen verwenden.",
     "strength": {
       "tooShort": "Zu kurz",
       "weak": "Schwach",
@@ -55,7 +55,7 @@
     "setupTokenRequired": "Gib das Setup-Token ein, das im Startprotokoll oder in der Konsolenausgabe des Panels angezeigt wurde.",
     "invalidSetupToken": "Ungültiges oder fehlendes Setup-Token. Prüfe das Startprotokoll oder die Konsolenausgabe des Panels auf das einmalige Token.",
     "invalidUsername": "Der Benutzername muss 3-32 Zeichen umfassen (Buchstaben, Zahlen, _ oder -)",
-    "passwordTooShort": "Das Passwort muss mindestens 6 Zeichen umfassen",
+    "passwordTooShort": "Das Passwort muss mindestens 10 Zeichen umfassen",
     "passwordsDontMatch": "Passwörter stimmen nicht überein",
     "invalidPort": "Der Panel-Port muss eine ganze Zahl zwischen 1024 und 65535 sein",
     "setupFailed": "Einrichtung fehlgeschlagen"

@@ -32,7 +32,7 @@
     "capsLockOn": "Bloq Mayús está activado",
     "showPassword": "Mostrar contraseña",
     "hidePassword": "Ocultar contraseña",
-    "hint": "Usa al menos 6 caracteres.",
+    "hint": "Usa al menos 10 caracteres.",
     "strength": {
       "tooShort": "Demasiado corta",
       "weak": "Débil",
@@ -55,7 +55,7 @@
     "setupTokenRequired": "Introduce el token de configuración impreso en el registro de inicio del panel o en la salida de la consola.",
     "invalidSetupToken": "Token de configuración inválido o ausente. Consulta el registro de inicio del panel o la salida de la consola para obtener el token de un solo uso.",
     "invalidUsername": "El nombre de usuario debe tener entre 3 y 32 caracteres (letras, números, _ o -)",
-    "passwordTooShort": "La contraseña debe tener al menos 6 caracteres",
+    "passwordTooShort": "La contraseña debe tener al menos 10 caracteres",
     "passwordsDontMatch": "Las contraseñas no coinciden",
     "invalidPort": "El puerto del panel debe ser un número entero entre 1024 y 65535",
     "setupFailed": "Error en la configuración"

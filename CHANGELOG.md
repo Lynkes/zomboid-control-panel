@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
 - **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
 - **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
+- **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
 
 ## [1.4.17] - 2026-10-18
 

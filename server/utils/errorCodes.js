@@ -122,6 +122,17 @@ export const ErrorCode = Object.freeze({
    * regenerate-jwt-secret, recovery codes) while panel logins are off
    * (authEnabled: false): a change made then would outlive the setting. */
   ACCOUNT_CHANGES_NEED_LOGINS: "ACCOUNT_CHANGES_NEED_LOGINS",
+  /** server/services/passwordPolicy.js -- a new password (setup, account
+   * creation, change, reset, recovery) is shorter than PASSWORD_MIN_LENGTH.
+   * Existing passwords keep working. */
+  PASSWORD_TOO_SHORT: "PASSWORD_TOO_SHORT",
+  /** server/services/passwordPolicy.js -- a new password is longer than bcrypt
+   * reads (PASSWORD_MAX_BYTES in UTF-8): anything past that would be
+   * ignored, so two passwords sharing those bytes would both sign in. */
+  PASSWORD_TOO_LONG_BYTES: "PASSWORD_TOO_LONG_BYTES",
+  /** server/services/passwordPolicy.js -- a new password is on the built-in
+   * list of the most common passwords, or one character repeated. */
+  PASSWORD_TOO_COMMON: "PASSWORD_TOO_COMMON",
   /* --- end access-control audit 2026-10-20 (accounts) --- */
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
    * reset-token.txt exists on disk. Sent only to a caller on the panel host

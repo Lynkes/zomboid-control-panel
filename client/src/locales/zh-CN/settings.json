@@ -627,7 +627,7 @@
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
     "passwordsDontMatch": "密码不一致",
-    "passwordTooShort": "密码必须至少为 6 个字符",
+    "passwordTooShort": "密码必须至少为 10 个字符",
     "changingButton": "正在更改…",
     "changeButton": "更改密码",
     "recoveryCodesTitle": "找回代码",
@@ -1134,7 +1134,7 @@
       "title": "密码不一致"
     },
     "passwordTooShort": {
-      "title": "密码必须至少为 6 个字符"
+      "title": "密码必须至少为 10 个字符"
     },
     "passwordChanged": {
       "title": "密码已更改",

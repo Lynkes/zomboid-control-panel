@@ -495,7 +495,9 @@ router.post("/setup", setupLimiter, async (req, res) => {
     });
   } catch (error) {
     log.error(`Setup failed: ${escapeLogText(error.message)}`);
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(400).json(body);
   }
 });
 
@@ -1186,6 +1188,11 @@ router.post("/recover-with-code", resetLimiter, async (req, res) => {
     });
   } catch (error) {
     log.warn(`Recovery code redemption failed: ${escapeLogText(error.message)}`);
+    // A new password the policy refuses (services/passwordPolicy.js) is a 400
+    // with its code; anything about the code itself stays a bare 403.
+    if (error.code && error.status === 400) {
+      return res.status(400).json({ error: sanitizeError(error.message), code: error.code });
+    }
     res.status(403).json({ error: sanitizeError(error.message) });
   }
 });
@@ -1363,7 +1370,9 @@ router.post("/reset-password", resetLimiter, async (req, res) => {
     });
   } catch (error) {
     log.error(`Password reset failed: ${escapeLogText(error.message)}`);
-    res.status(400).json({ error: sanitizeError(error.message) });
+    const body = { error: sanitizeError(error.message) };
+    if (error.code) body.code = error.code;
+    res.status(400).json(body);
   }
 });
 

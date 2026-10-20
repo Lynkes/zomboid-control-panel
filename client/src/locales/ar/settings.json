@@ -641,7 +641,7 @@
     "showPassword": "إظهار كلمة المرور",
     "hidePassword": "إخفاء كلمة المرور",
     "passwordsDontMatch": "كلمتا المرور غير متطابقتين",
-    "passwordTooShort": "يجب ألا تقل كلمة المرور عن 6 أحرف",
+    "passwordTooShort": "يجب ألا تقل كلمة المرور عن 10 أحرف",
     "changingButton": "جارٍ التغيير...",
     "changeButton": "تغيير كلمة المرور",
     "recoveryCodesTitle": "رموز الاسترداد",
@@ -1152,7 +1152,7 @@
       "title": "كلمتا المرور غير متطابقتين"
     },
     "passwordTooShort": {
-      "title": "يجب ألا تقل كلمة المرور عن 6 أحرف"
+      "title": "يجب ألا تقل كلمة المرور عن 10 أحرف"
     },
     "passwordChanged": {
       "title": "تم تغيير كلمة المرور",

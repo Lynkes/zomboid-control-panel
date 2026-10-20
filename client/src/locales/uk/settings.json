@@ -635,7 +635,7 @@
     "showPassword": "Показати пароль",
     "hidePassword": "Приховати пароль",
     "passwordsDontMatch": "Паролі не збігаються",
-    "passwordTooShort": "Пароль має містити щонайменше 6 символів",
+    "passwordTooShort": "Пароль має містити щонайменше 10 символів",
     "changingButton": "Зміна...",
     "changeButton": "Змінити пароль",
     "recoveryCodesTitle": "Коди відновлення",
@@ -1144,7 +1144,7 @@
       "title": "Паролі не збігаються"
     },
     "passwordTooShort": {
-      "title": "Пароль має містити щонайменше 6 символів"
+      "title": "Пароль має містити щонайменше 10 символів"
     },
     "passwordChanged": {
       "title": "Пароль змінено",
