@@ -1,5 +1,11 @@
 {
   "skipToContent": "Saltar al contenido",
+  "notFound": {
+    "title": "Página no encontrada",
+    "description": "La página solicitada no existe o ya no está disponible en esta versión del panel.",
+    "goDashboard": "Ir al tablero",
+    "openServers": "Abrir servidores"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Control Panel",

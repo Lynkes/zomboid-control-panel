@@ -1,5 +1,11 @@
 {
   "skipToContent": "Ale dirèkteman nan kontni an",
+  "notFound": {
+    "title": "Paj la pa jwenn",
+    "description": "Paj ou mande a pa egziste, oswa li pa disponib ankò nan vèsyon panèl sa a.",
+    "goDashboard": "Ale nan Tablo a",
+    "openServers": "Louvri Sèvè yo"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Panèl Kontwòl",

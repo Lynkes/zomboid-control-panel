@@ -6,6 +6,12 @@
     "modBadge.updatesAvailable_many"
   ],
   "skipToContent": "Перейти до вмісту",
+  "notFound": {
+    "title": "Сторінку не знайдено",
+    "description": "Запитаної сторінки не існує або її більше немає в цій версії панелі.",
+    "goDashboard": "До інформаційної панелі",
+    "openServers": "Відкрити сервери"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Панель керування",

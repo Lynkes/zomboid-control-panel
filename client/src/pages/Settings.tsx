@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
+import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Server,
   Link,
@@ -70,7 +70,7 @@ import { SubNav, SubNavLayout } from "@/components/ui/sub-nav";
 import { StatusPill } from "@/components/ui/status-pill";
 import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
 import { SaveBar } from "@/components/SaveBar";
-import { useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
+import { useGuardedNavigate, useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -414,7 +414,11 @@ export default function Settings() {
   const [originalSettings, setOriginalSettings] = useState<AppSettings | null>(
     null,
   );
-  const [loading, setLoading] = useState(false);
+  // True from the first render: the skeleton shows until the settings are
+  // in. Starting false rendered every tab once with the defaults, then
+  // unmounted it behind the skeleton, so an embedded tab (Users) mounted
+  // twice and lost what its first mount had read (the SSO link result).
+  const [loading, setLoading] = useState(true);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
   // Escape hatch for the Server Settings and Sandbox tabs' range validation
   // (ServerConfig.tsx), per bernanas' request via the 2026-09-09 dispatch;
@@ -676,6 +680,12 @@ export default function Settings() {
       )
     : [];
   const dirtyTabs = new Set(changedSettingKeys.map((key) => SETTING_TAB[key]));
+  // Single Sign-On saves on its own (OidcSettings' save bar). While it holds
+  // edits, its tab stays mounted (hidden) when another tab opens: an
+  // unmounted tab would reload from the server and drop them, and a tab
+  // switch doesn't ask.
+  const [ssoDirty, setSsoDirty] = useState(false);
+  if (ssoDirty) dirtyTabs.add("sso");
 
   // Section navigation via tabs, in the rail's groups. Each tab's
   // description becomes the page header's description when it is open.
@@ -727,7 +737,9 @@ export default function Settings() {
     return validTabs.includes(resolved) ? resolved : null;
   };
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+  // Asks first while a tab holds unsaved edits (the update toast's "Open
+  // Dashboard" leaves the page).
+  const navigate = useGuardedNavigate();
   // The selected tab lives in ?tab=: a reload, a link from another page
   // (Diagnostics' fixes, the command palette) or an in-page
   // <Link to="/settings?tab=roles"> opens it. An unknown tab, or one this
@@ -754,7 +766,7 @@ export default function Settings() {
   // shortcuts, reload). The save bar registers the same guard on the tabs
   // that show it; this covers the embedded tabs too, where an edit made on
   // General would otherwise be dropped silently.
-  useUnsavedChangesGuard(isDirty);
+  useUnsavedChangesGuard(isDirty || ssoDirty);
 
   // Clean up restart redirect timer/poll on unmount
   useEffect(
@@ -1457,7 +1469,7 @@ export default function Settings() {
           getUserErrorMessage(error, t("toasts.downloadFailed.fallback")),
         variant: "destructive",
         action: failure === "serverNotStopped" ? (
-          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => navigate("/")}>
+          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => void navigate("/")}>
             {t("toasts.updateNotApplied.openDashboard")}
           </ToastAction>
         ) : undefined,
@@ -5958,8 +5970,16 @@ export default function Settings() {
             <RolesPermissions embedded />
           </TabsContent>
 
-          <TabsContent value="sso" className="mt-0">
-            <OidcSettings embedded />
+          <TabsContent
+            value="sso"
+            forceMount={ssoDirty || undefined}
+            className="mt-0 data-[state=inactive]:hidden"
+          >
+            <OidcSettings
+              embedded
+              active={activeSection === "sso"}
+              onDirtyChange={setSsoDirty}
+            />
           </TabsContent>
 
           <TabsContent value="about" className="mt-0 space-y-6">

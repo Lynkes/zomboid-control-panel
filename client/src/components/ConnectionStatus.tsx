@@ -62,7 +62,7 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
       return {
         icon: Loader2,
         color: 'text-warning',
-        surface: 'border-warning/24 bg-warning/10',
+        surface: 'border-warning/25 bg-warning/10',
         label: t('reconnecting.label'),
         description: t('reconnecting.description', { attempt: reconnectAttempt }),
         // Only after a few attempts -- a single retry is normal network
@@ -76,7 +76,7 @@ export function ConnectionStatus({ className, showLabel = false }: ConnectionSta
       // Plain destructive red is about 2.4:1 on the dark card; this lighter
       // tint keeps the same hue at about 4.8:1.
       color: 'text-destructive dark:text-[hsl(6_70%_62%)]',
-      surface: 'border-destructive/24 bg-destructive/10',
+      surface: 'border-destructive/25 bg-destructive/10',
       label: t('disconnected.label'),
       description: t('disconnected.description'),
       hint: t('disconnected.hint'),

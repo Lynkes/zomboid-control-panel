@@ -104,6 +104,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
 - **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
+- **SSO link confirmation:** after you link a sign-in identity to a panel account, Settings › Users now says which address was linked; the message never appeared.
+- **Single Sign-On edits kept across Settings tabs:** unsaved Single Sign-On fields no longer vanish when you open another Settings tab before saving.
+- **Single Sign-On display name help:** it now shows the button text ("Continue with Keycloak") instead of a raw `{{name}}`.
+- **Skip to content in the demo:** the keyboard skip link now moves to the page content instead of opening "Page Not Found".
+- **Discord Start, Stop and Refresh keep your edits:** unsaved bot settings, event notifications and command permissions no longer snap back to the saved values when you start, stop or refresh the bot.
+- **Switching servers without the permission:** for a role without servers.manage, the active-server menu now lists the other servers greyed out and says why, instead of ending in "Switch failed".
+- **Manage roles link on Panel Users:** it is shown only to a role that can open Roles & Permissions; others were sent to the General tab.
+- **Old panel addresses:** bookmarks such as `/serverconfig?tab=sandbox` or `/users` keep the rest of the address when they open the page's new home, and "Page Not Found" is in your language.
+- **Phone menu in Arabic:** the navigation drawer now slides in from the right, next to the menu button, instead of from the left.
+- **Confirmation dialogs dim the page again:** the page behind an "Are you sure?" dialog is darkened, primary buttons show their hover state, and the sidebar's connection notice has its coloured border.
 
 ## [1.4.17] - 2026-10-18
 

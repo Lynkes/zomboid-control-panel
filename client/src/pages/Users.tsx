@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Users as UsersIcon, UserPlus, ShieldAlert, Loader2, ArrowRight, Trash2, Link2, Unlink, LogOut, AlertTriangle } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { isDemoMode } from '@/lib/demo'
@@ -83,9 +83,12 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation(['users', 'errors'])
   const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
-  const { user: currentUser, authEnabled } = useAuth()
+  const { user: currentUser, authEnabled, can } = useAuth()
   const confirm = useConfirm()
   const canLinkSso = currentUser?.role === 'admin'
+  // Settings hides its Roles & Permissions tab without roles.manage, and
+  // ?tab=roles then opens General: no link to it for such a role.
+  const canManageRoles = can('roles.manage')
 
   const [users, setUsers] = useState<ManagedUserAccount[] | null>(null)
   const [roles, setRoles] = useState<RoleInfo[]>([])
@@ -206,14 +209,27 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
     fetchAll()
   }, [fetchAll])
 
+  // Where the SSO link callback lands (server/routes/oidc.js redirects to
+  // /settings?tab=users&oidcSuccess=...). Read once, then dropped through the
+  // router: history.replaceState left them in the router's own location, so
+  // Settings' next tab switch (which keeps the other parameters) wrote them
+  // back and reopening Users toasted the link again.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const oidcSuccess = searchParams.get('oidcSuccess')
+  const oidcError = searchParams.get('oidcError')
+  const oidcLinkedUser = searchParams.get('linkedUser')
+  // One toast per result, also when StrictMode runs the effect twice.
+  const handledOidcResultRef = useRef<string | null>(null)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const success = params.get('oidcSuccess')
-    const error = params.get('oidcError')
+    const success = oidcSuccess
+    const error = oidcError
     if (!success && !error) return
+    const resultKey = `${success}|${error}|${oidcLinkedUser}`
+    if (handledOidcResultRef.current === resultKey) return
+    handledOidcResultRef.current = resultKey
 
     if (success === 'linked') {
-      setLinkedUserId(params.get('linkedUser') ?? '')
+      setLinkedUserId(oidcLinkedUser ?? '')
     } else if (error === 'link_expired') {
       toast({
         title: t('toasts.actionFailedTitle'),
@@ -228,12 +244,17 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       })
     }
 
-    params.delete('oidcSuccess')
-    params.delete('oidcError')
-    params.delete('linkedUser')
-    const query = params.toString()
-    window.history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash)
-  }, [t, toast])
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous)
+        next.delete('oidcSuccess')
+        next.delete('oidcError')
+        next.delete('linkedUser')
+        return next
+      },
+      { replace: true },
+    )
+  }, [oidcSuccess, oidcError, oidcLinkedUser, setSearchParams, t, toast])
 
   useEffect(() => {
     if (linkedUserId === null || loading) return
@@ -553,13 +574,15 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
           status={<Badge variant="outline" className="tabular-nums">{(users || []).length}</Badge>}
           actions={addUserButton}
           footer={
-            <Link
-              to="/settings?tab=roles"
-              className="me-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-            >
-              {t('manageRolesLink')}
-              <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
-            </Link>
+            canManageRoles ? (
+              <Link
+                to="/settings?tab=roles"
+                className="me-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                {t('manageRolesLink')}
+                <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+              </Link>
+            ) : undefined
           }
         >
           <div className="overflow-x-auto">

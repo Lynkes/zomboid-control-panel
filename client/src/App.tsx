@@ -218,24 +218,37 @@ function AuthScreenLoader() {
 }
 
 function NotFoundRoute() {
+  const { t } = useTranslation('shell')
   return (
     <div className="space-y-6 page-transition">
       <div className="rounded-xl border border-border/70 bg-card/70 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Page Not Found</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('notFound.title')}</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          The route you requested does not exist or is no longer available in this panel build.
+          {t('notFound.description')}
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <Link to="/" className="inline-flex min-h-10 items-center rounded-md border border-border/70 bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            Go to Dashboard
+            {t('notFound.goDashboard')}
           </Link>
           <Link to="/servers" className="inline-flex min-h-10 items-center rounded-md border border-border/70 bg-background px-4 text-sm font-medium hover:bg-muted/50">
-            Open Servers
+            {t('notFound.openServers')}
           </Link>
         </div>
       </div>
     </div>
   )
+}
+
+// An old address (/serverconfig, /users ...) opens its new home with the
+// rest of the address kept: /serverconfig?tab=sandbox lands on the Sandbox
+// tab, not the first one. The target's own query (?tab=users) wins.
+function AliasRedirect({ to }: { to: string }) {
+  const { search, hash } = useLocation()
+  const [pathname, ownQuery = ''] = to.split('?')
+  const params = new URLSearchParams(search)
+  for (const [key, value] of new URLSearchParams(ownQuery)) params.set(key, value)
+  const query = params.toString()
+  return <Navigate to={{ pathname, search: query ? `?${query}` : '', hash }} replace />
 }
 
 function AppContent() {
@@ -515,13 +528,13 @@ function AppContent() {
                   />
                 ))}
                 {Object.entries(ROUTE_ALIASES).map(([from, to]) => (
-                  <Route key={from} path={from} element={<Navigate to={to} replace />} />
+                  <Route key={from} path={from} element={<AliasRedirect to={to} />} />
                 ))}
                 {/* Users and Roles & Permissions are now tabs inside Settings -- these
                     keep old bookmarks/deep links working rather than 404ing them. */}
-                <Route path="/roles" element={<Navigate to="/settings?tab=roles" replace />} />
-                <Route path="/users" element={<Navigate to="/settings?tab=users" replace />} />
-                <Route path="/sso" element={<Navigate to="/settings?tab=sso" replace />} />
+                <Route path="/roles" element={<AliasRedirect to="/settings?tab=roles" />} />
+                <Route path="/users" element={<AliasRedirect to="/settings?tab=users" />} />
+                <Route path="/sso" element={<AliasRedirect to="/settings?tab=sso" />} />
                 <Route path="*" element={<NotFoundRoute />} />
               </Routes>
             </Suspense>

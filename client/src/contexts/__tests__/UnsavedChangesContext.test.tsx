@@ -32,6 +32,9 @@ function renderApp({ dirty, message, at = '/settings' }: { dirty: boolean; messa
           <DirtyForm dirty={dirty} message={message} />
           <Link to="/servers">Servers</Link>
           <Link to="/settings?tab=roles">Roles tab</Link>
+          {/* The shell's skip link, and a link as HashRouter renders it. */}
+          <a href="#main-content" onClick={(event) => event.preventDefault()}>Skip to content</a>
+          <a href="#/players" onClick={(event) => event.preventDefault()}>Hash route</a>
           <GuardedButton to="/mods" />
           <Where />
         </UnsavedChangesProvider>
@@ -84,6 +87,18 @@ describe('UnsavedChangesProvider: links', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Roles tab' }))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
     expect(where()).toBe('/settings?tab=roles')
+  })
+
+  it('does not ask for a jump within the page (the skip link\'s #main-content)', () => {
+    renderApp({ dirty: true })
+    fireEvent.click(screen.getByRole('link', { name: 'Skip to content' }))
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('still asks for a demo-mode (HashRouter) link to another page', async () => {
+    renderApp({ dirty: true })
+    fireEvent.click(screen.getByRole('link', { name: 'Hash route' }))
+    expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
   })
 
   it('leaves a modified click (new tab) to the browser', () => {

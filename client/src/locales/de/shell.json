@@ -1,5 +1,11 @@
 {
   "skipToContent": "Zum Inhalt springen",
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Die aufgerufene Seite gibt es nicht oder nicht mehr in dieser Version des Panels.",
+    "goDashboard": "Zum Dashboard",
+    "openServers": "Alle Server öffnen"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Kontrollpanel",
