@@ -15,6 +15,7 @@ import {
   recordPlayerSession,
   logServerEvent,
   applySuspendGapToInFlightSessions,
+  getActiveServer,
 } from '../database/init.js';
 import { createLogger } from '../utils/logger.js';
 import { bridgeFolderName } from '../utils/bridgeFolderName.js';
@@ -104,6 +105,20 @@ function ageSecondsParam(ms) {
   return Number.isFinite(ms) && ms >= 0 ? { ageSeconds: Math.floor(ms / 1000) } : {};
 }
 
+// The active server's id as the player tables store it (String(server.id)),
+// or undefined when there is none or it can't be read. Never throws: a
+// lookup failure only means the session calls fall back to the active
+// server, as before.
+function resolveSessionServerId() {
+  try {
+    return Promise.resolve(getActiveServer())
+      .then((server) => (server?.id != null ? String(server.id) : undefined))
+      .catch(() => undefined);
+  } catch {
+    return Promise.resolve(undefined);
+  }
+}
+
 class PanelBridge extends EventEmitter {
   constructor() {
     super();
@@ -146,6 +161,11 @@ class PanelBridge extends EventEmitter {
     this.lastQueueCleanupAt = 0;
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
+    // The server whose players this bridge session tracks: the active server
+    // when start() ran (see resolveSessionServerId()). undefined until known,
+    // and then the session calls fall back to the active server.
+    this.sessionServerId = undefined;
+    this.sessionServerIdToken = null;
     // False until the first alive status read of this bridge session: that
     // read only establishes who is already online (see checkModStatus()).
     this.playersBaselined = false;
@@ -688,6 +708,18 @@ class PanelBridge extends EventEmitter {
     this.queueState.initialized = false;
     this.ensureQueueProtocol();
 
+    // Pin the server these players belong to now. A server switch activates
+    // the new server BEFORE it stops this bridge, and stop() then closes
+    // every open session: looked up at that point, the active server is the
+    // new one, so the old server's sessions never closed (playtime lost) and
+    // the new one got rows for players who never joined it.
+    const sessionToken = {};
+    this.sessionServerIdToken = sessionToken;
+    this.sessionServerId = undefined;
+    resolveSessionServerId().then((serverId) => {
+      if (this.sessionServerIdToken === sessionToken) this.sessionServerId = serverId;
+    });
+
     // Start polling for results (fast poll)
     this.pollInterval = setInterval(() => this.pollResults(), this.config.pollIntervalMs);
 
@@ -842,6 +874,8 @@ class PanelBridge extends EventEmitter {
     // switch to another server, a panel shutdown), not anyone leaving, so
     // the Discord/auto-export listeners must not announce it.
     this.trackPlayerActivity([], { silent: true });
+    this.sessionServerId = undefined;
+    this.sessionServerIdToken = null;
     this.playersBaselined = false;
     this.watcherRetries = 0;
     this.modStatus = null;
@@ -1864,12 +1898,15 @@ class PanelBridge extends EventEmitter {
     const playerList = Array.isArray(currentPlayers) ? currentPlayers : Object.keys(currentPlayers || {});
     const current = new Set(playerList);
     const previous = this.previousPlayers;
+    // The server this bridge session belongs to (see start()); without it the
+    // database falls back to the active server.
+    const serverArgs = this.sessionServerId !== undefined ? [this.sessionServerId] : [];
 
     // Find players who joined (in current but not in previous)
     for (const player of current) {
       if (!previous.has(player)) {
-        logPlayerAction(player, 'connect', 'Player connected to server').catch(err => log.debug(`Failed to log player connect: ${err.message}`));
-        recordPlayerSession(player, 'connect').catch(err => log.debug(`Failed to record player connect session: ${err.message}`));
+        logPlayerAction(player, 'connect', 'Player connected to server', ...serverArgs).catch(err => log.debug(`Failed to log player connect: ${err.message}`));
+        recordPlayerSession(player, 'connect', ...serverArgs).catch(err => log.debug(`Failed to record player connect session: ${err.message}`));
         this.emit('playerConnect', player, { silent });
       }
     }
@@ -1877,8 +1914,8 @@ class PanelBridge extends EventEmitter {
     // Find players who left (in previous but not in current)
     for (const player of previous) {
       if (!current.has(player)) {
-        logPlayerAction(player, 'disconnect', 'Player disconnected from server').catch(err => log.debug(`Failed to log player disconnect: ${err.message}`));
-        recordPlayerSession(player, 'disconnect').catch(err => log.debug(`Failed to record player disconnect session: ${err.message}`));
+        logPlayerAction(player, 'disconnect', 'Player disconnected from server', ...serverArgs).catch(err => log.debug(`Failed to log player disconnect: ${err.message}`));
+        recordPlayerSession(player, 'disconnect', ...serverArgs).catch(err => log.debug(`Failed to record player disconnect session: ${err.message}`));
         this.emit('playerDisconnect', player, { silent });
       }
     }

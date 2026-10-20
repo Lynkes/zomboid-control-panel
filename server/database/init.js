@@ -1768,12 +1768,14 @@ export async function getLatestScheduleExecutionByCommand(command) {
 // GET /activity mixed moderation history from every managed server
 // together. Tagged with getActiveServerId() (same proxy tracked_mods/
 // ignored_mods already use) at write time; filtered at read time, tolerant
-// of pre-fix untagged rows.
-export async function logPlayerAction(playerName, action, details = null) {
+// of pre-fix untagged rows. `serverId` overrides the active server for a
+// caller that knows which server the action happened on (PanelBridge's
+// player connect/disconnect, see recordPlayerSession()).
+export async function logPlayerAction(playerName, action, details = null, serverId = undefined) {
   const db = await getDb();
   const entry = {
     id: generateId(),
-    server_id: await getActiveServerId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     player_name: playerName,
     action,
     details,

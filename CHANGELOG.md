@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
+- **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
 
 ## [1.4.17] - 2026-10-18
 
