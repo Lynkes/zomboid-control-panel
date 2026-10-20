@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backup "View snapshot":** a snapshot larger than 1 MB is refused instead of being inflated into memory (a small uploaded zip could take hundreds of MB).
 - **Backup restore and upload disk use:** a restore stops when an archive inflates past the sizes it records or would nearly fill the disk, and an upload is refused when it would leave less than 1 GB free.
 - **Mod conflict scan:** a crafted Workshop file can no longer freeze the panel for minutes while its clothing, translation, script or Lua definitions are read.
+- **Mod conflict file comparison:** it no longer follows a symlink or junction out of a mod's media folder (the scan already refused them).
 
 ## [1.4.17] - 2026-10-18
 

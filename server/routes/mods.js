@@ -8066,10 +8066,25 @@ router.get("/conflicts/diff", async (req, res) => {
             resolved !== mediaBase
           )
             continue;
-          if (modId === String(modA) && fs.existsSync(candidate))
-            pathA = candidate;
-          if (modId === String(modB) && fs.existsSync(candidate))
-            pathB = candidate;
+          if (modId !== modAStr && modId !== modBStr) continue;
+          if (!fs.existsSync(candidate)) continue;
+          // The lexical check above stays inside media/ only on paper: a
+          // symlink or junction on the way can lead anywhere. Same rule as
+          // the scan's walkDir(): the real file must be inside the real
+          // media folder, and a regular file.
+          const realMedia = safeRealpath(mediaDir);
+          const realCandidate = realMedia ? safeRealpath(candidate) : null;
+          if (!realCandidate || !isInsideRoot(realCandidate, realMedia)) {
+            log.warn(`Conflict diff: ${JSON.stringify(normalizedFile)} in ${JSON.stringify(modId)} leads outside its media folder -- not read`);
+            continue;
+          }
+          try {
+            if (!fs.statSync(realCandidate).isFile()) continue;
+          } catch {
+            continue;
+          }
+          if (modId === modAStr) pathA = realCandidate;
+          if (modId === modBStr) pathB = realCandidate;
         }
       }
       if (pathA && pathB) break;
