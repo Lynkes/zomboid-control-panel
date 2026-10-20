@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // Dead-signal / stuck-state hunt (2026-09-03, following GH#141): grepped
@@ -82,7 +83,7 @@ const testBackup: ServerBackupArchive = {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -114,11 +115,13 @@ describe('Backups.tsx: reflects the server-side backupInProgress/restoreInProgre
     renderBackups()
 
     const createButton = await screen.findByRole('button', { name: /create backup/i })
-    const uploadButton = await screen.findByRole('button', { name: /upload/i })
     const restoreButton = await screen.findByRole('button', { name: /restore/i })
+    // Upload .zip lives in the header's "More" menu.
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More backup actions' }), { button: 0, ctrlKey: false })
+    const uploadItem = within(await screen.findByRole('menu')).getByRole('menuitem', { name: /upload/i })
 
     expect(createButton).toBeDisabled()
-    expect(uploadButton).toBeDisabled()
+    expect(uploadItem).toHaveAttribute('aria-disabled', 'true')
     expect(restoreButton).toBeDisabled()
   })
 

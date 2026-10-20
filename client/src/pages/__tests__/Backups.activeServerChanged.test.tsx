@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // bug-hunt-2026-09-04 (worse than #1 tonight, same root cause): a comment on
@@ -100,7 +101,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }

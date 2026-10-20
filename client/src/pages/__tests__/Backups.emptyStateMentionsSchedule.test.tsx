@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus } from '@/lib/api'
 import en from '../../locales/en/backups.json'
 
@@ -68,7 +69,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }

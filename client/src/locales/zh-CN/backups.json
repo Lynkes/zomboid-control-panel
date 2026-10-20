@@ -12,18 +12,19 @@
     "creating": "创建中…",
     "uploadZip": "上传 .zip",
     "uploading": "上传中 {{percent}}%",
-    "settings": "设置",
+    "settings": "计划与保留",
+    "moreAria": "更多备份操作",
     "refreshAria": "刷新备份状态",
     "refreshTitle": "刷新备份状态",
     "remoteDisabledTitle": "远程服务器不支持备份",
-    "uploadTitleRemote": "远程服务器不支持备份",
-    "uploadTitleLocal": "从其他机器上传现有的 world_backup_*.zip 文件"
+    "uploadTitleRemote": "远程服务器不支持备份"
   },
   "alerts": {
     "loadErrorTitle": "备份数据不可用",
     "retry": "重试",
     "remoteTitle": "远程服务器已禁用备份",
-    "remoteDesc": "当前活动服务器配置为远程服务器，面板无法访问其文件系统。切换到本地服务器前，创建、上传和恢复功能均不可用。"
+    "remoteDesc": "当前活动服务器配置为远程服务器，面板无法访问其文件系统。切换到本地服务器前，创建、上传和恢复功能均不可用。",
+    "remoteAction": "打开服务器列表"
   },
   "history": {
     "label": "历史记录",
@@ -68,13 +69,16 @@
     "none": "无计划"
   },
   "settingsPanel": {
-    "title": "备份设置",
-    "description": "配置计划备份设置。",
+    "title": "计划与保留",
+    "description": "此世界何时自动备份，以及保留多少个备份。",
+    "enabledLabel": "自动备份",
+    "enabledHelp": "按下方计划运行；超出上限时会删除最旧的备份。",
     "frequencyLabel": "备份频率",
     "frequencyPlaceholder": "选择频率",
     "frequencyHelp": "自动创建备份的频率",
     "maxBackupsLabel": "最大保留备份数",
     "maxBackupsHelp": "达到数量上限后，最旧的备份将被自动删除",
+    "maxBackupsInvalid": "请输入要保留的备份数量（1 到 100）。",
     "customLabel": "cron 表达式",
     "customHint": "格式：分钟 小时 日 月 星期。“{{example}}”表示每天 3:30 运行。最多每 5 分钟一次。",
     "customValid": "计划有效",
@@ -106,9 +110,10 @@
     "savesNotFound": "未找到存档文件夹",
     "noSavesFolderTitle": "未找到存档文件夹",
     "noSavesFolderDesc": "面板未能为当前活动服务器找到 Saves/Multiplayer 文件夹。如果尚未设置服务器，请先设置；如果已设置，请至少启动一次——该文件夹会在首次启动时创建。",
-    "noSavesFolderAction": "打开服务器设置",
+    "noSavesFolderAction": "添加服务器",
     "deleteSelected": "删除（{{count}}）",
-    "deleteOlder": "删除较旧备份",
+    "deleteOlder": "删除较旧备份…",
+    "moreAria": "更多列表操作",
     "emptyTitle": "没有安全保障",
     "emptyDesc": "现在创建一个备份，或在上方开启计划备份，再更改存档、模组或服务器设置——一次错误的更新就可能导致进度丢失。",
     "emptyDescScheduled": "计划备份已开启——第一个备份运行后会显示在这里。若不想等待，现在就创建一个，再更改存档、模组或服务器设置。",
@@ -120,13 +125,11 @@
     "partialSelectedLabel": "已选择 {{selected}} / {{total}} 个",
     "selectBackupAria": "选择备份 {{name}}",
     "latestBadge": "最新",
-    "viewSnapshotAria": "查看 {{name}} 的快照",
     "viewSnapshotTitle": "查看服务器快照",
     "restoreAria": "恢复 {{name}}",
-    "restoreTitle": "恢复此备份",
-    "downloadAria": "下载 {{name}}",
+    "restore": "恢复",
+    "actionsAria": "{{name}} 的更多操作",
     "downloadTitle": "下载备份",
-    "deleteAria": "删除 {{name}}",
     "deleteTitle": "删除备份"
   },
   "snapshotDialog": {
@@ -232,7 +235,8 @@
     "notStartedProxy": "面板前面的代理或隧道拒绝了此请求（HTTP {{status}}）。面板没有这次恢复的记录，因此恢复并未开始。",
     "failedNextStep": "除非上面的原因另有说明，当前世界保持原样。请先解决问题，然后重试。",
     "unknownTitle": "无法确认恢复的结果",
-    "unknownDetail": "页面无法从面板获取这次恢复的结果（连接中断时间过长，或面板已重启），因此恢复可能未完成，甚至可能未开始。启动服务器之前，请打开「调试日志 › 活动」并搜索「restore」。如果开始恢复之后有这个备份的 backup_restored 记录，说明恢复已完成；如果之后有 restore_failed 记录，其中会写明失败原因。如果两者都没有，请重新恢复。如果无法打开调试日志，请联系管理员。",
+    "unknownDetail": "页面无法从面板获取这次恢复的结果（连接中断时间过长，或面板已重启），因此恢复可能未完成，甚至可能未开始。启动服务器之前，请打开「诊断 › 活动」并搜索「restore」。如果开始恢复之后有这个备份的 backup_restored 记录，说明恢复已完成；如果之后有 restore_failed 记录，其中会写明失败原因。如果两者都没有，请重新恢复。如果无法打开诊断，请联系管理员。",
+    "openActivity": "打开「诊断 › 活动」",
     "dismiss": "关闭",
     "dismissAria": "关闭恢复结果"
   }
