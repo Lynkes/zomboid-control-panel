@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Failed panel update download:** the Updates card no longer stays on "Downloading".
 - **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
 - **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
+- **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
 
 ## [1.4.17] - 2026-10-18
 
