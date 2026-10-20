@@ -5842,8 +5842,11 @@ router.post("/groups/:id/enable", async (req, res) => {
 });
 
 // Disable every mod of a group on the active server: its member mod IDs leave
-// Mods=. With keepShared (the default) a mod that is also in another group
-// whose mods are all enabled stays (keptShared). PanelBridge's own mod, when
+// Mods=. With keepShared (the default) a mod that another group also lists
+// stays while that group still has an enabled mod this leaves on (keptShared):
+// a shared library its add-ons need. Not "every member enabled": groups are
+// shared by every server, so most have members a given server does not have,
+// and the library went with the add-ons still loading. PanelBridge's own mod, when
 // its Workshop delivery manages it, always stays (keptManaged). WorkshopItems=
 // is left alone, so the files stay and enabling again is instant. One write,
 // through the lock and backup path, and only when something changes.
@@ -5873,13 +5876,12 @@ router.post("/groups/:id/disable", async (req, res) => {
       const keptShared = [];
       const keptManaged = [];
       const disabled = [];
+      const leaving = new Set(members);
+      const stillUsed = (other) => other.some((member) => !leaving.has(member) && enabledNow.has(member));
       for (const id of members) {
         if (!enabledNow.has(id)) continue;
         if (id === bridgeModId) keptManaged.push(id);
-        else if (
-          keepShared &&
-          otherGroups.some((other) => other.includes(id) && other.every((member) => enabledNow.has(member)))
-        ) {
+        else if (keepShared && otherGroups.some((other) => other.includes(id) && stillUsed(other))) {
           keptShared.push(id);
         } else disabled.push(id);
       }

@@ -223,6 +223,24 @@ describe('Active on server, Groups view', () => {
     await waitFor(() => expect(m.disableGroup).toHaveBeenCalledWith('g1', true))
   })
 
+  it('names a mod kept for another group whose enabled mods still use it, though that group lists a mod this server lacks', async () => {
+    // "Charlie pack" lists ModA too; its ModC is enabled, ModGhost is not on this server.
+    const CHARLIE: ModGroup = { id: 'g2', name: 'Charlie pack', description: '', modIds: ['ModA', 'ModC', 'ModGhost'], createdAt: STAMP, updatedAt: STAMP }
+    prime({ groups: [VEHICLES, CHARLIE] })
+    confirmSpy.mockResolvedValue(false)
+    await openActiveGroups()
+
+    const menu = await openMenu('Actions for group Vehicles')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /^Disable all/ }))
+
+    await waitFor(() => expect(confirmSpy).toHaveBeenCalledTimes(1))
+    const { description, items } = confirmSpy.mock.calls[0][0]
+    expect(description).toContain('0 mods leave the server config')
+    expect(description).toContain('Kept, because another group still has enabled mods')
+    expect(description).toContain('ModA (Alpha Mod)')
+    expect(items).toEqual([])
+  })
+
   it('does nothing when Disable all is declined', async () => {
     prime()
     confirmSpy.mockResolvedValue(false)

@@ -3065,9 +3065,11 @@ export default function Mods() {
       return
     }
     const members = [...new Set(group.modIds)].filter((id) => enabledModIds.has(id))
-    // The server keeps a mod that another fully enabled group also needs: say which, before asking.
+    // The server keeps a mod that another group lists while that group still
+    // has an enabled mod this leaves on (its add-ons need it): say which, before asking.
+    const leavingIds = new Set(group.modIds)
     const shared = members.filter((id) =>
-      groupsStore.groups.some((other) => other.id !== group.id && other.modIds.includes(id) && other.modIds.every((m) => enabledModIds.has(m))))
+      groupsStore.groups.some((other) => other.id !== group.id && other.modIds.includes(id) && other.modIds.some((m) => !leavingIds.has(m) && enabledModIds.has(m))))
     const leaving = members.filter((id) => !shared.includes(id))
     const nameOf = (id: string) => (modIdNameMap.get(id) ? `${id} (${modIdNameMap.get(id)})` : id)
     const ok = await confirm({
