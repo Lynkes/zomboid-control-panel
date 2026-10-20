@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
 - **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
 - **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
+- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port are shown only to roles that run RCON or manage servers.
 
 ## [1.4.17] - 2026-10-18
 

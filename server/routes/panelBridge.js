@@ -1482,8 +1482,13 @@ router.post("/refresh", requirePermission("bridge.setup"), (req, res) => {
   }
 });
 
-// Ping the mod
-router.get("/ping", async (req, res) => {
+// Ping the mod. SECURITY (2026-10-20, access-control audit): a ping queues a
+// command to the game like every other bridge action, so it takes a bridge
+// capability -- the ones that see the bridge's status (bridge.setup,
+// bridge.diagnostics) or run its actions (bridge.command). It answered any
+// signed-in role; the only caller is the Settings bridge tab, whose Ping
+// button needs /status (bridge.setup or bridge.diagnostics) anyway.
+router.get("/ping", requireAnyPermission("bridge.setup", "bridge.diagnostics", "bridge.command"), async (req, res) => {
   if (!bridge.bridgePath) {
     return res.status(400).json({
       error: "Bridge not configured",
