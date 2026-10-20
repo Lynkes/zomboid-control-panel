@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-20
+
 ### Security
 
 - **SFTP password bound to its host:** the saved PanelBridge SFTP password is only used with the saved host, port and username; testing or saving another target asks for its password.
