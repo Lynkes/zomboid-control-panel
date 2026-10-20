@@ -40,7 +40,7 @@
     "general": {
       "label": "Geral",
       "tip": "Porta do painel, reinício e aparência",
-      "description": "Porta em que esta interface de administração escuta, além do tema."
+      "description": "Porta e reinício do painel, tema, formato de data e faixas de valores das configurações."
     },
     "updates": {
       "label": "Atualizações",
@@ -717,7 +717,7 @@
       "label": "Transmissões rápidas do chat",
       "detail": "Mensagens predefinidas exibidas acima do campo do chat."
     },
-    "aboutCardTitle": "Sobre",
+    "aboutCardTitle": "Versão e links",
     "aboutCardDesc": "Versão do painel, informações de execução e links úteis.",
     "installedVersionLabel": "Versão instalada",
     "latestAvailableLabel": "Mais recente disponível",

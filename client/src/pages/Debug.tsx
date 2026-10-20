@@ -76,6 +76,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Segmented } from "@/components/ui/segmented";
 import { SubNav, SubNavLayout, type SubNavGroup } from "@/components/ui/sub-nav";
 import { PageAlerts } from "@/components/PageAlerts";
 import { useUrlParamState } from "@/hooks/useUrlParamState";
@@ -6239,127 +6240,6 @@ export default function Debug() {
 
         {/* Logs Tab */}
         <TabsContent value="logs" className="mt-0 space-y-4">
-          {/* Stats Bar — tactical filter chips */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {(() => {
-              const tiles = [
-                {
-                  key: "all",
-                  label: t("logsTab.statTotal"),
-                  value: logStats.total,
-                  tone: "muted",
-                  Icon: Terminal,
-                },
-                {
-                  key: "error",
-                  label: t("logsTab.statErrors"),
-                  value: logStats.errors,
-                  tone: "destructive",
-                  Icon: AlertCircle,
-                },
-                {
-                  key: "warn",
-                  label: t("logsTab.statWarnings"),
-                  value: logStats.warnings,
-                  tone: "warning",
-                  Icon: AlertTriangle,
-                },
-                {
-                  key: "info",
-                  label: t("logsTab.statInfo"),
-                  value: logStats.info,
-                  tone: "primary",
-                  Icon: Info,
-                },
-                {
-                  key: "debug",
-                  label: t("logsTab.statDebug"),
-                  value: logStats.debug,
-                  tone: "muted",
-                  Icon: Bug,
-                },
-              ];
-              const toneStyles: Record<
-                string,
-                { chip: string; value: string; ring: string; hover: string }
-              > = {
-                primary: {
-                  chip: "border-primary/30 bg-primary/[0.06] text-primary",
-                  value: "text-primary",
-                  ring: "ring-primary/50",
-                  hover: "hover:border-primary/30",
-                },
-                warning: {
-                  chip: "border-warning/40 bg-warning/10 text-warning",
-                  value: "text-warning",
-                  ring: "ring-warning/50",
-                  hover: "hover:border-warning/30",
-                },
-                destructive: {
-                  chip: "border-destructive/40 bg-destructive/[0.08] text-destructive",
-                  value: "text-destructive",
-                  ring: "ring-destructive/50",
-                  hover: "hover:border-destructive/30",
-                },
-                muted: {
-                  chip: "border-border/55 bg-muted/30 text-muted-foreground",
-                  value: "text-foreground",
-                  ring: "ring-foreground/30",
-                  hover: "hover:border-border",
-                },
-              };
-              return tiles.map((tile) => {
-                const s = toneStyles[tile.tone];
-                const isActive = levelFilter === tile.key;
-                return (
-                  <Card
-                    key={tile.key}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isActive}
-                    aria-label={t("logsTab.filterAria", { label: tile.label })}
-                    onClick={() => setLevelFilter(tile.key as typeof levelFilter)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setLevelFilter(tile.key as typeof levelFilter);
-                      }
-                    }}
-                    className={cn(
-                      "cursor-pointer transition-all border-border/60",
-                      s.hover,
-                      isActive && `ring-1 ${s.ring}`,
-                    )}
-                  >
-                    <CardContent className="flex items-center gap-3 p-3.5">
-                      <div
-                        className={cn(
-                          "grid h-10 w-10 shrink-0 place-items-center rounded-md border",
-                          s.chip,
-                        )}
-                      >
-                        <tile.Icon className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="label-micro">
-                          {tile.label}
-                        </p>
-                        <p
-                          className={cn(
-                            "text-xl font-semibold leading-tight tabular-nums",
-                            s.value,
-                          )}
-                        >
-                          {tile.value.toLocaleString(i18n.language)}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              });
-            })()}
-          </div>
-
           {/* Logs Card */}
           <Card>
             <CardHeader className="pb-4">
@@ -6489,31 +6369,28 @@ export default function Debug() {
                       <button
                         onClick={() => setSearchQuery("")}
                         aria-label={t("logsTab.clearLogSearchAria")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     )}
                   </div>
 
-                  {/* Level Filter */}
-                  <Select
+                  {/* Level filter with each level's count: one control in
+                      the toolbar instead of a row of five stat tiles above
+                      the log plus a second level dropdown here. */}
+                  <Segmented
+                    ariaLabel={t("logsTab.levelPlaceholder")}
                     value={levelFilter}
-                    onValueChange={(v) =>
-                      setLevelFilter(v as typeof levelFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-[120px]">
-                      <SelectValue placeholder={t("logsTab.levelPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("logsTab.allLevels")}</SelectItem>
-                      <SelectItem value="error">{t("logsTab.statErrors")}</SelectItem>
-                      <SelectItem value="warn">{t("logsTab.statWarnings")}</SelectItem>
-                      <SelectItem value="info">{t("logsTab.statInfo")}</SelectItem>
-                      <SelectItem value="debug">{t("logsTab.statDebug")}</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    onValueChange={(v) => setLevelFilter(v as typeof levelFilter)}
+                    items={[
+                      { value: "all", label: t("logsTab.allLevels"), count: logStats.total },
+                      { value: "error", label: t("logsTab.statErrors"), count: logStats.errors },
+                      { value: "warn", label: t("logsTab.statWarnings"), count: logStats.warnings },
+                      { value: "info", label: t("logsTab.statInfo"), count: logStats.info },
+                      { value: "debug", label: t("logsTab.statDebug"), count: logStats.debug },
+                    ]}
+                  />
 
                   {/* Source Filter */}
                   <Select value={sourceFilter} onValueChange={setSourceFilter}>

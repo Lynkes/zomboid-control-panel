@@ -40,7 +40,7 @@
     "general": {
       "label": "Allgemein",
       "tip": "Panel-Port, Neustart und Erscheinungsbild",
-      "description": "Port, auf dem diese Verwaltungsoberfläche lauscht, sowie das Design."
+      "description": "Panel-Port und Neustart, Design, Datumsformat und Wertebereiche der Einstellungen."
     },
     "updates": {
       "label": "Updates",
@@ -716,7 +716,7 @@
       "label": "Chat-Schnellnachrichten",
       "detail": "Vordefinierte Nachrichten, die über der Chat-Eingabe angezeigt werden."
     },
-    "aboutCardTitle": "Info",
+    "aboutCardTitle": "Version und Links",
     "aboutCardDesc": "Panelversion, Laufzeitinfos und hilfreiche Links.",
     "installedVersionLabel": "Installierte Version",
     "latestAvailableLabel": "Neueste verfügbare Version",

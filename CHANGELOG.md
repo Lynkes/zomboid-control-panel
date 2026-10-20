@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
+- **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.
 
 ### Fixed
 

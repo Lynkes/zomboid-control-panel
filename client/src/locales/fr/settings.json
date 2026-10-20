@@ -40,7 +40,7 @@
     "general": {
       "label": "Général",
       "tip": "Port du panneau, redémarrage et apparence",
-      "description": "Port sur lequel cette interface d'administration écoute, ainsi que le thème."
+      "description": "Port et redémarrage du panneau, thème, format de date et plages de valeurs des réglages."
     },
     "updates": {
       "label": "Mises à jour",
@@ -717,7 +717,7 @@
       "label": "Messages rapides du chat",
       "detail": "Messages prédéfinis affichés au-dessus de la saisie du chat."
     },
-    "aboutCardTitle": "À propos",
+    "aboutCardTitle": "Version et liens",
     "aboutCardDesc": "Version du panneau, informations d'exécution et liens utiles.",
     "installedVersionLabel": "Version installée",
     "latestAvailableLabel": "Dernière disponible",

@@ -1889,7 +1889,10 @@ export default function Discord() {
       {/* Status Message */}
       <InlineFeedback message={configMessage} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {/* items-start: the short Bot Status card keeps its own height next
+          to the long Command Permissions list instead of stretching into an
+          empty box. */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
         {/* Bot Status */}
         <SectionCard
           title={t("management.botStatus.title")}

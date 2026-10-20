@@ -37,7 +37,7 @@
       "automation": "Otomatizasyon",
       "system": "Sistèm"
     },
-    "general": { "label": "Jeneral", "tip": "Pò panèl la, redemaraj, ak aparans", "description": "Pò entèfas administratè sa a ap koute, plis tèm nan." },
+    "general": { "label": "Jeneral", "tip": "Pò panèl la, redemaraj, ak aparans", "description": "Pò panèl la ak redemaraj, tèm, fòma dat, ak limit valè paramèt yo." },
     "updates": { "label": "Mizajou", "tip": "Tcheke epi aplike nouvo vèsyon panèl la", "description": "Verifikasyon vèsyon panèl la, telechajman, ak fason mizajou yo aplike." },
     "https": { "label": "HTTPS", "tip": "Sètifika TLS pou koneksyon kripte", "description": "Tèminezon TLS. Aktive sa a lè w ekspoze panèl la pi lwen pase rezo LAN ou a." },
     "access": { "label": "Aksè adistans", "tip": "Ki navigatè ak aparèy ki ka konekte (CORS)", "description": "Ki orijin ki ka rive nan panèl sa a soti nan yon lòt machin, ak poukisa demann yo bloke." },
@@ -649,7 +649,7 @@
     "elsewhereBackups": { "label": "Kopi sovgad mond lan", "detail": "Orè kopi yo, konbyen ki kenbe, restorasyon ak telechajman." },
     "elsewhereServerConfig": { "label": "Konfigirasyon sèvè jwèt", "detail": "Opsyon INI sèvè ak règ sandbox." },
     "elsewhereChat": { "label": "Mesaj rapid chat", "detail": "Mesaj predefini ki parèt anwo antre chat la." },
-    "aboutCardTitle": "Konsènan",
+    "aboutCardTitle": "Vèsyon ak lyen",
     "aboutCardDesc": "Vèsyon panèl la, enfòmasyon egzekisyon, ak lyen itil.",
     "installedVersionLabel": "Vèsyon enstale",
     "latestAvailableLabel": "Dènye disponib",

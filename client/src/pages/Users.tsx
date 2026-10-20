@@ -547,8 +547,9 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                 <tr className="border-b border-border/60 bg-muted/40 text-start">
                   <th className="label-micro px-4 py-2.5 text-start">{t('table.account')}</th>
                   <th className="label-micro px-4 py-2.5 text-start">{t('table.role')}</th>
-                  <th className="label-micro px-4 py-2.5 text-start">{t('table.created')}</th>
-                  <th className="label-micro px-4 py-2.5 text-start">{t('table.lastSignIn')}</th>
+                  {/* The dates step aside on a phone so each row's "…" stays on screen. */}
+                  <th className="label-micro hidden px-4 py-2.5 text-start md:table-cell">{t('table.created')}</th>
+                  <th className="label-micro hidden px-4 py-2.5 text-start md:table-cell">{t('table.lastSignIn')}</th>
                   <th className="relative px-4 py-2.5 text-end">
                     <span className="sr-only">{t('table.actions')}</span>
                   </th>
@@ -611,10 +612,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
                       <td className="px-4 py-2.5">
                         <Badge variant="outline">{user.role}</Badge>
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
+                      <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
                         {formatDateTime(user.createdAt, { seconds: true })}
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground">
+                      <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
                         {user.lastLogin ? formatDateTime(user.lastLogin, { seconds: true }) : t('table.never')}
                       </td>
                       <td className="px-4 py-2.5 text-end">

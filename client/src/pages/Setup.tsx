@@ -138,10 +138,8 @@ export default function Setup() {
   return (
     <AuthScreenLayout
       badge={t('badge')}
-      title={t('title')}
-      description={t('description')}
-      cardTitle={t('cardTitle')}
-      cardDescription={t('cardDescription')}
+      title={t('cardTitle')}
+      description={`${t('description')} ${t('cardDescription')}`}
       footer={
         <span className="inline-flex items-start gap-1.5 text-start">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning/80" aria-hidden="true" />

@@ -40,7 +40,7 @@
     "general": {
       "label": "常规",
       "tip": "面板端口、重启及外观",
-      "description": "此管理界面所监听的端口，以及主题设置。"
+      "description": "面板端口与重启、主题、日期格式，以及设置值范围。"
     },
     "updates": {
       "label": "更新",
@@ -716,7 +716,7 @@
       "label": "聊天快捷消息",
       "detail": "显示在聊天输入框上方的预设消息。"
     },
-    "aboutCardTitle": "关于",
+    "aboutCardTitle": "版本与链接",
     "aboutCardDesc": "面板版本、运行时信息，以及相关链接。",
     "installedVersionLabel": "已安装版本",
     "latestAvailableLabel": "最新可用版本",

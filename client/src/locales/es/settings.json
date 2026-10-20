@@ -40,7 +40,7 @@
     "general": {
       "label": "General",
       "tip": "Puerto del panel, reinicio y apariencia",
-      "description": "Puerto en el que escucha esta interfaz de administración, además del tema."
+      "description": "Puerto y reinicio del panel, tema, formato de fecha y rangos de valores de los ajustes."
     },
     "updates": {
       "label": "Actualizaciones",
@@ -717,7 +717,7 @@
       "label": "Mensajes rápidos de chat",
       "detail": "Mensajes preestablecidos que se muestran encima del campo de chat."
     },
-    "aboutCardTitle": "Acerca de",
+    "aboutCardTitle": "Versión y enlaces",
     "aboutCardDesc": "Versión del panel, información del entorno de ejecución y enlaces útiles.",
     "installedVersionLabel": "Versión instalada",
     "latestAvailableLabel": "Última disponible",

@@ -45,6 +45,19 @@ describe('AuthScreenLayout', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Panel service unreachable'))
   })
 
+  it('matches the sign-in screen: product name in the top bar, the badge as a plain line under it, no decorative stamps', () => {
+    vi.mocked(fetch).mockReturnValue(new Promise(() => {}))
+    render(
+      <AuthScreenLayout badge="Initial Provisioning" title="Create Admin Account" description="Create the first admin account.">
+        <p>form</p>
+      </AuthScreenLayout>,
+    )
+    expect(screen.getByText('Project Zomboid Control Panel')).toBeInTheDocument()
+    expect(screen.getByText('Initial Provisioning').className).not.toMatch(/uppercase|font-mono/)
+    expect(screen.getByRole('heading', { level: 1, name: 'Create Admin Account' }).className).not.toMatch(/uppercase|font-mono/)
+    expect(screen.queryByText(/ZCP_CTRL|sig:|build ----/)).not.toBeInTheDocument()
+  })
+
   it('renders the real title, description and children content passed in', () => {
     vi.mocked(fetch).mockReturnValue(new Promise(() => {}))
     renderLayout()

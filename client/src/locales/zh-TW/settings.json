@@ -40,7 +40,7 @@
     "general": {
       "label": "一般",
       "tip": "面板埠、重新啟動及外觀",
-      "description": "此管理介面所監聽的埠，以及主題設定。"
+      "description": "面板埠與重新啟動、主題、日期格式，以及設定值範圍。"
     },
     "updates": {
       "label": "更新",
@@ -716,7 +716,7 @@
       "label": "聊天快捷訊息",
       "detail": "顯示在聊天輸入框上方的預設訊息。"
     },
-    "aboutCardTitle": "關於",
+    "aboutCardTitle": "版本與連結",
     "aboutCardDesc": "面板版本、執行時資訊，以及相關連結。",
     "installedVersionLabel": "已安裝版本",
     "latestAvailableLabel": "最新可用版本",

@@ -6006,8 +6006,9 @@ export default function Settings() {
                             {item.detail}
                           </span>
                         </span>
-                        <ExternalLink
-                          className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60 group-hover:text-primary"
+                        {/* An in-app link: a chevron, not the new-tab icon. */}
+                        <ChevronRight
+                          className="w-4 h-4 shrink-0 text-muted-foreground/60 group-hover:text-primary rtl:-scale-x-100"
                           aria-hidden="true"
                         />
                       </RouterLink>

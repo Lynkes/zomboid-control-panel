@@ -37,7 +37,7 @@
       "automation": "Automation",
       "system": "System"
     },
-    "general": { "label": "General", "tip": "Panel port, restart, and appearance", "description": "Port this admin interface listens on, plus theme." },
+    "general": { "label": "General", "tip": "Panel port, restart, and appearance", "description": "Panel port and restart, theme, date format, and setting value ranges." },
     "updates": { "label": "Updates", "tip": "Check for and apply new panel releases", "description": "Panel release checks, downloads, and how updates apply." },
     "https": { "label": "HTTPS", "tip": "TLS certificates for encrypted connections", "description": "TLS termination. Enable this when exposing the panel beyond your LAN." },
     "access": { "label": "Remote access", "tip": "Which browsers and devices may connect (CORS)", "description": "Which origins may reach this panel from another machine, and why requests get blocked." },
@@ -648,7 +648,7 @@
     "elsewhereBackups": { "label": "World backups", "detail": "Backup schedule, how many are kept, restores and downloads." },
     "elsewhereServerConfig": { "label": "Game server config", "detail": "Server INI options and sandbox rules." },
     "elsewhereChat": { "label": "Chat quick messages", "detail": "Preset messages shown above the chat input." },
-    "aboutCardTitle": "About",
+    "aboutCardTitle": "Version and links",
     "aboutCardDesc": "Panel version, runtime info, and helpful links.",
     "installedVersionLabel": "Installed version",
     "latestAvailableLabel": "Latest available",
