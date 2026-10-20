@@ -1101,6 +1101,10 @@ export default function Events() {
   // for them the section is hidden and its lists are not polled (they would
   // 403 every 30 s and show a permanent "could not refresh lists" message).
   const canBridgeCommand = can('bridge.command')
+  // Time speed, both teleports and vehicle spawn send a raw RCON command
+  // (POST /rcon/execute), which needs rcon.execute; the default Moderator
+  // lacks it and used to get an enabled button that ended in a 403 toast.
+  const canRconExecute = can('rcon.execute')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
@@ -3099,10 +3103,12 @@ export default function Events() {
                     all three are the same shape (apply this card's pending changes
                     to the live game) and had no reason in the code for one of the
                     three to be styled differently (2026-08-31 impeccable pass). */}
-                <Button onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
-                  {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
-                  {t('timespeed.applySpeed')}
-                </Button>
+                <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                  <Button onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected || !canRconExecute} className="h-9 gap-2 text-xs font-medium">
+                    {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+                    {t('timespeed.applySpeed')}
+                  </Button>
+                </DisabledReason>
               </div>
             </EventPanel>
         )}
@@ -3474,8 +3480,8 @@ export default function Events() {
                     ) : players.length === 0 ? (
                       <p className="text-xs text-muted-foreground">{t('vehicles.noPlayersOnline')}</p>
                     ) : players.map((player) => (
-                      <DisabledReason key={player.name} reason={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
-                        <Button variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle} className="h-8 gap-1.5 text-xs font-medium">
+                      <DisabledReason key={player.name} reason={!canRconExecute ? t('common.noPermissionRconExecute') : !selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
+                        <Button variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle || !canRconExecute} className="h-8 gap-1.5 text-xs font-medium">
                           <Car className="w-3 h-3" /> {player.name}
                         </Button>
                       </DisabledReason>
@@ -3514,9 +3520,11 @@ export default function Events() {
                   <Label id="teleport-target-player-label" className="text-xs font-medium text-muted-foreground">{t('teleport.moveTo')}</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {players.filter(p => p.name !== selectedPlayer).map((player) => (
-                      <Button key={player.name} variant="outline" size="sm" onClick={() => handleAction('Teleport', () => teleportPlayerToPlayer(selectedPlayer, player.name))} disabled={loading !== null || !selectedPlayer} className="h-8 text-xs font-medium">
-                        {player.name}
-                      </Button>
+                      <DisabledReason key={player.name} reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                        <Button variant="outline" size="sm" onClick={() => handleAction('Teleport', () => teleportPlayerToPlayer(selectedPlayer, player.name))} disabled={loading !== null || !selectedPlayer || !canRconExecute} className="h-8 text-xs font-medium">
+                          {player.name}
+                        </Button>
+                      </DisabledReason>
                     ))}
                     {playersUnknown ? (
                       <p className="text-xs text-muted-foreground">{t('common.playersUnavailable')}</p>
@@ -3549,28 +3557,32 @@ export default function Events() {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))}
-                    disabled={loading !== null || !hasValidTeleportCoords}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); the parenthetical is an always-relevant server-side note, not tied to the disabled condition (invalid coords / action in flight). Triaged 2026-08-27.
-                    title={t('teleport.teleportSelfTitle')}
-                    className="h-9 gap-2 text-xs font-medium"
-                  >
-                    {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-                    {t('teleport.teleportSelf')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, selectedPlayer))}
-                    disabled={loading !== null || !hasValidTeleportCoords || !selectedPlayer}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions. Triaged 2026-08-27.
-                    title={t('teleport.teleportPlayerTitle')}
-                    className="h-9 gap-2 text-xs font-medium"
-                  >
-                    {loading === 'Teleport player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
-                    {t('teleport.teleportTarget', { target: selectedPlayer || t('teleport.targetFallback') })}
-                  </Button>
+                  <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))}
+                      disabled={loading !== null || !hasValidTeleportCoords || !canRconExecute}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); the parenthetical is an always-relevant server-side note, not tied to the disabled condition (invalid coords / action in flight; the missing rcon.execute reason is the DisabledReason wrapper's). Triaged 2026-08-27.
+                      title={t('teleport.teleportSelfTitle')}
+                      className="h-9 gap-2 text-xs font-medium"
+                    >
+                      {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+                      {t('teleport.teleportSelf')}
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, selectedPlayer))}
+                      disabled={loading !== null || !hasValidTeleportCoords || !selectedPlayer || !canRconExecute}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions (the missing rcon.execute reason is the DisabledReason wrapper's). Triaged 2026-08-27.
+                      title={t('teleport.teleportPlayerTitle')}
+                      className="h-9 gap-2 text-xs font-medium"
+                    >
+                      {loading === 'Teleport player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
+                      {t('teleport.teleportTarget', { target: selectedPlayer || t('teleport.targetFallback') })}
+                    </Button>
+                  </DisabledReason>
                 </div>
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   {t('teleport.presetsHint')}

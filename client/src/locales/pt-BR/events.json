@@ -7,7 +7,8 @@
   "common": {
     "playersUnavailable": "lista de jogadores indisponível",
     "playersUnavailableTitle": "Lista de jogadores indisponível",
-    "noPermissionEndangerOrImpersonate": "Esta ação requer a permissão players.endanger_or_impersonate, que este cargo não tem."
+    "noPermissionEndangerOrImpersonate": "Esta ação requer a permissão players.endanger_or_impersonate, que este cargo não tem.",
+    "noPermissionRconExecute": "Esta ação executa um comando RCON e requer a permissão rcon.execute, que este cargo não tem."
   },
   "statusBar": {
     "eventTarget": "Alvo do evento",
