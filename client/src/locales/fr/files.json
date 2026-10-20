@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "Fichiers du serveur",
-    "eyebrow": "fichiers",
     "description": "Parcourez et modifiez les fichiers des dossiers d'installation du jeu et Zomboid de chaque serveur.",
     "serverPicker": "Serveur",
     "activeBadge": "Actif",
@@ -30,13 +29,13 @@
       "permissions": "Le compte du panneau ne peut pas écrire ici."
     },
     "unavailable": {
-      "missing": "Ce dossier n'existe pas. Vérifiez le chemin dans Mes serveurs.",
-      "notConfigured": "Aucun dossier n'est défini pour ce serveur. Ajoutez-le dans Mes serveurs.",
+      "missing": "Ce dossier n'existe pas. Vérifiez le chemin dans Serveurs.",
+      "notConfigured": "Aucun dossier n'est défini pour ce serveur. Ajoutez-le dans Serveurs.",
       "notMounted": "Le conteneur du panneau ne voit pas ce dossier. Montez-le dans votre configuration Docker, puis redémarrez le panneau.",
       "remoteNotActive": "Basculez sur ce serveur pour parcourir ses fichiers en SFTP.",
       "remoteNotConfigured": "Ajoutez d'abord l'identifiant SFTP et le dossier Server de ce serveur dans Paramètres › PanelBridge.",
       "remoteInstallNotSet": "Définissez le dossier d'installation distant du jeu pour le parcourir.",
-      "tooBroad": "C'est la racine d'un disque, un dossier système ou un dossier personnel : le gestionnaire de fichiers ne l'ouvrira pas. Faites pointer le serveur vers son propre dossier dans Mes serveurs.",
+      "tooBroad": "C'est la racine d'un disque, un dossier système ou un dossier personnel : le gestionnaire de fichiers ne l'ouvrira pas. Faites pointer le serveur vers son propre dossier dans Serveurs.",
       "overlapsPanel": "Ce dossier se trouve dans les dossiers du panneau lui-même : le gestionnaire de fichiers ne l'ouvrira pas.",
       "unreadable": "Le panneau ne peut pas lire ce dossier ({{detail}}).",
       "sftpUnreachable": "Le panneau ne parvient pas à joindre ce serveur en SFTP."
@@ -138,7 +137,7 @@
       "panelBackups": "Sauvegardes du monde. Téléchargez-les, restaurez-les ou supprimez-les sur la page Sauvegardes du monde.",
       "bridgeIo": "Le dossier de commandes de PanelBridge. Seuls le panneau et le jeu y écrivent.",
       "bridgeManaged": "Un fichier propre à PanelBridge. Modifiez son mode d'installation dans Paramètres › PanelBridge.",
-      "launchScripts": "Le panneau réécrit ce script de démarrage avant chaque démarrage. Modifiez la mémoire, les ports et les mots de passe dans Mes serveurs."
+      "launchScripts": "Le panneau réécrit ce script de démarrage avant chaque démarrage. Modifiez la mémoire, les ports et les mots de passe dans Serveurs."
     },
     "containsProtected": "Ce dossier contient un élément protégé par le panneau : il ne peut pas être déplacé, renommé ou supprimé en bloc.",
     "openBackups": "Ouvrir Sauvegardes du monde",
@@ -264,6 +263,7 @@
     "previousVersion": "La version précédente est dans la corbeille",
     "wrap": "Retour à la ligne",
     "escHint": "Appuyez sur Échap, puis sur Tab, pour quitter l'éditeur.",
+    "editWithForm": "Modifier avec le formulaire dans Configuration du serveur",
     "lineCount_one": "{{count}} ligne",
     "lineCount_many": "{{count}} lignes",
     "lineCount_other": "{{count}} lignes",
@@ -280,7 +280,7 @@
     },
     "hints": {
       "restartToApply": "Le serveur lit ce fichier au démarrage. Redémarrez-le pour appliquer votre modification.",
-      "panelRewritesKeys": "Le panneau réécrit RCONPassword et RCONPort dans ce fichier avant chaque démarrage. Modifiez-les plutôt dans Mes serveurs.",
+      "panelRewritesKeys": "Le panneau réécrit RCONPassword et RCONPort dans ce fichier avant chaque démarrage. Modifiez-les plutôt dans Serveurs.",
       "luaChecksum": "Modifier les fichiers Lua du jeu les rend différents des copies des joueurs. Avec DoLuaChecksum=true, les joueurs ne pourront plus se connecter.",
       "steamUpdateOverwrites": "Les mises à jour Steam et la vérification des fichiers remplacent les fichiers du jeu modifiés ici.",
       "bridgeWorkshopEntries": "Gardez ZCPB dans Mods= et son élément dans WorkshopItems=. Le panneau les remet en place au prochain démarrage.",

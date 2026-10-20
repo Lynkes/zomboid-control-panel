@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "Server Files",
-    "eyebrow": "files",
     "description": "Browse and change the files in each server's game install and Zomboid folders.",
     "serverPicker": "Server",
     "activeBadge": "Active",
@@ -30,13 +29,13 @@
       "permissions": "The panel's account can't write here."
     },
     "unavailable": {
-      "missing": "This folder doesn't exist. Check the path in My Servers.",
-      "notConfigured": "No folder is set for this server. Add it in My Servers.",
+      "missing": "This folder doesn't exist. Check the path in Servers.",
+      "notConfigured": "No folder is set for this server. Add it in Servers.",
       "notMounted": "The panel's container can't see this folder. Mount it in your Docker setup, then restart the panel.",
       "remoteNotActive": "Switch to this server to browse its files over SFTP.",
       "remoteNotConfigured": "Add this server's SFTP login and Server folder in Settings › PanelBridge first.",
       "remoteInstallNotSet": "Set the remote game install folder to browse it.",
-      "tooBroad": "This is a drive root, a system folder or a home folder, so the file manager won't open it. Point the server at its own folder in My Servers.",
+      "tooBroad": "This is a drive root, a system folder or a home folder, so the file manager won't open it. Point the server at its own folder in Servers.",
       "overlapsPanel": "This is inside the panel's own folders, so the file manager won't open it.",
       "unreadable": "The panel can't read this folder ({{detail}}).",
       "sftpUnreachable": "The panel can't reach this server over SFTP."
@@ -135,7 +134,7 @@
       "panelBackups": "World backups. Download, restore or delete them on the World Backups page.",
       "bridgeIo": "PanelBridge's command folder. Only the panel and the game write here.",
       "bridgeManaged": "PanelBridge's own file. Change how it's installed in Settings › PanelBridge.",
-      "launchScripts": "The panel rewrites this startup script before every start. Change memory, ports and passwords in My Servers."
+      "launchScripts": "The panel rewrites this startup script before every start. Change memory, ports and passwords in Servers."
     },
     "containsProtected": "This folder holds something the panel protects, so it can't be moved, renamed or deleted as a whole.",
     "openBackups": "Open World Backups",
@@ -257,6 +256,7 @@
     "previousVersion": "Previous version is in Trash",
     "wrap": "Wrap lines",
     "escHint": "Press Esc, then Tab, to leave the editor.",
+    "editWithForm": "Edit with form in Server Configuration",
     "lineCount_one": "{{count}} line",
     "lineCount_other": "{{count}} lines",
     "bom": "BOM",
@@ -272,7 +272,7 @@
     },
     "hints": {
       "restartToApply": "The server reads this file when it starts. Restart it to apply your change.",
-      "panelRewritesKeys": "The panel rewrites RCONPassword and RCONPort in this file before every start. Change them in My Servers instead.",
+      "panelRewritesKeys": "The panel rewrites RCONPassword and RCONPort in this file before every start. Change them in Servers instead.",
       "luaChecksum": "Changing game Lua files makes them differ from players' copies. With DoLuaChecksum=true, players won't be able to join.",
       "steamUpdateOverwrites": "Steam updates and file verification replace game files changed here.",
       "bridgeWorkshopEntries": "Keep ZCPB in Mods= and its item in WorkshopItems=. The panel puts them back at the next start.",

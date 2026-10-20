@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   ChevronDown,
   ClipboardCopy,
+  FileCog,
   History,
   Info,
   KeyRound,
@@ -28,12 +31,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useToast } from '@/components/ui/use-toast'
 import { useConfirm } from '@/contexts/ConfirmContext'
+import { useUnsavedChangesGuard } from '@/contexts/UnsavedChangesContext'
 import { filesApi, type ConfirmedResult } from '@/lib/filesApi'
 import { formatBytes } from '@/lib/formatBytes'
 import { copyText, cn } from '@/lib/utils'
-import type { ConfirmToken, FileEntry, Hint, RootDescriptor, TextEol, TextReadOnlyReason, TrashItem } from '@/types/files'
+import type { ConfirmToken, FileEntry, Hint, ProfileFiles, RootDescriptor, TextEol, TextReadOnlyReason, TrashItem } from '@/types/files'
 import { EditorGutter } from './EditorGutter'
-import { describeFilesError, errorCodeOf, errorParamsOf, formatFileDate } from './filesUi'
+import { describeFilesError, errorCodeOf, errorParamsOf, formatFileDate, serverConfigTabFor } from './filesUi'
 
 /**
  * Runs a mutation through the confirmation protocol (spec §A8): `initial`
@@ -59,6 +63,8 @@ interface LoadedDoc {
 interface FileEditorDialogProps {
   open: boolean
   profileId: string
+  /** The server whose file this is: its own settings files get an "Edit with form" link. */
+  profile?: Pick<ProfileFiles, 'isActive' | 'serverName' | 'bookmarks'>
   root: RootDescriptor
   entry: FileEntry
   /** Bumped by the page to ask for a close (the browser's Back button); still guarded. */
@@ -100,6 +106,7 @@ function countLines(text: string): number {
 export function FileEditorDialog({
   open,
   profileId,
+  profile,
   root,
   entry,
   closeSignal,
@@ -183,16 +190,10 @@ export function FileEditorDialog({
     if (open) void load()
   }, [load, open])
 
-  // The browser's own "leave site?" prompt, only while there is something to lose.
-  useEffect(() => {
-    if (!open || !dirty) return
-    const handler = (event: BeforeUnloadEvent) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty, open])
+  // Only while there is something to lose: the browser's own "leave site?"
+  // prompt, and the panel's own question before the command palette, a
+  // shortcut or a link ("Edit with form") leaves the page.
+  useUnsavedChangesGuard(open && dirty)
 
   const confirmDiscard = useCallback(() => confirm({
     title: t('confirm.discardTitle', { name: entry.name }),
@@ -394,6 +395,7 @@ export function FileEditorDialog({
   }
 
   const hints = (doc?.hints ?? []).filter((hint) => HINT_ORDER.includes(hint))
+  const formTab = profile ? serverConfigTabFor(profile, root.id, entry.path, doc?.hints) : null
   const showMasked = !!doc && (doc.masked || doc.hints.includes('secretsMasked'))
   const eolLabel = doc?.eol === 'crlf' ? 'CRLF' : doc?.eol === 'lf' ? 'LF' : doc?.eol === 'mixed' ? 'LF/CRLF' : null
 
@@ -455,7 +457,7 @@ export function FileEditorDialog({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="max-h-80 min-w-[16rem] overflow-y-auto">
-                  <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  <DropdownMenuLabel className="label-micro">
                     {t('editor.versions.title')}
                   </DropdownMenuLabel>
                   {versions === null ? (
@@ -546,6 +548,16 @@ export function FileEditorDialog({
           )}
           {doc?.readOnlyReason === 'rootReadOnly' && root.readOnlyReason && (
             <p className="text-xs text-muted-foreground">{t(`roots.readOnlyReasons.${root.readOnlyReason}`)}</p>
+          )}
+          {formTab && (
+            <Link
+              to={`/server-config?tab=${formTab}`}
+              className="group flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+            >
+              <FileCog className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <span className="min-w-0 flex-1">{t('editor.editWithForm')}</span>
+              <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 rtl:-scale-x-100" aria-hidden="true" />
+            </Link>
           )}
         </div>
 
