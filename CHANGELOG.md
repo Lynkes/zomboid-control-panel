@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
 - **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
 - **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
 
 ## [1.4.17] - 2026-10-18
 
