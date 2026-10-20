@@ -106,3 +106,49 @@ describe("cleanupOrphanBackupTemps", () => {
     expect(fs.existsSync(unrelated)).toBe(true);
   });
 });
+
+// Audit 2026-10-20: POST /api/backup/upload streams into
+// `<name>.zip.<pid>.<random>.tmp`, a name neither pattern above matched, so a
+// panel killed mid-upload left a multi-GB temp file behind for good. It
+// embeds the uploading process's pid and is swept once that pid is gone.
+describe("cleanupOrphanBackupTemps: upload temps", () => {
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-backup-orphan-upload-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The exact shape routes/backup.js builds.
+  const uploadTemp = (pid) => `uploaded-world.zip.${pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+
+  it("removes an upload temp whose pid is confirmed dead", () => {
+    const orphan = path.join(dir, uploadTemp(makeDeadPid()));
+    fs.writeFileSync(orphan, "half an upload");
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(orphan)).toBe(false);
+  });
+
+  it("keeps an upload still streaming in a live process", () => {
+    const live = path.join(dir, uploadTemp(process.pid));
+    fs.writeFileSync(live, "an upload in flight");
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(live)).toBe(true);
+  });
+
+  it("leaves a finished upload and look-alike names alone", () => {
+    const names = ["uploaded-world.zip", "uploaded-world.zip.notapid.abc.tmp", "notes.123.abc.tmp"];
+    for (const name of names) fs.writeFileSync(path.join(dir, name), "x");
+
+    cleanupOrphanBackupTemps(dir);
+
+    for (const name of names) expect(fs.existsSync(path.join(dir, name))).toBe(true);
+  });
+});

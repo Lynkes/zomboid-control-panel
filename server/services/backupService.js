@@ -66,6 +66,7 @@ import {
 import {
   createRestoreStagingDir,
   extractArchiveToStaging,
+  normalizeZipEntryPath,
   sweepStaleRestoreStaging,
 } from "./backupRestoreExtract.js";
 
@@ -85,6 +86,83 @@ async function getUnzipper() {
 // currentRestore/lastRestore comment) -- anything else gets a server-made
 // one. It is echoed back in GET /backup/status, so it stays short and plain.
 const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
+
+// "View snapshot" reads panel-server-snapshot.json, a few KB in a real
+// backup; an uploaded zip can hold anything under that name.
+export const SNAPSHOT_MAX_BYTES = 1024 * 1024;
+export const ZIP_ENTRY_TOO_LARGE = "ZIP_ENTRY_TOO_LARGE";
+
+/**
+ * One entry of a zip on disk, read into memory only up to `maxBytes`: the
+ * inflated bytes are counted as they arrive (the sizes in the zip's directory
+ * are whatever the archive says) and the read stops past the cap with an
+ * error whose code is ZIP_ENTRY_TOO_LARGE. Resolves null when there is no
+ * such entry. Every read stream it opens is closed when it settles (unzipper's
+ * Open.file() leaves the ones it opens behind, holding the file open).
+ */
+export async function readZipEntryCapped(unzip, filePath, entryPath, maxBytes) {
+  const streams = new Set();
+  let onSourceError = null;
+  const source = {
+    stream(start, length) {
+      const end = length ? start + length : undefined;
+      const stream = fs.createReadStream(filePath, { start, end });
+      streams.add(stream);
+      stream.on("close", () => streams.delete(stream));
+      // pipe() does not forward a source's errors: without this an
+      // unreadable file would be an uncaught 'error'.
+      stream.on("error", (error) => onSourceError?.(error));
+      return stream;
+    },
+    size: async () => (await fs.promises.stat(filePath)).size,
+  };
+  const tooLarge = () =>
+    Object.assign(new Error(`${entryPath} is larger than ${maxBytes} bytes`), {
+      code: ZIP_ENTRY_TOO_LARGE,
+    });
+  try {
+    const archive = await new Promise((resolve, reject) => {
+      onSourceError = reject;
+      unzip.Open.custom(source).then(resolve, reject);
+    });
+    const entry = archive.files.find((file) => file.path === entryPath);
+    if (!entry) return null;
+    if (Number.isFinite(entry.uncompressedSize) && entry.uncompressedSize > maxBytes) {
+      throw tooLarge();
+    }
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let total = 0;
+      let done = false;
+      const stream = entry.stream();
+      const finish = (error, value) => {
+        if (done) return;
+        done = true;
+        if (error) {
+          stream.destroy();
+          reject(error);
+        } else {
+          resolve(value);
+        }
+      };
+      onSourceError = (error) => finish(error);
+      stream.on("data", (chunk) => {
+        if (done) return;
+        total += chunk.length;
+        if (total > maxBytes) {
+          finish(tooLarge());
+          return;
+        }
+        chunks.push(chunk);
+      });
+      stream.on("end", () => finish(null, Buffer.concat(chunks, total)));
+      stream.on("error", (error) => finish(error));
+    });
+  } finally {
+    onSourceError = null;
+    for (const stream of streams) stream.destroy();
+  }
+}
 
 // Orphan temp sweep, hunt-wave11-2026-08-29 follow-up. Dwight found this
 // while copying this function as the model for fileWriteQueue.js's own
@@ -119,6 +197,10 @@ const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 //     NOT given a false sense of safety by bolting a liveness check onto a
 //     name that cannot carry one.
 const CENTRAL_TEMP_PATTERN = /^\.central-(\d+)-\d+-[0-9a-z]+\.tmp$/;
+// POST /api/backup/upload streams into `${targetPath}.${pid}.${random}.tmp`
+// (routes/backup.js) and a killed panel left it behind for good: it embeds
+// a pid, so it is swept like the central-directory temp, once that pid is gone.
+const UPLOAD_TEMP_PATTERN = /\.zip\.(\d+)\.[0-9a-z]+\.tmp$/;
 
 // Exported alias, not a fresh implementation: kept so this sweep's own
 // tests and callers can name the check in domain terms (is the temp
@@ -134,9 +216,9 @@ export function cleanupOrphanBackupTemps(backupsPath) {
     return;
   }
   for (const name of entries) {
-    const centralMatch = CENTRAL_TEMP_PATTERN.exec(name);
-    if (centralMatch) {
-      if (isBackupTempOwnerAlive(Number(centralMatch[1]))) continue;
+    const pidMatch = CENTRAL_TEMP_PATTERN.exec(name) || UPLOAD_TEMP_PATTERN.exec(name);
+    if (pidMatch) {
+      if (isBackupTempOwnerAlive(Number(pidMatch[1]))) continue;
     } else if (!name.endsWith(".zip.tmp")) {
       continue;
     }
@@ -1553,16 +1635,26 @@ export class BackupService {
 
     try {
       const unzip = await getUnzipper();
-      const archive = await unzip.Open.file(backupPath);
-      const entry = archive.files.find(
-        (file) => file.path === "panel-server-snapshot.json",
+      const raw = await readZipEntryCapped(
+        unzip,
+        backupPath,
+        "panel-server-snapshot.json",
+        SNAPSHOT_MAX_BYTES,
       );
-      if (!entry) {
+      if (!raw) {
         return { success: false, message: "This backup has no panel snapshot" };
       }
-      const snapshot = JSON.parse((await entry.buffer()).toString("utf-8"));
+      const snapshot = JSON.parse(raw.toString("utf-8"));
       return { success: true, snapshot };
     } catch (error) {
+      if (error.code === ZIP_ENTRY_TOO_LARGE) {
+        log.warn(`Backup snapshot in ${safeName} is larger than ${formatBytes(SNAPSHOT_MAX_BYTES)}: not read`);
+        return {
+          success: false,
+          message: `This backup's panel snapshot is larger than ${formatBytes(SNAPSHOT_MAX_BYTES)}, so it was not read.`,
+          code: ErrorCode.BACKUP_SNAPSHOT_TOO_LARGE,
+        };
+      }
       log.warn(`Could not read backup snapshot from ${safeName}: ${error.message}`);
       return { success: false, message: "Could not read backup snapshot" };
     }
@@ -2195,7 +2287,9 @@ export class BackupService {
       log.info("Extracting backup to staging area...");
       emitProgress("extracting", 45, "Extracting backup...");
       const unzip = await getUnzipper();
-      await extractArchiveToStaging(unzip, backupPath, stagingPath);
+      // Measured now, after the safety backup took its share of the disk.
+      const limits = await this._restoreExtractionLimits(unzip, backupPath, savesParentPath);
+      await extractArchiveToStaging(unzip, backupPath, stagingPath, limits);
 
       // Extraction succeeding only proves the archive was PARSEABLE -- the
       // unzipper streaming Parse() this whole block uses reads and discards
@@ -2341,6 +2435,44 @@ export class BackupService {
     }
   }
 
+  // What the extraction may write (extractArchiveToStaging()'s `limits`): the
+  // central directory's size per entry and in total, and the free space on
+  // the saves volume. Unknown parts are null and only lift that one cap.
+  async _restoreExtractionLimits(unzip, backupPath, savesParentPath) {
+    let declaredSizes = null;
+    let declaredTotal = null;
+    try {
+      const archive = await unzip.Open.file(backupPath);
+      const sizes = new Map();
+      let total = 0;
+      let totalKnown = true;
+      for (const file of archive.files) {
+        if (file.type !== "File") continue;
+        // A size the directory does not give (0xFFFFFFFF with no zip64
+        // field): that entry has no cap of its own, and the total is unknown.
+        if (!Number.isFinite(file.uncompressedSize)) {
+          totalKnown = false;
+          continue;
+        }
+        const key = normalizeZipEntryPath(file.path);
+        sizes.set(key, Math.max(sizes.get(key) ?? 0, file.uncompressedSize));
+        total += file.uncompressedSize;
+      }
+      declaredSizes = sizes;
+      declaredTotal = totalKnown ? total : null;
+    } catch (error) {
+      // An unreadable directory is reported by the extraction itself.
+      log.debug(`Restore size limits: could not read the archive directory: ${error.message}`);
+    }
+    let freeBytes = null;
+    try {
+      freeBytes = await freeBytesAt(savesParentPath);
+    } catch (error) {
+      log.debug(`Restore size limits: could not read free space: ${error.message}`);
+    }
+    return { declaredSizes, declaredTotal, freeBytes };
+  }
+
   // Recomputes each extracted file's CRC32 and compares it against the value
   // the archive's own central directory recorded for that entry -- the check
   // the streaming extraction above never performs (see the caller's
@@ -2364,9 +2496,18 @@ export class BackupService {
       return { ok: false, corruptFiles: [`(could not read archive directory: ${error.message})`] };
     }
 
+    const stagingRoot = path.resolve(stagingPath) + path.sep;
     for (const entry of archive.files) {
       if (entry.type !== "File") continue;
-      const entryPath = path.join(stagingPath, entry.path);
+      // Same separators as the extraction (normalizeZipEntryPath()), so a
+      // backslash-separated zip is checked where it was written.
+      const entryPath = path.join(stagingPath, normalizeZipEntryPath(entry.path));
+      // An entry the extraction refused as a traversal: never read a file
+      // outside staging to compare it (and a zip carrying one is refused).
+      if (!path.resolve(entryPath).startsWith(stagingRoot)) {
+        corruptFiles.push(`${entry.path} (outside the archive's folder)`);
+        continue;
+      }
 
       let actualCrc32;
       try {
@@ -2403,8 +2544,11 @@ export class BackupService {
       fs.existsSync(path.join(dir, "map_meta.bin")) ||
       fs.existsSync(path.join(dir, "map_t.bin"));
 
+    // The folder named like the server counts only when it holds a world:
+    // an archive with just servertest/readme.txt used to replace the live
+    // world with that. Otherwise the search below looks for one.
     const expected = path.join(stagingPath, expectedFolderName);
-    if (fs.existsSync(expected) && fs.statSync(expected).isDirectory()) {
+    if (fs.existsSync(expected) && fs.statSync(expected).isDirectory() && looksLikeWorld(expected)) {
       return expected;
     }
 

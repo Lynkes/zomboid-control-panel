@@ -25,6 +25,7 @@ import {
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "../utils/exportFolderName.js";
+import { DEFAULT_PRE_IMPORT_SNAPSHOTS_KEPT, prunePreImportSnapshots } from "../utils/preImportSnapshots.js";
 import { persistSandboxValues } from "./serverFiles.js";
 import {
   LIVE_SANDBOX_BRIDGE_ACTIONS,
@@ -3943,6 +3944,14 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       snapshotPath,
       JSON.stringify(snapshot.data ?? snapshot, null, 2),
     );
+    // Keep this player's newest recovery copies (as many as the login
+    // auto-export keeps, else 5); auto-exports are never touched.
+    try {
+      const keep = Number((await getAllSettings())?.autoExportMaxPerPlayer) || DEFAULT_PRE_IMPORT_SNAPSHOTS_KEPT;
+      prunePreImportSnapshots(exportDir, safeUsername, keep);
+    } catch (pruneError) {
+      log.debug(`Could not rotate pre-import snapshots: ${pruneError.message}`);
+    }
   } catch (error) {
     return res.status(502).json({
       error: `Could not snapshot ${username}'s current data before import — refusing to overwrite without a recovery copy: ${sanitizeError(error.message)}`,

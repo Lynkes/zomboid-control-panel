@@ -67,7 +67,6 @@ import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import {
   readTextFile,
-  stripBom,
   splitIniList,
   splitModIdList,
   splitModIdTokens,
@@ -90,6 +89,12 @@ import {
   sanitizeModIdListWithDiskBypass,
 } from "../services/workshopModInfo.js";
 import { addWorkshopItemToIni } from "../services/modIniEdit.js";
+import {
+  extractClothingDefinitions,
+  extractLuaSymbols,
+  extractScriptDefinitions,
+  extractTranslationKeys,
+} from "../utils/modDefinitionExtractors.js";
 import { downloadWorkshopItem } from "../services/workshopDownload.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
@@ -6479,28 +6484,6 @@ const CATEGORY_LABELS = {
   other: "Other Files",
 };
 
-// ─── Translation file key extraction ────────────────────────────────────────
-// PZ translation files are Lua tables with `KEY = "value"` entries.
-// Multiple mods can each add their own keys to the same file name — only
-// overlapping keys represent a real conflict.
-function extractTranslationKeys(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    const keys = new Set();
-    // Match lines like:   IGUI_perks_Lightfoot = "靈巧",
-    // The value must look like a string ("..." or '...' or [[...]]).
-    // This skips the wrapping table declaration `IGUI_EN = {` (false-positive
-    // source: every translation file has one and the names sometimes match).
-    const re = /^\s*([A-Za-z_]\w*)\s*=\s*(?:"|'|\[\[)/gm;
-    let m;
-    while ((m = re.exec(content)) !== null) keys.add(m[1]);
-    return keys;
-  } catch (e) {
-    log.debug(`Error parsing translation file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
 // Compare per-mod definition sets for one shared file path.
 // `extract` returns a Set of names, or null when the file could not be parsed.
 // The two cases are deliberately different: a file that parsed to zero
@@ -6550,48 +6533,6 @@ function compareTranslationKeys(modEntries) {
   return compareDefinitionSets(modEntries, extractTranslationKeys);
 }
 
-// ─── PZ script file parsing ─────────────────────────────────────────────────
-// PZ script files (scripts/*.txt) contain blocks like:
-//   module Base { item BaseballBat { ... } recipe CraftBat { ... } }
-// PZ loads ALL .txt files from every mod's scripts/ folder and merges them.
-// Two mods with the same filename but DIFFERENT module.type.name definitions
-// are additive (not conflicting). Only overlapping definitions are real conflicts.
-function extractScriptDefinitions(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null; // skip huge files
-    const defs = new Set();
-    // Match: module ModuleName { ... }
-    const moduleRe = /module\s+(\w+)\s*\{/g;
-    let moduleMatch;
-    while ((moduleMatch = moduleRe.exec(content)) !== null) {
-      const moduleName = moduleMatch[1];
-      const moduleStart = moduleMatch.index + moduleMatch[0].length;
-      // Find the matching closing brace for this module block
-      let depth = 1;
-      let pos = moduleStart;
-      while (pos < content.length && depth > 0) {
-        if (content[pos] === "{") depth++;
-        else if (content[pos] === "}") depth--;
-        pos++;
-      }
-      const moduleBody = content.slice(moduleStart, pos - 1);
-      // Extract top-level definitions. B41 + B42 keywords (B42 adds craftRecipe, entity,
-      // xuiSkin, componentTemplate, bodyLocation, wallpaper, material, etc.).
-      const defRe =
-        /^\s*(item|recipe|craftrecipe|vehicle|fixing|model|sound|animation|mannequin|evolvedrecipe|uniquerecipe|multistagebuild|entity|xuiskin|componenttemplate|bodylocation|wallpaper|material|template|electrical|liquid|liquidvacuumdef|stash|profession|trait|bodypart)\s+(\S+)/gim;
-      let defMatch;
-      while ((defMatch = defRe.exec(moduleBody)) !== null) {
-        defs.add(`${moduleName}.${defMatch[1].toLowerCase()}.${defMatch[2]}`);
-      }
-    }
-    return defs;
-  } catch (e) {
-    log.debug(`Error parsing script file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
 // Compare script definitions from multiple mod versions of the same file.
 // Returns { disjoint: true } if no definitions overlap (additive),
 // or { disjoint: false, overlapping: [...] } if definitions collide.
@@ -6599,76 +6540,8 @@ function compareScriptDefinitions(modEntries) {
   return compareDefinitionSets(modEntries, extractScriptDefinitions);
 }
 
-// ─── Clothing XML parsing ───────────────────────────────────────────────────
-// PZ clothing files (clothing/clothing.xml, clothing/clothingitems/*.xml) are
-// additive: PZ loads all such files from every mod and merges by item name.
-// Two mods defining the same clothing item ID is a real conflict; different IDs
-// are harmless. PZ uses `m_MaleModel`/`m_FemaleModel` as the unique identifier.
-function extractClothingDefinitions(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null;
-    const defs = new Set();
-    // Match XML tags like <m_MaleModel>ItemName</m_MaleModel> or <m_FemaleModel>ItemName</m_FemaleModel>
-    const modelRe =
-      /<m_(?:Male|Female)Model>\s*([^<]+)\s*<\/m_(?:Male|Female)Model>/gi;
-    let m;
-    while ((m = modelRe.exec(content)) !== null) {
-      defs.add(m[1].trim().toLowerCase());
-    }
-    // Also match <m_Name> for clothingitems XML format
-    const nameRe = /<m_Name>\s*([^<]+)\s*<\/m_Name>/gi;
-    while ((m = nameRe.exec(content)) !== null) {
-      defs.add(m[1].trim().toLowerCase());
-    }
-    return defs;
-  } catch (e) {
-    log.debug(`Error parsing clothing file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
 function compareClothingDefinitions(modEntries) {
   return compareDefinitionSets(modEntries, extractClothingDefinitions);
-}
-
-// ─── Lua symbol extraction ──────────────────────────────────────────────────
-// PZ does NOT merge Lua files: when two mods ship the same lua/.../foo.lua,
-// the last-loaded one wins outright and the loser is discarded entirely.
-// We extract the *names* both files define so the UI can show what would clash
-// vs what would merely be shadowed:
-//   fn:Foo.bar          — function declarations  (function Foo:bar / Foo.bar / function bar)
-//   event:OnPlayerMove  — Events.X.Add subscriptions
-//   class:ISFoo         — ISClass:derive("ISFoo") declarations
-//   tbl:Foo             — top-level table assigns (Foo = {...})
-function extractLuaSymbols(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null;
-    // Strip --[[ block comments ]] and -- line comments to avoid false positives
-    const stripped = content
-      .replace(/--\[\[[\s\S]*?\]\]/g, "")
-      .replace(/--[^\n]*/g, "");
-    const symbols = new Set();
-    let m;
-    // function Foo:bar(...)  |  function Foo.bar.baz(...)  |  function bar(...)
-    const fnRe = /(?:^|\n)\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(/g;
-    while ((m = fnRe.exec(stripped)) !== null) symbols.add(`fn:${m[1]}`);
-    // X.Y = function(...)
-    const assignFnRe = /(?:^|\n)\s*([A-Za-z_][\w.]*)\s*=\s*function\s*\(/g;
-    while ((m = assignFnRe.exec(stripped)) !== null) symbols.add(`fn:${m[1]}`);
-    // Events.OnPlayerMove.Add(...)  /  .Remove(...)
-    const evRe = /\bEvents\.([A-Za-z_]\w*)\.(?:Add|Remove)\s*\(/g;
-    while ((m = evRe.exec(stripped)) !== null) symbols.add(`event:${m[1]}`);
-    // ISFoo = ISBar:derive("ISFoo")  — class declarations
-    const classRe =
-      /(?:^|\n)\s*([A-Z][\w]*)\s*=\s*[A-Z][\w]*\s*:\s*derive\s*\(/g;
-    while ((m = classRe.exec(stripped)) !== null) symbols.add(`class:${m[1]}`);
-    return symbols;
-  } catch (e) {
-    log.debug(`Error parsing Lua file ${filePath}: ${e.message}`);
-    return null;
-  }
 }
 
 // Lua files are read by both the per-path pass and the cross-file pass. The
@@ -8217,10 +8090,25 @@ router.get("/conflicts/diff", async (req, res) => {
             resolved !== mediaBase
           )
             continue;
-          if (modId === String(modA) && fs.existsSync(candidate))
-            pathA = candidate;
-          if (modId === String(modB) && fs.existsSync(candidate))
-            pathB = candidate;
+          if (modId !== modAStr && modId !== modBStr) continue;
+          if (!fs.existsSync(candidate)) continue;
+          // The lexical check above stays inside media/ only on paper: a
+          // symlink or junction on the way can lead anywhere. Same rule as
+          // the scan's walkDir(): the real file must be inside the real
+          // media folder, and a regular file.
+          const realMedia = safeRealpath(mediaDir);
+          const realCandidate = realMedia ? safeRealpath(candidate) : null;
+          if (!realCandidate || !isInsideRoot(realCandidate, realMedia)) {
+            log.warn(`Conflict diff: ${JSON.stringify(normalizedFile)} in ${JSON.stringify(modId)} leads outside its media folder -- not read`);
+            continue;
+          }
+          try {
+            if (!fs.statSync(realCandidate).isFile()) continue;
+          } catch {
+            continue;
+          }
+          if (modId === modAStr) pathA = realCandidate;
+          if (modId === modBStr) pathB = realCandidate;
         }
       }
       if (pathA && pathB) break;

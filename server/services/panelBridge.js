@@ -27,6 +27,29 @@ const log = createLogger('Bridge');
 const MOD_WRITE_SUFFIX = '.txt';
 const RESULT_FILE_PATTERN = /^res-(\d+)\.json(?:\.txt)?$/;
 
+// The files the mod writes (status.json, outbox res-N.json,
+// queue-state-lua.json, results.json) sit in a folder the game server's
+// account can write: one that size must not be read whole into memory on
+// every poll. Same ceiling as the SFTP transport's downloads
+// (panelBridgeSftp.js MAX_BRIDGE_FILE_BYTES); logged once per file until it
+// is back under it.
+const MAX_LOCAL_BRIDGE_FILE_BYTES = 16 * 1024 * 1024;
+export const BRIDGE_FILE_TOO_LARGE = 'BRIDGE_FILE_TOO_LARGE';
+const oversizedBridgeFilesLogged = new Set();
+
+export function readModFileCapped(filePath) {
+  const { size } = fs.statSync(filePath);
+  if (size > MAX_LOCAL_BRIDGE_FILE_BYTES) {
+    if (!oversizedBridgeFilesLogged.has(filePath)) {
+      oversizedBridgeFilesLogged.add(filePath);
+      log.warn(`Bridge file ${path.basename(filePath)} is ${size} bytes, over the ${MAX_LOCAL_BRIDGE_FILE_BYTES / (1024 * 1024)} MB limit -- not read`);
+    }
+    throw Object.assign(new Error(`Bridge file ${path.basename(filePath)} exceeds the size limit`), { code: BRIDGE_FILE_TOO_LARGE });
+  }
+  oversizedBridgeFilesLogged.delete(filePath);
+  return fs.readFileSync(filePath, 'utf-8');
+}
+
 // 2026-09-02, destructive-guards-sweep: cleanupInboxFiles/cleanupOutboxFiles
 // used to unlink every *.tmp file they found with NO guard at all -- no age
 // check, no liveness check, nothing. Both the mod-side (Lua getFileWriter,
@@ -435,7 +458,7 @@ class PanelBridge extends EventEmitter {
     const luaStateFile = this.resolveModFile('queue-state-lua.json');
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
-        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf8') || '{}');
+        const luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
         const luaNextResult = Number(luaState.nextResultSeq);
         if (Number.isFinite(luaNextResult) && luaNextResult > 0) {
           this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(luaNextResult));
@@ -467,7 +490,7 @@ class PanelBridge extends EventEmitter {
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+        const luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
         const lastCommandSeq = Number(luaState.lastCommandSeq);
         if (Number.isFinite(lastCommandSeq) && lastCommandSeq >= 0) {
           this.queueState.nextCommandSeq = Math.max(
@@ -1107,7 +1130,7 @@ class PanelBridge extends EventEmitter {
     let luaState;
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+      luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
     } catch (error) {
       log.debug(`Could not parse mod queue state during resync check: ${error.message}`);
       return false;
@@ -1188,7 +1211,7 @@ class PanelBridge extends EventEmitter {
       let raw;
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        raw = fs.readFileSync(resultFile, 'utf-8');
+        raw = readModFileCapped(resultFile);
       } catch (error) {
         log.debug(`Resync recovery: could not read result seq ${seq}: ${error.message}`);
         continue;
@@ -1260,7 +1283,7 @@ class PanelBridge extends EventEmitter {
     let luaState;
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+      luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
     } catch (error) {
       log.debug(`Could not parse mod queue state during inbox resync check: ${error.message}`);
       return false;
@@ -1312,7 +1335,7 @@ class PanelBridge extends EventEmitter {
       let parsed = null;
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        const raw = fs.readFileSync(resultFile, 'utf-8');
+        const raw = readModFileCapped(resultFile);
         if (!raw.trim()) {
           // Lua may have just opened the file for writing (truncates immediately
           // with getFileWriter append=false) but not yet flushed content.
@@ -1339,6 +1362,14 @@ class PanelBridge extends EventEmitter {
         if (this._emptyReadCounter) this._emptyReadCounter.count = 0;
         parsed = JSON.parse(raw);
       } catch (error) {
+        if (error.code === BRIDGE_FILE_TOO_LARGE) {
+          // Never read: skipped like an orphaned empty result, so one
+          // oversized file can't stall the queue (its command times out).
+          this.queueState.lastConsumedResultSeq = seq;
+          this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
+          consumed++;
+          continue;
+        }
         log.debug(`Queue result parse error for seq ${seq}: ${error.message}`);
         break;
       }
@@ -1374,7 +1405,7 @@ class PanelBridge extends EventEmitter {
 
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      const content = fs.readFileSync(resultsFile, 'utf-8');
+      const content = readModFileCapped(resultsFile);
       if (!content.trim()) return;
 
       const data = JSON.parse(content);
@@ -1690,7 +1721,7 @@ class PanelBridge extends EventEmitter {
 
       // Read and parse the file
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      const content = fs.readFileSync(statusFile, 'utf-8');
+      const content = readModFileCapped(statusFile);
       if (!content.trim()) {
         this.handleStatusFailure('Status file is empty');
         return;

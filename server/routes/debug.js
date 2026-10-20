@@ -218,13 +218,54 @@ router.get("/logs", requirePermission("diagnostics.manage"), async (req, res) =>
   }
 });
 
+// What GET /logs/files lists, and so all GET /logs/download/:filename
+// serves: a regular file (not a link) directly in the logs folder whose name
+// ends in ".log".
+function isListedLogEntry(entry) {
+  return entry.isFile() && entry.name.endsWith(".log");
+}
+
+// Opens a log file the listing shows, or returns null. The name must be one
+// readdir() returns (exact spelling: no case alias, trailing dot, short name
+// or ":stream" suffix), a regular file whose real path is directly inside
+// the logs folder's real path, and the file opened must be the one checked.
+async function openListedLogFile(logsDir, filename) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(logsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const entry = entries.find((candidate) => candidate.name === filename);
+  if (!entry || !isListedLogEntry(entry)) return null;
+  const filePath = path.join(logsDir, entry.name);
+  let handle = null;
+  try {
+    const checked = await fs.promises.lstat(filePath);
+    if (!checked.isFile()) return null;
+    const realDir = await fs.promises.realpath(logsDir);
+    const rel = path.relative(realDir, await fs.promises.realpath(filePath));
+    if (!rel || rel.includes(path.sep) || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    handle = await fs.promises.open(filePath, "r");
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.ino !== checked.ino || opened.dev !== checked.dev) {
+      await handle.close();
+      return null;
+    }
+    return handle;
+  } catch {
+    if (handle) await handle.close().catch(() => {});
+    return null;
+  }
+}
+
 async function getAvailableLogFiles(logsDir) {
   const entries = await fs.promises.readdir(logsDir, { withFileTypes: true });
 
   const files = (
     await Promise.all(
       entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".log"))
+        .filter(isListedLogEntry)
         .map(async (entry) => {
           try {
             const filePath = path.join(logsDir, entry.name);
@@ -2147,16 +2188,17 @@ router.get("/logs/download/:filename", requirePermission("diagnostics.manage"), 
 
     // Security: prevent path traversal
     if (
+      typeof filename !== "string" ||
       filename.includes("..") ||
-      filename.includes("/") ||
-      filename.includes("\\")
+      /[/\\:\0]/.test(filename)
     ) {
       return res.status(400).json({ error: "Invalid filename" });
     }
 
-    const logsPath = path.join(paths.logsDir, filename);
-
-    if (!fs.existsSync(logsPath)) {
+    // Only a log file the listing shows: the logs folder is configurable,
+    // and a name check alone served any file in it (jwt.secret, db.json).
+    const handle = await openListedLogFile(paths.logsDir, filename);
+    if (!handle) {
       return res.status(404).json({ error: "Log file not found" });
     }
 
@@ -2167,7 +2209,7 @@ router.get("/logs/download/:filename", requirePermission("diagnostics.manage"), 
       `attachment; filename="${safeFilename}"`,
     );
 
-    const readStream = fs.createReadStream(logsPath);
+    const readStream = handle.createReadStream();
     readStream.on("error", (err) => {
       log.error(`Log file read error: ${err.message}`);
       if (!res.headersSent)
@@ -2219,6 +2261,12 @@ router.post("/paths", requirePermission("diagnostics.manage"), async (req, res) 
     const extraBlockedPaths = configuredServers
       .flatMap((server) => [server.installPath, server.zomboidDataPath])
       .filter((p) => typeof p === "string" && p.trim());
+    // The HTTPS key and certificate: the logs folder (served file by file
+    // below) must not hold them.
+    const settings = (await getAllSettings()) || {};
+    const secretPaths = [settings.httpsKeyPath, settings.httpsCertPath].filter(
+      (p) => typeof p === "string" && p.trim(),
+    );
 
     // 2026-08-27: moveFiles now defaults to false, not true. It used to be
     // `moveFiles !== false`, so a request naming a new dataDir with no
@@ -2229,7 +2277,7 @@ router.post("/paths", requirePermission("diagnostics.manage"), async (req, res) 
     const result = await setDataPaths(
       { dataDir, logsDir },
       moveFiles === true,
-      { extraBlockedPaths },
+      { extraBlockedPaths, secretPaths },
     );
 
     if (result.success) {
