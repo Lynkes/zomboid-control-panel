@@ -116,7 +116,7 @@ describe('ServerFinder.tsx version filter', () => {
     await waitFor(() => expect(screen.queryByText('Alpha Server')).not.toBeInTheDocument())
 
     // A search that matches nothing on top of the version filter empties the list.
-    fireEvent.change(screen.getByRole('textbox', { name: /search/i }), { target: { value: 'zzz-no-such-server' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: /search/i }), { target: { value: 'zzz-no-such-server' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Clear all filters' }))
 
     expect(await screen.findByText('Alpha Server')).toBeInTheDocument()
