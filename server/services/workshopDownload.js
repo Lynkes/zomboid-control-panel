@@ -8,6 +8,7 @@ import {
   hasActiveSteamOperation,
   clearActiveSteamOperation,
   recordActiveSteamOperationPid,
+  WORKSHOP_DOWNLOAD_OPERATION_TYPE,
 } from "./activeSteamOperations.js";
 
 const log = createLogger("WorkshopDownload");
@@ -115,7 +116,8 @@ export async function downloadWorkshopItem(
     };
   }
   getActiveSteamOperations().set(normalizedPath, {
-    type: "workshop-download",
+    // Does not block a server start (hasStartBlockingSteamOperation()).
+    type: WORKSHOP_DOWNLOAD_OPERATION_TYPE,
     startTime: Date.now(),
     lastOutputAt: Date.now(),
   });

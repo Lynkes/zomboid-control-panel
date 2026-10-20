@@ -85,6 +85,33 @@ describe("startServer(): refuses to spawn the PZ JVM while SteamCMD is active fo
     );
   });
 
+  // A mod download (workshopDownload.js) only writes under
+  // steamapps/workshop: a restart during one used to be refused and left
+  // the server down.
+  it("does not block on a Workshop item download for the same install path", async () => {
+    const manager = makeManager();
+    getActiveSteamOperations().set(normalizedInstallPath, {
+      type: "workshop-download",
+      pid: process.pid,
+    });
+
+    await expect(manager.startServer({ skipRunningCheck: true })).rejects.not.toThrow(
+      /steam install or update is currently in progress/i,
+    );
+  });
+
+  it.each(["install", "update", "verification", "auto-update", "unknown"])(
+    "still blocks on a %s operation",
+    async (type) => {
+      const manager = makeManager();
+      getActiveSteamOperations().set(normalizedInstallPath, { type, pid: process.pid });
+
+      await expect(manager.startServer({ skipRunningCheck: true })).rejects.toThrow(
+        /steam install or update is currently in progress/i,
+      );
+    },
+  );
+
   it("is unaffected by an operation tracked for a DIFFERENT install path", async () => {
     const manager = makeManager();
     const otherPath = path.normalize("/opt/some-other-server").toLowerCase();
