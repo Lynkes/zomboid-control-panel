@@ -1276,8 +1276,10 @@ export const ErrorCode = Object.freeze({
   /** server/routes/mods.js -- POST /groups/import, the document is not a mod group export (wrong
    * kind or schema, or a name/description/modIds outside the limits). */
   MODS_GROUP_IMPORT_INVALID: "MODS_GROUP_IMPORT_INVALID",
-  /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce) -- a field is missing or
-   * outside its limits. Sends `{ field }`: "name", "description", "modIds" or "enforce". */
+  /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce, POST
+   * /groups/:id/disable, POST /groups/suggestions/dismiss) -- a field is missing or outside its
+   * limits. Sends `{ field }`: "name", "description", "modIds", "color", "keepTogether",
+   * "enforce", "keepShared" or "key". */
   MODS_GROUP_INVALID: "MODS_GROUP_INVALID",
   /** server/routes/mods.js -- (sites: POST /groups, POST /groups/import) -- the panel already holds
    * the most mod groups it keeps. Sends `{ max }`. */
@@ -1364,6 +1366,15 @@ export const ErrorCode = Object.freeze({
   /** server/routes/mods.js -- (sites: PUT /presets/:id modIds field, POST /save-order) -- `modIds`
    * present but not an array. Identical wording, shared code. */
   MODS_MOD_IDS_ARRAY_REQUIRED: "MODS_MOD_IDS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, `text` is not a string or holds a control
+   * character other than a tab or a line break. */
+  MODS_NOTE_INVALID: "MODS_NOTE_INVALID",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, a new note while the panel already keeps the
+   * most mod notes it holds. Sends `{ max }`. */
+  MODS_NOTE_LIMIT_REACHED: "MODS_NOTE_LIMIT_REACHED",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, the trimmed text is longer than the limit.
+   * Sends `{ max }`. */
+  MODS_NOTE_TOO_LONG: "MODS_NOTE_TOO_LONG",
   /** server/routes/mods.js -- (sites: POST /batch-remove, /batch-delete-disk-mods, /batch-purge) --
    * after filtering to /^\d{1,15}$/, zero ids survived. Identical wording,
    * shared code. */

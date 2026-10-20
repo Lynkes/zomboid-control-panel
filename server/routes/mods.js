@@ -20,6 +20,11 @@ import {
   createModGroup,
   updateModGroup,
   deleteModGroup,
+  getDismissedModGroupSuggestions,
+  dismissModGroupSuggestion,
+  getModNotes,
+  setModNote,
+  deleteModNote,
   setSetting,
   addIgnoredMod,
   getIgnoredMods,
@@ -72,12 +77,16 @@ import {
   splitModIdTokens,
 } from "../utils/modIni.js";
 import {
+  MOD_GROUP_COLORS,
   MOD_GROUP_LIMITS,
   applyModGroups,
   groupsInOrder,
+  normalizeGroup,
   validateGroupFields,
   validateGroupDocument,
 } from "../utils/modGroups.js";
+import { computeGroupSuggestions, isSuggestionKey } from "../utils/modGroupSuggestions.js";
+import { MOD_NOTE_LIMITS, cleanModNoteText, isNoteWorkshopId } from "../utils/modNotes.js";
 import {
   getWorkshopPaths,
   getModDetailsFromWorkshop,
@@ -5305,7 +5314,11 @@ const MOD_GROUP_FIELD_ERRORS = {
   name: `Group name must be 1-${MOD_GROUP_LIMITS.nameMax} characters`,
   description: `Group description must be at most ${MOD_GROUP_LIMITS.descriptionMax} characters`,
   modIds: `modIds must list 1-${MOD_GROUP_LIMITS.modIdsMax} mod IDs of at most ${MOD_GROUP_LIMITS.modIdMax} characters`,
+  color: `color must be null or one of ${MOD_GROUP_COLORS.join(", ")}`,
+  keepTogether: "keepTogether must be true or false",
   enforce: "enforce must be true or false",
+  keepShared: "keepShared must be true or false",
+  key: "key must be a suggestion key from GET /groups/suggestions",
 };
 
 function respondModGroupInvalid(res, field) {
@@ -5337,10 +5350,11 @@ async function isModGroupEnforcementOn() {
   return (await getSetting("modGroupsEnforce")) !== false;
 }
 
-// The active server's ini, resolved like the preset routes do. Answers with
-// the coded error itself and returns null when there is none to read.
-async function resolveActiveIniPathOrRespond(res) {
-  const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
+// The active server's ini (and install folder, from the same read of the
+// active server), resolved like the preset routes do. Answers with the coded
+// error itself and returns null when there is no ini to read.
+async function resolveActiveServerIniOrRespond(res) {
+  const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
   const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
   if (!iniPath) {
@@ -5360,7 +5374,11 @@ async function resolveActiveIniPathOrRespond(res) {
     });
     return null;
   }
-  return iniPath;
+  return { iniPath, serverPath };
+}
+
+async function resolveActiveIniPathOrRespond(res) {
+  return (await resolveActiveServerIniOrRespond(res))?.iniPath ?? null;
 }
 
 // The Mods= entries of an ini text, in load order, as { raw, id } (raw is the
@@ -5369,10 +5387,32 @@ function modTokensOf(iniText) {
   return splitModIdTokens(iniText.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m)?.[1]);
 }
 
+function workshopItemsOf(iniText) {
+  return splitIniList(iniText.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1]);
+}
+
+// `line` in place of the ini's `key=` line, or appended when it has none.
+function withIniLine(content, key, line) {
+  const pattern = key === "Mods" ? /^[ \t]*Mods[ \t]*=.*/m : /^[ \t]*WorkshopItems[ \t]*=.*/m;
+  return pattern.test(content) ? content.replace(pattern, () => line) : `${content.trimEnd()}\n${line}\n`;
+}
+
+// The Mods= line for `ids`, each written the way the ini already had it
+// (backslashes kept) and a new one as its id. Equal ids are interchangeable,
+// so each takes the next unused token of its own.
+function modsLineFor(ids, tokens) {
+  const unused = new Map();
+  for (const token of tokens) {
+    if (!unused.has(token.id)) unused.set(token.id, []);
+    unused.get(token.id).push(token.raw);
+  }
+  return `Mods=${sanitizeIniList(ids.map((id) => unused.get(id)?.shift() ?? id))}`;
+}
+
 // Lists the groups with the panel-wide enforcement setting.
 router.get("/groups", async (req, res) => {
   try {
-    res.json({ groups: await getModGroups(), enforce: await isModGroupEnforcementOn() });
+    res.json({ groups: (await getModGroups()).map(normalizeGroup), enforce: await isModGroupEnforcementOn() });
   } catch (error) {
     log.error(`Failed to get mod groups: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -5389,7 +5429,7 @@ router.post("/groups", async (req, res) => {
     if (!group) return respondModGroupLimitReached(res);
 
     log.info(`Created mod group "${group.name}" with ${group.modIds.length} mods`);
-    res.status(201).json({ group });
+    res.status(201).json({ group: normalizeGroup(group) });
   } catch (error) {
     log.error(`Failed to create mod group: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -5416,7 +5456,7 @@ router.post("/groups/import", async (req, res) => {
     if (!group) return respondModGroupLimitReached(res);
 
     log.info(`Imported mod group "${group.name}" with ${group.modIds.length} mods`);
-    res.status(201).json({ group });
+    res.status(201).json({ group: normalizeGroup(group) });
   } catch (error) {
     log.error(`Failed to import mod group: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -5471,14 +5511,8 @@ router.post("/groups/apply", async (req, res) => {
         if (result.moved.length === 0) return;
 
         // Write the entries as they were written (backslashes kept), only in
-        // the new order. Equal ids are interchangeable, so each takes the
-        // next unused token of its own.
-        const unused = new Map();
-        for (const token of tokens) {
-          if (!unused.has(token.id)) unused.set(token.id, []);
-          unused.get(token.id).push(token.raw);
-        }
-        const modsLine = `Mods=${sanitizeIniList(result.order.map((id) => unused.get(id).shift()))}`;
+        // the new order.
+        const modsLine = modsLineFor(result.order, tokens);
         content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
 
         backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
@@ -5518,6 +5552,76 @@ router.put("/groups/enforce", async (req, res) => {
   }
 });
 
+// What mod.info says about the mods of the Workshop items in WorkshopItems=
+// (the reading GET /current-config's workshopModMap does), one entry per mod
+// with the item it came from.
+function listedWorkshopMods(workshopIds, serverPath) {
+  const mods = [];
+  if (!serverPath) return mods;
+  for (const wsId of workshopIds) {
+    if (!/^\d{1,15}$/.test(wsId)) continue;
+    for (const mod of getModDetailsFromWorkshop(wsId, serverPath)) {
+      mods.push({ id: mod.id, name: mod.name || mod.id, workshopId: wsId, require: mod.require || [] });
+    }
+  }
+  return mods;
+}
+
+// Workshop item titles the panel knows from tracking (not the placeholders it
+// gives an item before Steam answered). Best effort: none is fine.
+async function trackedWorkshopTitles() {
+  const titles = {};
+  try {
+    for (const mod of (await getTrackedMods()) || []) {
+      const wsId = String(mod?.workshop_id ?? "");
+      if (wsId && !titles[wsId] && !shouldRefreshTrackedModName(mod.name)) titles[wsId] = String(mod.name);
+    }
+  } catch (error) {
+    log.debug(`Group suggestions without Workshop titles: ${error.message}`);
+  }
+  return titles;
+}
+
+// Groups the panel suggests for the active server's enabled mods
+// (utils/modGroupSuggestions.js): a library and the mods that need it, a
+// Workshop item that ships several enabled mods, mods whose names share a
+// distinctive prefix. Leaves out what an existing group already holds and
+// what an admin dismissed. Registered before /groups/:id.
+router.get("/groups/suggestions", async (req, res) => {
+  try {
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+
+    const content = readTextFile(active.iniPath);
+    const suggestions = computeGroupSuggestions({
+      enabled: modTokensOf(content).map((token) => token.id),
+      mods: listedWorkshopMods(workshopItemsOf(content), active.serverPath),
+      groups: await getModGroups(),
+      dismissed: await getDismissedModGroupSuggestions(),
+      workshopTitles: await trackedWorkshopTitles(),
+    });
+    res.json({ suggestions });
+  } catch (error) {
+    log.error(`Failed to suggest mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Hide a suggestion for every admin (the panel keeps the newest 500 keys).
+router.post("/groups/suggestions/dismiss", async (req, res) => {
+  try {
+    const key = req.body?.key;
+    if (!isSuggestionKey(key)) return respondModGroupInvalid(res, "key");
+
+    await dismissModGroupSuggestion(key, { max: 500 });
+    log.info(`Dismissed mod group suggestion ${key}`);
+    res.json({ success: true });
+  } catch (error) {
+    log.error(`Failed to dismiss mod group suggestion: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Change the given fields of a group.
 router.put("/groups/:id", async (req, res) => {
   try {
@@ -5528,7 +5632,7 @@ router.put("/groups/:id", async (req, res) => {
     if (!group) return respondModGroupNotFound(res);
 
     log.info(`Updated mod group "${group.name}"`);
-    res.json({ group });
+    res.json({ group: normalizeGroup(group) });
   } catch (error) {
     log.error(`Failed to update mod group: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
@@ -5544,6 +5648,298 @@ router.delete("/groups/:id", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     log.error(`Failed to delete mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+function uniqueMemberIds(group) {
+  return [...new Set((Array.isArray(group?.modIds) ? group.modIds : []).filter((id) => typeof id === "string"))];
+}
+
+// The Workshop item folders downloaded for this server (every content folder
+// getWorkshopPaths knows), sorted so the first match is always the same one.
+function downloadedWorkshopIds(serverPath) {
+  const roots = new Set(getWorkshopPaths("0", serverPath).map((folder) => path.dirname(folder)));
+  const ids = new Set();
+  for (const root of roots) {
+    let entries;
+    try {
+      // codeql[js/path-injection] root is one of getWorkshopPaths' fixed content folders (install folder or the panel account's Steam), no request input.
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && /^\d{1,15}$/.test(entry.name)) ids.add(entry.name);
+    }
+  }
+  return [...ids].sort();
+}
+
+// Which Workshop item holds each of `modIds` on disk (mod.info id): the items
+// in WorkshopItems= first, in their order, then the other downloaded items.
+// Each item is read once, and only while an id is still not placed.
+function locateModsOnDisk(modIds, listedWorkshopIds, serverPath) {
+  const owner = new Map();
+  const wanted = new Set(modIds);
+  if (!serverPath || wanted.size === 0) return owner;
+  const scan = (wsId) => {
+    for (const mod of getModDetailsFromWorkshop(wsId, serverPath)) {
+      if (wanted.has(mod.id) && !owner.has(mod.id)) owner.set(mod.id, wsId);
+    }
+  };
+  const listed = listedWorkshopIds.filter((wsId) => /^\d{1,15}$/.test(wsId));
+  for (const wsId of listed) {
+    if (owner.size === wanted.size) return owner;
+    scan(wsId);
+  }
+  const listedSet = new Set(listed);
+  for (const wsId of downloadedWorkshopIds(serverPath)) {
+    if (owner.size === wanted.size) break;
+    if (!listedSet.has(wsId)) scan(wsId);
+  }
+  return owner;
+}
+
+// Puts each id of `adding` into `order` so the group's order holds: right
+// after the nearest earlier member that is in the list, else right before the
+// nearest later one, else at the end. Members are placed in the group's order,
+// so one placed earlier counts for the next.
+function insertInGroupOrder(order, members, adding) {
+  const result = [...order];
+  const add = new Set(adding);
+  const indexOf = (id) => result.indexOf(id);
+  for (let k = 0; k < members.length; k++) {
+    if (!add.has(members[k])) continue;
+    let at = -1;
+    for (let j = k - 1; j >= 0 && at === -1; j--) {
+      const index = indexOf(members[j]);
+      if (index !== -1) at = index + 1;
+    }
+    for (let j = k + 1; j < members.length && at === -1; j++) {
+      if (add.has(members[j])) continue; // not placed yet
+      const index = indexOf(members[j]);
+      if (index !== -1) at = index;
+    }
+    result.splice(at === -1 ? result.length : at, 0, members[k]);
+  }
+  return result;
+}
+
+// Enable every mod of a group on the active server: its member mod IDs that
+// are not in Mods= go in where the group's order puts them (then the groups
+// are enforced, like a load-order save, when that is on) and the Workshop
+// items they come from join WorkshopItems= when missing. Only IDs found in a
+// Workshop item on disk can be enabled; the others come back in `missing`.
+// One write, through the lock and backup path the other mod writes use, and
+// only when something changes.
+router.post("/groups/:id/enable", async (req, res) => {
+  try {
+    const groups = await getModGroups();
+    const group = groups.find((g) => g.id === req.params.id);
+    if (!group) return respondModGroupNotFound(res);
+
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    const { iniPath, serverPath } = active;
+    const members = uniqueMemberIds(group);
+    const enforce = await isModGroupEnforcementOn();
+
+    let result = null;
+    let backupWarning = null;
+    await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      const tokens = modTokensOf(content);
+      const order = tokens.map((token) => token.id);
+      const enabledNow = new Set(order);
+      const workshopItems = workshopItemsOf(content);
+
+      const alreadyEnabled = members.filter((id) => enabledNow.has(id));
+      const wanted = members.filter((id) => !enabledNow.has(id));
+      const owner = locateModsOnDisk(wanted, workshopItems, serverPath);
+      const enabled = wanted.filter((id) => owner.has(id));
+      const missing = wanted.filter((id) => !owner.has(id));
+      const listed = new Set(workshopItems);
+      const workshopItemsAdded = [];
+      for (const id of enabled) {
+        const wsId = owner.get(id);
+        if (!listed.has(wsId)) {
+          listed.add(wsId);
+          workshopItemsAdded.push(wsId);
+        }
+      }
+      result = { enabled, alreadyEnabled, missing, workshopItemsAdded, groupsAdjusted: [] };
+      if (enabled.length === 0) return;
+
+      let newOrder = insertInGroupOrder(order, members, enabled);
+      if (enforce) {
+        try {
+          const applied = applyModGroups(newOrder, groups);
+          newOrder = applied.order;
+          result.groupsAdjusted = applied.moved;
+        } catch (error) {
+          log.warn(`Mod groups not enforced while enabling "${group.name}": ${error.message}`);
+        }
+      }
+
+      content = withIniLine(content, "Mods", modsLineFor(newOrder, tokens));
+      if (workshopItemsAdded.length > 0) {
+        content = withIniLine(
+          content,
+          "WorkshopItems",
+          `WorkshopItems=${sanitizeIniList([...workshopItems, ...workshopItemsAdded])}`,
+        );
+      }
+      backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+    });
+
+    if (result.enabled.length > 0) {
+      log.info(
+        `Enabled mod group "${group.name}": ${result.enabled.length} mods` +
+          (result.workshopItemsAdded.length ? `, ${result.workshopItemsAdded.length} Workshop items added` : "") +
+          (result.missing.length ? ` (${result.missing.length} not found on disk)` : ""),
+      );
+    }
+    res.json({ ...result, ...(backupWarning ? { backupWarning } : {}) });
+  } catch (error) {
+    log.error(`Failed to enable mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Disable every mod of a group on the active server: its member mod IDs leave
+// Mods=. With keepShared (the default) a mod that is also in another group
+// whose mods are all enabled stays (keptShared). PanelBridge's own mod, when
+// its Workshop delivery manages it, always stays (keptManaged). WorkshopItems=
+// is left alone, so the files stay and enabling again is instant. One write,
+// through the lock and backup path, and only when something changes.
+router.post("/groups/:id/disable", async (req, res) => {
+  try {
+    const keepShared = req.body?.keepShared === undefined ? true : req.body.keepShared;
+    if (typeof keepShared !== "boolean") return respondModGroupInvalid(res, "keepShared");
+
+    const allGroups = await getModGroups();
+    const group = allGroups.find((g) => g.id === req.params.id);
+    if (!group) return respondModGroupNotFound(res);
+
+    const iniPath = await resolveActiveIniPathOrRespond(res);
+    if (!iniPath) return;
+    const members = uniqueMemberIds(group);
+    const otherGroups = allGroups.filter((g) => g !== group).map(uniqueMemberIds);
+    const bridgeModId = (await getBridgeManaged())?.modId ?? null;
+
+    let result = null;
+    let backupWarning = null;
+    await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      const tokens = modTokensOf(content);
+      const enabledNow = new Set(tokens.map((token) => token.id));
+
+      const notEnabled = members.filter((id) => !enabledNow.has(id));
+      const keptShared = [];
+      const keptManaged = [];
+      const disabled = [];
+      for (const id of members) {
+        if (!enabledNow.has(id)) continue;
+        if (id === bridgeModId) keptManaged.push(id);
+        else if (
+          keepShared &&
+          otherGroups.some((other) => other.includes(id) && other.every((member) => enabledNow.has(member)))
+        ) {
+          keptShared.push(id);
+        } else disabled.push(id);
+      }
+      result = { disabled, keptShared, notEnabled, keptManaged };
+      if (disabled.length === 0) return;
+
+      const off = new Set(disabled);
+      const kept = tokens.filter((token) => !off.has(token.id));
+      content = withIniLine(content, "Mods", `Mods=${sanitizeIniList(kept.map((token) => token.raw))}`);
+      backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+    });
+
+    if (result.disabled.length > 0) {
+      log.info(
+        `Disabled mod group "${group.name}": ${result.disabled.length} mods` +
+          (result.keptShared.length ? ` (${result.keptShared.length} kept for other groups)` : ""),
+      );
+    }
+    res.json({ ...result, ...(backupWarning ? { backupWarning } : {}) });
+  } catch (error) {
+    log.error(`Failed to disable mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ===== MOD NOTES =====
+//
+// One note per Workshop item, shared by every admin (panel database). An
+// empty text deletes the note.
+
+function noteResponse(note) {
+  return { text: note.text, updatedAt: note.updatedAt, updatedBy: note.updatedBy ?? null };
+}
+
+router.get("/notes", async (req, res) => {
+  try {
+    const notes = {};
+    for (const note of await getModNotes()) {
+      if (isNoteWorkshopId(note?.workshopId) && typeof note.text === "string") {
+        notes[note.workshopId] = noteResponse(note);
+      }
+    }
+    res.json({ notes });
+  } catch (error) {
+    log.error(`Failed to get mod notes: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.put("/notes/:workshopId", async (req, res) => {
+  try {
+    const workshopId = req.params.workshopId;
+    if (!isNoteWorkshopId(workshopId)) {
+      return res.status(400).json({
+        error: "Invalid workshop ID",
+        code: ErrorCode.MODS_INVALID_WORKSHOP_ID_LOWER,
+      });
+    }
+
+    const cleaned = cleanModNoteText(req.body?.text);
+    if (!cleaned.ok && cleaned.reason === "length") {
+      return res.status(400).json({
+        error: `A mod note can be at most ${MOD_NOTE_LIMITS.textMax} characters`,
+        code: ErrorCode.MODS_NOTE_TOO_LONG,
+        params: sanitizeErrorParams({ max: MOD_NOTE_LIMITS.textMax }),
+      });
+    }
+    if (!cleaned.ok) {
+      return res.status(400).json({
+        error: "A mod note must be text without control characters",
+        code: ErrorCode.MODS_NOTE_INVALID,
+      });
+    }
+
+    if (cleaned.text === "") {
+      if (await deleteModNote(workshopId)) log.info(`Deleted the note on Workshop item ${workshopId}`);
+      return res.json({ note: null });
+    }
+
+    const note = await setModNote(workshopId, cleaned.text, {
+      updatedBy: req.user?.username || null,
+      maxNotes: MOD_NOTE_LIMITS.maxNotes,
+    });
+    if (!note) {
+      return res.status(409).json({
+        error: `At most ${MOD_NOTE_LIMITS.maxNotes} mod notes can be kept`,
+        code: ErrorCode.MODS_NOTE_LIMIT_REACHED,
+        params: sanitizeErrorParams({ max: MOD_NOTE_LIMITS.maxNotes }),
+      });
+    }
+    log.info(`Saved the note on Workshop item ${workshopId}`);
+    res.json({ note: noteResponse(note) });
+  } catch (error) {
+    log.error(`Failed to save mod note: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });

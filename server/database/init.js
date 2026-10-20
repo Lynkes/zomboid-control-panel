@@ -168,6 +168,7 @@ const defaultData = {
   player_stats: [],
   mod_presets: [],
   mod_groups: [],
+  mod_notes: [],
   user_templates: [],
   steamid_bans: [],
   performance_history: [],
@@ -1305,6 +1306,7 @@ function getDatabaseStatsSync() {
       player_stats: data.player_stats?.length ?? 0,
       mod_presets: data.mod_presets?.length ?? 0,
       mod_groups: data.mod_groups?.length ?? 0,
+      mod_notes: data.mod_notes?.length ?? 0,
       user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
@@ -3056,7 +3058,7 @@ export async function getModGroups() {
  * has that name (used by import).
  */
 export async function createModGroup(
-  { name, description, modIds },
+  { name, description, modIds, color = null, keepTogether = false },
   { maxGroups = Infinity, uniqueName = false } = {},
 ) {
   const db = await getDb();
@@ -3074,6 +3076,8 @@ export async function createModGroup(
       : name,
     description: description || "",
     modIds: [...modIds],
+    color: color ?? null,
+    keepTogether: keepTogether === true,
     createdAt: now,
     updatedAt: now,
   };
@@ -3083,14 +3087,17 @@ export async function createModGroup(
   return group;
 }
 
-/** Changes only the given fields (name, description, modIds). Null when the group does not exist. */
+/**
+ * Changes only the given fields (name, description, modIds, color,
+ * keepTogether). Null when the group does not exist.
+ */
 export async function updateModGroup(id, updates) {
   const db = await getDb();
   const group = db.data.mod_groups?.find((g) => g.id === id);
   if (!group) return null;
 
   let changed = false;
-  for (const key of ["name", "description", "modIds"]) {
+  for (const key of ["name", "description", "modIds", "color", "keepTogether"]) {
     if (updates[key] === undefined) continue;
     group[key] = key === "modIds" ? [...updates[key]] : updates[key];
     changed = true;
@@ -3110,6 +3117,71 @@ export async function deleteModGroup(id) {
   if (index === -1) return false;
 
   db.data.mod_groups.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// The keys of the group suggestions an admin dismissed (GET
+// /api/mods/groups/suggestions leaves them out). Kept in a setting, newest
+// last, at most `max`: the oldest go first.
+const DISMISSED_SUGGESTIONS_SETTING = "modGroupSuggestionsDismissed";
+
+export async function getDismissedModGroupSuggestions() {
+  const db = await getDb();
+  const keys = db.data.settings[DISMISSED_SUGGESTIONS_SETTING];
+  return Array.isArray(keys) ? keys.filter((key) => typeof key === "string") : [];
+}
+
+/** Adds `key` (read, change and store in one synchronous step after getDb). */
+export async function dismissModGroupSuggestion(key, { max = 500 } = {}) {
+  const db = await getDb();
+  const current = db.data.settings[DISMISSED_SUGGESTIONS_SETTING];
+  const keys = (Array.isArray(current) ? current : []).filter((k) => typeof k === "string" && k !== key);
+  keys.push(key);
+  db.data.settings[DISMISSED_SUGGESTIONS_SETTING] = keys.slice(-max);
+  scheduleWrite();
+}
+
+// ============================================
+// Mod Notes (panel-wide, one per Workshop item)
+// ============================================
+// { workshopId, text, updatedAt, updatedBy }: a note an admin keeps on a
+// Workshop item. Validation (digits-only id, text length) lives with the
+// routes; these only store.
+
+export async function getModNotes() {
+  const db = await getDb();
+  if (!db.data.mod_notes) db.data.mod_notes = [];
+  return db.data.mod_notes;
+}
+
+/**
+ * Creates or replaces the note of `workshopId`. Returns the stored note, or
+ * null (nothing stored) when it would be a new note and `maxNotes` notes
+ * exist already -- checked in the same synchronous step as the push.
+ */
+export async function setModNote(workshopId, text, { updatedBy = null, maxNotes = Infinity } = {}) {
+  const db = await getDb();
+  if (!db.data.mod_notes) db.data.mod_notes = [];
+  const note = { workshopId, text, updatedAt: new Date().toISOString(), updatedBy: updatedBy || null };
+  const index = db.data.mod_notes.findIndex((n) => n?.workshopId === workshopId);
+  if (index === -1) {
+    if (db.data.mod_notes.length >= maxNotes) return null;
+    db.data.mod_notes.push(note);
+  } else {
+    db.data.mod_notes[index] = note;
+  }
+  scheduleWrite();
+  return note;
+}
+
+/** Removes the note of `workshopId`; false when there was none. */
+export async function deleteModNote(workshopId) {
+  const db = await getDb();
+  if (!db.data.mod_notes) return false;
+  const index = db.data.mod_notes.findIndex((n) => n?.workshopId === workshopId);
+  if (index === -1) return false;
+  db.data.mod_notes.splice(index, 1);
   scheduleWrite();
   return true;
 }
