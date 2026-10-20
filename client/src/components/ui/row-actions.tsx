@@ -18,6 +18,8 @@ export interface RowActionItem {
   disabled?: boolean
   /** Why it is disabled, shown under the label inside the menu. */
   reason?: string
+  /** What the action does, shown under the label while it is enabled. */
+  hint?: string
 }
 
 export interface RowActionsProps {
@@ -71,6 +73,9 @@ export function RowActions({ primary, items, ariaLabel, className }: RowActionsP
                         <span className={cn(item.disabled && 'opacity-50')}>{item.label}</span>
                         {item.disabled && item.reason && (
                           <span className="text-xs font-normal text-muted-foreground">{item.reason}</span>
+                        )}
+                        {!item.disabled && item.hint && (
+                          <span className="text-xs font-normal text-muted-foreground">{item.hint}</span>
                         )}
                       </span>
                     </DropdownMenuItem>

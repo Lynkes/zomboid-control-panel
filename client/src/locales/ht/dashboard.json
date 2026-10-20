@@ -97,6 +97,7 @@
     "addServer": "Ajoute yon sèvè",
     "stop": "Sispann",
     "forceStop": "Fòse sispann",
+    "forceStopTooltip": "Eseye fè yon sovgad rapid, epi sispann imedyatman kanmenm",
     "restart": "Redemare",
     "restartNow": "Redemare kounye a",
     "saveWorld": "Sove mond lan",

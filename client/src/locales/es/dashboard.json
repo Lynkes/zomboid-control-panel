@@ -97,6 +97,7 @@
     "addServer": "Añadir un servidor",
     "stop": "Detener",
     "forceStop": "Forzar detención",
+    "forceStopTooltip": "Intenta un guardado rápido y luego detiene el juego de inmediato en cualquier caso",
     "restart": "Reiniciar",
     "restartNow": "Reiniciar ahora",
     "saveWorld": "Guardar el mundo",

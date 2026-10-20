@@ -1663,6 +1663,7 @@ export default function Dashboard() {
         },
         disabled: loading !== null || isRemote || !canControlServer,
         reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        hint: t('actions.forceStopTooltip'),
       },
       {
         label: t('actions.saveWorld'),
@@ -1709,6 +1710,11 @@ export default function Dashboard() {
         : isRemote ? t('actions.notAvailableRemote')
         : !canManageBackups ? t('actions.noPermissionCreateBackup')
         : undefined,
+    },
+    {
+      label: t('verdict.bridgeSettingsLink'),
+      icon: Wrench,
+      onSelect: () => navigate('/settings?tab=bridge'),
     },
     {
       label: t('actions.wipeServer'),
