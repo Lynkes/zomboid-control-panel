@@ -232,7 +232,7 @@
     "title": "Disable {{name}}?",
     "description_one": "{{count}} mod leaves the server config (Mods=). Its files stay on disk, so enabling the group again is instant.",
     "description_other": "{{count}} mods leave the server config (Mods=). Their files stay on disk, so enabling the group again is instant.",
-    "sharedNote": "Kept, because another group that is fully enabled needs them: {{items}}",
+    "sharedNote": "Kept, because another group still has enabled mods and lists them too: {{items}}",
     "confirm": "Disable mods",
     "doneTitle": "Disabled {{name}}",
     "doneDesc_one": "{{count}} mod left the server config.",

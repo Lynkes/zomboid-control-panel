@@ -247,7 +247,7 @@
     "description_one": "{{count}} mod quitte la configuration du serveur (Mods=). Ses fichiers restent sur le disque : réactiver le groupe est donc instantané.",
     "description_many": "{{count}} mods quittent la configuration du serveur (Mods=). Leurs fichiers restent sur le disque : réactiver le groupe est donc instantané.",
     "description_other": "{{count}} mods quittent la configuration du serveur (Mods=). Leurs fichiers restent sur le disque : réactiver le groupe est donc instantané.",
-    "sharedNote": "Conservés, car un autre groupe entièrement activé en a besoin : {{items}}",
+    "sharedNote": "Conservés, car un autre groupe a encore des mods activés et les contient aussi : {{items}}",
     "confirm": "Désactiver les mods",
     "doneTitle": "Groupe {{name}} désactivé",
     "doneDesc_one": "{{count}} mod a quitté la configuration du serveur.",

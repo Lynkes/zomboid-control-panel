@@ -629,6 +629,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "Lis mod sèvè a chanje",
+    "serverModsChangedDesc": "Yo aktive oswa dezaktive mod sou sèvè a depi paj sa a te chaje lis la. Yo fin mete yo nan lòd ou a kounye a: verifye l, epi sove ankò.",
     "pendingAddServerChangedTitle": "Sèvè aktif la chanje",
     "pendingAddServerChangedDesc": "Sèvè aktif la chanje pandan ou te gen mòd nan lis datant pou ajoute. ID ak dosye kat yo montre yo te chache pou ansyen sèvè a — fèmen bwat dyalòg sa a epi rekòmanse pou sèvè ki aktif kounye a.",
     "noActiveServerTitle": "Pa gen sèvè aktif",

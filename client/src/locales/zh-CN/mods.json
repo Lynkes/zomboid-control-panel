@@ -605,6 +605,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "服务器的模组列表已更改",
+    "serverModsChangedDesc": "自此页面加载列表以来，服务器上有模组被启用或禁用。它们现已合并到你的顺序中：请检查后再次保存。",
     "pendingAddServerChangedTitle": "活动服务器已更改",
     "pendingAddServerChangedDesc": "在有模组排队等待添加时，活动服务器已更改。所显示的 ID 和地图文件夹是针对先前的服务器查找的——请关闭此对话框，并针对当前活动的服务器重新开始。",
     "noActiveServerTitle": "没有活动服务器",

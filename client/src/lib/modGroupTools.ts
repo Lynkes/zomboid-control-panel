@@ -71,18 +71,23 @@ export interface GroupConflictSummary {
   modIds: string[]
 }
 
-/** File conflicts touching each group, from the conflict scan's pairs. Groups without any are left out. */
+/**
+ * File conflicts touching each group, from the conflict scan's pairs. Groups
+ * without any are left out, and so is a pair of intended overrides only (a
+ * patch the group itself holds, declared to build on its target).
+ */
 export function summarizeGroupConflicts(
   groups: readonly ModGroup[],
-  pairs: ReadonlyArray<{ modA: { modId: string }; modB: { modId: string } }>,
+  pairs: ReadonlyArray<{ modA: { modId: string }; modB: { modId: string }; highCount?: number; mediumCount?: number; lowCount?: number }>,
 ): Map<string, GroupConflictSummary> {
   const summary = new Map<string, GroupConflictSummary>()
+  const real = pairs.filter((pair) => pair.highCount === undefined || pair.highCount + (pair.mediumCount ?? 0) + (pair.lowCount ?? 0) > 0)
   for (const group of groups) {
     const members = new Set(group.modIds)
     let internal = 0
     let external = 0
     const involved = new Set<string>()
-    for (const pair of pairs) {
+    for (const pair of real) {
       const a = members.has(pair.modA.modId)
       const b = members.has(pair.modB.modId)
       if (!a && !b) continue

@@ -232,7 +232,7 @@
     "title": "Dezaktive {{name}}?",
     "description_one": "{{count}} mod soti nan konfig sèvè a (Mods=). Fichye li yo rete sou disk, kidonk reaktive gwoup la ap enstantane.",
     "description_other": "{{count}} mods soti nan konfig sèvè a (Mods=). Fichye yo rete sou disk, kidonk reaktive gwoup la ap enstantane.",
-    "sharedNote": "Kenbe, paske yon lòt gwoup ki aktive nèt bezwen yo: {{items}}",
+    "sharedNote": "Kenbe, paske yon lòt gwoup toujou gen mod ki aktive epi li gen yo tou: {{items}}",
     "confirm": "Dezaktive mods yo",
     "doneTitle": "{{name}} dezaktive",
     "doneDesc_one": "{{count}} mod soti nan konfig sèvè a.",

@@ -339,7 +339,7 @@ export function ConflictsPanel({
                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                           c.severity === 'high' ? 'bg-destructive severity-pulse' : c.severity === 'medium' ? 'bg-warning' : 'bg-primary/50'
                         }`} aria-hidden="true" />
-                        <span className="sr-only">{t('severityPrefix', { severity: c.severity })}</span>
+                        <span className="sr-only">{t('severityPrefix', { severity: t(`severity.${c.severity}`) })}</span>
                         <span className="font-mono text-foreground/70 truncate flex-1">{c.file}</span>
                         <span className="text-muted-foreground/70 shrink-0">{t('inNMods', { count: c.mods.length })}</span>
                       </div>
@@ -927,7 +927,8 @@ export function ConflictsPanel({
                                   const showAll = expandedFilePairs.has(pairKey)
                                   const visibleFiles = showAll ? pair.files : pair.files.slice(0, CONFLICT_FILE_LIMIT)
                                   const hiddenCount = showAll ? 0 : totalFiles - Math.min(totalFiles, CONFLICT_FILE_LIMIT)
-                                  const maxSeverity = pair.highCount > 0 ? 'high' : pair.mediumCount > 0 ? 'medium' : 'low'
+                                  // A pair of intended overrides only (a declared patch over its target) reads as such.
+                                  const maxSeverity = pair.highCount > 0 ? 'high' : pair.mediumCount > 0 ? 'medium' : pair.lowCount > 0 || !(pair.infoCount ?? 0) ? 'low' : 'info'
                                   const posA = loadOrderMap.get(pair.modA.modId)
                                   const posB = loadOrderMap.get(pair.modB.modId)
                                   const winner = posA != null && posB != null ? (posA > posB ? 'A' : posB > posA ? 'B' : null) : null
@@ -938,9 +939,9 @@ export function ConflictsPanel({
                                       <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/15 transition-colors">
                                         <div className="flex min-w-0 flex-1 flex-col gap-2 text-start sm:flex-row sm:items-center sm:gap-3">
                                           <div className={`w-2 h-2 rounded-full shrink-0 ${
-                                            maxSeverity === 'high' ? 'bg-destructive severity-pulse' : maxSeverity === 'medium' ? 'bg-warning' : 'bg-primary/60'
+                                            maxSeverity === 'high' ? 'bg-destructive severity-pulse' : maxSeverity === 'medium' ? 'bg-warning' : maxSeverity === 'info' ? 'bg-muted-foreground/50' : 'bg-primary/60'
                                           }`} aria-hidden="true" />
-                                          <span className="sr-only">{maxSeverity} severity conflict:</span>
+                                          <span className="sr-only">{t('severityPrefix', { severity: t(`severity.${maxSeverity}`) })}</span>
 
                                           {(() => {
                                             const aw = pair.aWins ?? 0
@@ -1075,6 +1076,9 @@ export function ConflictsPanel({
                                             {pair.lowCount > 0 && (
                                               <Badge variant="secondary" className="text-[11px] leading-none h-[18px] px-1.5 border-primary/20 text-primary">{t('severityLowBadge', { count: pair.lowCount })}</Badge>
                                             )}
+                                            {(pair.infoCount ?? 0) > 0 && (
+                                              <Badge variant="outline" className="text-[11px] leading-none h-[18px] px-1.5">{t('severity.info')}</Badge>
+                                            )}
                                             <span className="text-[11px] text-muted-foreground/70">{t('shownCount', { count: visibleFiles.length })}{hiddenCount > 0 ? ` · ${t('hiddenCount', { count: hiddenCount })}` : ''}</span>
 
                                             {/* Fix-it actions: promote one mod over the other in load order. */}
@@ -1146,6 +1150,11 @@ export function ConflictsPanel({
                                               : winnerName === pair.modA.modName
                                               ? pair.modB.modName
                                               : pair.modA.modName
+                                            // Each mod's own file: a clash across files (or one
+                                            // declared in mod.info) has no single file to diff.
+                                            const fileA = f.files?.find((x) => x.modId === pair.modA.modId)?.file ?? f.file
+                                            const fileB = f.files?.find((x) => x.modId === pair.modB.modId)?.file ?? f.file
+                                            const comparable = f.kind !== 'declared-incompatible' && f.category !== 'mod-info' && fileA === fileB
                                             return (
                                               <FileDiffViewer
                                                 key={`${pair.modA.modId}--${pair.modB.modId}--${f.file}`}
@@ -1156,6 +1165,11 @@ export function ConflictsPanel({
                                                 modBName={pair.modB.modName}
                                                 severity={f.severity}
                                                 categoryLabel={f.categoryLabel}
+                                                reason={f.reason ? t(`reasons.${f.reason}`, { defaultValue: '' }) || null : null}
+                                                badge={f.severity === 'info' ? t('severity.info') : null}
+                                                comparable={comparable}
+                                                fileA={comparable ? undefined : fileA}
+                                                fileB={comparable ? undefined : fileB}
                                                 winnerName={winnerName}
                                                 loserName={loserName}
                                                 overlap={f.overlap}

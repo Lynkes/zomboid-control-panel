@@ -56,6 +56,19 @@ describe('conflicts per group', () => {
     expect(summary.get('ki5')).toEqual({ internal: 1, external: 1, modIds: ['K1', 'K2', 'Other'] })
     expect(summary.has('quiet')).toBe(false)
   })
+
+  it('leaves out a pair of intended overrides only (a declared patch over its target)', () => {
+    const pair = (a: string, b: string) => ({ modA: { modId: a }, modB: { modId: b } })
+    const counts =(high: number, medium: number, low: number, info: number) => ({ highCount: high, mediumCount: medium, lowCount: low, infoCount: info })
+    const summary = summarizeGroupConflicts(
+      [group('ki5', ['Core', 'CorePatch', 'Car'])],
+      [
+        { ...pair('Core', 'CorePatch'), ...counts(0, 0, 0, 4) },
+        { ...pair('Car', 'Other'), ...counts(0, 1, 0, 0) },
+      ],
+    )
+    expect(summary.get('ki5')).toEqual({ internal: 0, external: 1, modIds: ['Car', 'Other'] })
+  })
 })
 
 describe('auto-order members', () => {
