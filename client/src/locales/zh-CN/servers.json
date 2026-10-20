@@ -247,6 +247,8 @@
     "rconPasswordLabel": "RCON 密码",
     "rconPasswordAria": "RCON 密码",
     "adminPasswordLabel": "管理员密码",
+    "rconConfigureRequired": "更改 RCON 主机、端口或密码需要 server.configure 权限，而该角色没有此权限。",
+    "rconPasswordReenter": "要使用新的主机或端口，请重新输入 RCON 密码：已保存的密码只会发送到保存它时的主机和端口。",
     "adminPasswordTooltip": "以 -adminpassword 启动参数传递的服务器管理员密码，将在下次启动服务器时生效。",
     "adminPasswordPlaceholder": "设置管理员密码",
     "adminPasswordAria": "管理员密码",

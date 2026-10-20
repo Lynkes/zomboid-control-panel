@@ -640,6 +640,25 @@ export const ErrorCode = Object.freeze({
    * that has one) and the caller's role doesn't hold files.manage
    * (RCE-STARTCMD). */
   SERVER_LAUNCH_TARGET_ADMIN_ONLY: "SERVER_LAUNCH_TARGET_ADMIN_ONLY",
+  /* --- access-control audit 2026-10-20 (servers) --- */
+  /** server/routes/servers.js -- PUT /:id (403): the edit changes the RCON
+   * host, port or password, and the caller's role doesn't hold
+   * server.configure (the capability that governs the RCON connection
+   * everywhere else). Also POST / (403) when a server imported from an ini
+   * would point that ini's RCON password at a host other than this one. */
+  SERVER_RCON_CHANGE_REQUIRES_CONFIGURE: "SERVER_RCON_CHANGE_REQUIRES_CONFIGURE",
+  /** server/routes/servers.js -- PUT /:id (400): the RCON host or port
+   * changes but no RCON password was entered. The stored password is never
+   * sent to a host or port it was not saved for. */
+  SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET: "SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): the active server's RCON settings changed and the
+   * panel could not reconnect with them. */
+  SERVER_RCON_RECONNECT_FAILED: "SERVER_RCON_RECONNECT_FAILED",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): reloading the RCON connection after the edit threw. */
+  SERVER_RCON_RELOAD_FAILED: "SERVER_RCON_RELOAD_FAILED",
+  /* --- end access-control audit 2026-10-20 (servers) --- */
   /** server/services/scheduler.js -- performRestart()'s returned failure
    * when the pre-restart world save fails: the restart is called off and the
    * server is left running (forwarded by a failed Restart's

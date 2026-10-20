@@ -2377,6 +2377,8 @@ export const serversApi = {
       server: ServerInstance;
       message: string;
       warnings?: string[];
+      // The same warnings, each with its code when it has one.
+      warningDetails?: Array<{ error: string; code?: string }>;
     }>,
   getLifecycleTemplate: (
     id: string | number,

@@ -439,6 +439,10 @@ describe("PUT /api/servers/:id", () => {
 
   it("reports when an active server profile reconnect returns false", async () => {
     updateServer.mockResolvedValue({ id: 1, name: "Test Server", isActive: true });
+    // The reconnect follows a REAL change of the stored connection (the
+    // dialog resends the whole record), and a new port takes the password
+    // typed again -- see serversRconRetargetAuthz.test.js.
+    getServer.mockResolvedValue({ id: 1, rconHost: "127.0.0.1", rconPort: 27015, rconPassword: "old" });
     const response = createResponse();
     const rconService = {
       isConnected: vi.fn(() => false),
@@ -446,20 +450,26 @@ describe("PUT /api/servers/:id", () => {
       connect: vi.fn(async () => false),
     };
 
-    await getUpdateHandler()(
-      {
-        params: { id: "1" },
-        body: { rconPort: 27016 },
-        app: { get: (key) => (key === "rconService" ? rconService : undefined) },
-      },
-      response,
-    );
+    try {
+      await getUpdateHandler()(
+        {
+          params: { id: "1" },
+          body: { rconPort: 27016, rconPassword: "new-password" },
+          user: { role: "admin" },
+          app: { get: (key) => (key === "rconService" ? rconService : undefined) },
+        },
+        response,
+      );
+    } finally {
+      getServer.mockReset();
+    }
 
     expect(rconService.connect).toHaveBeenCalled();
     expect(response.json).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Server updated successfully",
         warnings: [expect.stringMatching(/could not reconnect/i)],
+        warningDetails: [expect.objectContaining({ code: "SERVER_RCON_RECONNECT_FAILED" })],
       }),
     );
   });
@@ -811,7 +821,7 @@ describe("GET /api/servers/rcon-status", () => {
       .mockResolvedValueOnce({ success: false, error: "auth_failed" });
     const response = createResponse();
 
-    await runRoute("/rcon-status", "get", {}, response);
+    await runRoute("/rcon-status", "get", { user: { role: "admin" } }, response);
 
     expect(testRconConnection).toHaveBeenCalledWith(expect.objectContaining({
       host: "127.0.0.1",
@@ -836,7 +846,7 @@ describe("GET /api/servers/rcon-status", () => {
     testRconConnection.mockResolvedValue({ success: true });
     const response = createResponse();
 
-    await runRoute("/rcon-status", "get", {}, response);
+    await runRoute("/rcon-status", "get", { user: { role: "admin" } }, response);
 
     expect(response.json).toHaveBeenCalledWith({
       servers: [

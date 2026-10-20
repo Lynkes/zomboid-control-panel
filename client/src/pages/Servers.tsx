@@ -332,6 +332,11 @@ export default function Servers() {
   // runs on the host, so changing one takes files.manage (see
   // lib/launchTarget.ts and server/routes/servers.js's changesLaunchTarget()).
   const canFilesManage = can('files.manage')
+  // A server's RCON host, port and password are server.configure's (PUT
+  // /servers/:id refuses a change without it), and only servers.manage or
+  // rcon.execute may run the per-server RCON probe behind the card badge.
+  const canServerConfigure = can('server.configure')
+  const canSeeRconStatus = canServersManage || can('rcon.execute')
   // Inline Start/Stop fires activate (servers.manage) THEN start/stop
   // (server.control) in sequence -- a role holding only one gets a PARTIAL
   // execution today (activate succeeds and the server record changes state,
@@ -442,6 +447,15 @@ export default function Servers() {
   const editLaunchTargetBlocked =
     !canFilesManage && !!editingServer && !!editingStoredServer && changesLaunchTarget(editingStoredServer, editingServer)
   const editInstallPathLocked = !canFilesManage && launchIsOperatorDefined(editingStoredServer)
+  // A new RCON host or port is only saved with the password typed again (PUT
+  // /servers/:id refuses the masked one): the saved password is never sent
+  // to a host or port it was not saved for.
+  const editRconNeedsPassword =
+    !!editingServer &&
+    !!editingStoredServer &&
+    (editingServer.rconPassword || '').startsWith('••••••••') &&
+    ((editingServer.rconHost || '').trim().toLowerCase() !== (editingStoredServer.rconHost || '').trim().toLowerCase() ||
+      Number(editingServer.rconPort) !== Number(editingStoredServer.rconPort))
 
   const editDuplicateRemoteConflict = useMemo(() => {
     if (!editingServer || !editingServer.isRemote) return false
@@ -781,10 +795,8 @@ export default function Servers() {
   useEffect(() => {
     fetchServers()
     fetchServerStatuses()
-    fetchRconStatuses()
     fetchDockerState()
     const statusInterval = setInterval(fetchServerStatuses, 15000)
-    const rconStatusInterval = setInterval(fetchRconStatuses, 30000)
     const dockerInterval = setInterval(fetchDockerState, 10000)
     // Load steamcmd path from settings
     configApi.getAppSettings().then(data => {
@@ -816,10 +828,18 @@ export default function Servers() {
     }).catch(e => reportClientWarning('Failed to load update status.', e))
     return () => {
       clearInterval(statusInterval)
-      clearInterval(rconStatusInterval)
       clearInterval(dockerInterval)
     }
-  }, [fetchServers, fetchServerStatuses, fetchRconStatuses, fetchDockerState])
+  }, [fetchServers, fetchServerStatuses, fetchDockerState])
+
+  // The RCON badge on each card: only for a role the probe answers (see
+  // canSeeRconStatus); for any other the cards show no RCON row.
+  useEffect(() => {
+    if (!canSeeRconStatus) return
+    fetchRconStatuses()
+    const rconStatusInterval = setInterval(fetchRconStatuses, 30000)
+    return () => clearInterval(rconStatusInterval)
+  }, [canSeeRconStatus, fetchRconStatuses])
 
   useEffect(() => {
     activeStatusRequestRef.current += 1
@@ -1510,7 +1530,11 @@ export default function Servers() {
       const editedFields = { ...editingServer }
       delete editedFields.useUpnp
       const result = await serversApi.update(editingServer.id, editedFields)
-      const warnings = result.warnings?.filter(Boolean) ?? []
+      // warningDetails carries a code for the warnings that have one (the
+      // RCON reconnect), so they read in this page's language.
+      const warnings = (result.warningDetails ?? (result.warnings ?? []).map((error) => ({ error })))
+        .map((warning) => getResultErrorMessage(warning, warning.error))
+        .filter(Boolean)
       toast({
         title: warnings.length > 0 ? t('toasts.warningTitle') : t('toasts.savedTitle'),
         description: warnings.length > 0
@@ -3377,6 +3401,7 @@ export default function Servers() {
                     placeholder={editingServer.isRemote ? t('editDialog.rconHostPlaceholderRemote') : t('editDialog.rconHostPlaceholderLocal')}
                     aria-invalid={editDuplicateRemoteConflict}
                     className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
+                    disabled={!canServerConfigure}
                   />
                   <p className={editDuplicateRemoteConflict ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
                     {editDuplicateRemoteConflict
@@ -3397,9 +3422,13 @@ export default function Servers() {
                       const val = parseInt(e.target.value)
                       if (!isNaN(val)) setEditingServer({ ...editingServer, rconPort: Math.min(65535, Math.max(1, val)) })
                     }}
+                    disabled={!canServerConfigure}
                   />
                 </div>
               </div>
+              {!canServerConfigure && (
+                <p className="text-xs text-muted-foreground">{t('editDialog.rconConfigureRequired')}</p>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -3408,7 +3437,11 @@ export default function Servers() {
                     value={editingServer.rconPassword}
                     onChange={value => setEditingServer({ ...editingServer, rconPassword: value })}
                     label={t('editDialog.rconPasswordAria')}
+                    disabled={!canServerConfigure}
                   />
+                  {editRconNeedsPassword && (
+                    <p className="text-xs text-warning">{t('editDialog.rconPasswordReenter')}</p>
+                  )}
                   <RconTestConnection
                     host={editingServer.rconHost}
                     port={editingServer.rconPort}

@@ -247,6 +247,8 @@
     "rconPasswordLabel": "RCON-Passwort",
     "rconPasswordAria": "RCON-Passwort",
     "adminPasswordLabel": "Admin-Passwort",
+    "rconConfigureRequired": "Das Ändern von RCON-Host, -Port oder -Passwort erfordert die Berechtigung server.configure, über die diese Rolle nicht verfügt.",
+    "rconPasswordReenter": "Gib das RCON-Passwort erneut ein, um einen neuen Host oder Port zu verwenden: Das gespeicherte wird nur an den Host und Port gesendet, für die es gespeichert wurde.",
     "adminPasswordTooltip": "Admin-Passwort des Servers, das als Startargument -adminpassword übergeben wird. Wird beim nächsten Serverstart wirksam.",
     "adminPasswordPlaceholder": "Admin-Passwort festlegen",
     "adminPasswordAria": "Admin-Passwort",
