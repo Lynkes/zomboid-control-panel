@@ -5,7 +5,7 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
 import {
-  Play, Square, RotateCcw, Save, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle,
+  Play, Square, RotateCcw, Save, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle, Check,
   LogIn, LogOut, Activity, Archive, Skull, Sword, ShieldAlert, Copy, Gamepad2, Globe, FolderOpen,
   X, Zap, Trash2, CalendarClock, Monitor, ScrollText, FileCog, Plus, Cpu, ListChecks, Wrench, HeartPulse,
   Map as MapIcon,
@@ -289,6 +289,9 @@ export default function Dashboard() {
   const [playerActivity, setPlayerActivity] = useState<PlayerActivity[]>([])
   const [performanceHistory, setPerformanceHistory] = useState<PerformancePoint[]>([])
   const [loading, setLoading] = useState<string | null>(null)
+  // The header's Refresh: spins while the status is re-read (at least long
+  // enough to see), then shows a check for a moment.
+  const [refreshState, setRefreshState] = useState<'idle' | 'busy' | 'done'>('idle')
   const [initialLoading, setInitialLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -1521,7 +1524,16 @@ export default function Dashboard() {
 
   /* ---------------------------- header ------------------------------------ */
   const isRemote = !!activeServer?.isRemote
-  const refreshNow = () => { void fetchStatus(); void fetchComposedStatus() }
+  const refreshNow = async () => {
+    if (refreshState === 'busy') return
+    setRefreshState('busy')
+    const startedAt = Date.now()
+    await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
+    window.setTimeout(() => {
+      setRefreshState('done')
+      window.setTimeout(() => setRefreshState('idle'), 1500)
+    }, Math.max(0, 600 - (Date.now() - startedAt)))
+  }
   const openWipeDialog = () => {
     // The disabled flag is the affordance; this guard is the gate (a
     // disabled Radix menu item never selects, but the dialog it opens is
@@ -1655,12 +1667,17 @@ export default function Dashboard() {
       <Button
         variant="ghost"
         size="iconDense"
-        onClick={refreshNow}
+        onClick={() => { void refreshNow() }}
         disabled={loading !== null}
         aria-label={t('actions.refreshStatus')}
         aria-keyshortcuts="R"
+        aria-busy={refreshState === 'busy'}
+        title={t('actions.refreshStatus')}
+        data-refresh-state={refreshState}
       >
-        <RefreshCw aria-hidden="true" />
+        {refreshState === 'done'
+          ? <Check className="text-success" aria-hidden="true" />
+          : <RefreshCw className={refreshState === 'busy' ? 'animate-spin' : undefined} aria-hidden="true" />}
       </Button>
       {online && (
         <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
