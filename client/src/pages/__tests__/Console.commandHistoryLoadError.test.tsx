@@ -5,6 +5,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (round 5): fetchHistory's catch branch only fired a
 // toast (gone in a few seconds, and never seen at all if the collapsible
@@ -81,7 +82,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

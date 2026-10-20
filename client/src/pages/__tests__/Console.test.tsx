@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
 import { serverApi, serversApi, rconApi, configApi, ApiError, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // conv-hunt-pages-2 lens 3/4: the Server Log panel's "clear" button calls
 // POST /server/console-log/clear, which server/routes/server.js answers with
@@ -96,7 +97,7 @@ describe('Console -- server log clear button', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
@@ -115,7 +116,7 @@ describe('Console -- server log clear button', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
@@ -143,7 +144,7 @@ describe('Console -- server log clear button', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
           <Toaster />
         </ConfirmProvider>
       </TooltipProvider>,
@@ -180,7 +181,7 @@ describe('Console -- server log path display', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
@@ -231,7 +232,7 @@ describe('Console -- RCON disconnected banner reason', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
@@ -258,7 +259,7 @@ describe('Console -- RCON disconnected banner reason', () => {
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )

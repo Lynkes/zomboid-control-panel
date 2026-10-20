@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
 import enErrors from '../../locales/en/errors.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // PT3 (security sweep 2026-10-05, final round): when the panel won't read a
 // server's console log -- its data folder no longer meets the data-folder
@@ -64,7 +65,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

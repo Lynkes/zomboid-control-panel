@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (console page hunt): the Quick Commands row offered
 // "Server Info" (`serverinfo`) and "Get Memory" (`getmemory`). Neither is a
@@ -65,15 +66,15 @@ describe('Console.tsx: quick command buttons only fill commands PZ really has', 
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
     fireEvent.mouseDown(await screen.findByRole('tab', { name: /rcon console/i }), { button: 0 })
 
     const input = (await screen.findByLabelText(/rcon command input/i)) as HTMLInputElement
-    // The quick row is the buttons between the "quick" label and the command box.
-    const label = await screen.findByText(/^quick$/i)
+    // The quick row is the buttons between the "Quick commands" label and the command box.
+    const label = await screen.findByText(/^quick commands$/i)
     const buttons = Array.from(label.parentElement!.querySelectorAll('button')).filter(
       (b) => b.textContent && b.textContent.trim().length > 0,
     )
