@@ -56,6 +56,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
 - **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
 - **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
+- **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
+- **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
+
+### Security
+
+- **Demo site deploy:** the client build that publishes the demo runs without a write token; a separate job with no npm code publishes it.
+- **Docker `:latest` is the newest release:** main-branch builds now publish `:main`/`:edge` only; dependency updates wait 7 days, only npm patch/minor updates auto-merge, and release builds and images install exactly what the lockfiles pin.
+- **Steam Sync extension:** sends the panel password and Steam cookies over plain HTTP only to a panel on your own network (or one address you explicitly allow); anything else needs HTTPS, and a URL typed without a scheme defaults to HTTPS.
+- **Docker images:** base images are pinned by digest and the all-in-one image takes Node.js from the official Node image instead of running NodeSource's setup script as root.
+- **All-in-one installer:** the install command now fetches `bootstrap.sh` from the latest release (attached to it and listed in `checksums.txt`) instead of `main`, and the `.env` holding the updater token is created owner-only.
+- **PanelBridge ignores client commands:** the server-side bridge no longer stores the unused teleport acknowledgement any connected player could send.
+- **PanelBridge Workshop download check:** Settings › PanelBridge warns when the Workshop item a server downloaded holds server Lua other than the published file for its version.
 
 ## [1.4.17] - 2026-10-18
 

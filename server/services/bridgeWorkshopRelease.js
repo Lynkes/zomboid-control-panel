@@ -30,6 +30,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // its plain decimal form. The heartbeat reports that form, and the status
 // compares the two as strings, so "03712345678" would never confirm.
 const WORKSHOP_ID_RE = /^[1-9]\d{0,19}$/;
+// sha256 (hex) of the PanelBridge.lua the published version put on the
+// Workshop, recorded by scripts/workshop/publish.mjs.
+const SHA256_RE = /^[0-9a-f]{64}$/;
 const MAX_STEAM_ID = 18446744073709551615n;
 const VISIBILITIES = new Set(["public", "unlisted"]);
 
@@ -77,6 +80,7 @@ function emptyRelease(source) {
     visibility: null,
     publishedVersion: null,
     publishedAt: null,
+    serverLuaSha256: null,
     preview: true,
     linuxChecksumVerified: false,
   };
@@ -110,6 +114,15 @@ function computeRelease() {
     }
     const liveVerified = doc.liveVerified && typeof doc.liveVerified === "object" ? doc.liveVerified : {};
     const workshopId = doc.workshopId || null;
+    // Only ever a check of what the server downloaded (a warning on a
+    // mismatch), never a reason to refuse the release: a malformed value is
+    // dropped and the check skipped.
+    let serverLuaSha256 = null;
+    if (typeof doc.serverLuaSha256 === "string" && SHA256_RE.test(doc.serverLuaSha256)) {
+      serverLuaSha256 = doc.serverLuaSha256;
+    } else if (doc.serverLuaSha256 !== null && doc.serverLuaSha256 !== undefined) {
+      log.error(`Ignoring serverLuaSha256 in the PanelBridge Workshop release data (${base.source}): not a sha256 hex digest`);
+    }
     release = {
       status: workshopId ? "published" : "not-published",
       source: base.source,
@@ -118,6 +131,7 @@ function computeRelease() {
       visibility: VISIBILITIES.has(doc.visibility) ? doc.visibility : null,
       publishedVersion: typeof doc.publishedVersion === "string" ? doc.publishedVersion : null,
       publishedAt: typeof doc.publishedAt === "string" ? doc.publishedAt : null,
+      serverLuaSha256: publishedVersionIsString(doc) ? serverLuaSha256 : null,
       // Preview until the maintainer has recorded a live test on BOTH server
       // OSes -- the Linux-server/Windows-client checksum is the one result
       // that can't be settled from the jar.
@@ -145,8 +159,17 @@ function applyEnvOverride(release) {
     status: "published",
     source: "env",
     workshopId: override,
+    // Another item under test: the released item's checksum says nothing
+    // about it.
+    serverLuaSha256: null,
     preview: true,
   };
+}
+
+// The checksum describes one version's file; without that version it can't
+// be compared with anything.
+function publishedVersionIsString(doc) {
+  return typeof doc.publishedVersion === "string" && doc.publishedVersion.length > 0;
 }
 
 export function getWorkshopRelease() {

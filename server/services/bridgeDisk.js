@@ -396,7 +396,7 @@ function readModVersion(lines) {
 // A downloaded item folder counts as PanelBridge's only when one of its
 // mods declares id=ZCPB in a B42-loadable place
 // (common/ or a numeric version folder -- the game ignores a root
-// mod.info). Returns { version } or null.
+// mod.info). Returns { version, modPath } or null.
 function inspectBridgeItemFolder(folder) {
   for (const modDir of childDirectories(path.join(folder, "mods"))) {
     const modPath = path.join(folder, "mods", modDir);
@@ -406,7 +406,7 @@ function inspectBridgeItemFolder(folder) {
       if (!lines) continue;
       const idLine = lines.find((line) => line.startsWith("id="));
       if (idLine && idLine.slice(3).trim() === BRIDGE_MOD_ID) {
-        return { version: readModVersion(lines) };
+        return { version: readModVersion(lines), modPath };
       }
     }
   }
@@ -438,6 +438,92 @@ export function detectWorkshopItem(installDir, workshopId, { zomboidDataPath = n
     if (found) return { folder, version: found.version, source: "candidate" };
   }
   return null;
+}
+
+// Bounds for checkWorkshopItemServerLua()'s walk of a downloaded item.
+const ITEM_SCAN_MAX_DEPTH = 8;
+const ITEM_SCAN_MAX_FILES = 200;
+const ITEM_LUA_MAX_BYTES = 16 * 1024 * 1024;
+const ITEM_BRIDGE_LUA = "server/panelbridge.lua";
+
+// Every .lua file under media/lua/server and media/lua/shared of each layer
+// of the mod (common/ and the numeric version folders): what a dedicated
+// server runs from it. Folder names match ignoring case, as on Windows.
+// Paths come back relative to media/lua, lower-cased.
+function listItemServerLua(modPath) {
+  const found = [];
+  let complete = true;
+  const walk = (dir, relative, depth) => {
+    if (depth > ITEM_SCAN_MAX_DEPTH) {
+      complete = false;
+      return;
+    }
+    for (const name of readDirNames(dir)) {
+      if (found.length > ITEM_SCAN_MAX_FILES) {
+        complete = false;
+        return;
+      }
+      const fullPath = path.join(dir, name);
+      const rel = `${relative}/${name.toLowerCase()}`;
+      if (isKind(fullPath, true)) walk(fullPath, rel, depth + 1);
+      else if (rel.endsWith(".lua")) found.push({ fullPath, rel });
+    }
+  };
+  for (const layer of childDirectories(modPath)) {
+    if (layer !== "common" && !/^\d+(\.\d+)*$/.test(layer)) continue;
+    for (const mediaDir of childrenNamed(path.join(modPath, layer), "media", true)) {
+      for (const luaDir of childrenNamed(mediaDir, "lua", true)) {
+        for (const side of ["server", "shared"]) {
+          for (const sideDir of childrenNamed(luaDir, side, true)) walk(sideDir, side, 1);
+        }
+      }
+    }
+  }
+  return { files: found, complete };
+}
+
+function sha256OfFile(filePath) {
+  try {
+    // codeql[js/path-injection] filePath is a .lua file found by listing a Workshop item folder (the server's own log line, or a SteamCMD folder beside the admin-configured install joined with the numeric Workshop id) -- read-only, and only hashed.
+    if (fs.statSync(filePath).size > ITEM_LUA_MAX_BYTES) return null;
+    // codeql[js/path-injection] same file as the statSync above.
+    return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the PanelBridge Lua a server downloaded from the Workshop is the
+ * file this panel release recorded for that version (published.json's
+ * serverLuaSha256, written when it was published). Checked only when the
+ * item holds exactly that version: "unverified" otherwise, or when nothing
+ * was recorded. "mismatch" when the server-side Lua of the item is anything
+ * but media/lua/server/PanelBridge.lua with the recorded bytes -- another
+ * .lua under server/ or shared/ (in common/ or a version folder) runs on the
+ * server just the same. The status only warns about it; nothing is blocked.
+ */
+export function checkWorkshopItemServerLua(item, { expectedSha256 = null, expectedVersion = null } = {}) {
+  if (!item?.folder || !expectedSha256 || !expectedVersion || item.version !== expectedVersion) {
+    return { integrity: "unverified", serverLuaSha256: null };
+  }
+  const found = inspectBridgeItemFolder(item.folder);
+  if (!found) return { integrity: "mismatch", serverLuaSha256: null };
+  const { files, complete } = listItemServerLua(found.modPath);
+  let serverLuaSha256 = null;
+  let matches = complete && files.length > 0;
+  for (const file of files) {
+    const hash = file.rel === ITEM_BRIDGE_LUA ? sha256OfFile(file.fullPath) : null;
+    if (hash && !serverLuaSha256) serverLuaSha256 = hash;
+    if (hash !== expectedSha256) matches = false;
+  }
+  if (!matches) {
+    log.warn(
+      `Workshop item ${item.folder} (PanelBridge ${item.version}) holds server Lua that differs from the published ` +
+        `version (${files.map((file) => file.rel).join(", ") || "no PanelBridge.lua"})`,
+    );
+  }
+  return { integrity: matches ? "verified" : "mismatch", serverLuaSha256 };
 }
 
 // Mount discovery's "does this install already carry PanelBridge" answer,

@@ -385,6 +385,7 @@ import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/lead
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
 import { resolvePzMemoryBytes } from "./utils/pzProcessMemory.js";
+import { recordPanelPort } from "./utils/panelPortFile.js";
 import {
   isAllInOneContainer,
   saveAndStopLocalServers,
@@ -4720,6 +4721,8 @@ async function start() {
         const address = httpServer.address();
         const boundPort = address && typeof address === "object" ? address.port : listenPort;
         activePanelPort = boundPort;
+        // For the container HEALTHCHECK (docker/healthcheck.cjs).
+        recordPanelPort(boundPort, { log });
         if (listenPort === 0 && !process.env.PORT && boundPort !== PORT) {
           await setSetting("panelPort", boundPort);
           await flushWrites();

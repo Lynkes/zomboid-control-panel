@@ -11,6 +11,13 @@ case "$puid:$pgid" in
     ;;
 esac
 
+# The panel writes the port it listens on here for the HEALTHCHECK. One left
+# by an earlier start (another port, another PUID that the new one can't
+# overwrite) must not be read in its place.
+if [ -n "${PANEL_PORT_FILE:-}" ]; then
+  rm -f -- "$PANEL_PORT_FILE" 2>/dev/null || true
+fi
+
 # Orchestrators such as Kubernetes can pin a non-root UID/GID through the pod
 # securityContext. The container is then already at its target identity and has
 # neither CAP_CHOWN nor CAP_SETGID, so chown and setpriv would both fail.

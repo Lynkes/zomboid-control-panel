@@ -99,6 +99,10 @@ label > span {
   margin-bottom: 4px;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 label.checkbox {
   display: flex;
   align-items: center;

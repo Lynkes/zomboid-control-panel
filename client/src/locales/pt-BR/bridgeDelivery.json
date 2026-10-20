@@ -141,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "A Steam informa que o item da Workshop do PanelBridge está indisponível. O servidor não inicia até ele voltar ou até você mudar para instalado pelo painel.",
+    "workshopItemModified": "Os arquivos do PanelBridge {{version}} que o servidor baixou da Steam Workshop não correspondem ao que foi publicado para essa versão (pasta: {{folder}}). O item da Workshop ou os arquivos baixados podem ter sido alterados. Até verificar, mude para instalado pelo painel, que usa a cópia que acompanha o painel.",
     "steamModeOff": "Este servidor roda sem a Steam, então não consegue baixar o PanelBridge da Workshop. O jogo só liga a Steam quando o Java é iniciado com -Dzomboid.steam=1 e o servidor não é iniciado com -nosteam: adicione -Dzomboid.steam=1 à linha do java no script de inicialização ou no comando de inicialização deste servidor, remova o -nosteam se ele estiver lá e depois reinicie o servidor.",
     "steamListingHidden": "A página pública da Steam não mostra o item da Workshop do PanelBridge no momento. Isso pode acontecer enquanto a Steam analisa um item novo ou atualizado, ou com um item não listado, e os servidores ainda conseguem baixá-lo. Se uma inicialização falhar por causa disso, esta página vai avisar.",
     "autoRestartOn": "As atualizações do PanelBridge reiniciam este servidor automaticamente (Configurações › Mods e Workshop).",

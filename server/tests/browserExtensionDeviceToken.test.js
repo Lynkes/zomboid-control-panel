@@ -19,10 +19,15 @@ const POPUP = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../../browser-extension/popup.js",
 );
+// popup.html loads the URL policy first; popup.js calls into it.
+const URL_POLICY = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../../browser-extension/urlPolicy.js",
+);
 
 function loadPopup() {
   const storage = {};
-  const element = () => ({ value: "", checked: false, disabled: false, addEventListener() {} });
+  const element = () => ({ value: "", checked: false, disabled: false, hidden: false, dataset: {}, addEventListener() {} });
   const responses = [];
   const fetch = vi.fn(async () => {
     const body = responses.shift();
@@ -49,7 +54,9 @@ function loadPopup() {
     },
     document: { getElementById: element, addEventListener() {} },
     fetch,
+    URL,
   });
+  vm.runInContext(fs.readFileSync(URL_POLICY, "utf8"), context, { filename: URL_POLICY });
   vm.runInContext(fs.readFileSync(POPUP, "utf8"), context, { filename: POPUP });
   return {
     login: (panelUrl, username) => context.loginToPanel(panelUrl, username, "panel-password"),
@@ -69,40 +76,40 @@ beforeEach(() => {
 describe("Steam Sync extension: trusted-device token", () => {
   it("keeps the token a sign-in returns and sends it with the next sign-in to that panel and username", async () => {
     popup.respondWith({ accessToken: "access-1", deviceToken: "device-1" });
-    await expect(popup.login("http://garage:3001", "Admin")).resolves.toBe("access-1");
+    await expect(popup.login("http://192.168.1.20:3001", "Admin")).resolves.toBe("access-1");
     expect(popup.sentDeviceToken(0)).toBeUndefined();
 
     popup.respondWith({ accessToken: "access-2", deviceToken: "device-2" });
-    await popup.login("http://garage:3001", "admin");
+    await popup.login("http://192.168.1.20:3001", "admin");
     expect(popup.sentDeviceToken(1)).toBe("device-1");
 
     // The newest one replaces it.
     popup.respondWith({ accessToken: "access-3" });
-    await popup.login("http://garage:3001", "admin");
+    await popup.login("http://192.168.1.20:3001", "admin");
     expect(popup.sentDeviceToken(2)).toBe("device-2");
   });
 
   it("never sends one panel's or account's token to another", async () => {
     popup.respondWith({ accessToken: "access-1", deviceToken: "device-garage-admin" });
-    await popup.login("http://garage:3001", "admin");
+    await popup.login("http://192.168.1.20:3001", "admin");
 
     popup.respondWith({ accessToken: "access-2" });
     await popup.login("https://vps.example:3001", "admin");
     expect(popup.sentDeviceToken(1)).toBeUndefined();
 
     popup.respondWith({ accessToken: "access-3" });
-    await popup.login("http://garage:3001", "mod");
+    await popup.login("http://192.168.1.20:3001", "mod");
     expect(popup.sentDeviceToken(2)).toBeUndefined();
   });
 
   it("keeps at most 10, and ignores what isn't a token", async () => {
     for (let i = 0; i < 12; i++) {
       popup.respondWith({ accessToken: `access-${i}`, deviceToken: i === 11 ? { not: "a token" } : `device-${i}` });
-      await popup.login(`http://panel-${i}:3001`, "admin");
+      await popup.login(`http://10.0.0.${i}:3001`, "admin");
     }
     expect(Object.keys(popup.storage.deviceTokens)).toHaveLength(10);
     popup.respondWith({ accessToken: "access-again" });
-    await popup.login("http://panel-10:3001", "admin");
+    await popup.login("http://10.0.0.10:3001", "admin");
     expect(popup.sentDeviceToken(12)).toBe("device-10");
   });
 });
@@ -118,9 +125,9 @@ describe("Steam Sync extension: trusted-device token", () => {
 describe("Steam Sync extension: credentials for a proxy in front of the panel", () => {
   it("signs in and pushes in the default credentials mode", async () => {
     popup.respondWith({ accessToken: "access-1" });
-    await popup.login("http://garage:3001", "admin");
+    await popup.login("http://192.168.1.20:3001", "admin");
     popup.respondWith({ ok: true });
-    await popup.push("http://garage:3001", "access-1");
+    await popup.push("http://192.168.1.20:3001", "access-1");
 
     expect(popup.fetchOptions(0)).not.toHaveProperty("credentials");
     expect(popup.fetchOptions(1)).not.toHaveProperty("credentials");

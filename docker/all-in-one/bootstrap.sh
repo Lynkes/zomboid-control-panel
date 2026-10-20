@@ -51,6 +51,11 @@ fi
 
 if [ ! -f "$CONTEXT_DIR/.env" ]; then
   TOKEN="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+  # The file holds the updater token (the updater can rebuild and replace the
+  # panel container): create it owner-only from the first byte, not 0644
+  # until the chmod below. The umask is the subshell's alone.
+  (
+  umask 077
   cat > "$CONTEXT_DIR/.env" <<EOF
 CORS_ORIGINS=${CORS_ORIGINS:-$default_origins}
 TRUST_PROXY=${TRUST_PROXY:-false}
@@ -61,6 +66,7 @@ PANEL_LAN_IP=$detected_lan_ip
 PANEL_WAN_IP=${PANEL_WAN_IP:-}
 PZ_GAME_PORTS=${PZ_GAME_PORTS:-16261-16270}
 EOF
+  )
   chmod 600 "$CONTEXT_DIR/.env"
   echo "Created $CONTEXT_DIR/.env."
 else

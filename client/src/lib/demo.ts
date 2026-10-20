@@ -575,6 +575,7 @@ export function getDemoBridgeDelivery(): DeliveryStatus {
       visibility: null,
       publishedVersion: null,
       publishedAt: null,
+      serverLuaSha256: null,
       preview: true,
       linuxChecksumVerified: false,
     },
