@@ -68,4 +68,46 @@ describe("governedIniKeysChanged", () => {
     expect(governedIniKeysChanged(live, `${live}RCONPortExtra=5\nMyRCONPort=7\n`)).toEqual([]);
     expect(governedIniKeysChanged("", "")).toEqual([]);
   });
+
+  // SECURITY (2026-10-20): 42.21's ConfigFile.read (run from
+  // projectzomboid.jar on the game's Java 25 runtime) reads
+  // "\u0001RCONPassword=x" as RCONPassword=x: Java's String.trim() removes
+  // every char up to U+0020 from the line. JavaScript's trim() keeps the
+  // control chars, so this check used to see an unknown key and let a
+  // serverfiles.manage caller rewrite the RCON password and ports.
+  const controlChars = [];
+  for (let code = 0; code <= 0x1f; code++) {
+    if (code !== 0x0a && code !== 0x0d) controlChars.push(String.fromCharCode(code));
+  }
+
+  it.each(controlChars.map((ch) => [ch.charCodeAt(0).toString(16).padStart(4, "0"), ch]))(
+    "sees a governed line behind U+%s, as the game does",
+    (_code, ch) => {
+      const next =
+        `${live}${ch}RCONPassword=evil\n${ch}${ch}RCONPort=1\n${ch} DefaultPort=2\n` +
+        ` ${ch}UDPPort=3\n${ch}UPnP=false${ch}\n`;
+      expect(governedIniKeysChanged(live, next)).toEqual([
+        "RCONPassword",
+        "RCONPort",
+        "DefaultPort",
+        "UDPPort",
+        "UPnP",
+      ]);
+    },
+  );
+
+  it("sees a governed line added after a ';' line, and reads ';' lines as the game does", () => {
+    // The game reads ";RCONPort=1" as an option named ";RCONPort", so it
+    // changes nothing governed, but the line after it still counts.
+    expect(governedIniKeysChanged(live, `${live};RCONPort=1\n`)).toEqual([]);
+    expect(governedIniKeysChanged(live, `${live};\n\u0001RCONPort=1\n`)).toEqual(["RCONPort"]);
+  });
+
+  it("ignores what the game ignores: a control char after the name, or a no-break space before it", () => {
+    // 42.21 reads "RCONPort\u0001=1" as an option "RCONPort\u0001", and
+    // "\u00A0\u0001RCONPort=1" under a name starting with the no-break space.
+    expect(governedIniKeysChanged(live, `${live}RCONPort\u0001=1\n`)).toEqual([]);
+    expect(governedIniKeysChanged(live, `${live}\u00A0\u0001RCONPort=1\n`)).toEqual([]);
+    expect(governedIniKeysChanged(live, `${live}\u0001#RCONPort=1\n`)).toEqual([]);
+  });
 });

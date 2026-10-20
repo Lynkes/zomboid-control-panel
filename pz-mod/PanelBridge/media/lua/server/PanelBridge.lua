@@ -6,6 +6,16 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Fix: a character import can no longer freeze the server.
+                    importPlayerData levelled each perk once per level in the
+                    file, so a level of 1e9 ran a billion LevelPerk calls on
+                    the game thread. Perk levels are now clamped to 0..10
+                    (the game's range), and the item count, condition, uses
+                    and job/use deltas to their own ranges. Import data,
+                    options or a perk entry that isn't a table no longer
+                    stops the whole handler.
+
                 v1.7.77 Changes:
                 - Add: bounded per-player kill-counter audit events to
                     leaderboard diagnostics, including before/after totals.
@@ -6223,16 +6233,33 @@ end
 -- PLAYER IMPORT (restore)
 -- ============================================
 
+-- A skill's level in the game runs 0..10.
+local IMPORT_PERK_LEVEL_MAX = 10
+
+-- A number from an import file, clamped to minValue..maxValue; `default`
+-- when it is no number at all (nil, a word, NaN). Import files come from
+-- outside the game, so every count and level is bounded before it drives a
+-- loop or a setter: a perk level of 1e9 used to run a billion LevelPerk
+-- calls on the game thread.
+local function clampImportNumber(value, default, minValue, maxValue)
+    local n = tonumber(value)
+    if n == nil or n ~= n then return default end
+    if n < minValue then return minValue end
+    if n > maxValue then return maxValue end
+    return n
+end
+
 -- Import/restore player data (skills and inventory)
 handlers.importPlayerData = function(args)
     local username = args.username
     local data = args.data
-    local options = args.options or {}
+    local options = args.options
+    if type(options) ~= "table" then options = {} end
 
     if not username then
         return false, nil, "Username required"
     end
-    if not data then
+    if type(data) ~= "table" then
         return false, nil, "Import data required"
     end
 
@@ -6250,9 +6277,16 @@ handlers.importPlayerData = function(args)
     -- have taken the whole handler down with it, including the inventory
     -- restore below, which is logically independent (gated on its own
     -- data.inventory check).
-    if data.perks and options.restorePerks ~= false then
+    if type(data.perks) == "table" and options.restorePerks ~= false then
         local xp = PanelBridge.tryGet(player, "getXp")
         for perkName, perkData in pairs(data.perks) do
+            -- A whole level from 0 to IMPORT_PERK_LEVEL_MAX, or nil (the
+            -- perk is skipped) when the entry has no number for it.
+            local level = nil
+            if type(perkData) == "table" then
+                level = clampImportNumber(perkData.level, nil, 0, IMPORT_PERK_LEVEL_MAX)
+                if level then level = math.floor(level) end
+            end
             -- Guards the TABLE INDEX itself -- Perks[perkName] is a bare Lua
             -- table index, not covered by the per-perk pcall below (which
             -- only starts after this line). Same shape as the already-fixed
@@ -6261,7 +6295,7 @@ handlers.importPlayerData = function(args)
             -- below too even though it's logically independent (gated on
             -- its own data.inventory check).
             local perkOk, perk = pcall(function() return Perks[perkName] end)
-            if perkOk and perk and perkData.level then
+            if perkOk and perk and level then
                 -- Use pcall for safety
                 pcall(function()
                     -- Reset perk to 0 first
@@ -6274,7 +6308,7 @@ handlers.importPlayerData = function(args)
                     -- https://demiurgequantified.github.io/ProjectZomboidJavaDocs/zombie/characters/IsoGameCharacter.html#LevelPerk(zombie.characters.skills.PerkFactory.Perk)
                     -- vs the 2-arg overload used for automatic/passive
                     -- level-ups that shouldn't cost a point).
-                    for lvl = 1, perkData.level do
+                    for lvl = 1, level do
                         player:LevelPerk(perk, false)
                     end
                     -- Count the restore here, once the real, provable action
@@ -6307,7 +6341,7 @@ handlers.importPlayerData = function(args)
                     -- un-count a level change that genuinely already
                     -- happened.
                     if xp then
-                        pcall(function() xp:setXPToLevel(perk, perkData.level) end)
+                        pcall(function() xp:setXPToLevel(perk, level) end)
                     end
                 end)
             end
@@ -6331,7 +6365,8 @@ handlers.importPlayerData = function(args)
                         -- skip malformed entries
                     else
                         local ok, result = pcall(function()
-                            local count = math.min(itemData.count or 1, 100) -- Clamp to prevent server freeze
+                            -- Clamp to prevent server freeze
+                            local count = math.floor(clampImportNumber(itemData.count, 1, 0, 100))
                             for c = 1, count do
                                 if totalAdded >= MAX_ITEMS then break end
                                 local newItem = container:AddItem(itemData.fullType)
@@ -6341,25 +6376,35 @@ handlers.importPlayerData = function(args)
                                     -- Probe through invoke() instead of using
                                     -- `newItem.setCondition`-style guards,
                                     -- which silently skip real setters.
-                                    if itemData.condition then
-                                        PanelBridge.invoke(newItem, "setCondition", itemData.condition)
+                                    -- Condition and uses stay within the
+                                    -- item's own maximum (1000 when it
+                                    -- can't be read); the deltas are 0..1.
+                                    local condition = clampImportNumber(itemData.condition, nil, 0,
+                                        tonumber(PanelBridge.tryGet(newItem, "getConditionMax")) or 1000)
+                                    if condition then
+                                        PanelBridge.invoke(newItem, "setCondition", math.floor(condition))
                                     end
                                     -- Set uses if available (for drainable items)
-                                    if itemData.uses then
-                                        PanelBridge.invoke(newItem, "setCurrentUses", itemData.uses)
+                                    local uses = clampImportNumber(itemData.uses, nil, 0,
+                                        tonumber(PanelBridge.tryGet(newItem, "getMaxUses")) or 1000)
+                                    if uses then
+                                        PanelBridge.invoke(newItem, "setCurrentUses", math.floor(uses))
                                     end
                                     -- setDelta() does not exist either (same jar check as the
                                     -- export side, see serializeInventory) -- restore the two
                                     -- real fields a newer export may carry instead.
-                                    if itemData.jobDelta then
-                                        PanelBridge.invoke(newItem, "setJobDelta", itemData.jobDelta)
+                                    local jobDelta = clampImportNumber(itemData.jobDelta, nil, 0, 1)
+                                    if jobDelta then
+                                        PanelBridge.invoke(newItem, "setJobDelta", jobDelta)
                                     end
-                                    if itemData.useDelta then
-                                        PanelBridge.invoke(newItem, "setUseDelta", itemData.useDelta)
+                                    local useDelta = clampImportNumber(itemData.useDelta, nil, 0, 1)
+                                    if useDelta then
+                                        PanelBridge.invoke(newItem, "setUseDelta", useDelta)
                                     end
                                     -- Set delta if available
-                                    if itemData.delta then
-                                        PanelBridge.invoke(newItem, "setDelta", itemData.delta)
+                                    local delta = clampImportNumber(itemData.delta, nil, 0, 1)
+                                    if delta then
+                                        PanelBridge.invoke(newItem, "setDelta", delta)
                                     end
                                     -- Handle container contents (bags) with depth limit
                                     if itemData.contents and type(itemData.contents) == "table" then

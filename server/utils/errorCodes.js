@@ -1690,6 +1690,12 @@ export const ErrorCode = Object.freeze({
    * has none of the recognised sections. Sends
    * `{ sections: validSections.join(", ") }`. */
   PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION: "PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION",
+  /** 400, server/routes/panelBridge.js (utils/characterImport.js says
+   * why) -- POST /character/import or POST
+   * /command importPlayerData: `data.perks` is not an object of perk
+   * entries, or an entry's level is not a whole number from 0 to 10 (a huge
+   * level used to freeze the game server, one LevelPerk call per level). */
+  PANELBRIDGE_CHARACTER_PERK_INVALID: "PANELBRIDGE_CHARACTER_PERK_INVALID",
   /** server/routes/panelBridge.js -- POST /zombies/clear-near (or
    * similar), `count` outside 1-100. */
   PANELBRIDGE_HORDE_COUNT_INVALID: "PANELBRIDGE_HORDE_COUNT_INVALID",
@@ -1759,6 +1765,11 @@ export const ErrorCode = Object.freeze({
    * changed again, or the panel restarted since the refusal), so nothing
    * was pinned. The operator runs Verify again and compares the new key. */
   SFTP_HOST_KEY_NOT_PRESENTED: "SFTP_HOST_KEY_NOT_PRESENTED",
+  /** 400, utils/sftpSavedTarget.js -- a PanelBridge SFTP request (Verify,
+   * Start, remote logs, remote config) or an app-settings save names another
+   * host, port or username than the saved ones without entering a password:
+   * the saved password is only used with the saved target. */
+  SFTP_PASSWORD_REQUIRED: "SFTP_PASSWORD_REQUIRED",
   /** Same file, sibling of SFTP_CHROOTED_ACCOUNT above -- wrong username or
    * password, or the account can't complete the SSH handshake at all. */
   SFTP_AUTH_FAILED: "SFTP_AUTH_FAILED",

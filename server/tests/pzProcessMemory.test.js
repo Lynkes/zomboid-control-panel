@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import { DockerClient } from "../services/dockerClient.js";
 import {
   parseProcStatusRssBytes,
   parsePsRssBytes,
@@ -144,6 +148,38 @@ describe("resolvePzMemoryBytes", () => {
     });
 
     expect(bytes).toBe(123);
+  });
+
+  // SECURITY (2026-10-20): the profile's container name went straight to
+  // Docker's stats endpoint, without the zomboid-panel.managed label check
+  // the Docker page, its logs and its actions make. The real client now
+  // reads stats only for a labelled container.
+  it("never reads the stats of a container the panel does not manage", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-memory-docker-"));
+    const socketPath = path.join(tmpDir, "docker.sock");
+    fs.writeFileSync(socketPath, "");
+    try {
+      const dockerClient = new DockerClient({ socketPath, enabled: true });
+      const requested = [];
+      vi.spyOn(dockerClient, "_requestJson").mockImplementation(async (_method, requestPath) => {
+        requested.push(requestPath);
+        if (requestPath.endsWith("/json")) return { Id: "abc123", Labels: {} };
+        return { memory_stats: { usage: 9_000_000_000 } };
+      });
+      const readMemory = vi.fn(async () => 123);
+
+      const bytes = await resolvePzMemoryBytes({
+        activeServer: { id: "d", dockerContainerName: "someone-elses-db" },
+        serverManager: { getServerProcessDetails: async () => details() },
+        dockerClient,
+        readMemory,
+      });
+
+      expect(bytes).toBe(123);
+      expect(requested).toEqual(["/containers/someone-elses-db/json"]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

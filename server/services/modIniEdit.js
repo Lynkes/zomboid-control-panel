@@ -1,6 +1,6 @@
 import { splitIniList, splitModIdTokens } from "../utils/modIni.js";
 import { sanitizeIniList, sanitizeIniValue } from "../utils/sanitize.js";
-import { sanitizeModIdListWithDiskBypass } from "./workshopModInfo.js";
+import { isWritableMapFolderName, sanitizeModIdListWithDiskBypass } from "./workshopModInfo.js";
 
 // Pure edits of a server .ini's text for "add this workshop item": no file
 // access, no locking, no backup -- the caller owns those. POST /add-to-ini,
@@ -99,13 +99,17 @@ export function addWorkshopItemToIni(
     const mapMatch = text.match(MAP_RE);
     const currentMaps = mapMatch ? splitIniList(mapMatch[1]) : [...DEFAULT_MAPS];
     for (const folder of mapFolders) {
+      // SECURITY (2026-10-20): a folder name is Workshop content; one with a
+      // line break, ";" or "=" would add ini lines or entries, and the
+      // sanitizer below would write it as another name.
+      if (!isWritableMapFolderName(folder)) continue;
       if (!currentMaps.includes(folder)) {
         currentMaps.unshift(folder);
         addedMapFolders.push(folder);
       }
     }
     if (addedMapFolders.length > 0) {
-      text = setIniLine(text, MAP_LINE_RE, "Map", currentMaps.join(";"));
+      text = setIniLine(text, MAP_LINE_RE, "Map", sanitizeIniList(currentMaps));
     }
   }
 

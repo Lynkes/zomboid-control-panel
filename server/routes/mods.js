@@ -3314,7 +3314,7 @@ router.post("/remove-from-ini", async (req, res) => {
             currentMaps = ["Muldraugh, KY"];
           }
 
-          const newMapList = currentMaps.join(";");
+          const newMapList = sanitizeIniList(currentMaps);
           if (mapMatch) {
             content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
           } else {
@@ -3690,7 +3690,7 @@ router.post("/repair-map-entries", async (req, res) => {
 
       let backupWarning = null;
       if (removedEntries.length > 0 || addedEntries.length > 0) {
-        const newMapLine = validEntries.join(";");
+        const newMapLine = sanitizeIniList(validEntries);
         // Reuse mapMatch (computed above), same fix as this file's first
         // ini-write site.
         if (mapMatch) {
@@ -3982,9 +3982,9 @@ router.post("/add-missing-dep", async (req, res) => {
           if (mapMatch)
             content = content.replace(
               /^[ \t]*Map[ \t]*=.*/m,
-              () => `Map=${currentMaps.join(";")}`,
+              () => `Map=${sanitizeIniList(currentMaps)}`,
             );
-          else content += `\nMap=${currentMaps.join(";")}`;
+          else content += `\nMap=${sanitizeIniList(currentMaps)}`;
         }
       }
 
@@ -4159,7 +4159,7 @@ router.post("/add-all-resolved-deps", async (req, res) => {
         serverPath,
         modsBefore,
       );
-      const mapLine = currentMaps.join(";");
+      const mapLine = sanitizeIniList(currentMaps);
 
       // Reuse wsMatch/modsMatch/mapMatch (computed above) instead of a
       // separate .includes(), same fix as this file's first ini-write site.

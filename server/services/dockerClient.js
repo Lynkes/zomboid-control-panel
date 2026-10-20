@@ -209,12 +209,22 @@ export class DockerClient {
     }
   }
 
+  // SECURITY (2026-10-20): same fail-closed contract as getContainerLogs()
+  // below. The active server's telemetry (utils/pzProcessMemory.js) asks for
+  // the container a server profile names, and a profile's container name is
+  // not proof the panel may look at it: only a container labelled
+  // zomboid-panel.managed=true is read, by the Id the label check saw.
   async getContainerStats(containerId) {
     if (!this.available) return null;
+    if (typeof containerId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(containerId)) {
+      return null;
+    }
     try {
+      const container = await this.inspectManagedContainer(containerId);
+      if (!container) return null;
       const raw = await this._requestJson(
         "GET",
-        `/containers/${encodeURIComponent(containerId)}/stats?stream=false`,
+        `/containers/${encodeURIComponent(container.Id || containerId)}/stats?stream=false`,
       );
       return parseContainerStats(raw);
     } catch (error) {

@@ -48,6 +48,43 @@ import { parseBoundedInteger } from "../utils/queryNumbers.js";
 import { memoryMinExceedsMax, memoryMinExceedsMaxFields } from "../utils/memory.js";
 import { setSteamSessionCredentials } from "../services/steamSessionCredentials.js";
 import { KNOWN_HOSTS_SETTING } from "../services/sftpHostKeys.js";
+import { SFTP_PASSWORD_REQUIRED_MESSAGE, sftpTargetOf } from "../utils/sftpSavedTarget.js";
+
+const SFTP_TARGET_SETTING_KEYS = [
+  "panelBridgeSftpHost",
+  "panelBridgeSftpPort",
+  "panelBridgeSftpUsername",
+];
+
+// SECURITY (2026-10-20): the saved SFTP password belongs to the saved host,
+// port and username (utils/sftpSavedTarget.js). A save that moves any of them
+// to a new (non-empty) host while keeping the saved password would have the
+// bridge, Files and the config mirror log in there with it.
+function movesSftpTargetWithSavedPassword(entries, stored) {
+  if (!stored?.panelBridgeSftpPassword) return false;
+  if (!entries.some(([key]) => SFTP_TARGET_SETTING_KEYS.includes(key))) return false;
+  if (entries.some(([key]) => key === "panelBridgeSftpPassword")) return false;
+  const next = (key) => {
+    const entry = entries.find(([k]) => k === key);
+    return entry ? entry[1] : stored[key];
+  };
+  const before = sftpTargetOf(
+    stored.panelBridgeSftpHost,
+    stored.panelBridgeSftpPort,
+    stored.panelBridgeSftpUsername,
+  );
+  const after = sftpTargetOf(
+    next("panelBridgeSftpHost"),
+    next("panelBridgeSftpPort"),
+    next("panelBridgeSftpUsername"),
+  );
+  if (!after.host) return false;
+  return (
+    !Object.is(before.host, after.host) ||
+    !Object.is(before.port, after.port) ||
+    !Object.is(before.username, after.username)
+  );
+}
 
 // Local to this route: autoExportMaxPerPlayer has no counterpart check in
 // server.js (or anywhere else), so unlike the port/memory constants above
@@ -922,6 +959,14 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         code: ErrorCode.CONFIG_APP_SETTINGS_CAPABILITY_REQUIRED,
         params: sanitizeErrorParams({ detail }),
         missing: missingCapabilities,
+      });
+    }
+
+    // `filtered` holds no masked password: a resent mask keeps the saved one.
+    if (movesSftpTargetWithSavedPassword(filtered, currentSettings)) {
+      return res.status(400).json({
+        error: SFTP_PASSWORD_REQUIRED_MESSAGE,
+        code: ErrorCode.SFTP_PASSWORD_REQUIRED,
       });
     }
 
