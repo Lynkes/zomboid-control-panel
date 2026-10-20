@@ -15,6 +15,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'docker/entrypoint.sh'
+      - 'docker/healthcheck.cjs'
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'

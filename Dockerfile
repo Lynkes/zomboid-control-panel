@@ -99,6 +99,7 @@ COPY pz-mod/ ./pz-mod/
 # Runtime PUID/PGID support is handled before Node starts.
 COPY docker/entrypoint.sh /usr/local/bin/zomboid-panel-entrypoint
 RUN chmod 0755 /usr/local/bin/zomboid-panel-entrypoint
+COPY docker/healthcheck.cjs /usr/local/lib/zomboid-panel/healthcheck.cjs
 
 # The extension bundle is served when present, but its source is not currently
 # tracked in Git and `release/` is intentionally excluded from Docker builds.
@@ -120,12 +121,16 @@ EXPOSE 3001
 
 ENV NODE_ENV=production \
     PUID=1000 \
-    PGID=1000
+    PGID=1000 \
+    PANEL_PORT_FILE=/tmp/zomboid-panel.port
 
-# Healthcheck hits the unauthenticated /api/health endpoint.
 # start_period is generous because first-run DB init + JWT secret generation can be slow on cold disks.
+# Hits the unauthenticated /api/health on the port the panel really listens
+# on: it records that port in PANEL_PORT_FILE (PORT, the port saved in
+# Settings, 3001, or a free one it picked), and the check falls back to
+# PORT, then 3001, until it has.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD node -e "import('http').then(h => h.get('http://localhost:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1)))"
+    CMD ["node", "/usr/local/lib/zomboid-panel/healthcheck.cjs"]
 
 ENTRYPOINT ["/usr/local/bin/zomboid-panel-entrypoint"]
 CMD ["node", "server/index.js"]

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
 - **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
+- **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
 
 ### Security
 

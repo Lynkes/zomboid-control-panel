@@ -57,6 +57,7 @@ COPY --from=client-build /src/client/dist ./client/dist
 COPY pz-mod/ ./pz-mod/
 COPY browser-extension/ ./browser-extension/
 COPY docker/all-in-one/entrypoint.sh /entrypoint.sh
+COPY docker/healthcheck.cjs /usr/local/lib/zomboid-panel/healthcheck.cjs
 
 # setpriv (util-linux) is how the entrypoint drops to the steam user; fail the
 # build, not the first start, if a base image update ever drops it.
@@ -77,11 +78,16 @@ ENV NODE_ENV=production \
     PZ_PUBLISHED_GAME_PORTS=16261-16262 \
     PZ_SERVER_BAT=start-server.sh \
     RCON_HOST=127.0.0.1 \
-    RCON_PORT=27015
+    RCON_PORT=27015 \
+    PANEL_PORT_FILE=/tmp/zomboid-panel.port
 
 EXPOSE 3001 16261-16270/udp
 
+# Hits the unauthenticated /api/health on the port the panel really listens
+# on: it records that port in PANEL_PORT_FILE (PORT, the port saved in
+# Settings, 3001, or a free one it picked), and the check falls back to
+# PORT, then 3001, until it has.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD node -e "import('http').then(h => h.get('http://localhost:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1)))"
+    CMD ["node", "/usr/local/lib/zomboid-panel/healthcheck.cjs"]
 
 ENTRYPOINT ["/entrypoint.sh"]
