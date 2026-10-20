@@ -12,6 +12,7 @@ import {
   moveGroupBlock,
   moveGroupBlockTo,
   nameWords,
+  summarizeGroupConflicts,
 } from '../modGroupTools'
 
 const group = (id: string, modIds: string[], extra: Partial<ModGroup> = {}): ModGroup => ({
@@ -45,6 +46,18 @@ describe('membership', () => {
   })
 })
 
+describe('conflicts per group', () => {
+  it('counts conflicts inside a group and with mods outside it, and lists every mod involved', () => {
+    const pair = (a: string, b: string) => ({ modA: { modId: a }, modB: { modId: b } })
+    const summary = summarizeGroupConflicts(
+      [group('ki5', ['K1', 'K2']), group('quiet', ['Q'])],
+      [pair('K1', 'K2'), pair('K2', 'Other'), pair('X', 'Y')],
+    )
+    expect(summary.get('ki5')).toEqual({ internal: 1, external: 1, modIds: ['K1', 'K2', 'Other'] })
+    expect(summary.has('quiet')).toBe(false)
+  })
+})
+
 describe('auto-order members', () => {
   it('splits IDs and names into words, camelCase included', () => {
     expect(nameWords('KI5LibraryB42 - Core_Fix')).toEqual(['ki5', 'library', 'b42', 'core', 'fix'])
@@ -57,6 +70,7 @@ describe('auto-order members', () => {
     expect(memberTier('KI5Vehicles')).toBe(1)
     expect(memberTier('KI5AddOn')).toBe(2)
     expect(memberTier('KI5_Expanded')).toBe(2)
+    expect(memberTier('X', 'Brita Weapon Pack')).toBe(2)
     expect(memberTier('KI5Fixes')).toBe(3)
     expect(memberTier('X', 'Compatibility patch for Y')).toBe(3)
   })

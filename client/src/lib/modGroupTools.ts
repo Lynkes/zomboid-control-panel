@@ -60,11 +60,47 @@ export function groupsOfMods(modIds: readonly string[], membership: ReadonlyMap<
   return [...found.values()].sort((a, b) => (groupRank.get(a) ?? 0) - (groupRank.get(b) ?? 0))
 }
 
+// ── Conflicts per group ──────────────────────────────────────────────────────
+
+export interface GroupConflictSummary {
+  /** File conflicts between two members of the group. */
+  internal: number
+  /** File conflicts between a member and a mod outside the group. */
+  external: number
+  /** Every mod involved (members and their opponents), for the Conflicts view filter. */
+  modIds: string[]
+}
+
+/** File conflicts touching each group, from the conflict scan's pairs. Groups without any are left out. */
+export function summarizeGroupConflicts(
+  groups: readonly ModGroup[],
+  pairs: ReadonlyArray<{ modA: { modId: string }; modB: { modId: string } }>,
+): Map<string, GroupConflictSummary> {
+  const summary = new Map<string, GroupConflictSummary>()
+  for (const group of groups) {
+    const members = new Set(group.modIds)
+    let internal = 0
+    let external = 0
+    const involved = new Set<string>()
+    for (const pair of pairs) {
+      const a = members.has(pair.modA.modId)
+      const b = members.has(pair.modB.modId)
+      if (!a && !b) continue
+      if (a && b) internal++
+      else external++
+      involved.add(pair.modA.modId)
+      involved.add(pair.modB.modId)
+    }
+    if (internal + external > 0) summary.set(group.id, { internal, external, modIds: [...involved] })
+  }
+  return summary
+}
+
 // ── Auto-order members ───────────────────────────────────────────────────────
 
 /**
  * A member's tier from its ID and name: 0 library/framework/core/API, 1 main
- * mod, 2 add-on/expansion, 3 patch/fix/compat/tweak. A heuristic: the dialog
+ * mod, 2 add-on/expansion/pack, 3 patch/fix/compat/tweak. A heuristic: the dialog
  * shows the result before anything is saved.
  */
 export type MemberTier = 0 | 1 | 2 | 3
@@ -73,7 +109,10 @@ const LIBRARY_WORDS = new Set([
   'lib', 'libs', 'library', 'libraries', 'framework', 'frameworks', 'core', 'api', 'common', 'shared',
   'util', 'utils', 'utility', 'utilities', 'dependency', 'dependencies', 'resource', 'resources', 'assets',
 ])
-const ADDON_WORDS = new Set(['addon', 'addons', 'add', 'expansion', 'expansions', 'expanded', 'extra', 'extras', 'dlc', 'plugin', 'plugins', 'extension', 'extensions'])
+const ADDON_WORDS = new Set([
+  'addon', 'addons', 'add', 'expansion', 'expansions', 'expanded', 'extra', 'extras', 'dlc', 'plugin', 'plugins',
+  'extension', 'extensions', 'pack', 'packs',
+])
 const FIX_WORDS = new Set([
   'patch', 'patches', 'patched', 'fix', 'fixes', 'fixed', 'hotfix', 'compat', 'compatibility', 'tweak', 'tweaks',
   'bridge', 'override', 'overrides', 'integration',
