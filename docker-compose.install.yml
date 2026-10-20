@@ -4,7 +4,8 @@
 #   docker compose -f docker-compose.install.yml up -d
 #
 # The panel is available at http://localhost:3001. `pull_policy: always`
-# ensures every `up -d` fetches the newest published dashboard image.
+# ensures every `up -d` fetches the newest released dashboard image
+# (`:latest` follows release tags only; `:edge` is unreleased main).
 #
 # This installer is suitable when Project Zomboid runs on another machine, or
 # when you only need the panel first. For host PZ mounts and PanelBridge file

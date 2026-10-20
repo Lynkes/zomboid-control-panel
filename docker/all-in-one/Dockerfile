@@ -2,8 +2,10 @@ FROM node:22-bookworm-slim AS client-build
 
 WORKDIR /src
 COPY package.json ./
-COPY client/package.json client/package-lock.json* ./client/
-RUN cd client && npm install --no-audit --prefer-offline --include=optional
+# npm ci: exactly what client/package-lock.json pins (it carries the linux
+# gnu and musl entries of every platform package the build needs).
+COPY client/package.json client/package-lock.json ./client/
+RUN cd client && npm ci --no-audit --prefer-offline
 COPY client/ ./client/
 # Same reasoning as the root Dockerfile: the frontend and the backend must be given the SAME
 # build sha, or the build-compatibility gate compares "unknown" against a real sha and blocks
@@ -27,8 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --prefer-offline --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --prefer-offline --omit=dev
 
 COPY server/ ./server/
 COPY --from=client-build /src/client/dist ./client/dist

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **Demo site deploy:** the client build that publishes the demo runs without a write token; a separate job with no npm code publishes it.
+- **Docker `:latest` is the newest release:** main-branch builds now publish `:main`/`:edge` only; dependency updates wait 7 days, only npm patch/minor updates auto-merge, and release builds and images install exactly what the lockfiles pin.
 
 ## [1.4.17] - 2026-10-18
 

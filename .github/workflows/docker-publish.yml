@@ -22,16 +22,30 @@ on:
       - 'package-lock.json'
       - 'scripts/verify-package-version.mjs'
       - '.github/workflows/docker-publish.yml'
+  # Pull requests that change what goes into the image build it for both
+  # architectures without logging in or pushing, so a Dockerfile or
+  # dependency change is proven before it reaches main.
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'docker/entrypoint.sh'
+      - 'docker/healthcheck.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'client/package.json'
+      - 'client/package-lock.json'
+      - '.github/workflows/docker-publish.yml'
   workflow_dispatch:
 
 # Two quick pushes to main (a merge, then its release commit) could build
-# side by side, and whichever finished last would set `latest` and `main`,
+# side by side, and whichever finished last would set `main` and `edge`,
 # even the older commit. Runs for the same ref queue instead (a newer
 # pending run replaces an older pending one); a release tag has its own
-# group.
+# group. A pull request's newer push cancels its older build.
 concurrency:
   group: docker-publish-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -114,7 +128,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
+      # Never on a pull request: a fork's token is read-only, and even a
+      # same-repository change must merge before an image is published.
       - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -126,12 +143,21 @@ jobs:
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/zomboid-panel
+          # `latest` is the newest release, never an unreleased main commit:
+          # docker-compose.install.yml, docker-compose.yml and the Unraid
+          # template pull it (the installer with pull_policy: always), and a
+          # main push can carry a dependency update merged minutes earlier.
+          # Main pushes publish `main` and its alias `edge` instead. The
+          # flavor's automatic `latest` is off so this list is the only
+          # source of that tag.
+          flavor: latest=false
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,format=short
 
       - name: Build and push
@@ -145,7 +171,7 @@ jobs:
           # SteamCMD (no arm64 build of that either). The panel itself still
           # works there for remote-administering an amd64 PZ server elsewhere.
           platforms: linux/amd64,linux/arm64
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           # Pass the commit sha in: the image has no .git and no git binary, so
           # server/index.js cannot shell out for it. Without this the backend
           # reports an unknown build sha, which the frontend/backend

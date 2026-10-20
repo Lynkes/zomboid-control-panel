@@ -314,10 +314,13 @@ RCON shows connected.
   `docker compose up -d` tries to pull `ghcr.io/fpsacha/zomboid-panel:latest`
   first; if that fails (no tagged release yet, or a private fork without
   GHCR access), it builds from source automatically and tags the result the
-  same, so later `up -d` runs won't try to pull again. Each tagged release
-  also publishes a version-pinned image with a matching name (for example
-  `ghcr.io/fpsacha/zomboid-panel:1.2.4` — no `v` prefix, unlike the git tag
-  it's built from), if you'd rather pin a version than track `:latest`.
+  same, so later `up -d` runs won't try to pull again. `:latest` is the
+  newest release. Each tagged release also publishes a version-pinned image
+  with a matching name (for example `ghcr.io/fpsacha/zomboid-panel:1.2.4` —
+  no `v` prefix, unlike the git tag it's built from), if you'd rather pin a
+  version than track `:latest`. `:edge` (also published as `:main`)
+  follows every commit on `main` before it is released: use it only to test
+  a fix that isn't in a release yet.
 - **PanelBridge:** with the PZ install and data folders mounted, both
   install methods can work without editing files yourself. The panel
   copies `PanelBridge.lua` into the mounted install, or, for Steam
@@ -333,9 +336,10 @@ RCON shows connected.
   write PZ's files and PanelBridge goes on by hand, as in Path C.
 
 Maintainer invariant: the root and client package manifests and both lockfiles
-must carry the same version. The Docker workflows build `:latest` from
-`main`, so they reject a `main` version older than the latest GitHub release
-and require an exact match for `v*` tag builds. Check the local files with:
+must carry the same version. The Docker workflows build `:main`/`:edge`
+from `main` and `:latest` only from `v*` release tags, so they reject a
+`main` version older than the latest GitHub release and require an exact
+match for `v*` tag builds. Check the local files with:
 
 ```sh
 npm run check:package-version
@@ -343,7 +347,7 @@ npm run check:package-version
 
 Release source-of-truth: create release tags from `main` only. Do not tag a
 feature branch and then repair `main` by changing package metadata; that can
-produce a correct versioned image and a different, stale `:latest` image. A
+produce a correct versioned image and a different, stale `:main` image. A
 tag that is not an ancestor of `main` requires reconciling the histories and
 the changelog before publishing another image.
 

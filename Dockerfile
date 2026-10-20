@@ -22,12 +22,12 @@ FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install client dependencies (includes devDeps for build tooling).
-# We use `npm install` rather than `npm ci` because Rolldown/lightningcss ship
-# OS-specific optional binaries; a Windows-generated lockfile won't contain
-# the linux/amd64 + linux/arm64 entries that `npm ci` requires.
-COPY client/package.json client/package-lock.json* ./client/
-RUN cd client && npm install --no-audit --prefer-offline --include=optional
+# Install client dependencies (includes devDeps for build tooling) exactly as
+# client/package-lock.json pins them. The lockfile carries the linux gnu and
+# musl entries of Rolldown/lightningcss's platform binaries, so `npm ci` finds
+# the musl one this Alpine stage needs.
+COPY client/package.json client/package-lock.json ./client/
+RUN cd client && npm ci --no-audit --prefer-offline
 
 # Copy client source and build.
 # The root package.json is needed because vite.config.ts reads the panel version from it.
@@ -78,10 +78,10 @@ RUN set -eux; \
 
 WORKDIR /app
 
-# Install server dependencies only (no devDeps).
-# Same reasoning as the client: cross-platform optional deps make `npm ci` fragile.
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --prefer-offline --omit=dev
+# Install server dependencies only (no devDeps), exactly as package-lock.json
+# pins them.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --prefer-offline --omit=dev
 
 # Copy server source
 COPY server/ ./server/

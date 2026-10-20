@@ -89,16 +89,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: node scripts/verify-package-version.mjs "${{ github.ref_name }}"
 
-      # npm ci is fragile on the ubuntu-22.04 leg of this matrix: the
-      # lockfile's linux gnu/musl split optional deps (rollup/lightningcss,
-      # pulled in via vite) don't reliably carry libc metadata, same reasoning
-      # as the Dockerfile's own install steps. npm install re-resolves optional
-      # deps against the runner instead of trusting the lockfile's entry.
+      # npm ci, not npm install: the release is built from exactly what the
+      # lockfiles pin and verify (integrity hashes), never from a version npm
+      # resolved on the runner. Both lockfiles carry an entry for every
+      # platform package (rolldown/lightningcss/esbuild linux gnu and musl
+      # included); an entry without a libc field installs both variants on
+      # linux and the loader picks the right one.
       - name: Install dependencies
-        run: npm install --no-audit --prefer-offline --include=optional
+        run: npm ci --no-audit --prefer-offline
 
       - name: Install client dependencies
-        run: npm install --no-audit --prefer-offline --include=optional
+        run: npm ci --no-audit --prefer-offline
         working-directory: client
 
       - name: Build
