@@ -208,6 +208,13 @@ const UPLOAD_TEMP_PATTERN = /\.zip\.(\d+)\.[0-9a-z]+\.tmp$/;
 // underlying check is now shared with fileWriteQueue.js.
 export const isBackupTempOwnerAlive = isPidAlive;
 
+// When this process started. In the Docker images the panel is PID 1 at every
+// start, so a temp left by a killed earlier run carries a pid that is "alive"
+// again (it is ours): a temp named with OUR pid but last written before this
+// process started is from an earlier run and is swept too.
+const PROCESS_STARTED_AT_MS = Date.now() - process.uptime() * 1000;
+const START_CLOCK_SLACK_MS = 5000;
+
 export function cleanupOrphanBackupTemps(backupsPath) {
   let entries;
   try {
@@ -218,7 +225,18 @@ export function cleanupOrphanBackupTemps(backupsPath) {
   for (const name of entries) {
     const pidMatch = CENTRAL_TEMP_PATTERN.exec(name) || UPLOAD_TEMP_PATTERN.exec(name);
     if (pidMatch) {
-      if (isBackupTempOwnerAlive(Number(pidMatch[1]))) continue;
+      const ownerPid = Number(pidMatch[1]);
+      if (ownerPid === process.pid) {
+        let writtenAt = Infinity;
+        try {
+          writtenAt = fs.statSync(path.join(backupsPath, name)).mtimeMs;
+        } catch {
+          continue;
+        }
+        if (writtenAt >= PROCESS_STARTED_AT_MS - START_CLOCK_SLACK_MS) continue; // ours, in use
+      } else if (isBackupTempOwnerAlive(ownerPid)) {
+        continue;
+      }
     } else if (!name.endsWith(".zip.tmp")) {
       continue;
     }
