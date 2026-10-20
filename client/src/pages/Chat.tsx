@@ -196,10 +196,15 @@ export default function Chat() {
     return () => root.removeEventListener('scroll', handleScroll)
   }, [handleScroll])
 
+  // Scrolls the message list only: scrollIntoView() also scrolled the page,
+  // so on a phone every new message pushed the message box and Send back
+  // below the fold.
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
+    if (!stickToBottomRef.current) return
+    const viewport = scrollViewportRef.current
+    if (!viewport) return
+    if (typeof viewport.scrollTo === 'function') viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+    else viewport.scrollTop = viewport.scrollHeight
   }, [chatHistory])
 
   // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a

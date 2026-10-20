@@ -141,6 +141,23 @@ describe('Chat.tsx: a message that went out over RCON says every player saw it',
     expect(toastSpy.mock.calls.at(-1)![0]).toMatchObject({ description: 'Visible only to admins in-game.', variant: 'success' })
   })
 
+  // Redesign (full-height chat): following a new message scrolled the whole
+  // page with scrollIntoView(), pushing the message box below the fold on a
+  // phone. Only the message list scrolls now.
+  it('a new message scrolls the message list, not the page', async () => {
+    setUp()
+    const scrollIntoView = vi.fn()
+    const scrollTo = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    Element.prototype.scrollTo = scrollTo as unknown as typeof Element.prototype.scrollTo
+    vi.mocked(panelBridgeApi.sendToAdminChat).mockResolvedValue({ success: true, data: { method: 'ChatServer' } })
+    await send('admin', 'hello admins')
+
+    await waitFor(() => expect(scrollTo).toHaveBeenCalled())
+    expect(scrollTo.mock.contexts.at(-1)).toHaveAttribute('data-radix-scroll-area-viewport')
+    expect(scrollIntoView).not.toHaveBeenCalled()
+  })
+
   it('general chat sent over RCON says it went out as a server message', async () => {
     setUp()
     vi.mocked(panelBridgeApi.sendToGeneralChat).mockResolvedValue({
