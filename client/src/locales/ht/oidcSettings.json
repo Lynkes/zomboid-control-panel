@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "Idantite",
-    "title": "Koneksyon",
+    "title": "Koneksyon inik",
     "description": "Kite moun konekte ak yon kont ki egziste deja nan yon founisè idantite (Google Workspace, Okta, Authentik, e latriye), olye — pa janm olye — yon non itilizatè ak modpas. Koneksyon lokal toujou kontinye fonksyone."
   },
   "loading": "Ap chaje paramèt koneksyon…",

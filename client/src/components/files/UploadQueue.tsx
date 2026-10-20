@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { SectionCard } from '@/components/ui/section-card'
 import { Progress } from '@/components/ui/progress'
 import { cn } from '@/lib/utils'
 import type { UploadItem } from './useUploadQueue'
@@ -67,60 +67,56 @@ export function UploadQueue({ items, pausedUntil, allDone, onCancel, onRetry, on
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Upload className="h-4 w-4 text-primary" aria-hidden="true" />
-          {t('upload.queueTitle')}
-        </CardTitle>
-        {active ? (
-          <Button variant="ghost" size="sm" onClick={onCancelAll}>{t('actions.cancel')}</Button>
-        ) : (
-          <Button variant="ghost" size="sm" onClick={onClear}>{t('actions.clearSelection')}</Button>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <p aria-live="polite" className="text-sm text-muted-foreground empty:hidden">{allDone ? t('upload.allDone') : ''}</p>
-        <ul className="max-h-72 space-y-1 overflow-y-auto">
-          {items.map((item) => {
-            const percent = item.total > 0 ? Math.min(100, Math.round((item.loaded / item.total) * 100)) : 0
-            return (
-              <li key={item.id} className="rounded-lg border border-border/60 bg-muted/25 p-2">
-                <div className="flex items-center gap-2">
-                  {item.status === 'done' ? (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-                  ) : item.status === 'failed' ? (
-                    <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
-                  ) : item.status === 'uploading' ? (
-                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
-                  ) : (
-                    <Upload className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <bdi dir="ltr" className="block truncate text-sm">{item.relPath}</bdi>
-                    <span className={cn('block text-xs', item.status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
-                      {statusText(item)}
-                      {item.error ? ` · ${item.error}` : ''}
-                    </span>
-                  </div>
-                  {(item.status === 'waiting' || item.status === 'uploading') && (
-                    <Button variant="ghost" size="iconDense" onClick={() => onCancel(item.id)} aria-label={`${t('actions.cancel')}: ${item.relPath}`}>
-                      <X aria-hidden="true" />
-                    </Button>
-                  )}
-                  {(item.status === 'failed' || item.status === 'cancelled') && item.profileId && (
-                    <Button variant="ghost" size="iconDense" onClick={() => onRetry(item.id)} aria-label={`${t('actions.retry')}: ${item.relPath}`}>
-                      <RotateCcw aria-hidden="true" />
-                    </Button>
-                  )}
+    <SectionCard
+      title={t('upload.queueTitle')}
+      icon={Upload}
+      density="compact"
+      actions={active ? (
+        <Button variant="ghost" size="sm" onClick={onCancelAll}>{t('actions.cancel')}</Button>
+      ) : (
+        <Button variant="ghost" size="sm" onClick={onClear}>{t('actions.clearSelection')}</Button>
+      )}
+    >
+      <p aria-live="polite" className="text-sm text-muted-foreground empty:hidden">{allDone ? t('upload.allDone') : ''}</p>
+      <ul className="max-h-72 space-y-1 overflow-y-auto">
+        {items.map((item) => {
+          const percent = item.total > 0 ? Math.min(100, Math.round((item.loaded / item.total) * 100)) : 0
+          return (
+            <li key={item.id} className="rounded-lg border border-border/60 bg-muted/25 p-2">
+              <div className="flex items-center gap-2">
+                {item.status === 'done' ? (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                ) : item.status === 'failed' ? (
+                  <XCircle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                ) : item.status === 'uploading' ? (
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+                ) : (
+                  <Upload className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <bdi dir="ltr" className="block truncate text-sm">{item.relPath}</bdi>
+                  <span className={cn('block text-xs', item.status === 'failed' ? 'text-destructive' : 'text-muted-foreground')}>
+                    {statusText(item)}
+                    {item.error ? ` · ${item.error}` : ''}
+                  </span>
                 </div>
-                {item.status === 'uploading' && <Progress value={percent} className="mt-2 h-1.5" aria-label={item.relPath} />}
-              </li>
-            )
-          })}
-        </ul>
-      </CardContent>
-    </Card>
+                {(item.status === 'waiting' || item.status === 'uploading') && (
+                  <Button variant="ghost" size="iconDense" onClick={() => onCancel(item.id)} aria-label={`${t('actions.cancel')}: ${item.relPath}`}>
+                    <X aria-hidden="true" />
+                  </Button>
+                )}
+                {(item.status === 'failed' || item.status === 'cancelled') && item.profileId && (
+                  <Button variant="ghost" size="iconDense" onClick={() => onRetry(item.id)} aria-label={`${t('actions.retry')}: ${item.relPath}`}>
+                    <RotateCcw aria-hidden="true" />
+                  </Button>
+                )}
+              </div>
+              {item.status === 'uploading' && <Progress value={percent} className="mt-2 h-1.5" aria-label={item.relPath} />}
+            </li>
+          )
+        })}
+      </ul>
+    </SectionCard>
   )
 }
 

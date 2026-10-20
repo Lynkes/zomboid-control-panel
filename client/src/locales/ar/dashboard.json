@@ -69,7 +69,6 @@
     "workItems.scheduleActive_two",
     "workItems.scheduleActive_zero"
   ],
-  "loading": "جارٍ تأسيس الاتصال…",
   "autoUpdateResult": {
     "scheduledTitle": "تمت جدولة التحديث التلقائي",
     "scheduledDescription_one": "سيُعاد تشغيل الخادم خلال {{count}} دقيقة.",
@@ -111,10 +110,18 @@
   },
   "header": {
     "ariaLabel": "حالة الخادم",
-    "everythingNominal": "كل شيء على ما يُرام",
     "mapTooltip": "الخريطة (من PanelBridge)",
     "remoteBadge": "بعيد",
-    "noActiveServer": "لا يوجد خادم نشط"
+    "noActiveServer": "لا يوجد خادم نشط",
+    "state": {
+      "running": "يعمل",
+      "stopped": "متوقف",
+      "unknown": "الحالة غير معروفة",
+      "starting": "جارٍ التشغيل…",
+      "stopping": "جارٍ الإيقاف…",
+      "none": "لا يوجد خادم",
+      "rconOffline": "RCON غير متصل"
+    }
   },
   "addresses": {
     "lan": {
@@ -160,20 +167,18 @@
   },
   "actions": {
     "start": "تشغيل",
+    "addServer": "إضافة خادم",
     "stop": "إيقاف",
     "forceStop": "إيقاف قسري",
     "restart": "إعادة التشغيل",
     "restartNow": "إعادة التشغيل الآن",
-    "save": "حفظ",
+    "saveWorld": "حفظ العالم",
     "refreshStatus": "تحديث الحالة",
     "createBackup": "إنشاء نسخة احتياطية",
-    "bridgeSettings": "إعدادات Bridge",
     "connectRcon": "توصيل RCON",
     "wipeServer": "مسح الخادم",
-    "moreActionsAria": "إجراءات إضافية للخادم",
     "addServerFirst": "أضف خادمًا أو حدّده أولًا",
     "notAvailableRemote": "غير متاح للخوادم البعيدة (عبر RCON فقط)",
-    "forceStopTooltip": "يحاول حفظًا سريعًا ثم يوقف الخادم فورًا في كلتا الحالتين",
     "connectRconNeedsHostRunning": "شغّل الخادم أولًا",
     "noPermissionControl": "دورك لا يملك صلاحية التحكّم في الخادم.",
     "noPermissionWipe": "دورك لا يملك صلاحية مسح العالم.",
@@ -268,7 +273,7 @@
   },
   "verdict": {
     "noServerConfigured": "لا يوجد خادم مُعد",
-    "openSetup": "فتح الإعداد",
+    "editServer": "تعديل الخادم",
     "panelCannotReach": "تعذّر على اللوحة الوصول إلى الخادم",
     "retry": "إعادة المحاولة",
     "serverStatusUnknown": "حالة الخادم غير معروفة",
@@ -303,45 +308,25 @@
     "lastApplyFailedDesc": "فشلت آخر محاولة تطبيق — راجع الإعدادات للاطلاع على التشخيص.",
     "stagedDesc": "تم التنزيل وهو جاهز. أعد تشغيل اللوحة لتطبيقه.",
     "newVersionDesc": "يتوفّر إصدار جديد من اللوحة.",
-    "dismissAria": "تجاهل إشعار التحديث",
-    "dismissTooltip": "تجاهل حتى الإصدار التالي",
     "applyUpdate": "تطبيق التحديث",
     "viewUpdate": "عرض التحديث"
   },
   "updateCheckError": {
-    "label": "تعذّر التحقّق من تحديثات اللوحة",
-    "dismissAria": "تجاهل إشعار التحقّق من التحديثات",
-    "dismissTooltip": "تجاهل حتى يتغيّر ذلك"
+    "label": "تعذّر التحقّق من تحديثات اللوحة"
   },
   "connectionError": {
     "label": "خطأ في الاتصال",
     "suffix": ". قد تكون بعض الميزات غير متاحة.",
     "retry": "إعادة المحاولة"
   },
-  "notConfigured": {
-    "label": "غير مُعد",
-    "description": "افتح إعداد الخادم لإضافة خادم أو ضبطه.",
-    "openSetup": "فتح الإعداد ←"
-  },
   "quickStart": {
     "dismissAria": "تجاهل دليل البدء السريع",
-    "eyebrow": "الخادم الأول",
-    "heading": "شغّل خادمًا واحدًا، واجعل RCON يعمل، ثم أضف الباقي تدريجيًا.",
-    "step1Title": "أضِف خادمًا إلى اللوحة",
-    "step1Desc": "أضف تثبيتًا موجودًا، أو اتصل بـ RCON بعيد، أو أنشئ خادمًا جديدًا.",
-    "step2Title": "تحقّق من الاتصال",
-    "step2Desc": "أكّد المسارات وبيانات اعتماد RCON والخادم النشط.",
-    "step3Title": "احصل على التحكّم المباشر",
-    "step3Desc": "عندما تتحدّث الحالة واللاعبون والدردشة، يكون التحكّم المباشر جاهزًا.",
-    "installNewServer": "تثبيت خادم جديد",
-    "addExistingServer": "إضافة خادم موجود",
-    "addRemoteServer": "إضافة خادم بعيد",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "إضافة خادم",
+    "description": "اختر كيف تحصل هذه اللوحة على خادمها الأول.",
+    "foundHeading": "وجدنا خادم Project Zomboid موجودًا",
+    "foundDesc": "جاهز للإضافة، وقد قُرئت إعدادات RCON الخاصة به من ملف إعداده.",
+    "reviewAndConnect": "مراجعة واتصال",
+    "setUpDifferently": "الإعداد بطريقة أخرى"
   },
   "liveActivity": {
     "heading": "النشاط المباشر",
@@ -387,12 +372,9 @@
   },
   "maintenance": {
     "heading": "الصيانة",
-    "refreshStatus": "تحديث الحالة",
     "createBackup": "إنشاء نسخة احتياطية",
-    "wipeServer": "مسح الخادم",
-    "wipeTooltipOnline": "أوقف الخادم قبل المسح",
-    "wipeTooltipOffline": "حذف الخريطة / اللاعبين / حالة العالم",
-    "autoStartLabel": "التشغيل التلقائي عند بدء اللوحة"
+    "autoStartLabel": "التشغيل التلقائي عند بدء اللوحة",
+    "autoStartDesc": "يشغّل الخادم عند بدء اللوحة."
   },
   "bridgeOfflineNotice": {
     "title": "Bridge غير متصل",
@@ -400,16 +382,11 @@
     "configureLink": "إعداد Bridge"
   },
   "workItems": {
-    "players": "اللاعبون",
     "zombies": "الزومبي",
-    "console": "وحدة التحكّم",
-    "mods": "المودات",
-    "schedule": "الجدولة",
+    "heading": "نظرة سريعة",
     "errors": "الأخطاء",
-    "backups": "النسخ الاحتياطية",
-    "config": "الإعدادات",
-    "rconReady": "rcon جاهز",
-    "rconOffline": "rcon غير متصل",
+    "rconReady": "RCON جاهز",
+    "rconOffline": "RCON غير متصل",
     "modsToUpdate_one": "{{count}} بحاجة إلى تحديث",
     "modsToUpdate_other": "{{count}} بحاجة إلى تحديث",
     "modsTracked_one": "{{count}} قيد التتبّع",

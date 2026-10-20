@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus } from '@/lib/api'
 
 // Security sweep W2: backup:progress, restore:progress and restore:finished
@@ -75,7 +76,7 @@ describe('Backups.tsx: joins the backups room', () => {
 
     render(
       <TooltipProvider>
-        <Backups />
+        <MemoryRouter><Backups /></MemoryRouter>
       </TooltipProvider>,
     )
     const subscribes = () => fakeSocket.emit.mock.calls.filter(([event]) => event === 'subscribe:backups').length

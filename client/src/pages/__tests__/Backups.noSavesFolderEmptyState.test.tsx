@@ -91,7 +91,7 @@ describe('Backups: no-saves-folder empty state', () => {
 
     expect(await screen.findByText('No saves folder found')).toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /open server setup/i }),
+      screen.getByRole('link', { name: /add a server/i }),
     ).toHaveAttribute('href', '/server-setup')
   })
 

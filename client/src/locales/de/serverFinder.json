@@ -1,17 +1,19 @@
 {
   "pageHeader": {
-    "title": "Öffentliche Server durchsuchen",
+    "title": "Öffentliche Server",
     "description": "Durchsuche die öffentliche Serverliste von Project Zomboid und kopiere eine Serveradresse, um schnell beizutreten.",
     "refreshList": "Liste aktualisieren",
     "reloadFromSteam": "Von Steam neu laden",
-    "reloadFromSteamTip": "„Liste aktualisieren“ zeigt Ergebnisse aus dem eigenen Cache des Panels, die bis zu eine Minute alt sein können. „Von Steam neu laden“ fragt immer direkt bei Steam nach — nutze das, wenn du gerade etwas an deinem eigenen Server geändert hast und es noch nicht angezeigt wird."
+    "reloadFromSteamTip": "„Liste aktualisieren“ zeigt Ergebnisse aus dem eigenen Cache des Panels, die bis zu eine Minute alt sein können. „Von Steam neu laden“ fragt immer direkt bei Steam nach — nutze das, wenn du gerade etwas an deinem eigenen Server geändert hast und es noch nicht angezeigt wird.",
+    "refreshMenuAria": "Weitere Möglichkeiten zum Aktualisieren"
   },
   "apiKeyWarning": {
     "title": "Steam-API-Schlüssel fehlt",
     "description": "Füge deinen Steam-API-Schlüssel in den Einstellungen hinzu, bevor diese Seite die öffentliche Serverliste laden kann.",
     "step1": "Rufe die <1>Seite für Steam-API-Schlüssel<2> (öffnet in einem neuen Tab)</2></1> auf und registriere dich für einen Schlüssel",
     "step2": "Gehe zu <1>Einstellungen</1> und füge deinen API-Schlüssel in das Feld „Steam-Web-API-Schlüssel“ ein",
-    "step3": "Klicke auf „Einstellungen speichern“ und aktualisiere diese Seite"
+    "step3": "Klicke auf „Einstellungen speichern“ und aktualisiere diese Seite",
+    "action": "Schlüssel in den Einstellungen eintragen"
   },
   "stats": {
     "totalServers": "Server insgesamt",
@@ -27,7 +29,6 @@
     "matchingFilters": "passend zu den Filtern"
   },
   "searchFilters": {
-    "title": "Suche & Filter",
     "hideFilters": "Filter ausblenden",
     "showFilters": "Filter anzeigen",
     "searchPlaceholder": "Nach Name, IP, Karte oder Stichwörtern suchen...",
@@ -38,13 +39,9 @@
     "vacOnly": "Nur VAC-gesichert",
     "versionLabel": "Version:",
     "allVersions": "Alle Versionen",
-    "sortByLabel": "Sortieren nach:",
     "sortName": "Name",
     "sortPlayers": "Spieler",
-    "sortMaxPlayers": "Max. Spieler",
-    "sortPing": "Ping",
-    "ascending": "Aufsteigend",
-    "descending": "Absteigend"
+    "sortPing": "Ping"
   },
   "error": {
     "title": "Öffentliche Server können nicht geladen werden",
@@ -61,7 +58,7 @@
   },
   "serverList": {
     "title": "Serverliste",
-    "description": "Klicke auf einen Server, um weitere Details zu sehen oder die Adresse zu kopieren.",
+    "description": "Kopiere eine Adresse zum Beitreten oder pinge einen Server an, um zu prüfen, ob er antwortet.",
     "loading": "Server werden geladen...",
     "sortAria": "Nach {{label}} sortieren",
     "sortAriaWithDirection": "Nach {{label}} sortieren, {{direction}}",

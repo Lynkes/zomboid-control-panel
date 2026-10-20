@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Depuração e logs",
+    "title": "Diagnóstico",
     "description": "Diagnóstico ao vivo, histórico recente e detalhes do ambiente deste painel"
   },
   "permissionDenied": {
@@ -23,12 +23,18 @@
     "logs": "Logs",
     "crashes": "Crashes",
     "health": "Status ao vivo",
-    "system": "Ambiente"
+    "system": "Ambiente",
+    "ariaLabel": "Seções do diagnóstico",
+    "groups": {
+      "now": "Agora",
+      "history": "Histórico",
+      "system": "Sistema"
+    }
   },
   "fixActions": {
     "links": {
       "openDashboard": "Abrir Dashboard",
-      "openServers": "Abrir Meus servidores",
+      "openServers": "Abrir Servidores",
       "autoDetect": "Detectar automaticamente",
       "openSettings": "Abrir Configurações",
       "openServerFinder": "Explorar servidores públicos",
@@ -90,8 +96,8 @@
       "note": "Selecione ou configure um servidor ativo com um caminho de instalação válido."
     },
     "serverZomboidData": {
-      "label": "Abrir Configurações",
-      "note": "Defina o caminho dos dados do Zomboid em Configurações."
+      "label": "Abrir Servidores",
+      "note": "Defina a pasta de dados do Zomboid ao editar este servidor na página Servidores."
     },
     "serverStartScriptOrJre": {
       "label": "Explorar servidores públicos",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Abrir Configuração do servidor",
-      "note": "Defina a senha RCON na Configuração do servidor (e o mesmo valor em Configurações)."
+      "note": "Defina a senha RCON na Configuração do servidor e o mesmo valor ao editar este servidor na página Servidores."
     },
     "serverBridgeMod": {
       "label": "Abrir Configurações › PanelBridge",

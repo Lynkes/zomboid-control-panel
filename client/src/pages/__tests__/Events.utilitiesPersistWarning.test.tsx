@@ -91,7 +91,7 @@ function renderEvents() {
 }
 
 async function openUtilitiesSection() {
-  const nav = await screen.findByText('Power and water')
+  const nav = await screen.findByRole('button', { name: 'Power and water' })
   nav.click()
   await screen.findByText('power & water grid')
 }

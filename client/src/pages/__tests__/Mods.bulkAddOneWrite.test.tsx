@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Mods from '../Mods'
 import { modsApi } from '@/lib/api'
+import { openModsView } from './modsNav'
 
 // Importing a collection used to fire modsApi.addModAdvanced() once per mod
 // (Promise.allSettled), and re-enabling deactivated mods called addToIni() in
@@ -250,7 +251,7 @@ describe('Mods.tsx: Re-enable on the Deactivated tab sends one bulk request', ()
 
     renderMods()
     await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
-    fireEvent.click(await screen.findByRole('button', { name: /deactivated/i }))
+    await openModsView('Deactivated')
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Select all deactivated mods' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Re-enable (2)' }))
 

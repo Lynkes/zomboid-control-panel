@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "Novo servidor",
-    "title": "Adicionar servidor",
     "description": "Escolha como você quer colocar um servidor de Project Zomboid online.",
     "fullCard": {
-      "recommendedBadge": "Recomendado",
-      "title": "Instalação nova",
-      "description": "Baixe e configure um novo servidor dedicado do zero",
       "bullet1": "Baixa os arquivos do servidor via SteamCMD",
       "bullet1Size": "(~3 GB)",
       "bullet2": "Escolha o branch da versão do jogo",
-      "bullet3": "Gera os arquivos de configuração e de inicialização automaticamente",
-      "cta": "Iniciar instalação"
+      "bullet3": "Gera os arquivos de configuração e de inicialização automaticamente"
     },
     "quickCard": {
-      "title": "Usar arquivos existentes",
-      "description": "Registre um servidor usando arquivos que você já baixou",
       "bullet1": "Nenhum download necessário",
       "bullet2": "Aponte para uma pasta de servidor de PZ existente",
-      "bullet3": "Configuração rápida em 3 etapas",
-      "cta": "Registrar servidor"
+      "bullet3": "Configuração rápida em 3 etapas"
     },
     "tips": {
       "title": "Não sabe qual escolher?",
-      "description": "Se você nunca configurou um servidor de Project Zomboid, escolha <1>Instalação nova</1>. Ela baixa automaticamente tudo o que você precisa."
+      "description": "Se você nunca configurou um servidor de Project Zomboid, escolha <1>Instalar um novo servidor</1>. Essa opção baixa automaticamente tudo o que você precisa."
     }
   },
   "resumeBanner": {
     "title": "Uma instalação pode ainda estar em andamento",
     "description": "Uma sessão anterior começou a instalar em {{installPath}} (há {{elapsed}}) e a página foi fechada ou recarregada antes de terminar. O download pode continuar em segundo plano.",
-    "continueButton": "Continuar configuração",
-    "dismissButton": "Dispensar"
+    "continueButton": "Continuar configuração"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> já existe. Se um servidor com esse nome já usou essa pasta, este vai começar com as configurações e o mundo dele. Para começar do zero, escolha outro nome de servidor ou outra pasta."
   },
   "full": {
-    "pageTitle": "Instalação nova",
-    "pageDescription": "Baixe, configure e registre um novo servidor dedicado.",
     "step1": {
       "title": "Configurar o SteamCMD",
       "description": "O SteamCMD é necessário para baixar e atualizar os arquivos do servidor dedicado de Project Zomboid.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Configuração rápida",
-    "pageDescription": "Crie e registre um servidor usando arquivos de servidor dedicado existentes.",
     "step1": {
       "title": "Selecionar arquivos do servidor",
       "description": "Escolha a pasta existente do servidor dedicado de Project Zomboid.",
@@ -274,10 +260,10 @@
     "activeServerSwitchedLog": "Servidor ativo trocado para a nova instalação",
     "registerFailedLog": "Aviso: falha ao registrar o servidor no painel.",
     "registerFailedTitle": "Arquivos do servidor instalados, mas o registro falhou",
-    "registerFailedDesc": "Os arquivos do jogo estão no disco, mas o painel não conseguiu adicionar este servidor ao banco de dados, então ele ainda não aparece em Meus servidores. Confira o log acima e tente Adicionar servidor novamente — é seguro executar de novo.",
+    "registerFailedDesc": "Os arquivos do jogo estão no disco, mas o painel não conseguiu adicionar este servidor ao banco de dados, então ele ainda não aparece em Servidores. Confira o log acima e tente Adicionar servidor novamente — é seguro executar de novo.",
     "activateFailedLog": "Aviso: o servidor foi registrado, mas não pôde ser definido como servidor ativo.",
     "activateFailedTitle": "Servidor registrado, mas não definido como ativo",
-    "activateFailedDesc": "O servidor foi adicionado a Meus servidores, mas o painel não conseguiu trocar para ele automaticamente. Vá em Meus servidores e selecione-o manualmente antes de iniciá-lo.",
+    "activateFailedDesc": "O servidor foi adicionado a Servidores, mas o painel não conseguiu trocar para ele automaticamente. Vá em Servidores e selecione-o manualmente antes de iniciá-lo.",
     "steamCmdReadyTitle": "SteamCMD pronto",
     "steamCmdReadyDesc": "O SteamCMD está instalado e pronto para uso.",
     "steamCmdFailedTitle": "Falha na configuração do SteamCMD",

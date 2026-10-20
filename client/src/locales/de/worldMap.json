@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "Weltkarte",
-    "description": "Live-Positionen der Spieler auf der Karte von Knox County. Rechtsklick für Aktionen."
+    "description": "Live-Positionen der Spieler. Rechtsklick oder langes Drücken auf die Karte für Aktionen."
   },
   "refresh": "Aktualisieren",
   "errorTitle": "Fehler",
@@ -23,7 +23,7 @@
     "floorDown": "Etage tiefer",
     "currentFloorAria": "Aktuelle Etage: {{floor}}",
     "currentFloorTitle": "{{floor}} — Klicken, um auf Erdgeschoss zurückzusetzen",
-    "layersHeader": "Ebenen",
+    "layersHeader": "Kartenebenen",
     "vehiclesHideAria": "Fahrzeuge ausblenden ({{count}} geladen)",
     "vehiclesShowAria": "Fahrzeuge anzeigen ({{count}} geladen)",
     "vehiclesHideTitle": "Fahrzeuge ausblenden ({{count}}) — nur Fahrzeuge in der Nähe von Spielern sind sichtbar",
@@ -39,8 +39,6 @@
     "basementN": "K{{n}}"
   },
   "tileFailure": {
-    "signalLost": "signal.verloren",
-    "tilesOffline": "Kacheln offline",
     "coverageTitle": "Keine Kartenkacheln bei dieser Zoomstufe",
     "coverageDesc": "<1>tiles.pzmap.org</1> ist erreichbar, hat diesen Bereich in dieser Detailstufe aber noch nicht gerendert. Zoome heraus oder versuche es später erneut mit Aktualisieren.",
     "networkTitle": "Kartenkacheln werden nicht geladen",
@@ -63,28 +61,41 @@
     "unrecognizedTitle": "Kartenkachel kam als unbekannte Daten an",
     "unrecognizedDesc": "Die Daten dieser Kachel entsprechen keinem vom Panel erkannten Format. Rohe Bytes: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge ist offline",
+    "bridgeOfflineDesc": "Live-Positionen, Fahrzeuge und Kartenaktionen brauchen die PanelBridge-Mod auf diesem Server.",
+    "bridgeOfflineAction": "PanelBridge einrichten",
+    "noServerTitle": "Kein aktiver Server",
+    "noServerDesc": "Wähle einen Server aus oder füge einen hinzu, um seine Spieler auf der Karte zu sehen.",
+    "noServerAction": "Alle Server öffnen",
+    "playerNotOnlineTitle": "{{name}} ist nicht auf der Karte",
+    "playerNotOnlineDesc": "Dieser Spieler ist offline, oder PanelBridge hat ihn noch nicht gemeldet.",
+    "openInPlayers": "In Spieler öffnen"
+  },
   "roster": {
-    "label": "Liste",
-    "live": "live",
-    "offline": "offline",
+    "label": "Spieler",
+    "live": "Live",
+    "offline": "Offline",
     "panToAria": "Ansicht zu {{name}} schwenken",
     "panToAriaWithHealth": "Ansicht zu {{name}} schwenken, Gesundheit {{health}}%",
-    "loading": "lädt …",
-    "noPlayersOnline": "keine Spieler online",
-    "bridgeOffline": "Brücke offline",
+    "loading": "Lädt …",
+    "noPlayersOnline": "Keine Spieler online",
+    "bridgeOffline": "PanelBridge offline",
     "collapseAria": "Liste einklappen",
-    "expandAria": "Liste ausklappen"
+    "expandAria": "Liste ausklappen",
+    "toggleAria": "Spieler auf der Karte: {{count}}",
+    "closeSheet": "Spielerliste schließen"
   },
   "hud": {
-    "hoverForCoords": "Für Koordinaten hovern"
+    "hoverForCoords": "Für Koordinaten über die Karte fahren",
+    "zoomTitle": "Zoomstufe"
   },
   "dossier": {
-    "label": "Dossier",
-    "targetAcquired": "ziel.erfasst",
+    "targetAcquired": "Online",
     "closeAria": "Dossier schließen",
-    "pos": "Pos.",
+    "pos": "Position",
     "floor": "Etage",
-    "hp": "HP",
+    "hp": "Gesundheit",
     "hunger": "Hunger",
     "thirst": "Durst",
     "fatigue": "Erschöpfung",
@@ -92,13 +103,10 @@
     "status": "Status",
     "infected": "Infiziert",
     "heal": "Heilen",
-    "god": "Godmode",
-    "godTip": "Aktiviert für diesen Spieler immer den Godmode — kein Umschalten. Zum Deaktivieren stattdessen die Spieler-Seite verwenden.",
     "openPlayerControls": "Spielersteuerung öffnen",
     "healedTitle": "Geheilt",
     "healedDesc": "{{username}} wurde geheilt.",
-    "godModeEnabled": "Godmode aktiviert",
-    "offline": "offline",
+    "offline": "Offline",
     "offlineReason": "Dieser Spieler ist nicht mehr online."
   },
   "contextMenu": {

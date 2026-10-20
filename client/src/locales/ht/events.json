@@ -1,9 +1,8 @@
 {
   "pageHeader": {
-    "title": "Konsòl Evènman",
-    "description": "Move tan, lè, son, aksyon jwè, ak zouti bridge",
-    "eyebrow": "kontwòl mond",
-    "refreshPlayers": "aktyalize jwè"
+    "title": "Evènman ak Move Tan",
+    "description": "Chanje move tan ak lè, jwe son, fè parèt mas zonbi ak veyikil, oswa sèvi ak zouti bridge yo.",
+    "refreshPlayers": "Aktyalize jwè"
   },
   "common": {
     "playersUnavailable": "lis jwè pa disponib",
@@ -11,10 +10,6 @@
     "noPermissionEndangerOrImpersonate": "Aksyon sa a mande pèmisyon players.endanger_or_impersonate, ki pa gen nan wòl sa a."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "anliy",
-    "offline": "òfliy",
-    "configureLink": "konfigire →",
     "eventTarget": "Sib evènman",
     "allOnline": "tout anliy",
     "specific": "espesifik",
@@ -35,7 +30,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge òfliy",
-    "description": "Kontwòl sa yo bezwen pon Lua a. Konekte li nan <1>Paramèt</1>, epi demare sèvè PZ a."
+    "description": "Kontwòl sa yo bezwen pon Lua a. Konekte li nan Paramèt, epi demare sèvè PZ a.",
+    "action": "Louvri paramèt PanelBridge"
   },
   "groups": {
     "weather": "Move Tan",
@@ -235,7 +231,7 @@
   "utilities": {
     "sublabel": "rezo elektrisite & dlo",
     "refresh": "aktyalize",
-    "b42Warning": "b42 miltijwè · chanjman sandbox poko pwopaje bay kliyan konekte yo",
+    "b42Warning": "Miltijwè Build 42: chanjman sandbox yo poko rive bay kliyan ki konekte yo.",
     "power": "elektrisite",
     "water": "dlo",
     "statusOnline": "anliy",
@@ -298,7 +294,10 @@
     "clearNear": "netwaye tou pre {{target}}",
     "clearNearConfirmTitle": "Netwaye zonbi tou pre jwè sa a?",
     "clearNearConfirmDescTargeted": "Sa a retire imedyatman tout zonbi ki nan reyon ou chwazi a otou {{player}} -- ansanm ak tout sa l ap goumen avè yo kounye a. Zonbi yo reparèt apre yon tan, men sa a fini konfwontasyon an kounye a pou li.",
-    "clearNearConfirmDescRandom": "Sa a retire imedyatman tout zonbi ki nan reyon ou chwazi a otou yon jwè an liy o aza -- ansanm ak tout sa l ap goumen avè yo kounye a. Zonbi yo reparèt apre yon tan, men sa a fini konfwontasyon an kounye a pou li."
+    "clearNearConfirmDescRandom": "Sa a retire imedyatman tout zonbi ki nan reyon ou chwazi a otou yon jwè an liy o aza -- ansanm ak tout sa l ap goumen avè yo kounye a. Zonbi yo reparèt apre yon tan, men sa a fini konfwontasyon an kounye a pou li.",
+    "spawnConfirmTitle": "Fè parèt {{size}} zonbi?",
+    "spawnConfirmDescTargeted": "Yon mas {{size}} zonbi parèt touswit bò kote {{player}}. Li rete nan mond lan jiskaske yo touye l oswa netwaye l.",
+    "spawnConfirmDescRandom": "Yon mas {{size}} zonbi parèt touswit bò kote yon jwè ki konekte, yo chwazi o aza. Li rete nan mond lan jiskaske yo touye l oswa netwaye l."
   },
   "vehicles": {
     "sublabel": "RCON · fè parèt bò yon jwè",
@@ -399,8 +398,6 @@
     "lastRun": "Dènye egzekisyon: {{time}}",
     "notRunYet": "Poko egzekite",
     "bridgeFileLink": "Lyen fichye bridge: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Koneksyon bridge obligatwa",
-    "bridgeConnectionRequiredDesc": "Operasyon sa yo mande yon koneksyon PanelBridge k ap fonksyone. Konfigire li nan Paramèt anvan.",
     "moderationConfirmTitle": "Egzekite {{operation}}?",
     "moderationConfirmDescription": "Sa a voye yon vrè kòmand moderasyon atravè bridge k ap fonksyone a{{target}}{{reason}}. Tcheke valè ki anwo yo anvan ou kontinye.",
     "moderationConfirmTarget": " sou {{target}}",

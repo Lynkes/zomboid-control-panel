@@ -242,5 +242,8 @@
   "loses": "verliert",
   "winIt": "Gewinnen lassen",
   "view": "Ansehen",
-  "close": "Schließen"
+  "close": "Schließen",
+  "subTabsAria": "Konfliktlisten",
+  "focusChip": "Mods von {{name}}",
+  "focusClearAria": "Wieder alle Konflikte anzeigen (Filter auf {{name}} aufheben)"
 }

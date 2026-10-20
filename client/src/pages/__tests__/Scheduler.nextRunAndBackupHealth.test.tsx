@@ -192,7 +192,7 @@ describe('Scheduler.tsx: the Timezone card surfaces automatic-backup schedule he
 
     renderScheduler()
 
-    await screen.findByText('Scheduler Timezone')
-    expect(screen.queryByText(/Backup schedule health/)).not.toBeInTheDocument()
+    await screen.findByText('Timezone')
+    expect(screen.queryByText('Automatic backups')).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import Discord from '../Discord'
@@ -88,6 +88,13 @@ async function renderPage() {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Stop Bot' })).toBeInTheDocument())
 }
 
+// The page's one Save (the SaveBar) shows once a form has an edit.
+const editKickTier = () => {
+  const kickRow = screen.getByText('/kick').closest('.rounded-lg') as HTMLElement
+  fireEvent.click(within(kickRow).getByRole('button', { name: /Everyone/ }))
+}
+const editAutoStart = () => fireEvent.click(screen.getByRole('switch', { name: /Auto-start on panel launch/ }))
+
 describe('Discord.tsx: saving command permissions', () => {
   it('shows a warning, not "re-registered", when Discord did not take the slash command update', async () => {
     await renderPage()
@@ -95,7 +102,8 @@ describe('Discord.tsx: saving command permissions', () => {
       jsonResponse({ success: true, permissions: { kick: 'admin' }, commandsRegistered: false }),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Permissions' }))
+    editKickTier()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
 
     expect(await screen.findByText(/updating the slash commands in Discord failed/)).toBeInTheDocument()
     expect(screen.getByText('Warning')).toBeInTheDocument()
@@ -106,7 +114,8 @@ describe('Discord.tsx: saving command permissions', () => {
     await renderPage()
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ success: true, permissions: { kick: 'admin' } }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Permissions' }))
+    editKickTier()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
 
     expect(await screen.findByText(/Slash commands re-registered/)).toBeInTheDocument()
     expect(screen.queryByText('Warning')).not.toBeInTheDocument()
@@ -114,7 +123,10 @@ describe('Discord.tsx: saving command permissions', () => {
 })
 
 describe('Discord.tsx: saving the bot configuration', () => {
-  const clickSave = () => fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  const clickSave = () => {
+    editAutoStart()
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  }
 
   it('warns, naming the error, when the saved settings could not reconnect the bot', async () => {
     await renderPage()

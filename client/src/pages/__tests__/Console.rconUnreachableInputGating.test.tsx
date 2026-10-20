@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bughunt-2026-08-31-b (Angela, report-only on app source -- filed to Jim,
 // client/src/pages/Console.tsx is otherwise outside his slice): the RCON tab
@@ -79,7 +80,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

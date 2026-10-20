@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "Apre etap sa a",
+    "nextHeading": "Sa k ap vini apre",
     "previewBadge": "Apèsi",
     "step1Title": "Mete yon sèvè nan panèl la",
     "step1Desc": "Ajoute yon enstalasyon ki egziste oswa fè konfigirasyon gide a pou kreye youn.",

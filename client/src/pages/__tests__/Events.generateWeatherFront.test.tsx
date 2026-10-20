@@ -84,7 +84,7 @@ function renderEvents() {
 }
 
 async function openSevereSection() {
-  const nav = await screen.findByText('Severe weather')
+  const nav = await screen.findByRole('button', { name: 'Severe weather' })
   nav.click()
   await screen.findByRole('button', { name: 'generate front' })
 }

@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "權限項",
+    "title": "各角色的權限",
     "scrollHint": "向右滑動檢視所有角色 →",
     "seededBadge": "內建",
     "memberCount_one": "{{count}} 位成員",

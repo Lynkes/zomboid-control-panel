@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "Spieler",
-    "description": "Verwalte verbundene Spieler und ihre Berechtigungen",
+    "description": "Spieler moderieren, ihre Charaktere bearbeiten sowie Banns und die Whitelist verwalten.",
     "updated": "Aktualisiert {{time}}",
+    "moreActions": "Weitere Aktionen",
     "refresh": "Aktualisieren"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Whitelist-Benutzer hinzufügen…",
+    "unban": "Spieler entbannen…",
+    "unbanSteamId": "SteamID entbannen…",
+    "voiceBan": "Voice-Bann…",
+    "banSteamId": "SteamID bannen…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge ist nicht verbunden",
+    "bridgeOfflineDesc": "Fähigkeiten, Charakter-Import und -Export und die Gesundheit in der Liste brauchen sie. Kicken, Bannen und die Whitelist funktionieren weiterhin.",
+    "bridgeOfflineAction": "PanelBridge einrichten"
   },
   "permissions": {
     "noModerate": "Diese Aktion erfordert die Berechtigung players.moderate, über die diese Rolle nicht verfügt.",
@@ -27,6 +40,7 @@
     "online": "Online",
     "onlineCaption_one": "Spieler",
     "onlineCaption_other": "Spieler",
+    "rosterDetail": "Schon gesehen, jetzt offline",
     "peakToday": "Höchststand heute",
     "roster": "Liste",
     "rosterCaption": "gesehen",
@@ -36,11 +50,15 @@
     "bannedAria": "{{count}} gebannte SteamIDs anzeigen"
   },
   "roster": {
-    "headerLabel": "liste",
+    "headerLabel": "Spieler",
     "subheaderLive": "live",
     "subheaderHistory": "verlauf",
     "subheaderBans": "bans",
     "subheaderAccounts": "konten",
+    "listsAria": "Spielerlisten",
+    "tabActivity": "Aktivität",
+    "activityReload": "Neu laden",
+    "activitySearchAll": "Ganzes Protokoll durchsuchen",
     "tabOnline": "Online",
     "tabRoster": "Liste",
     "tabBanned": "Gebannt",
@@ -101,8 +119,8 @@
     "subheaderLabel": "dossier",
     "targetAcquired": "ziel.erfasst",
     "standby": "standby",
-    "online": "online",
-    "offline": "offline",
+    "online": "Online",
+    "offline": "Offline",
     "connected": "verbunden",
     "lastSeen": "zuletzt gesehen",
     "played": "gespielt",
@@ -117,6 +135,9 @@
     "kickButton": "Kicken",
     "banTitle": "Spieler bannen",
     "banButton": "Bannen",
+    "teleport": "Teleportieren…",
+    "showOnMap": "Auf der Karte zeigen",
+    "showOnMapOffline": "{{player}} ist offline und daher nicht auf der Karte.",
     "moreActionsAria": "Weitere Spieleraktionen",
     "enableGodMode": "Gottmodus aktivieren",
     "disableGodMode": "Gottmodus deaktivieren",
@@ -128,10 +149,12 @@
     "removeFromWhitelist": "Von der Whitelist entfernen",
     "notOnWhitelistReason": "{{player}} steht nicht auf der Whitelist — nichts zu entfernen.",
     "importExportCharacter": "Charakter importieren/exportieren",
-    "noTargetTitle": "kein Ziel ausgewählt",
-    "noTargetDesc": "Wähle einen Spieler aus der Liste, um sein Dossier anzuzeigen, oder gib einen Benutzernamen unter <1>› Manuelles Ziel</1> ein."
+    "noTargetTitle": "Spieler auswählen",
+    "noTargetDesc": "Wähle jemanden aus der Liste oder gib unter „Manuelles Ziel“ einen Benutzernamen ein, um einen Spieler zu bearbeiten, der offline ist."
   },
   "tabs": {
+    "notes": "Notizen",
+    "listAria": "Werkzeuge für {{player}}",
     "character": "Charakter",
     "moderation": "Moderation",
     "spawn": "Spawn",
@@ -362,6 +385,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Legt das Konto auf einem Whitelist-Server an",
+    "removeFromWhitelistDesc": "Kann einem Whitelist-Server nicht mehr beitreten",
     "kickDesc": "Spieler mit Grund kicken",
     "banDesc": "Dauerhaft · zweistufig",
     "accessLevelLabel": "Zugriffsebene",
@@ -556,7 +581,7 @@
     "tableAction": "Aktion",
     "tableDetails": "Details",
     "loadingRow": "Lädt...",
-    "noLogsRow": "Noch keine Aktivitätsprotokolle — Moderationsaktionen für diesen Spieler (Sperren, Kicks, Whitelist-Änderungen) werden hier angezeigt.",
+    "noLogsRow": "Noch keine Aktivität. Verbindungen, Tode und Moderationsaktionen (Kicks, Banns, Whitelist-Änderungen) erscheinen hier.",
     "detailsFallback": "-",
     "deleteConfirmTitle": "Diese Notiz löschen?",
     "deleteConfirmDesc": "Die Admin-Notiz und die Tags für {{player}} werden endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",

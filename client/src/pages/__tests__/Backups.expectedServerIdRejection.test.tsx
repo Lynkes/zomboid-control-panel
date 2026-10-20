@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, ApiError, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // pz-bughunt round 18 (send expectedServerId on backup settings writes):
@@ -95,7 +96,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -114,7 +115,9 @@ describe('Backups.tsx: sends expectedServerId on settings saves and surfaces the
     )
 
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
+    // Save shows (in the save bar) once the form holds an edit.
+    fireEvent.change(await screen.findByLabelText('Maximum Backups to Keep'), { target: { value: '12' } })
     const saveButton = await screen.findByRole('button', { name: /save settings/i })
     fireEvent.click(saveButton)
 

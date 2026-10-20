@@ -12,8 +12,8 @@ import en from '../../locales/en/players.json'
 // (1) "Remove from Whitelist" and "Remove Allowed SteamID" fired the API
 // straight from onClick, with no confirmation at all -- every other
 // destructive action on this page (Ban, killPlayer, delete-note) confirms
-// first. (2) The "Add to Whitelist" dossier item opened the exact same
-// dialog as the standalone "Add User" tile, titled "Add User" either way --
+// first. (2) The "Add to Whitelist" action for the selected player opened the
+// exact same dialog as the standalone "Add User" entry, titled "Add User" either way --
 // misleading when the operator picked an already-known player to whitelist,
 // not create a new account. (3) handleAction's generic success toast never
 // named which player it happened to. This file proves: the two new confirm
@@ -129,16 +129,22 @@ async function selectTestPlayer() {
 }
 
 // Radix's DropdownMenuTrigger opens on pointerdown, not click -- see
-// Players.capabilityGating.test.tsx's openMoreActionsMenu, same precedent.
-async function openMoreActionsMenu() {
-  const trigger = await screen.findByRole('button', { name: 'More player actions' })
+// Players.capabilityGating.test.tsx's openMenu, same precedent. The page
+// header's "More" menu holds "Add whitelist user…".
+async function openHeaderMenu() {
+  const trigger = await screen.findByRole('button', { name: 'More actions' })
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
   fireEvent.click(trigger)
   return screen.findByRole('menu')
 }
 
+// Add to / Remove from Whitelist for the selected player are Moderation tab
+// tiles (the tab moderators land on).
+const whitelistTile = (label: string) => screen.getByRole('button', { name: (name) => name.startsWith(label) })
+
 async function openWhitelistTab() {
-  fireEvent.click(screen.getByText(en.roster.tabWhitelist).closest('button')!)
+  // Radix TabsTrigger switches on mousedown, not click.
+  fireEvent.mouseDown(screen.getByRole('tab', { name: new RegExp(`^${en.roster.tabWhitelist}`) }), { button: 0 })
   await screen.findByTitle(en.roster.removeTitle.replace('{{username}}', 'TestPlayer'))
 }
 
@@ -172,14 +178,13 @@ describe('Players.tsx: "Remove from Whitelist" (whitelist tab list) confirms bef
   })
 })
 
-describe('Players.tsx: dossier "Remove from Whitelist" confirms before removing', () => {
+describe('Players.tsx: the Moderation tab "Remove from Whitelist" confirms before removing', () => {
   it('does not call removeFromWhitelist until the confirm dialog naming the player is accepted', async () => {
     await setUpFixtures()
     renderPlayers()
     await selectTestPlayer()
-    await openMoreActionsMenu()
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from Whitelist' }))
+    fireEvent.click(whitelistTile('Remove from Whitelist'))
 
     const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText(en.roster.removeFromWhitelistConfirmTitle)).toBeInTheDocument()
@@ -211,19 +216,18 @@ describe('Players.tsx: "Remove Allowed SteamID" confirms before removing', () =>
 })
 
 describe('Players.tsx: the Add User / Add to Whitelist dialog is retitled per entry point', () => {
-  it('shows "Add User" from the standalone tile, and "Add to Whitelist" naming the player from the dossier', async () => {
+  it('shows "Add User" from the header menu, and "Add to Whitelist" naming the player from the Moderation tab', async () => {
     await setUpFixtures()
     renderPlayers()
 
-    fireEvent.click(screen.getByTitle(en.actionTiles.addUserTooltip))
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Add whitelist user…/ }))
     const standaloneDialog = await screen.findByRole('dialog')
     expect(within(standaloneDialog).getByRole('heading', { name: en.addUserDialog.title })).toBeInTheDocument()
     fireEvent.click(within(standaloneDialog).getByRole('button', { name: en.addUserDialog.cancel }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
     await selectTestPlayer()
-    await openMoreActionsMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to Whitelist' }))
+    fireEvent.click(whitelistTile('Add to Whitelist'))
 
     const whitelistDialog = await screen.findByRole('dialog')
     expect(within(whitelistDialog).getByRole('heading', { name: en.addUserDialog.titleWhitelist })).toBeInTheDocument()
@@ -254,8 +258,7 @@ describe('Players.tsx: success toasts name the target player', () => {
     await setUpFixtures()
     renderPlayers()
     await selectTestPlayer()
-    await openMoreActionsMenu()
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to Whitelist' }))
+    fireEvent.click(whitelistTile('Add to Whitelist'))
 
     const dialog = await screen.findByRole('dialog')
     within(dialog).getByRole('heading', { name: en.addUserDialog.titleWhitelist })

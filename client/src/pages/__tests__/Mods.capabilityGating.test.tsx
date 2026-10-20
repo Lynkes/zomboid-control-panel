@@ -5,6 +5,7 @@ import Mods from '../Mods'
 import { modsApi, serversApi, serverApi, ApiError } from '@/lib/api'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
+import { openModsView } from './modsNav'
 
 // bug-hunt-2026-08-27: mods.js gates every route (including reads) behind
 // mods.manage via a whole-file router.use, except GET /thumbnail/:workshopId
@@ -430,7 +431,7 @@ describe('Mods.tsx: Deactivated tab "Delete All" tracking-cleanup gates on mods.
   }
 
   async function openDeactivatedTrackingCleanup() {
-    fireEvent.click(await screen.findByRole('button', { name: /deactivated/i }))
+    await openModsView('Deactivated')
     fireEvent.click(await screen.findByText('Tracking cleanup'))
     return screen.findByRole('button', { name: /delete all/i })
   }

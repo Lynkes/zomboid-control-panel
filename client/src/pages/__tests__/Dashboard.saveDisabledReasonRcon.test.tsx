@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
@@ -133,20 +133,19 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('Dashboard.tsx: header Save button explains itself when disabled by RCON, not just by permission', () => {
-  it('shows a tooltip naming RCON when hovered/focused while RCON is disconnected', async () => {
+describe('Dashboard.tsx: Save world explains itself when disabled by RCON, not just by permission', () => {
+  it('names RCON as the reason, under the disabled Save world item, while RCON is disconnected', async () => {
     await setUpFixtures()
     renderDashboard()
 
-    const saveButton = await screen.findByRole('button', { name: 'Save' })
-    expect(saveButton).toBeDisabled()
-
-    // DisabledReason's actual Tooltip trigger is the focusable wrapper span
-    // around the (disabled) button -- see DisabledReason.tsx.
-    const wrapper = saveButton.parentElement
-    expect(wrapper).not.toBeNull()
-    fireEvent.focus(wrapper!)
-
-    expect(await screen.findByText('Connect RCON to save the world.')).toBeInTheDocument()
+    // Save world lives in the header's More menu; a disabled item shows its
+    // reason under its label (RowActions), visible without hovering.
+    const trigger = await screen.findByRole('button', { name: /more actions for/i })
+    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu')
+    const saveItem = within(menu).getByRole('menuitem', { name: /^save world/i })
+    expect(saveItem).toHaveAttribute('aria-disabled', 'true')
+    expect(within(saveItem).getByText('Connect RCON to save the world.')).toBeInTheDocument()
   })
 })

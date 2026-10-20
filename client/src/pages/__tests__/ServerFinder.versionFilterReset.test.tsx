@@ -111,12 +111,12 @@ describe('ServerFinder.tsx version filter', () => {
     renderServerFinder()
     expect(await screen.findByText('Alpha Server')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show Filters' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show filters' }))
     fireEvent.change(screen.getByLabelText('Version filter'), { target: { value: '42.0.0' } })
     await waitFor(() => expect(screen.queryByText('Alpha Server')).not.toBeInTheDocument())
 
     // A search that matches nothing on top of the version filter empties the list.
-    fireEvent.change(screen.getByRole('textbox', { name: /search/i }), { target: { value: 'zzz-no-such-server' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: /search/i }), { target: { value: 'zzz-no-such-server' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Clear all filters' }))
 
     expect(await screen.findByText('Alpha Server')).toBeInTheDocument()
@@ -136,11 +136,11 @@ describe('ServerFinder.tsx version filter', () => {
     renderServerFinder()
     expect(await screen.findByText('Alpha Server')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show Filters' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Show filters' }))
     fireEvent.change(screen.getByLabelText('Version filter'), { target: { value: '42.1.0' } })
     await waitFor(() => expect(screen.queryByText('Bravo Server')).not.toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: /Refresh List/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Refresh list/ }))
 
     // Nobody runs 42.1.0 any more: the list must not stay empty behind a
     // filter value that is no longer even an option.

@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Kontrollpanel",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Kontrollpanel"
+    "shortSubtitle": "Kontrollpanel",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Hauptnavigation",
@@ -13,28 +14,28 @@
     "sections": {
       "server": "Server",
       "world": "Welt",
-      "users": "Benutzer",
+      "players": "Spieler",
       "panel": "Panel"
     },
     "items": {
-      "serverConsole": "Serverkonsole",
-      "onlinePlayers": "Online-Spieler",
-      "inGameChat": "Ingame-Chat",
+      "serverConsole": "Konsole",
+      "onlinePlayers": "Spieler",
+      "inGameChat": "Chat",
       "eventsWeather": "Events & Wetter",
       "worldMap": "Weltkarte",
-      "serverConfiguration": "Serverkonfiguration",
-      "serverFiles": "Serverdateien",
-      "modManager": "Mod-Manager",
+      "serverConfiguration": "Konfiguration",
+      "serverFiles": "Dateien",
+      "modManager": "Mods",
       "templates": "Vorlagen",
-      "scheduledTasks": "Geplante Aufgaben",
-      "worldBackups": "Welt-Backups",
+      "scheduledTasks": "Zeitplaner",
+      "worldBackups": "Backups",
       "mapCleanup": "Kartenbereinigung",
-      "myServers": "Meine Server",
-      "serverSetup": "Server-Einrichtung",
-      "browsePublic": "Öffentliche Server durchsuchen",
+      "myServers": "Alle Server",
+      "serverSetup": "Server hinzufügen",
+      "browsePublic": "Öffentliche Server",
       "discord": "Discord",
-      "panelSettings": "Paneleinstellungen",
-      "debugLogs": "Debug-Protokolle",
+      "panelSettings": "Einstellungen",
+      "debugLogs": "Diagnose",
       "leaderboard": "Rangliste"
     },
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
@@ -43,7 +44,7 @@
     "noServerBanner": {
       "title": "Noch kein Server",
       "description": "Die meisten Bereiche werden freigeschaltet, sobald du einen hinzufügst.",
-      "cta": "Server einrichten"
+      "cta": "Server hinzufügen"
     }
   },
   "mobileMenu": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Remote",
     "remoteTitle": "Remote-Server (nur RCON)",
     "activeBadge": "Aktiv",
+    "addServer": "Server hinzufügen…",
     "manageServers": "Server verwalten",
     "playersOnline_one": "{{count}} Spieler online",
     "playersOnline_other": "{{count}} Spieler online",
@@ -73,8 +75,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Panel-Update verfügbar: v{{version}}",
     "titleNoVersion": "Panel-Update verfügbar",
-    "titleWithVersionOpenSettings": "Panel-Update verfügbar: v{{version}}. Paneleinstellungen öffnen.",
-    "titleNoVersionOpenSettings": "Panel-Update verfügbar. Paneleinstellungen öffnen.",
+    "titleWithVersionOpenSettings": "Panel-Update verfügbar: v{{version}}. Einstellungen öffnen.",
+    "titleNoVersionOpenSettings": "Panel-Update verfügbar. Einstellungen öffnen.",
     "update": "Update"
   },
   "footer": {
@@ -133,12 +135,6 @@
   "pageSkeleton": {
     "defaultTitle": "Seite wird geladen",
     "defaultDescription": "Paneldaten und Bedienelemente werden vorbereitet.",
-    "defaultEyebrow": "// PANEL · LÄDT",
-    "metrics": {
-      "route": "Route",
-      "auth": "Auth",
-      "socket": "Socket"
-    },
     "labels": {
       "dashboard": "Dashboard wird geladen",
       "named": "{{title}} wird geladen",
@@ -158,5 +154,52 @@
     "backend": "Backend",
     "unknown": "unbekannt",
     "checkAgain": "Erneut prüfen"
+  },
+  "serverHeader": {
+    "more": "Weitere Aktionen für {{name}}"
+  },
+  "subNav": {
+    "unsaved": "ungespeicherte Änderungen"
+  },
+  "toolbar": {
+    "clearSearch": "Suche leeren"
+  },
+  "stepper": {
+    "ariaLabel": "Fortschritt",
+    "position": "Schritt {{current}} von {{total}}",
+    "status": {
+      "done": "erledigt",
+      "current": "aktueller Schritt",
+      "upcoming": "noch nicht begonnen",
+      "locked": "gesperrt"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Ausblenden",
+    "showMore": "{{count}} weitere anzeigen",
+    "showFewer": "Weniger anzeigen"
+  },
+  "saveBar": {
+    "unsaved": "Ungespeicherte Änderungen",
+    "changeCount": "Ungespeicherte Änderungen: {{count}}",
+    "saving": "Wird gespeichert…",
+    "discard": "Verwerfen",
+    "save": "Änderungen speichern"
+  },
+  "unsavedChanges": {
+    "title": "Ohne Speichern verlassen?",
+    "description": "Auf dieser Seite gibt es noch nicht gespeicherte Änderungen. Wenn du sie jetzt verlässt, gehen sie verloren.",
+    "leave": "Verwerfen und verlassen",
+    "stay": "Weiter bearbeiten"
+  },
+  "search": {
+    "label": "Seiten und Bereiche durchsuchen",
+    "placeholder": "Suchen…"
+  },
+  "routes": {
+    "dashboardDescription": "Live-Zustand des Servers, Spieler und was als Nächstes deine Aufmerksamkeit braucht."
+  },
+  "pageHeader": {
+    "breadcrumb": "Pfadnavigation"
   }
 }

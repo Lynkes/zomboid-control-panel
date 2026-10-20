@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // bug-hunt-2026-09-06 (client silent-failure lane, dispatched after tonight's
@@ -82,7 +83,7 @@ const testBackup: ServerBackupArchive = {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }

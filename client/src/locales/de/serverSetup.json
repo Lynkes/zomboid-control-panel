@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "Neuer Server",
-    "title": "Servereinrichtung",
     "description": "Wähle, wie du deinen Project Zomboid-Server in Betrieb nehmen möchtest.",
     "fullCard": {
-      "recommendedBadge": "Empfohlen",
-      "title": "Neuinstallation",
-      "description": "Neuen dedizierten Server von Grund auf herunterladen und konfigurieren",
       "bullet1": "Lädt Serverdateien über SteamCMD herunter",
       "bullet1Size": "(~3 GB)",
       "bullet2": "Ermöglicht die Auswahl der Spielversion",
-      "bullet3": "Erstellt Konfigurations- und Startdateien automatisch",
-      "cta": "Installation starten"
+      "bullet3": "Erstellt Konfigurations- und Startdateien automatisch"
     },
     "quickCard": {
-      "title": "Vorhandene Dateien verwenden",
-      "description": "Server anhand bereits heruntergeladener Dateien registrieren",
       "bullet1": "Kein Download erforderlich",
       "bullet2": "Verweist auf einen vorhandenen PZ-Server-Ordner",
-      "bullet3": "Schnelle Einrichtung in 3 Schritten",
-      "cta": "Server registrieren"
+      "bullet3": "Schnelle Einrichtung in 3 Schritten"
     },
     "tips": {
       "title": "Nicht sicher, was du wählen sollst?",
-      "description": "Wenn du noch nie einen Project Zomboid-Server eingerichtet hast, wähle <1>Neuinstallation</1>. Alles Nötige wird dabei automatisch heruntergeladen."
+      "description": "Wenn du noch nie einen Project Zomboid-Server eingerichtet hast, wähle <1>Neuen Server installieren</1>. Alles Nötige wird dabei automatisch heruntergeladen."
     }
   },
   "resumeBanner": {
     "title": "Eine Installation läuft möglicherweise noch",
     "description": "Eine frühere Sitzung hat mit der Installation nach {{installPath}} begonnen (vor {{elapsed}}), und die Seite wurde geschlossen oder neu geladen, bevor sie abgeschlossen war. Sie läuft möglicherweise noch im Hintergrund.",
-    "continueButton": "Einrichtung fortsetzen",
-    "dismissButton": "Verwerfen"
+    "continueButton": "Einrichtung fortsetzen"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> existiert bereits. Hat ein Server mit diesem Namen ihn schon benutzt, startet dieser mit dessen Einstellungen und Welt. Für einen Neuanfang wähle einen anderen Servernamen oder Ordner."
   },
   "full": {
-    "pageTitle": "Neuinstallation",
-    "pageDescription": "Einen neuen dedizierten Server herunterladen, konfigurieren und registrieren.",
     "step1": {
       "title": "SteamCMD einrichten",
       "description": "SteamCMD wird benötigt, um die Dateien des dedizierten Project Zomboid-Servers herunterzuladen und zu aktualisieren.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Schnelleinrichtung",
-    "pageDescription": "Server anhand vorhandener dedizierter Serverdateien erstellen und registrieren.",
     "step1": {
       "title": "Serverdateien auswählen",
       "description": "Wähle den vorhandenen Ordner des dedizierten Project Zomboid-Servers.",
@@ -303,9 +289,9 @@
     "serverStartingDesc": "Weiterleitung zum Dashboard…",
     "startFailedTitle": "Start fehlgeschlagen",
     "registerFailedTitle": "Serverdateien installiert, aber die Registrierung ist fehlgeschlagen",
-    "registerFailedDesc": "Die Spieldateien liegen auf der Festplatte, aber das Panel konnte diesen Server nicht in seine Datenbank eintragen, deshalb erscheint er noch nicht unter Meine Server. Sieh dir das Log oben an und starte die Servereinrichtung erneut — ein erneuter Durchlauf ist unbedenklich.",
+    "registerFailedDesc": "Die Spieldateien liegen auf der Festplatte, aber das Panel konnte diesen Server nicht in seine Datenbank eintragen, deshalb erscheint er noch nicht unter Alle Server. Sieh dir das Log oben an und versuche „Server hinzufügen“ erneut — ein erneuter Durchlauf ist unbedenklich.",
     "activateFailedLog": "Warnung: Server wurde registriert, konnte aber nicht als aktiver Server festgelegt werden.",
     "activateFailedTitle": "Server registriert, aber nicht aktiv gesetzt",
-    "activateFailedDesc": "Der Server wurde zu Meine Server hinzugefügt, aber das Panel konnte nicht automatisch zu ihm wechseln. Wähle ihn manuell unter Meine Server aus, bevor du ihn startest."
+    "activateFailedDesc": "Der Server wurde zu Alle Server hinzugefügt, aber das Panel konnte nicht automatisch zu ihm wechseln. Wähle ihn manuell unter Alle Server aus, bevor du ihn startest."
   }
 }

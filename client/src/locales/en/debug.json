@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Debug & Logs",
+    "title": "Diagnostics",
     "description": "Live diagnostics, recent history, and environment details for this panel"
   },
   "permissionDenied": {
@@ -9,9 +9,9 @@
   },
   "headerActions": {
     "bundling": "Bundling…",
-    "supportBundleZip": "Support Bundle (.zip)",
+    "supportBundleZip": "Support bundle (.zip)",
     "supportBundleTooltip": "Panel logs · Zomboid server logs · crash dumps · diagnostics, all in a single .zip.",
-    "fullLogTxt": "Full Log (.txt)",
+    "fullLogTxt": "Full log (.txt)",
     "fullLogTooltip": "This panel's own application log only — not Zomboid server logs or crash dumps. Use the support bundle for those."
   },
   "tabs": {
@@ -23,7 +23,13 @@
     "logs": "Logs",
     "crashes": "Crashes",
     "health": "Live Status",
-    "system": "Environment"
+    "system": "Environment",
+    "ariaLabel": "Diagnostics sections",
+    "groups": {
+      "now": "Now",
+      "history": "History",
+      "system": "System"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "Select or configure an active server with a valid install path."
     },
     "serverZomboidData": {
-      "label": "Open Settings",
-      "note": "Set the Zomboid data path in Settings."
+      "label": "Open Servers",
+      "note": "Set the Zomboid data folder when you edit this server on the Servers page."
     },
     "serverStartScriptOrJre": {
       "label": "Open Server Finder",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "Open Server Config",
-      "note": "Set the RCON password in Server Config (and matching value in Settings)."
+      "note": "Set the RCON password in Server Config, and the same value when you edit this server on the Servers page."
     },
     "serverBridgeMod": {
       "label": "Open Settings › PanelBridge",

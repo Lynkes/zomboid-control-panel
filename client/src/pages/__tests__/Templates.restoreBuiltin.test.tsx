@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Templates from '../Templates'
 import { templatesApi, SimTemplate } from '@/lib/api'
@@ -81,6 +81,8 @@ describe('Templates.tsx -- restoring a hidden built-in template', () => {
 
     renderTemplates()
 
+    // Hidden built-ins sit in a collapsed section that names how many.
+    fireEvent.click(await screen.findByRole('button', { name: 'Hidden built-ins (1)' }))
     expect(await screen.findByText('Vanilla Apocalypse')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Restore Vanilla Apocalypse' })).toBeInTheDocument()
   })
@@ -91,8 +93,9 @@ describe('Templates.tsx -- restoring a hidden built-in template', () => {
 
     renderTemplates()
 
-    await screen.findByText('Simulation Templates')
-    expect(screen.queryByText('Hidden built-in templates')).not.toBeInTheDocument()
+    await screen.findByRole('heading', { level: 1, name: 'Templates' })
+    await waitFor(() => expect(listHidden).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /Hidden built-ins/ })).not.toBeInTheDocument()
   })
 
   it('restoring calls unhide with the right id, refetches both lists, and toasts success', async () => {
@@ -104,6 +107,7 @@ describe('Templates.tsx -- restoring a hidden built-in template', () => {
     listHidden.mockResolvedValueOnce({ templates: [] })
 
     renderTemplates()
+    fireEvent.click(await screen.findByRole('button', { name: 'Hidden built-ins (1)' }))
     const restoreButton = await screen.findByRole('button', { name: 'Restore Vanilla Apocalypse' })
     restoreButton.click()
 
@@ -125,6 +129,7 @@ describe('Templates.tsx -- restoring a hidden built-in template', () => {
     unhide.mockResolvedValue({ success: false, error: 'Template not found' })
 
     renderTemplates()
+    fireEvent.click(await screen.findByRole('button', { name: 'Hidden built-ins (1)' }))
     const restoreButton = await screen.findByRole('button', { name: 'Restore Vanilla Apocalypse' })
     restoreButton.click()
 

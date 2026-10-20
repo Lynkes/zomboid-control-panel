@@ -1,0 +1,21 @@
+{
+  "title": "Command palette",
+  "description": "Type to find a page, a section of a page, or a server to switch to.",
+  "inputLabel": "Search pages, sections and servers",
+  "placeholder": "Go to a page, a section or a server…",
+  "resultsLabel": "Results",
+  "noResults": "Nothing matches “{{query}}”.",
+  "switchServer": "Switch to {{name}}",
+  "showShortcuts": "Show keyboard shortcuts",
+  "groups": {
+    "pages": "Pages",
+    "sections": "Sections",
+    "servers": "Servers",
+    "actions": "Actions"
+  },
+  "hints": {
+    "move": "↑ ↓ to move",
+    "open": "Enter to open",
+    "close": "Esc to close"
+  }
+}

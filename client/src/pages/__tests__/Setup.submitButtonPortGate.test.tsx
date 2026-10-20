@@ -46,31 +46,34 @@ function renderSetup() {
   )
 }
 
+// Re-queried each time: while it is disabled the button sits inside
+// DisabledReason's wrapper (which says what is missing), so it remounts
+// when the form becomes valid or invalid.
+const submitButton = () => screen.getByRole('button', { name: enSetup.submit })
+
 describe('Setup.tsx: submit button disabled state matches handleSubmit validation', () => {
   it('disables Submit for an out-of-range panel port, same as it does for every other invalid field', () => {
     renderSetup()
     fillValidFormExceptPort()
 
-    const submitButton = screen.getByRole('button', { name: enSetup.submit })
     // Default panelPort ('3001') is valid -- confirm the button is enabled
     // with everything else filled in, so the next assertion isolates the
     // port field specifically.
-    expect(submitButton).not.toBeDisabled()
+    expect(submitButton()).not.toBeDisabled()
 
     fireEvent.change(screen.getByLabelText(enSetup.panelPort.label), { target: { value: '80' } })
 
-    expect(submitButton).toBeDisabled()
+    expect(submitButton()).toBeDisabled()
   })
 
   it('re-enables Submit once the port is back in range', () => {
     renderSetup()
     fillValidFormExceptPort()
 
-    const submitButton = screen.getByRole('button', { name: enSetup.submit })
     fireEvent.change(screen.getByLabelText(enSetup.panelPort.label), { target: { value: '80' } })
-    expect(submitButton).toBeDisabled()
+    expect(submitButton()).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText(enSetup.panelPort.label), { target: { value: '8080' } })
-    expect(submitButton).not.toBeDisabled()
+    expect(submitButton()).not.toBeDisabled()
   })
 })

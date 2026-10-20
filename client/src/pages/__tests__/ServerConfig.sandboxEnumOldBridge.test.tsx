@@ -178,7 +178,7 @@ describe('Mod Settings enum rows when the labels do not cover 1..max', () => {
       (value) => oldBridgeSetEnum(value, 3),
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: /def: 3/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Reset to 3/ }))
     expect(setCalls(sendCommand)).toHaveLength(0)
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Update PanelBridge first' }))
   })

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 
 // 2026-08-27 bug-hunt: Backups.tsx had NO test file at all before this one
@@ -82,7 +83,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -157,16 +158,27 @@ describe('Backups.tsx: backups.restore gates the restore flow', () => {
   })
 })
 
+// Download lives in the row's "…" menu (with View snapshot and Delete); the
+// labelled Restore button is the row's one visible action.
+async function openRowMenu() {
+  const trigger = await screen.findByRole('button', { name: `More actions for ${testBackup.name}` })
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  return screen.findByRole('menu')
+}
+
 describe('Backups.tsx: backups.download gates the download button', () => {
   it('disables Download and a click never calls the API when the role lacks backups.download', async () => {
     mockCan = (capability) => capability !== 'backups.download'
     setUp()
     renderBackups()
 
-    const downloadButton = await screen.findByRole('button', { name: /download/i })
-    expect(downloadButton).toBeDisabled()
+    const menu = await openRowMenu()
+    const downloadItem = within(menu).getByRole('menuitem', { name: /download/i })
+    expect(downloadItem).toHaveAttribute('aria-disabled', 'true')
+    // The reason shows under the label inside the menu.
+    expect(downloadItem).toHaveTextContent(/requires the backups\.download permission/)
 
-    fireEvent.click(downloadButton)
+    fireEvent.click(downloadItem)
     await waitFor(() => expect(downloadBackup).not.toHaveBeenCalled())
   })
 
@@ -175,10 +187,30 @@ describe('Backups.tsx: backups.download gates the download button', () => {
     setUp()
     renderBackups()
 
-    const downloadButton = await screen.findByRole('button', { name: /download/i })
-    expect(downloadButton).not.toBeDisabled()
+    const menu = await openRowMenu()
+    const downloadItem = within(menu).getByRole('menuitem', { name: /download/i })
+    expect(downloadItem).not.toHaveAttribute('aria-disabled')
 
-    fireEvent.click(downloadButton)
+    fireEvent.click(downloadItem)
     await waitFor(() => expect(downloadBackup).toHaveBeenCalledWith(testBackup.name))
+  })
+})
+
+describe('Backups.tsx: one visible action per row', () => {
+  it('keeps Restore as a labelled button and puts View snapshot, Download and Delete (last) in the row menu', async () => {
+    mockCan = () => true
+    setUp()
+    renderBackups()
+
+    const restore = await screen.findByRole('button', { name: `Restore ${testBackup.name}` })
+    expect(restore).toHaveTextContent('Restore')
+
+    const menu = await openRowMenu()
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['View server snapshot', 'Download backup', 'Delete backup'])
+    expect(within(menu).getByRole('separator')).toBeInTheDocument()
+
+    fireEvent.click(items[2])
+    expect(await screen.findByRole('button', { name: 'Delete backup' })).toBeInTheDocument()
   })
 })

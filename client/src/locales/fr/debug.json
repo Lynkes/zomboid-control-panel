@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Débogage et journaux",
+    "title": "Diagnostic",
     "description": "Diagnostics en direct, historique récent et détails d'environnement pour ce panneau"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Journaux",
     "crashes": "Plantages",
     "health": "État en direct",
-    "system": "Environnement"
+    "system": "Environnement",
+    "ariaLabel": "Sections du diagnostic",
+    "groups": {
+      "now": "Maintenant",
+      "history": "Historique",
+      "system": "Système"
+    }
   },
   "fixActions": {
     "links": {
@@ -90,8 +96,8 @@
       "note": "Sélectionnez ou configurez un serveur actif avec un chemin d'installation valide."
     },
     "serverZomboidData": {
-      "label": "Ouvrir les paramètres",
-      "note": "Définissez le chemin de données Zomboid dans les paramètres."
+      "label": "Ouvrir Serveurs",
+      "note": "Définissez le dossier de données Zomboid en modifiant ce serveur dans la page Serveurs."
     },
     "serverStartScriptOrJre": {
       "label": "Ouvrir Recherche de serveur",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Ouvrir la configuration du serveur",
-      "note": "Définissez le mot de passe RCON dans la configuration du serveur (et la valeur correspondante dans les paramètres)."
+      "note": "Définissez le mot de passe RCON dans la configuration du serveur, et la même valeur en modifiant ce serveur dans la page Serveurs."
     },
     "serverBridgeMod": {
       "label": "Ouvrir Paramètres › PanelBridge",

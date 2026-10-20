@@ -18,14 +18,15 @@
   "pageHeader": {
     "title": "Serverkonfiguration",
     "description": "Bearbeite die aktuellen INI-, Sandbox-, Spawn- und Mod-Einstellungen für diesen Server.",
-    "eyebrow": "Konfiguration",
     "unsavedChanges": "Nicht gespeicherte Änderungen",
-    "templates": "Gespeicherte Konfigurationen",
-    "backups": "Backups",
-    "refresh": "Aktualisieren"
+    "templates": "Konfig-Schnappschüsse",
+    "backups": "Backups der Konfigurationsdateien",
+    "refresh": "Aktualisieren",
+    "more": "Weitere Aktionen",
+    "templatesPage": "Vorlagen",
+    "openInFiles": "Ordner in Serverdateien öffnen"
   },
   "activeServerStrip": {
-    "label": "Aktiver Server",
     "noServerSelected": "Kein Server ausgewählt",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -53,7 +54,8 @@
     "removeConfirm": "\"{{modId}}\" aus Mods= entfernen? Dies wird nur hier vorgemerkt — nichts wird auf die Festplatte geschrieben, bis du speicherst.",
     "removeConfirmButton": "Entfernen",
     "removedTitle": "Mods=-Eintrag entfernt",
-    "removedToast": "\"{{modId}}\" wurde aus Mods= entfernt. Nicht gespeichert — unten prüfen und speichern."
+    "removedToast": "\"{{modId}}\" wurde aus Mods= entfernt. Nicht gespeichert — unten prüfen und speichern.",
+    "openActiveMods": "Aktive Mods öffnen"
   },
   "tabs": {
     "serverSettings": "Servereinstellungen",
@@ -62,7 +64,8 @@
     "spawnRegions": "Spawnregionen",
     "modSettings": "Mod-Einstellungen",
     "unsavedChangesAria": "nicht gespeicherte Änderungen",
-    "fileMissingAria": "Datei fehlt"
+    "fileMissingAria": "Datei fehlt",
+    "listAria": "Konfigurationsdateien"
   },
   "stopServerAlert": {
     "title": "Der Server läuft",
@@ -78,13 +81,9 @@
     "form": "Formular",
     "raw": "Raw",
     "downloadIniAria": "INI-Backup herunterladen",
-    "downloadIniTooltip": "INI-Backup herunterladen",
     "downloadSandboxAria": "Sandbox-Backup herunterladen",
-    "downloadSandboxTooltip": "Sandbox-Backup herunterladen",
     "downloadSpawnPointsAria": "Spawnpunkte-Backup herunterladen",
-    "downloadSpawnPointsTooltip": "Spawnpunkte-Backup herunterladen",
     "downloadSpawnRegionsAria": "Spawnregionen-Backup herunterladen",
-    "downloadSpawnRegionsTooltip": "Spawnregionen-Backup herunterladen",
     "wiki": "Wiki",
     "map": "Karte",
     "saveAndReload": "Speichern & neu laden",
@@ -97,29 +96,19 @@
     "sandboxPlaceholder": "Sandbox-Einstellungen durchsuchen…",
     "aria": "Servereinstellungen durchsuchen",
     "sandboxAria": "Sandbox-Einstellungen durchsuchen",
-    "clearAria": "Suche löschen",
     "filterAria": "Einstellungen filtern",
-    "filterAll": "alle",
-    "filterModified": "geändert",
-    "filterUnsaved": "ungespeichert",
+    "filterAll": "Alle",
+    "filterModified": "Geändert",
+    "filterUnsaved": "Ungespeichert",
     "noMatches": "Keine Einstellungen stimmen mit „{{query}}“ überein."
   },
   "categoriesNav": {
     "iniAria": "Kategorien der Servereinstellungen",
     "sandboxAria": "Sandbox-Kategorien",
-    "categoriesLabel": "Kategorien",
-    "expandAllAria": "Alle Kategoriegruppen ausklappen",
-    "collapseAllAria": "Alle Kategoriegruppen einklappen",
-    "expandAll": "Alle ausklappen",
-    "collapseAll": "Alle einklappen",
-    "modifiedCountTitle_one": "{{count}} ungespeicherte Änderung",
-    "modifiedCountTitle_other": "{{count}} ungespeicherte Änderungen",
     "matchCount_one": "{{count}} Übereinstimmung",
     "matchCount_other": "{{count}} Übereinstimmungen",
     "uncategorizedIniLabel": "Unkategorisiert / Unbekannt",
-    "uncategorizedIniTitle": "Schlüssel, die in deiner INI-Datei vorhanden sind, aber nicht im Schema enthalten sind (neuere Vanilla-Schlüssel, von Mods eingefügte Schlüssel oder benutzerdefinierte Schlüssel)",
-    "uncategorizedSandboxLabel": "Zusätzliche Einstellungen",
-    "uncategorizedSandboxTitle": "Sandbox-Einstellungen, die vom Editor noch nicht gruppiert wurden"
+    "uncategorizedSandboxLabel": "Zusätzliche Einstellungen"
   },
   "uncategorizedIni": {
     "empty": "Keine unkategorisierten Schlüssel.",
@@ -156,8 +145,6 @@
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "Welt, Zombies, Überleben",
-    "build42Title": "Build 42 optimiert",
     "build42Body": "Sandbox-Werte und Optionsbezeichnungen in diesem Editor orientieren sich an den Standardwerten von Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -166,8 +153,7 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Spawnpunkte",
-    "sectionSublabel": "Mod-verwaltet · Spieler-Startorte",
-    "infoTab": "Info",
+    "sectionSublabel": "Startorte der Spieler, meist von einem Mod verwaltet",
     "modManagedTitle": "Spawnpunkte werden von Mods verwaltet",
     "modManagedBody": "Spawnorte werden meist von Mods wie „Spawn Select“ verwaltet. Wechsle zu <1>Raw</1>, um die Datei direkt einzusehen oder zu bearbeiten.",
     "openRawFile": "Raw-Datei öffnen"
@@ -196,15 +182,14 @@
     "sectionLabel": "Mod-Sandbox-Optionen",
     "sectionSublabelLoaded_one": "{{count}} Mod · live von PanelBridge",
     "sectionSublabelLoaded_other": "{{count}} Mods · live von PanelBridge",
-    "sectionSublabelIdle": "PanelBridge · live",
+    "sectionSublabelIdle": "Live über PanelBridge",
     "modifiedBadge": "{{count}} geändert",
     "refresh": "Aktualisieren",
     "load": "Laden",
     "searchPlaceholder": "Mod-Einstellungen durchsuchen… (/ drücken)",
-    "clearSearchAria": "Suche löschen",
     "modifiedFilterNoneTitle": "Keine Optionen weichen vom Standardwert ab",
     "modifiedFilterTitle": "Nur vom Standardwert geänderte Optionen anzeigen",
-    "modifiedFilter": "geändert",
+    "modifiedFilter": "Geändert",
     "collapseAll": "Alle einklappen",
     "expandAll": "Alle ausklappen",
     "notLoadedTitle": "Mod-Einstellungen nicht geladen",
@@ -231,7 +216,7 @@
     "offCaps": "AUS",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Auf Standardwert zurücksetzen: {{value}}",
-    "resetToDefaultLabel": "Std.: {{value}}",
+    "resetToDefaultLabel": "Zurück auf {{value}}",
     "resetToDefaultTooltip": "Auf Standardwert zurücksetzen: {{value}}",
     "noModifiedOptions": "Keine Optionen wurden gegenüber ihrem Standardwert geändert.",
     "showAllOptions": "Alle Optionen anzeigen",
@@ -242,20 +227,11 @@
     "enumBridgeOutdatedDesc": "Sie speichert die letzte Auswahl einer Listeneinstellung als die davor. Deshalb sendet das Panel keine letzte Auswahl, bis PanelBridge aktualisiert und der Server neu gestartet ist. Unter Einstellungen › PanelBridge siehst du, was dieser Server braucht. Lassen sich die Auswahlmöglichkeiten einer Einstellung nicht auflisten, gib die Nummer der Auswahl ein (1 ist die erste).",
     "enumLastChoiceHeldBack": "Die letzte Auswahl ({{max}}) lässt sich hier erst wählen, wenn PanelBridge aktualisiert ist.",
     "enumLastChoiceItem": "Auswahl {{value}}",
-    "enumTooManyChoices": "Zu viele Auswahlmöglichkeiten für eine Liste. Gib die Nummer der Auswahl ein (1 ist die erste)."
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} ungespeicherte Änderung",
-    "unsavedChange_other": "{{count}} ungespeicherte Änderungen",
-    "iniScope": "Server-INI",
-    "sandboxScope": "Sandbox-Lua",
-    "hint": "Strg+S zum Speichern · wird beim Neuladen übernommen",
-    "discard": "Verwerfen",
-    "save": "Speichern",
-    "saveAndReload": "Speichern & neu laden"
+    "enumTooManyChoices": "Zu viele Auswahlmöglichkeiten für eine Liste. Gib die Nummer der Auswahl ein (1 ist die erste).",
+    "manageMods": "Mods verwalten"
   },
   "backupsDialog": {
-    "title": "Konfigurations-Backups",
+    "title": "Backups der Konfigurationsdateien",
     "description": "Stelle eine frühere Version deiner Konfigurationsdateien wieder her. Backups werden automatisch erstellt, wenn du speicherst.",
     "filterLabel": "Filter:",
     "filterAll": "Alle Dateien",
@@ -276,9 +252,9 @@
     "sizeKb": "{{size}} KB"
   },
   "templatesDialog": {
-    "title": "Gespeicherte Konfigurationen",
+    "title": "Konfig-Schnappschüsse",
     "applyTip": "Das Anwenden einer gespeicherten Konfiguration ersetzt ALLE Ihre aktuellen Einstellungen — sie wird nicht mit den vorhandenen zusammengeführt. Das Panel sichert den aktuellen Stand vor dem Anwenden, sodass Sie es über Wiederherstellen rückgängig machen können, aber der Server muss vorher gestoppt sein.",
-    "description": "Speichere deine aktuelle Konfiguration, oder lade eine, die du zuvor gespeichert hast.",
+    "description": "Speichere die aktuellen Einstellungen als Schnappschuss oder wende einen früheren an.",
     "savedCount_one": "{{count}} Konfiguration gespeichert",
     "savedCount_other": "{{count}} Konfigurationen gespeichert",
     "saveCurrentAsTemplate": "Aktuelle Konfiguration speichern",
@@ -352,7 +328,7 @@
   "toasts": {
     "error": "Fehler",
     "loadConfigFailed": "Laden der Serverkonfiguration fehlgeschlagen.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "Der aktive Server hat sich geändert, seit diese Seite geladen wurde. Lade neu, bevor du speicherst, damit nicht der falsche Server überschrieben wird.",
     "invalidIniTitle": "Ungültige Servereinstellungen",
     "invalidSandboxTitle": "Ungültige Sandbox-Werte",
     "fixSettings": "Beheben: {{settings}}",

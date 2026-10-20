@@ -86,7 +86,7 @@
     "worldMapTab.unitVehicle_zero"
   ],
   "pageHeader": {
-    "title": "التصحيح والسجلات",
+    "title": "التشخيص",
     "description": "تشخيصات مباشرة وسجل حديث وتفاصيل البيئة لهذه اللوحة"
   },
   "permissionDenied": {
@@ -109,7 +109,13 @@
     "logs": "السجلات",
     "crashes": "الأعطال",
     "health": "الحالة المباشرة",
-    "system": "البيئة"
+    "system": "البيئة",
+    "ariaLabel": "أقسام التشخيص",
+    "groups": {
+      "now": "الآن",
+      "history": "السجل",
+      "system": "النظام"
+    }
   },
   "fixActions": {
     "links": {
@@ -191,8 +197,8 @@
       "note": "اختر أو هيّئ خادمًا نشطًا بمسار تثبيت صالح."
     },
     "serverZomboidData": {
-      "label": "فتح الإعدادات",
-      "note": "حدّد مسار بيانات Zomboid في الإعدادات."
+      "label": "فتح الخوادم",
+      "note": "حدّد مجلد بيانات Zomboid عند تعديل هذا الخادم في صفحة الخوادم."
     },
     "serverStartScriptOrJre": {
       "label": "فتح باحث الخوادم",
@@ -212,7 +218,7 @@
     },
     "serverRconPassword": {
       "label": "فتح إعدادات الخادم",
-      "note": "حدّد كلمة مرور RCON في إعدادات الخادم (وقيمة مطابقة لها في الإعدادات)."
+      "note": "حدّد كلمة مرور RCON في إعدادات الخادم، والقيمة نفسها عند تعديل هذا الخادم في صفحة الخوادم."
     },
     "serverBridgeMod": {
       "label": "فتح الإعدادات › PanelBridge",

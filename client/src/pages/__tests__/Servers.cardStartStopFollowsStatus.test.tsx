@@ -156,7 +156,7 @@ function renderServers(socket: typeof fakeSocket | null = null) {
 }
 
 function card(): HTMLElement {
-  const found = screen.getByText('Maze with friends').closest('.overflow-hidden.transition-colors')
+  const found = screen.getByText('Maze with friends').closest('article')
   if (!found) throw new Error('could not find the Maze with friends card')
   return found as HTMLElement
 }

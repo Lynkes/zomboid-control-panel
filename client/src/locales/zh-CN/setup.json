@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "此步骤之后",
+    "nextHeading": "接下来",
     "previewBadge": "预览",
     "step1Title": "将服务器接入面板",
     "step1Desc": "添加现有安装，或运行引导设置创建新服务器。",

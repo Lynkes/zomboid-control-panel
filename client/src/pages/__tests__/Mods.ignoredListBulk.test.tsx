@@ -3,6 +3,7 @@ import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Mods from '../Mods'
+import { openModsView } from './modsNav'
 import { modsApi } from '@/lib/api'
 
 // Issue #232: a Mod Manager with hundreds of ignored mods could only be taken
@@ -69,6 +70,8 @@ const IGNORED = [
 ]
 
 beforeEach(() => {
+  // The ignored section remembers being open; every test starts it folded.
+  localStorage.clear()
   m.getTrackedMods.mockResolvedValue({ mods: [] } as never)
   m.getStatus.mockResolvedValue({ totalModsTracked: 0, workshopAcfConfigured: true, autoRestartEnabled: false } as never)
   m.getCurrentConfig.mockResolvedValue({ configured: true, modIds: [], workshopIds: [], maps: [], totalMods: 0 } as never)
@@ -95,7 +98,9 @@ async function openIgnoredPanel() {
       </TooltipProvider>
     </MemoryRouter>,
   )
-  fireEvent.click(await screen.findByText(/3 ignored mods/))
+  // The ignored list is a folded section of the Deactivated view.
+  await openModsView('Deactivated')
+  fireEvent.click(await screen.findByRole('button', { name: /3 ignored mods/ }))
   await screen.findByText('Alpha Mod')
 }
 

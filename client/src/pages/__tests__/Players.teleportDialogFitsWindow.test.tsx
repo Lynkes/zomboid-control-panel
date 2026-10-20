@@ -88,11 +88,11 @@ async function openTeleportDialog() {
   await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument(), { timeout: 3000 })
   fireEvent.click(screen.getByText('TestPlayer'))
   await waitFor(() => expect(screen.getAllByText('TestPlayer').length).toBeGreaterThan(1), { timeout: 3000 })
-  const tile = screen.getAllByText(en.actionTiles.teleportLabel)
-    .map((el) => el.closest('button'))
-    .find((btn): btn is HTMLButtonElement => btn !== null)
-  if (!tile) throw new Error('Teleport tile has no <button> ancestor')
-  fireEvent.click(tile)
+  // Teleport is in the player's "..." menu; Radix opens it on pointerdown.
+  const trigger = screen.getByRole('button', { name: en.dossier.moreActionsAria })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('menuitem', { name: en.dossier.teleport }))
   await screen.findByRole('heading', { name: en.teleportDialog.title })
   return screen.getByRole('dialog')
 }

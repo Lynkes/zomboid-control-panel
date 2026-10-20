@@ -182,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Bot Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Jere bot Discord ou, kòmand slash, ak notifikasyon evènman",
     "statusRunning": "Ap fonksyone",
     "statusStopped": "Sispann",
     "refreshAria": "Rafrechi estati",
+    "setupGuide": "Gid konfigirasyon",
+    "closeGuide": "Retounen nan paramèt bot la",
     "botStatus": {
       "title": "Estati Bot",
       "runtimeLabel": "Tan Egzekisyon",

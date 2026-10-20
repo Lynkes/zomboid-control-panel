@@ -86,8 +86,13 @@ describe('Files: the server state callout', () => {
   it('warns while the server runs, and "Check again" asks for a fresh state', async () => {
     server.profiles = [makeProfile({ serverState: 'running' })]
     renderFiles()
-    const alert = (await screen.findByText(enFiles.serverState.running.title)).closest('[role="alert"]') as HTMLElement
+    // A page-level note: in the PageAlerts stack right under the header,
+    // with the warning treatment (DESIGN.md callouts).
+    const alert = (await screen.findByText(enFiles.serverState.running.title)).closest('[role="status"]') as HTMLElement
     expect(alert.className).toContain('border-warning/40')
+    const header = screen.getByRole('heading', { level: 1, name: enFiles.page.title }).closest('section') as HTMLElement
+    expect(header.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alert.compareDocumentPosition(await screen.findByRole('table')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(alert).getByText(enFiles.serverState.running.body)).toBeInTheDocument()
 
     fireEvent.click(within(alert).getByRole('button', { name: enFiles.serverState.checkAgain }))
@@ -107,7 +112,7 @@ describe('Files: the server state callout', () => {
     server.profiles = [makeProfile({ serverState: 'unknown', remote: { host: 'vps.example', port: 2222, username: 'pz' }, roots: [makeRoot('data', { backend: 'sftp' })] })]
     renderFiles()
     const note = await screen.findByText(enFiles.serverState.remoteUnknown)
-    expect(note.closest('[role="alert"]')?.className).toContain('bg-muted/40')
+    expect(note.closest('[role="status"]')?.className).toContain('bg-muted/40')
     expect(screen.queryByText(enFiles.serverState.unknown.title)).not.toBeInTheDocument()
     expect(screen.getByText('Connected over SFTP to vps.example:2222 as pz')).toBeInTheDocument()
   })

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SocketContext } from '@/contexts/SocketContext'
@@ -98,7 +98,7 @@ function renderServers() {
 }
 
 async function addRemoteServer(name: string) {
-  fireEvent.click(await screen.findByRole('button', { name: en.pageHeader.addRemote }))
+  await openAddFromHeader('remote')
   await screen.findByRole('heading', { name: en.addDialog.titleRemote })
   fireEvent.change(screen.getByPlaceholderText(en.remoteForm.displayNamePlaceholder), { target: { value: name } })
   fireEvent.change(screen.getByPlaceholderText(en.remoteForm.hostPlaceholder), { target: { value: '192.168.1.60' } })
@@ -171,3 +171,14 @@ describe('Servers -- Add Server when activation is turned away', () => {
     expect(screen.getByRole('heading', { name: en.addDialog.titleRemote })).toBeInTheDocument()
   })
 })
+
+// The page header's "Add server" menu (UX restructure, one command primary):
+// the existing-files and remote dialogs open from its items. Radix opens the
+// menu on pointerdown.
+async function openAddFromHeader(choice: 'existing' | 'remote') {
+  const trigger = await screen.findByRole('button', { name: en.addServer.menu })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+  fireEvent.click(trigger)
+  const menu = await screen.findByRole('menu')
+  fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(en.addServer[choice].label) }))
+}

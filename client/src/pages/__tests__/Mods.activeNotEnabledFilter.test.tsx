@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import Mods from '../Mods'
 import { modsApi, serversApi } from '@/lib/api'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { openModsView } from './modsNav'
 
 // "Active on server" says "170 of 186 IDs enabled" and gave no way to see which
 // 16 are not. A "Not enabled (n)" chip now shows only the workshop items that
@@ -89,13 +90,14 @@ async function openActive() {
     </MemoryRouter>,
   )
   await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
-  fireEvent.click(await screen.findByText('Active on server'))
+  await openModsView('Active on server')
   await screen.findByText(/IDs enabled/)
 }
 
 // The Multi-ID chip starts on and hides single-ID items; turn it off so every item is listed.
 function showAllItems() {
-  const multi = screen.queryByRole('button', { name: /Multi-ID/ })
+  // The chip itself, not the "Remove filter" button of its remembered-filter tag.
+  const multi = screen.queryByRole('button', { name: /^Multi-ID/ })
   if (multi?.getAttribute('aria-pressed') === 'true') fireEvent.click(multi)
 }
 

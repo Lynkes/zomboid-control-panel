@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Modelos de simulação",
-    "description": "Aplique um conjunto de regras pronto ao seu servidor ou salve sua própria configuração para reutilizar depois.",
+    "title": "Modelos",
+    "description": "Conjuntos de regras que você pode aplicar a qualquer servidor; um snapshot de configuração só restaura os arquivos de um servidor.",
+    "snapshotsLink": "Os snapshots de configuração ficam em Configuração do servidor",
     "import": "Importar",
     "saveCurrentConfig": "Salvar configuração atual"
   },
+  "loading": "Carregando modelos",
   "emptyState": {
     "loadErrorTitle": "Não foi possível carregar os modelos",
     "retry": "Tentar novamente",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Salve a configuração atual do servidor como modelo ou importe um de um arquivo."
   },
   "hiddenSection": {
-    "title": "Modelos predefinidos ocultos",
+    "toggle": "Modelos predefinidos ocultos ({{n}})",
     "description": "Ocultos da lista acima, mas não excluídos. Restaure um para trazê-lo de volta.",
     "restoreButton": "Restaurar",
     "restoreAria": "Restaurar {{name}}"

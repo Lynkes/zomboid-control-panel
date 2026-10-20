@@ -5,6 +5,10 @@
     "eyebrow": "Maintenance",
     "newTask": "Nouvelle tâche"
   },
+  "settings": {
+    "title": "Paramètres du planificateur",
+    "description": "Le fuseau horaire de toutes les planifications et le compte à rebours que voient les joueurs avant un redémarrage."
+  },
   "fetchError": {
     "title": "Impossible de charger les données du planificateur",
     "fallback": "Échec du chargement des données du planificateur. Le serveur peut être injoignable.",
@@ -140,8 +144,10 @@
     "welcome": "Bienvenue ! Merci de lire les règles au spawn"
   },
   "scheduledTasks": {
-    "title": "Tâches planifiées",
-    "description": "Gérer les commandes automatisées.",
+    "title": "Tâches",
+    "description": "Commandes qui s'exécutent selon un horaire. Lancez-en une maintenant, modifiez-la ou mettez-la en pause.",
+    "activeCount": "{{active}} sur {{total}} actives",
+    "modUpdatePending": "Redémarrage après mise à jour de mod en attente",
     "emptyTitle": "Aucune tâche planifiée",
     "emptyDesc": "Créez une tâche pour exécuter des redémarrages, des sauvegardes, des messages serveur ou des commandes PanelBridge (météo, services) selon une planification cron.",
     "emptyActionLabel": "Créer une tâche planifiée",
@@ -201,7 +207,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = chaque jour à 6 h"
   },
   "timezone": {
-    "title": "Fuseau horaire du planificateur",
+    "title": "Fuseau horaire",
     "description": "Toutes les planifications ci-dessous -- vos tâches, la sauvegarde automatique et le redémarrage automatique -- s'exécutent dans ce fuseau horaire.",
     "inputLabel": "Nom de fuseau horaire IANA",
     "noMatches": "Aucun fuseau horaire correspondant",
@@ -212,7 +218,9 @@
     "backupScheduleOff": "inactive",
     "autoRestartOn": "activé",
     "autoRestartOff": "désactivé",
-    "backupHealthTitle": "État de la sauvegarde planifiée",
+    "backupHealthTitle": "Sauvegardes automatiques",
+    "backupHealthDesc": "La dernière sauvegarde planifiée du monde et la prochaine.",
+    "backupHealthLink": "Planning des sauvegardes",
     "backupLastAttemptOk": "Dernière tentative réussie · {{date}}",
     "backupLastAttemptFailed": "Dernière tentative échouée · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Dernière tentative sautée pendant un redémarrage · {{date}}",
@@ -222,7 +230,9 @@
     "savedDesc": "Les planifications s'exécutent maintenant dans {{tz}}.",
     "saveFailedFallback": "Échec de l'enregistrement du fuseau horaire",
     "fallbackTitle": "Le fuseau horaire enregistré n'est plus valide",
-    "fallbackDesc": "« {{configured}} » n'a pas pu être utilisé (il a peut-être été retiré de la base de données des fuseaux horaires, ou ce panneau a été restauré depuis une autre machine). Les planifications s'exécutent dans {{effective}} jusqu'à ce que ce soit corrigé."
+    "fallbackDesc": "« {{configured}} » n'a pas pu être utilisé (il a peut-être été retiré de la base de données des fuseaux horaires, ou ce panneau a été restauré depuis une autre machine). Les planifications s'exécutent dans {{effective}} jusqu'à ce que ce soit corrigé.",
+    "fallbackAction": "Changer de fuseau horaire",
+    "emptyReason": "Choisissez d'abord un fuseau horaire."
   },
   "restartWarning": {
     "title": "Avertissements de redémarrage",
@@ -234,6 +244,7 @@
     "saveButton": "Enregistrer les avertissements",
     "saved": "Avertissements de redémarrage enregistrés",
     "saveFailed": "Échec de l'enregistrement des avertissements de redémarrage",
+    "emptyReason": "Écrivez d'abord le message du compte à rebours.",
     "languages": {
       "en": "Anglais",
       "zh-CN": "Chinois simplifié",

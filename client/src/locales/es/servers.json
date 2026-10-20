@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "Servidores gestionados",
-    "description": "Gestiona varios servidores de Project Zomboid desde un panel",
-    "eyebrow": "Flota",
+    "title": "Servidores",
+    "description": "Añade, cambia, actualiza y edita los servidores de Project Zomboid que gestiona este panel.",
     "scanAria": "Buscar servidores",
     "scanTitle": "Buscar servidores",
     "scanNoPermission": "Buscar instalaciones de bind-mount requiere el permiso servers.discover, del cual este rol no dispone.",
-    "addRemote": "Añadir servidor remoto",
-    "addExisting": "Añadir servidor existente",
-    "installNew": "Instalar servidor nuevo"
+    "publicServers": "Servidores públicos",
+    "installNoPermission": "Instalar un servidor nuevo requiere el permiso server.install, del cual este rol no dispone."
   },
+  "addServer": {
+    "menu": "Añadir servidor",
+    "listLabel": "Formas de añadir un servidor",
+    "recommended": "Recomendado",
+    "fresh": {
+      "label": "Instalar un servidor nuevo",
+      "description": "Descarga el servidor dedicado con SteamCMD y luego configura puertos, contraseñas y memoria."
+    },
+    "existing": {
+      "label": "Usar archivos de servidor existentes",
+      "description": "Indica al panel un servidor que ya está instalado en esta máquina."
+    },
+    "remote": {
+      "label": "Conectar un servidor remoto",
+      "description": "Gestiona un servidor que se ejecuta en otra máquina, mediante RCON."
+    }
+  },
+  "loadingLabel": "Cargando servidores",
   "fetchError": {
     "title": "No se pudieron cargar los servidores",
     "fallback": "No se pudieron cargar los servidores. Es posible que el backend no esté disponible.",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "No hay servidores configurados",
-    "description": "Empieza con un servidor. Una vez activo, el tablero, los jugadores, las copias de seguridad, los mods y las acciones remotas estarán disponibles.",
-    "addLocalTitle": "Añadir un servidor local existente",
-    "addLocalDesc": "Usa esto cuando los archivos del servidor ya existan en esta máquina.",
-    "installTitle": "Instalar un servidor local nuevo",
-    "installDesc": "Usa el instalador cuando necesites archivos, puertos, contraseñas y configuración de memoria en un solo flujo.",
-    "connectRemoteTitle": "Conectar un servidor remoto",
-    "connectRemoteDesc": "Usa esto para servidores que se ejecutan en otra máquina mediante RCON.",
-    "step1Label": "Paso 1",
-    "step1Text": "Añade un servidor",
-    "step2Label": "Paso 2",
-    "step2Text": "Actívalo y verifica RCON",
-    "step3Label": "Paso 3",
-    "step3Text": "Vuelve al tablero para el control en vivo"
+    "description": "Empieza con un servidor. Una vez activo, el tablero, los jugadores, las copias de seguridad, los mods y las acciones remotas estarán disponibles."
   },
   "card": {
     "selected": "Seleccionado",
-    "inactive": "Inactivo",
     "remote": "Remoto",
     "updateAvailable": "Actualización disponible",
     "updateStatusUnknown": "Update status unknown",
@@ -69,8 +72,12 @@
     "statusNotConfigured": "Sin configurar",
     "statusAuthFailed": "Error de autenticación",
     "statusUnavailable": "No disponible",
-    "buildLabel": "Build:",
-    "branchLabel": "Rama:",
+    "buildLabel": "Build",
+    "branchLabel": "Rama",
+    "version": "Versión",
+    "detailsPaths": "Rutas",
+    "detailsPathsContainer": "Rutas y contenedor",
+    "detailsRemote": "Detalles",
     "stopThisServer": "Detener este servidor",
     "stopConfirmTitle": "¿Detener {{name}}?",
     "stopConfirmDescription": "Esto desconectará a todos los jugadores actualmente conectados a \"{{name}}\". Puedes volver a iniciarlo cuando quieras.",
@@ -83,7 +90,6 @@
     "configureSftpTitle": "Configurar el puente SFTP para este servidor remoto",
     "configureSftp": "Configurar puente SFTP",
     "configureSftpTip": "Si este no es ya tu servidor activo, al hacer clic aquí se cambiará tu servidor activo a este antes de abrir la configuración SFTP en Ajustes.",
-    "updateNow": "Actualizar ahora",
     "activating": "Activando…",
     "switchToThisServer": "Cambiar a este servidor",
     "added": "Añadido el {{date}}",
@@ -213,6 +219,11 @@
     "lifecycleCompleteFirst": "Activa el proveedor seleccionado o vuelve al proveedor actual antes de guardar otros ajustes del servidor.",
     "title": "Editar servidor",
     "description": "Actualiza los ajustes de configuración del servidor",
+    "sectionIdentity": "Identidad",
+    "sectionPaths": "Rutas",
+    "sectionNetwork": "Red y RCON",
+    "sectionLaunch": "Inicio y memoria",
+    "sectionDocker": "Docker",
     "remoteTitle": "Servidor remoto",
     "remoteDesc": "Para este servidor solo está disponible la gestión mediante RCON.",
     "displayNameLabel": "Nombre visible",

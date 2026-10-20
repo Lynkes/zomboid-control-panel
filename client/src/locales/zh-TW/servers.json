@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "託管伺服器",
-    "description": "在一個面板中管理多個 Project Zomboid 伺服器",
-    "eyebrow": "叢集",
+    "title": "伺服器列表",
+    "description": "新增、切換、更新和編輯此面板管理的 Project Zomboid 伺服器。",
     "scanAria": "掃描伺服器",
     "scanTitle": "掃描伺服器",
     "scanNoPermission": "掃描繫結掛載安裝需要 servers.discover 權限，而該角色沒有此權限。",
-    "addRemote": "新增遠端伺服器",
-    "addExisting": "新增現有伺服器",
-    "installNew": "安裝新伺服器"
+    "publicServers": "公共伺服器",
+    "installNoPermission": "安裝新伺服器需要 server.install 權限，而該角色沒有此權限。"
   },
+  "addServer": {
+    "menu": "新增伺服器",
+    "listLabel": "新增伺服器的方式",
+    "recommended": "推薦",
+    "fresh": {
+      "label": "安裝新伺服器",
+      "description": "使用 SteamCMD 下載專用伺服器，然後設定連接埠、密碼和記憶體。"
+    },
+    "existing": {
+      "label": "使用現有伺服器檔案",
+      "description": "讓面板指向本機上已安裝的伺服器。"
+    },
+    "remote": {
+      "label": "連線遠端伺服器",
+      "description": "透過 RCON 管理在另一台機器上執行的伺服器。"
+    }
+  },
+  "loadingLabel": "正在載入伺服器",
   "fetchError": {
     "title": "伺服器列表載入失敗",
     "fallback": "伺服器列表載入失敗，後端可能無法訪問。",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "尚未設定伺服器",
-    "description": "先新增一臺伺服器。啟用後，儀表板、玩家、備份、模組和遠端操作即可使用。",
-    "addLocalTitle": "新增現有本地伺服器",
-    "addLocalDesc": "當本機已存在伺服器檔案時使用。",
-    "installTitle": "安裝新的本地伺服器",
-    "installDesc": "若要在單一流程中完成檔案、連接埠、密碼與記憶體設定，請使用安裝流程。",
-    "connectRemoteTitle": "連線遠端伺服器",
-    "connectRemoteDesc": "適用於通過 RCON 連線到其他機器上執行的伺服器。",
-    "step1Label": "步驟 1",
-    "step1Text": "接入一臺伺服器",
-    "step2Label": "步驟 2",
-    "step2Text": "將其設為活動伺服器並校驗 RCON",
-    "step3Label": "步驟 3",
-    "step3Text": "返回儀表板進行即時控制"
+    "description": "先新增一臺伺服器。啟用後，儀表板、玩家、備份、模組和遠端操作即可使用。"
   },
   "card": {
     "selected": "已選中",
-    "inactive": "未啟用",
     "remote": "遠端",
     "updateAvailable": "有可用更新",
     "updateStatusUnknown": "Update status unknown",
@@ -69,8 +72,12 @@
     "statusNotConfigured": "尚未設定",
     "statusAuthFailed": "身份驗證失敗",
     "statusUnavailable": "無法使用",
-    "buildLabel": "構建版本：",
-    "branchLabel": "分支：",
+    "buildLabel": "構建版本",
+    "branchLabel": "分支",
+    "version": "版本",
+    "detailsPaths": "路徑",
+    "detailsPathsContainer": "路徑與容器",
+    "detailsRemote": "詳細資訊",
     "stopThisServer": "停止此伺服器",
     "stopConfirmTitle": "停止 {{name}}？",
     "stopConfirmDescription": "這將中斷目前所有已連線到「{{name}}」的玩家。您可以隨時重新啟動它。",
@@ -83,7 +90,6 @@
     "configureSftpTitle": "為此遠端伺服器設定 SFTP PanelBridge",
     "configureSftp": "設定 SFTP PanelBridge",
     "configureSftpTip": "如果這還不是你當前的活動伺服器，點選此按鈕會先把活動伺服器切換為它，然後再開啟「設定」中的 SFTP 設定。",
-    "updateNow": "立即更新",
     "activating": "正在啟用…",
     "switchToThisServer": "切換到此伺服器",
     "added": "添加於 {{date}}",
@@ -212,6 +218,11 @@
     "lifecycleCompleteFirst": "在儲存其他伺服器設定之前，請先啟用所選的生命週期提供者，或切換回目前的提供者。",
     "title": "編輯伺服器",
     "description": "更新伺服器設定設定",
+    "sectionIdentity": "識別",
+    "sectionPaths": "路徑",
+    "sectionNetwork": "網路與 RCON",
+    "sectionLaunch": "啟動與記憶體",
+    "sectionDocker": "Docker",
     "remoteTitle": "遠端伺服器",
     "remoteDesc": "此伺服器僅支援基於 RCON 的管理。",
     "displayNameLabel": "顯示名稱",

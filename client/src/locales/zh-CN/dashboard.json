@@ -1,5 +1,4 @@
 {
-  "loading": "正在建立连接…",
   "autoUpdateResult": {
     "scheduledTitle": "自动更新已排定",
     "scheduledDescription_one": "服务器将在 {{count}} 分钟后重启。",
@@ -37,10 +36,18 @@
   },
   "header": {
     "ariaLabel": "服务器状态",
-    "everythingNominal": "一切正常",
     "mapTooltip": "地图（来自 PanelBridge）",
     "remoteBadge": "远程",
-    "noActiveServer": "没有活动服务器"
+    "noActiveServer": "没有活动服务器",
+    "state": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "unknown": "状态未知",
+      "starting": "正在启动…",
+      "stopping": "正在停止…",
+      "none": "无服务器",
+      "rconOffline": "RCON 离线"
+    }
   },
   "addresses": {
     "lan": {
@@ -86,20 +93,18 @@
   },
   "actions": {
     "start": "启动",
+    "addServer": "添加服务器",
     "stop": "停止",
     "forceStop": "强制停止",
     "restart": "重启",
     "restartNow": "立即重启",
-    "save": "保存",
+    "saveWorld": "保存世界",
     "refreshStatus": "刷新状态",
     "createBackup": "创建备份",
-    "bridgeSettings": "桥接设置",
     "connectRcon": "连接 RCON",
     "wipeServer": "清除服务器",
-    "moreActionsAria": "更多服务器操作",
     "addServerFirst": "先添加或选择一个服务器",
     "notAvailableRemote": "远程（仅 RCON）服务器不可用",
-    "forceStopTooltip": "尝试快速保存，之后无论如何都会立即停止",
     "connectRconNeedsHostRunning": "请先启动服务器",
     "noPermissionControl": "您的角色没有控制服务器的权限。",
     "noPermissionWipe": "您的角色没有清除世界的权限。",
@@ -150,7 +155,7 @@
   },
   "verdict": {
     "noServerConfigured": "未配置服务器",
-    "openSetup": "打开设置",
+    "editServer": "编辑服务器",
     "panelCannotReach": "面板无法连接到服务器",
     "retry": "重试",
     "serverStatusUnknown": "服务器状态未知",
@@ -181,45 +186,25 @@
     "lastApplyFailedDesc": "上次应用尝试失败——请查看设置以获取诊断信息。",
     "stagedDesc": "已下载并准备就绪。重启面板即可应用。",
     "newVersionDesc": "有新的面板版本可用。",
-    "dismissAria": "关闭更新通知",
-    "dismissTooltip": "关闭，直到下一个版本",
     "applyUpdate": "应用更新",
     "viewUpdate": "查看更新"
   },
   "updateCheckError": {
-    "label": "无法检查面板更新",
-    "dismissAria": "关闭更新检查提示",
-    "dismissTooltip": "关闭，直到情况发生变化"
+    "label": "无法检查面板更新"
   },
   "connectionError": {
     "label": "连接错误",
     "suffix": "。部分功能可能不可用。",
     "retry": "重试"
   },
-  "notConfigured": {
-    "label": "未配置",
-    "description": "打开服务器设置以添加或配置服务器。",
-    "openSetup": "打开设置 →"
-  },
   "quickStart": {
     "dismissAria": "关闭快速入门指南",
-    "eyebrow": "首个服务器",
-    "heading": "先让一个服务器运行起来，让 RCON 正常工作，然后再逐步完善其余部分。",
-    "step1Title": "接入一个服务器",
-    "step1Desc": "添加现有安装、连接远程 RCON，或创建新服务器。",
-    "step2Title": "校验连接",
-    "step2Desc": "确认路径、RCON 凭据和活动服务器。",
-    "step3Title": "实现实时控制",
-    "step3Desc": "当状态、玩家和聊天开始更新时，实时控制即已就绪。",
-    "installNewServer": "安装新服务器",
-    "addExistingServer": "添加现有服务器",
-    "addRemoteServer": "添加远程服务器",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "添加服务器",
+    "description": "选择此面板获取第一台服务器的方式。",
+    "foundHeading": "找到了一个现有的 Project Zomboid 服务器",
+    "foundDesc": "可以直接添加，RCON 设置已从其自身配置中读取。",
+    "reviewAndConnect": "检查并连接",
+    "setUpDifferently": "改用其他方式设置"
   },
   "liveActivity": {
     "heading": "实时动态",
@@ -261,12 +246,9 @@
   },
   "maintenance": {
     "heading": "维护",
-    "refreshStatus": "刷新状态",
     "createBackup": "创建备份",
-    "wipeServer": "清除服务器",
-    "wipeTooltipOnline": "清除前需先停止服务器",
-    "wipeTooltipOffline": "删除地图/玩家/世界状态",
-    "autoStartLabel": "启动时自动开启"
+    "autoStartLabel": "启动时自动开启",
+    "autoStartDesc": "面板启动时自动启动服务器。"
   },
   "bridgeOfflineNotice": {
     "title": "桥接离线",
@@ -274,16 +256,11 @@
     "configureLink": "配置桥接"
   },
   "workItems": {
-    "players": "玩家",
     "zombies": "丧尸",
-    "console": "控制台",
-    "mods": "模组",
-    "schedule": "计划任务",
+    "heading": "概览",
     "errors": "错误",
-    "backups": "备份",
-    "config": "配置",
-    "rconReady": "rcon 已就绪",
-    "rconOffline": "rcon 离线",
+    "rconReady": "RCON 已就绪",
+    "rconOffline": "RCON 离线",
     "modsToUpdate_one": "{{count}} 个待更新",
     "modsToUpdate_other": "{{count}} 个待更新",
     "modsTracked_one": "已追踪 {{count}} 个",

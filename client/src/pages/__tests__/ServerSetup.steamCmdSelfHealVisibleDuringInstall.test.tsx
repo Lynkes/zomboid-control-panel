@@ -7,6 +7,7 @@ import type { Socket } from "socket.io-client";
 import ServerSetup from "../ServerSetup";
 import { configApi, debugApi, serverApi } from "@/lib/api";
 import enServerSetup from "../../locales/en/serverSetup.json";
+import enServers from "../../locales/en/servers.json";
 
 // windows-steamcmd-selfheal client wiring, 2026-09-10 (god-directed,
 // bundled with the Windows self-heal gate fix -- same commit, same
@@ -118,7 +119,7 @@ afterEach(() => {
 // Install -- the real UI path an operator takes, not a shortcut into
 // component internals.
 async function navigateToInstallClick() {
-  fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
   await screen.findByText(enServerSetup.full.step1.title);
 
   // Step 1 already satisfied by the mocked getAppSettings above.
@@ -186,7 +187,7 @@ describe("ServerSetup.tsx: a SteamCMD self-heal triggered from Step 4's Install 
     const fake = createFakeSocket();
     renderServerSetup(fake.socket);
 
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
     await screen.findByText(enServerSetup.full.step1.title);
     fireEvent.click(screen.getByRole("button", { name: enServerSetup.common.nextStepButton }));
     await screen.findByText(enServerSetup.full.step2.title);

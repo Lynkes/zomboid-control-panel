@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Mods from '../Mods'
@@ -132,14 +132,19 @@ describe('Mods.tsx Load order: Mod groups panel', () => {
     await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
     await screen.findByRole('button', { name: /load order/i })
     expect(screen.queryByRole('button', { name: /^Mod groups/ })).toBeNull()
-    expect(m.getGroups).not.toHaveBeenCalled()
+    // The page reads the groups once for every view (colour dots, Groups view).
+    await waitFor(() => expect(m.getGroups).toHaveBeenCalledTimes(1))
 
     fireEvent.click(screen.getByRole('button', { name: /load order/i }))
 
     expect(await screen.findByText('Library first')).toBeInTheDocument()
+    // The panel uses the page's groups: no second read.
+    expect(m.getGroups).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: /^Mod groups/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(await screen.findByText('Out of order')).toBeInTheDocument()
-    expect(screen.getByText('2 of 2 on this server')).toBeInTheDocument()
+    // On the group's row (the panel's header says it too).
+    const row = screen.getByText('Library first').closest('li') as HTMLElement
+    expect(await within(row).findByText('Out of order')).toBeInTheDocument()
+    expect(within(row).getByText('2 of 2 on this server')).toBeInTheDocument()
     expect(screen.getByRole('switch', { name: 'Keep group order when saving the load order' })).toBeChecked()
     // The list below it is unchanged.
     expect(shownOrder()).toEqual(MOD_IDS)
@@ -165,7 +170,7 @@ describe('Mods.tsx Load order: Mod groups panel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod to the top' }))
 
     expect(screen.getByRole('button', { name: 'Apply group order' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: /^reset$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^discard$/i }))
     expect(screen.getByRole('button', { name: 'Apply group order' })).toBeEnabled()
   })
 
@@ -219,7 +224,7 @@ describe('Mods.tsx Load order: Save Order with groups', () => {
     expect(toastTitles()).toContain('Mod Order Saved')
     // The list is the order the server wrote...
     await waitFor(() => expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC']))
-    expect(screen.queryByText('Unsaved order changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
     // ...and the groups' status was read again against it.
     await waitFor(() => expect(m.getGroupsStatus.mock.calls.length).toBeGreaterThan(statusCalls))
   })

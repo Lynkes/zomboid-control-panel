@@ -182,11 +182,13 @@
     "stepLocked": "请先完成当前步骤"
   },
   "management": {
-    "pageHeaderTitle": "Discord 机器人",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "管理 Discord 机器人、斜杠命令和事件通知",
     "statusRunning": "运行中",
     "statusStopped": "已停止",
     "refreshAria": "刷新状态",
+    "setupGuide": "设置指南",
+    "closeGuide": "返回机器人设置",
     "botStatus": {
       "title": "机器人状态",
       "runtimeLabel": "运行时间",

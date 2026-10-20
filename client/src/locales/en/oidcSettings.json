@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "Identity",
-    "title": "Sign-in",
+    "title": "Single Sign-On",
     "description": "Let people sign in with an existing account from an identity provider (Google Workspace, Okta, Authentik, and similar), instead of — never instead of — a username and password. Local sign-in always keeps working."
   },
   "loading": "Loading sign-in settings…",

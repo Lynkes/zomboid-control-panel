@@ -6,6 +6,8 @@
     "andMore_zero"
   ],
   "noUpdateYet": "لا يوجد تحديث بعد",
+  "verdictAria": "حالة الخادم",
+  "workListAria": "أقسام الخادم",
   "updatedJustNow": "تم التحديث الآن",
   "updatedSecondsAgo": "تم التحديث منذ {{count}} ث",
   "updatedMinutesAgo": "تم التحديث منذ {{count}} د",

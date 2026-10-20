@@ -161,11 +161,11 @@ function HintCard({
       <Icon className={cn('h-4 w-4', strong ? 'text-warning' : 'text-muted-foreground')} aria-hidden="true" />
       <AlertTitle className={cn('flex flex-wrap items-center gap-1.5', strong && 'text-warning')}>
         {copy.title}
-        <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+        <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">
           {t(`character.hints.weights.${hint.weight}`)}
         </Badge>
         {hint.staff && (
-          <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+          <Badge variant="outline" className="px-1.5 py-0 text-[10px] text-muted-foreground">
             {t('character.hints.staff')}
           </Badge>
         )}

@@ -82,7 +82,7 @@ async function openVersionPicker() {
       </SocketContext.Provider>
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByText(frServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(frServers.addServer.fresh.label) }));
   await screen.findByText(frServerSetup.full.step1.title);
   fireEvent.click(screen.getByRole("button", { name: frServerSetup.common.nextStepButton }));
   await screen.findByText(frServerSetup.full.step2.title);

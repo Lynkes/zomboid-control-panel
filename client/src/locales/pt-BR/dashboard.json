@@ -1,5 +1,4 @@
 {
-  "loading": "Estabelecendo conexão…",
   "autoUpdateResult": {
     "scheduledTitle": "Atualização automática agendada",
     "scheduledDescription_one": "O servidor será reiniciado em {{count}} minuto.",
@@ -38,10 +37,18 @@
   },
   "header": {
     "ariaLabel": "Status do servidor",
-    "everythingNominal": "Tudo normal",
     "mapTooltip": "Mapa (via PanelBridge)",
     "remoteBadge": "remoto",
-    "noActiveServer": "Nenhum servidor ativo"
+    "noActiveServer": "Nenhum servidor ativo",
+    "state": {
+      "running": "Rodando",
+      "stopped": "Parado",
+      "unknown": "Status desconhecido",
+      "starting": "Iniciando…",
+      "stopping": "Parando…",
+      "none": "Nenhum servidor",
+      "rconOffline": "RCON offline"
+    }
   },
   "addresses": {
     "lan": {
@@ -87,20 +94,18 @@
   },
   "actions": {
     "start": "Iniciar",
+    "addServer": "Adicionar servidor",
     "stop": "Parar",
     "forceStop": "Forçar parada",
     "restart": "Reiniciar",
     "restartNow": "Reiniciar agora",
-    "save": "Salvar",
+    "saveWorld": "Salvar o mundo",
     "refreshStatus": "Recarregar status",
     "createBackup": "Criar backup",
-    "bridgeSettings": "Configurações da ponte",
     "connectRcon": "Conectar RCON",
     "wipeServer": "Apagar dados do servidor",
-    "moreActionsAria": "Mais ações do servidor",
     "addServerFirst": "Adicione ou selecione um servidor primeiro",
     "notAvailableRemote": "Indisponível para servidores remotos (somente RCON)",
-    "forceStopTooltip": "Tenta um salvamento rápido e depois para imediatamente, de qualquer forma",
     "connectRconNeedsHostRunning": "Inicie o servidor primeiro",
     "noPermissionControl": "Seu cargo não tem permissão para controlar o servidor.",
     "noPermissionWipe": "Seu cargo não tem permissão para apagar o mundo.",
@@ -195,7 +200,7 @@
   },
   "verdict": {
     "noServerConfigured": "Nenhum servidor configurado",
-    "openSetup": "Adicionar servidor",
+    "editServer": "Editar servidor",
     "panelCannotReach": "O painel não consegue acessar o servidor",
     "retry": "Tentar novamente",
     "serverStatusUnknown": "Status do servidor desconhecido",
@@ -227,45 +232,25 @@
     "lastApplyFailedDesc": "A última tentativa de aplicar falhou — veja Configurações para o diagnóstico.",
     "stagedDesc": "Baixada e pronta. Reinicie o painel para aplicar.",
     "newVersionDesc": "Uma nova versão do painel está disponível.",
-    "dismissAria": "Dispensar notificação de atualização",
-    "dismissTooltip": "Dispensar até a próxima versão",
     "applyUpdate": "Aplicar atualização",
     "viewUpdate": "Ver atualização"
   },
   "updateCheckError": {
-    "label": "Não foi possível verificar atualizações do painel",
-    "dismissAria": "Dispensar aviso de verificação de atualizações",
-    "dismissTooltip": "Dispensar até que isso mude"
+    "label": "Não foi possível verificar atualizações do painel"
   },
   "connectionError": {
     "label": "Erro de conexão",
     "suffix": ". Alguns recursos podem estar indisponíveis.",
     "retry": "Tentar novamente"
   },
-  "notConfigured": {
-    "label": "Não configurado",
-    "description": "Use a página Adicionar servidor para adicionar ou configurar um servidor.",
-    "openSetup": "adicionar servidor →"
-  },
   "quickStart": {
     "dismissAria": "Dispensar guia de início rápido",
-    "eyebrow": "Primeiro servidor",
-    "heading": "Coloque um servidor no ar, faça o RCON funcionar e depois acrescente o resto.",
-    "step1Title": "Trazer um servidor",
-    "step1Desc": "Adicione uma instalação existente, conecte um RCON remoto ou crie um novo servidor.",
-    "step2Title": "Verificar a conectividade",
-    "step2Desc": "Confirme os caminhos, as credenciais do RCON e o servidor ativo.",
-    "step3Title": "Chegar ao controle ao vivo",
-    "step3Desc": "Quando status, jogadores e chat forem atualizados, o controle ao vivo estará pronto.",
-    "installNewServer": "Instalar novo servidor",
-    "addExistingServer": "Adicionar servidor existente",
-    "addRemoteServer": "Adicionar servidor remoto",
+    "title": "Adicionar servidor",
+    "description": "Escolha como este painel recebe seu primeiro servidor.",
     "foundHeading": "Encontramos um servidor de Project Zomboid existente",
-    "foundDesc": "pronto para adicionar, com as configurações de RCON já lidas da própria configuração dele.",
+    "foundDesc": "pronto para adicionar, com as configurações de RCON já lidas da própria configuração.",
     "reviewAndConnect": "Revisar e conectar",
-    "setUpDifferently": "Configurar de outra forma",
-    "needNewServerLabel": "Ainda não tenho um servidor",
-    "haveExistingServerLabel": "Já tenho os arquivos do servidor"
+    "setUpDifferently": "Configurar de outro jeito"
   },
   "liveActivity": {
     "heading": "Atividade ao vivo",
@@ -308,12 +293,9 @@
   },
   "maintenance": {
     "heading": "Manutenção",
-    "refreshStatus": "Recarregar status",
     "createBackup": "Criar backup",
-    "wipeServer": "Apagar dados do servidor",
-    "wipeTooltipOnline": "Pare o servidor antes de apagar os dados",
-    "wipeTooltipOffline": "Apagar mapa / jogadores / estado do mundo",
-    "autoStartLabel": "Iniciar junto com o painel"
+    "autoStartLabel": "Iniciar junto com o painel",
+    "autoStartDesc": "Inicia o servidor quando o painel inicia."
   },
   "bridgeOfflineNotice": {
     "title": "Ponte offline",
@@ -321,14 +303,9 @@
     "configureLink": "Configurar ponte"
   },
   "workItems": {
-    "players": "Jogadores",
     "zombies": "Zumbis",
-    "console": "Console",
-    "mods": "Mods",
-    "schedule": "Agendamento",
+    "heading": "Visão geral",
     "errors": "Erros",
-    "backups": "Backups",
-    "config": "Configuração",
     "rconReady": "RCON pronto",
     "rconOffline": "RCON offline",
     "modsToUpdate_one": "{{count}} para atualizar",

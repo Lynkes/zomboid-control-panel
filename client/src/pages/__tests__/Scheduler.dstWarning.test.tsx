@@ -90,7 +90,7 @@ async function baseMocks() {
 // simpleMode defaults (daily at 06:00) already produce a cron the Save flow
 // accepts, so only name + command need filling to reach the API call.
 async function fillMinimalTaskAndSave() {
-  fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
   const dialog = await screen.findByRole('dialog')
   fireEvent.change(within(dialog).getByPlaceholderText('e.g., Daily Restart'), { target: { value: 'Nightly job' } })
   fireEvent.change(within(dialog).getByPlaceholderText('Or enter custom command'), { target: { value: 'restart' } })
@@ -146,7 +146,7 @@ describe('Scheduler.tsx: dstWarning from a task save (scheduler-time-audit)', ()
 
     // Reopening (a fresh New Task) must not show the stale warning from the
     // previous save.
-    fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
     const reopened = await screen.findByRole('dialog')
     expect(within(reopened).queryByText(DST_WARNING_TEXT)).not.toBeInTheDocument()
   })

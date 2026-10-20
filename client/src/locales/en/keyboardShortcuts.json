@@ -7,17 +7,6 @@
     "pageActions": "Page Actions",
     "general": "General"
   },
-  "nav": {
-    "dashboard": "Dashboard",
-    "console": "Console",
-    "players": "Players",
-    "chat": "Chat",
-    "events": "Events",
-    "mods": "Mods",
-    "backups": "Backups",
-    "serverConfig": "Server Config",
-    "settings": "Settings"
-  },
   "page": {
     "save": "Save",
     "focusSearch": "Focus search",
@@ -25,5 +14,6 @@
     "switchConsoleTab": "Switch console tab",
     "toggleAutoScroll": "Toggle auto-scroll (Console)"
   },
+  "openPalette": "Open the command palette",
   "showShortcuts": "Show keyboard shortcuts"
 }

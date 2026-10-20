@@ -32,6 +32,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "الصلاحية",
+    "title": "الصلاحيات حسب الدور",
     "scrollHint": "مرّر أفقيًا لرؤية كل الأدوار →",
     "seededBadge": "مدمج",
     "memberCount_one": "{{count}} عضو",

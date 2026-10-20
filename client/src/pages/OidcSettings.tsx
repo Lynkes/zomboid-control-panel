@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { KeyRound, ShieldAlert, Loader2, Copy, Check, CheckCircle2, XCircle } from 'lucide-react'
+import { KeyRound, ShieldAlert, Loader2, Copy, Check, AlertCircle, SlidersHorizontal } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
+import { SaveBar } from '@/components/SaveBar'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardDescription, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatusPill } from '@/components/ui/status-pill'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { HelpTip } from '@/components/HelpTip'
@@ -262,22 +264,25 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
   // Which provider vouches for sign-ins is admin-only (server/routes/oidc.js);
   // panel.settings alone keeps the display name and scope.
   const providerLocked = settings?.providerFieldsEditable === false
+  // What Save would send: the fields that differ from what was loaded. The
+  // save bar shows while there is any, and the leave-page guard with it.
+  const changedFieldCount = settings ? Object.keys(buildUpdatePayload()).length : 0
+  const dirty = changedFieldCount > 0
 
   return (
-    <div className={embedded ? 'space-y-4' : 'space-y-6 page-transition'}>
+    <div className={embedded ? 'space-y-6' : 'space-y-6 page-transition'}>
       {!embedded && (
-        <PageHeader
-          eyebrow={t('pageHeader.eyebrow')}
-          title={t('pageHeader.title')}
-          description={t('pageHeader.description')}
-          icon={<KeyRound className="h-6 w-6" />}
-          tone="config"
-        />
+        <PageHeader title={t('pageHeader.title')} description={t('pageHeader.description')} />
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16 text-muted-foreground">
-          <Loader2 className="h-6 w-6 animate-spin" />
+        <div role="status" aria-busy="true" aria-label={t('loading')} className="space-y-5 rounded-xl border border-border/60 bg-card p-5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ))}
         </div>
       ) : permissionDenied ? (
         <EmptyState
@@ -294,34 +299,31 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
           action={{ label: t('loadError.retry'), onClick: fetchSettings }}
         />
       ) : settings ? (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              {settings.configured ? (
-                <Badge variant="success" className="gap-1">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t('status.configured')}
-                </Badge>
+        <>
+          <SectionCard
+            icon={KeyRound}
+            title={t('sections.provider')}
+            description={
+              <>
+                <span className="block">{t('sections.providerDescription')}</span>
+                {!settings.configured && <span className="block">{t('status.notConfiguredHint')}</span>}
+                {providerLocked && <span className="block">{t('providerAdminOnlyNote')}</span>}
+              </>
+            }
+            status={
+              settings.configured ? (
+                <StatusPill size="sm" tone="ok" label={t('status.configured')} />
               ) : (
-                <Badge variant="outline" className="gap-1">
-                  <XCircle className="h-3.5 w-3.5" />
-                  {t('status.notConfigured')}
-                </Badge>
-              )}
-            </div>
-            {!settings.configured && (
-              <CardDescription>{t('status.notConfiguredHint')}</CardDescription>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{t('sections.provider')}</p>
-                <p className="text-xs text-muted-foreground">{t('sections.providerDescription')}</p>
-                {providerLocked && (
-                  <p className="text-xs text-muted-foreground">{t('providerAdminOnlyNote')}</p>
-                )}
-              </div>
+                <StatusPill size="sm" tone="idle" label={t('status.notConfigured')} />
+              )
+            }
+            actions={
+              <Button variant="outline" size="sm" onClick={handleTestConnection} disabled={saving || testing}>
+                {testing && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                {testing ? t('actions.testing') : t('actions.testConnection')}
+              </Button>
+            }
+          >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="oidc-provider-preset">{t('providerPresets.label')}</Label>
@@ -453,13 +455,13 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                   ) : null}
                 </div>
               </div>
-            </div>
+          </SectionCard>
 
-            <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">{t('sections.advanced')}</p>
-                <p className="text-xs text-muted-foreground">{t('sections.advancedDescription')}</p>
-              </div>
+          <SectionCard
+            icon={SlidersHorizontal}
+            title={t('sections.advanced')}
+            description={t('sections.advancedDescription')}
+          >
               <div className="space-y-1.5">
                 <Label htmlFor="oidc-scope">{t('fields.scope')}</Label>
                 <Input
@@ -491,21 +493,17 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                   disabled={envOverrides?.allowInsecureHttp || providerLocked}
                 />
               </div>
-            </div>
+          </SectionCard>
 
-            {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button onClick={handleSave} disabled={saving || testing}>
-                {saving ? t('actions.saving') : t('actions.save')}
-              </Button>
-              <Button variant="outline" onClick={handleTestConnection} disabled={saving || testing}>
-                {testing ? t('actions.testing') : t('actions.testConnection')}
-              </Button>
-            </div>
+          {formError && (
+            <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-foreground">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{formError}</span>
+            </p>
+          )}
 
             {discoveryResult && (
-              <div className="space-y-2.5 rounded-lg border border-primary/25 bg-primary/[0.03] p-4 text-sm">
+              <div className="space-y-2.5 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm">
                 <p className="font-medium text-foreground">{t('discoveryResult.title')}</p>
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
                   <div className="min-w-0 space-y-0.5">
@@ -545,9 +543,28 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
                 </dl>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </>
       ) : null}
+
+      {/* One save for the sign-in settings: it shows while any field differs
+          from what was loaded, saves on Ctrl+S and asks before the page is
+          left with the edits unsaved. */}
+      {settings && (
+        <SaveBar
+          dirty={dirty}
+          saving={saving}
+          onSave={handleSave}
+          onDiscard={() => {
+            applySettings(settings)
+            setSelectedPreset(CUSTOM_PRESET_ID)
+            setDiscoveryResult(null)
+            setFormError(null)
+          }}
+          changeCount={changedFieldCount}
+          disabledReason={testing ? t('actions.testing') : undefined}
+          saveLabel={t('actions.save')}
+        />
+      )}
     </div>
   )
 }

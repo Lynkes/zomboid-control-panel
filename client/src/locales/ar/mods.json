@@ -174,7 +174,7 @@
     "retry": "إعادة المحاولة"
   },
   "pageHeader": {
-    "title": "مدير المودات",
+    "title": "المودات",
     "description": "أضف مودات ورشة Steam على خادمك وحدّثها واضبط إعداداتها",
     "eyebrow": "الورشة",
     "addMod": "إضافة مود"
@@ -206,7 +206,11 @@
     "updatesCount_zero": "التحديثات: {{count}}",
     "updatesCount_two": "التحديثات: {{count}}",
     "updatesCount_few": "التحديثات: {{count}}",
-    "updatesCount_many": "التحديثات: {{count}}"
+    "updatesCount_many": "التحديثات: {{count}}",
+    "autoRestartOn": "إعادة التشغيل التلقائي: مُفعَّلة",
+    "autoRestartOff": "إعادة التشغيل التلقائي: معطَّلة",
+    "autoRestartOnAria": "إعادة التشغيل التلقائي مُفعَّلة. افتح إعداداتها",
+    "autoRestartOffAria": "إعادة التشغيل التلقائي معطَّلة. افتح إعداداتها"
   },
   "restartPending": {
     "title": "إعادة تشغيل قيد الانتظار",
@@ -284,8 +288,8 @@
       "hint": "الإضافة بمعرّف الورشة أو الرابط"
     },
     "collection": {
-      "label": "استيراد مجموعة",
-      "hint": "جلب كل العناصر من مجموعة Steam"
+      "label": "مجموعات الورشة",
+      "hint": "استيراد مجموعة من Steam، أو إبقاء مجموعتك متزامنة"
     },
     "order": {
       "label": "ترتيب التحميل",
@@ -302,7 +306,10 @@
     "tools": {
       "label": "الأدوات",
       "hint": "الإصلاح وإزالة التكرار والتنظيف"
-    }
+    },
+    "groupLibrary": "المكتبة",
+    "groupServer": "على الخادم",
+    "groupTools": "الأدوات"
   },
   "collectionDialog": {
     "title": "استيراد مجموعة من ورشة Steam",
@@ -327,7 +334,8 @@
     "openWorkshopAria": "فتح صفحة الورشة (تُفتح في تبويب جديد)",
     "cancel": "إلغاء",
     "adding": "جارٍ الإضافة...",
-    "addToServer": "إضافة {{count}} من المودات إلى الخادم"
+    "addToServer": "إضافة {{count}} من المودات إلى الخادم",
+    "fetchAria": "البحث عن المجموعة"
   },
   "addModDialog": {
     "title": "إضافة مود من الورشة",
@@ -388,7 +396,8 @@
     "currentMaxDelay": "• أقصى تأجيل: {{minutes}} دقيقة",
     "cancel": "إلغاء",
     "saving": "جارٍ الحفظ...",
-    "saveSettings": "حفظ الإعدادات"
+    "saveSettings": "حفظ الإعدادات",
+    "autoRestartHint": "إعادة تشغيل الخادم تلقائيًا عندما ينشر Steam تحديثًا لأحد موداته."
   },
   "installedTab": {
     "searchPlaceholder": "بحث في المودات...",
@@ -406,6 +415,7 @@
     "collectionDrift": "اختلاف: {{count}}",
     "collectionSyncTooltip": "مزامنة المودات المتتبَّعة إلى مجموعة ورشة Steam",
     "collectionSync": "مزامنة",
+    "collectionSyncAria": "مزامنة المجموعة",
     "collectionChecking": "جارٍ التحقّق من المجموعة…",
     "selectedCount": "المحدَّد: {{count}}",
     "deselect": "إلغاء التحديد",
@@ -441,7 +451,16 @@
     "modFallback": "مود {{id}}",
     "selectAria": "تحديد {{name}}",
     "removeModAria": "إزالة المود {{name}}",
-    "removeFromServer": "إزالة من الخادم"
+    "removeFromServer": "إزالة من الخادم",
+    "loading": "جارٍ تحميل المودات",
+    "selectionAria": "المودات المحدَّدة",
+    "allDeactivatedTitle": "لا يوجد أي مود متتبَّع على الخادم",
+    "allDeactivatedDesc_zero": "{{count}} من المودات المتتبَّعة غير مُفعَّلة. أعد تفعيلها من \"غير المُفعَّلة\".",
+    "allDeactivatedDesc_one": "{{count}} مود متتبَّع غير مُفعَّل. أعد تفعيله من \"غير المُفعَّلة\".",
+    "allDeactivatedDesc_two": "مودان متتبَّعان ({{count}}) غير مُفعَّلين. أعد تفعيلهما من \"غير المُفعَّلة\".",
+    "allDeactivatedDesc_few": "{{count}} مودات متتبَّعة غير مُفعَّلة. أعد تفعيلها من \"غير المُفعَّلة\".",
+    "allDeactivatedDesc_many": "{{count}} مودًا متتبَّعًا غير مُفعَّل. أعد تفعيلها من \"غير المُفعَّلة\".",
+    "allDeactivatedDesc_other": "{{count}} من المودات المتتبَّعة غير مُفعَّلة. أعد تفعيلها من \"غير المُفعَّلة\"."
   },
   "disabledPanel": {
     "title": "المودات المعطَّلة على القرص",
@@ -454,7 +473,11 @@
     "scanFailedDesc": "فشل فحص مجلد الورشة. حاول إعادة الفحص مرة أخرى.",
     "openWorkshopPage": "فتح صفحة الورشة",
     "enable": "تفعيل",
-    "deleteFromDisk": "حذف من القرص"
+    "deleteFromDisk": "حذف من القرص",
+    "sectionTitle": "على القرص، وليست على الخادم",
+    "description": "نُزِّلت إلى مجلد الورشة لكنها غير موجودة في WorkshopItems=\u200e على الخادم، لذا لا يحمّلها الخادم.",
+    "notScanned": "لم يُفحص بعد.",
+    "deleteFromDiskAria": "حذف {{name}} من القرص"
   },
   "ignoredPanel": {
     "count_one": "{{count}} مود متجاهَل",
@@ -472,7 +495,8 @@
     "count_zero": "{{count}} من المودات المتجاهَلة",
     "count_two": "{{count}} من المودات المتجاهَلة",
     "count_few": "{{count}} من المودات المتجاهَلة",
-    "count_many": "{{count}} من المودات المتجاهَلة"
+    "count_many": "{{count}} من المودات المتجاهَلة",
+    "description": "لن تعيد المزامنة ولا استيراد المجموعات إضافة هذه المودات."
   },
   "serverConfigTab": {
     "summaryMods": "مودات",
@@ -633,7 +657,13 @@
     "dismissedCount_zero": "تعارضات مستبعَدة: {{count}}",
     "dismissedCount_two": "تعارضات مستبعَدة: {{count}}",
     "dismissedCount_few": "تعارضات مستبعَدة: {{count}}",
-    "dismissedCount_many": "تعارضات مستبعَدة: {{count}}"
+    "dismissedCount_many": "تعارضات مستبعَدة: {{count}}",
+    "hasNoteChip": "بها ملاحظة ({{count}})",
+    "updatesChip": "يتوفر تحديث ({{count}})",
+    "noFilterMatches": "لا يوجد عنصر ورشة يطابق عوامل التصفية هذه.",
+    "select": "تحديد",
+    "selectItemAria": "تحديد {{name}}",
+    "selectionAria": "عناصر الورشة المحدَّدة"
   },
   "loadOrder": {
     "emptyTitle": "لا توجد مودات في ترتيب التحميل",
@@ -646,8 +676,8 @@
     "groupNeedsTwo": "حدّد مودين على الأقل لإنشاء مجموعة.",
     "selectRowAria": "تحديد {{name}}",
     "previewLockHint": "طبّق الترتيب المقترح أدناه أو ألغِه قبل إعادة الترتيب يدويًا.",
-    "filteredHint": "تُعرض فقط المودات المطابقة لـ \"{{query}}\" (عامل التصفية في \"النشطة على الخادم\"). السحب معطّل ما دامت التصفية مفعّلة؛ وما زالت أزرار الأسهم تنقل المودات ضمن ترتيب التحميل الكامل.",
-    "autoSort": "ترتيب تلقائي حسب الاعتماديات",
+    "filteredHint": "تُعرض فقط المودات المطابقة لـ \"{{query}}\". السحب معطَّل ما دامت التصفية مفعّلة؛ وما زالت أزرار الأسهم تنقل المودات ضمن ترتيب التحميل الكامل.",
+    "autoSort": "ترتيب تلقائي",
     "proposedOrder_one": "الترتيب المقترح: سينتقل {{count}} مود",
     "proposedOrder_other": "الترتيب المقترح: ستنتقل {{count}} من المودات",
     "basedOnDependencies_one": "بناءً على {{count}} اعتمادية مُعلَنة في mod.info. والمودات التي بلا اعتماديات تحتفظ بترتيبك.",
@@ -682,7 +712,35 @@
     "missingRequirements_zero": "{{count}} من المودات المطلوبة غير مُفعَّلة وتعذّر ترتيبها (انظر تبويب التعارضات).",
     "missingRequirements_two": "{{count}} من المودات المطلوبة غير مُفعَّلة وتعذّر ترتيبها (انظر تبويب التعارضات).",
     "missingRequirements_few": "{{count}} من المودات المطلوبة غير مُفعَّلة وتعذّر ترتيبها (انظر تبويب التعارضات).",
-    "missingRequirements_many": "{{count}} من المودات المطلوبة غير مُفعَّلة وتعذّر ترتيبها (انظر تبويب التعارضات)."
+    "missingRequirements_many": "{{count}} من المودات المطلوبة غير مُفعَّلة وتعذّر ترتيبها (انظر تبويب التعارضات).",
+    "searchPlaceholder": "تصفية حسب معرّف المود أو اسمه...",
+    "searchAria": "تصفية ترتيب التحميل",
+    "showGroups": "إظهار المجموعات",
+    "blockCount_zero": "{{count}} من المودات",
+    "blockCount_one": "{{count}} مود",
+    "blockCount_two": "مودان ({{count}})",
+    "blockCount_few": "{{count}} مودات",
+    "blockCount_many": "{{count}} مودًا",
+    "blockCount_other": "{{count}} من المودات",
+    "blockTogether": "مُبقاة معًا",
+    "blockApart": "الأعضاء متفرّقون",
+    "gather": "جمعها معًا",
+    "gatheredAnnouncement": "جُمعت مودات {{name}} معًا",
+    "blockToTopAria": "تحريك المجموعة {{name}} إلى البداية",
+    "blockUpAria": "تحريك المجموعة {{name}} لأعلى",
+    "blockDownAria": "تحريك المجموعة {{name}} لأسفل",
+    "blockToBottomAria": "تحريك المجموعة {{name}} إلى النهاية",
+    "blockAlreadyFirst": "المجموعة تُحمَّل أولًا بالفعل",
+    "blockAlreadyLast": "المجموعة تُحمَّل أخيرًا بالفعل",
+    "blockMovedAnnouncement": "نُقلت المجموعة {{name}} إلى الموضع {{position}} من {{total}}",
+    "collapseBlockAria": "طيّ المجموعة {{name}}",
+    "expandBlockAria": "توسيع المجموعة {{name}}",
+    "blockConflictsAria_zero": "{{count}} من تعارضات الملفات تشمل {{name}}. إظهارها",
+    "blockConflictsAria_one": "{{count}} تعارض ملفات يشمل {{name}}. إظهاره",
+    "blockConflictsAria_two": "تعارضا ملفات ({{count}}) يشملان {{name}}. إظهارهما",
+    "blockConflictsAria_few": "{{count}} تعارضات ملفات تشمل {{name}}. إظهارها",
+    "blockConflictsAria_many": "{{count}} تعارضًا في الملفات يشمل {{name}}. إظهارها",
+    "blockConflictsAria_other": "{{count}} من تعارضات الملفات تشمل {{name}}. إظهارها"
   },
   "addModsTab": {
     "syncTitle": "مزامنة معرّفات المودات من التنزيلات",
@@ -725,7 +783,8 @@
     "applyPreset": "تطبيق الإعداد المسبق",
     "deleteDialogTitle": "حذف الإعداد المسبق \"{{name}}\"؟",
     "deleteDialogDesc": "سيُحذف هذا الإعداد المسبق نهائيًا. ولا يمكن التراجع عن هذا الإجراء.",
-    "deletePreset": "حذف الإعداد المسبق"
+    "deletePreset": "حذف الإعداد المسبق",
+    "actionsAria": "إجراءات الإعداد المسبق {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -1109,6 +1168,118 @@
     "autoSortAppliedDesc_zero": "تم نقل {{count}} من المودات. انقر \"حفظ الترتيب\" لكتابته في ملف INI للخادم.",
     "autoSortAppliedDesc_two": "تم نقل {{count}} من المودات. انقر \"حفظ الترتيب\" لكتابته في ملف INI للخادم.",
     "autoSortAppliedDesc_few": "تم نقل {{count}} من المودات. انقر \"حفظ الترتيب\" لكتابته في ملف INI للخادم.",
-    "autoSortAppliedDesc_many": "تم نقل {{count}} من المودات. انقر \"حفظ الترتيب\" لكتابته في ملف INI للخادم."
+    "autoSortAppliedDesc_many": "تم نقل {{count}} من المودات. انقر \"حفظ الترتيب\" لكتابته في ملف INI للخادم.",
+    "noSortRulesDesc": "لا يُعلن أي مود مُفعَّل عن متطلَّب، ولا تحدّد أي مجموعة ترتيبًا أو موضعًا، لذا لا يوجد ما يُرتَّب على أساسه.",
+    "loadOrderRulesMetDesc": "كل الاعتماديات وترتيبات المجموعات ومواضعها مستوفاة بالفعل."
+  },
+  "listMode": {
+    "aria": "عرض القائمة كـ",
+    "list": "قائمة",
+    "groups": "مجموعات"
+  },
+  "sort": {
+    "aria": "الفرز حسب",
+    "status": "الفرز: حالة التحديث",
+    "name": "الفرز: الاسم",
+    "updated": "الفرز: المحدَّثة مؤخرًا",
+    "config": "الفرز: ترتيب الإعدادات",
+    "loadOrder": "الفرز: ترتيب التحميل"
+  },
+  "filters": {
+    "filteredBy": "مُصفّاة حسب:",
+    "activeAria": "عوامل التصفية النشطة",
+    "removeAria": "إزالة عامل التصفية: {{name}}",
+    "clearAll": "مسح عوامل التصفية",
+    "updatesOnly": "التحديثات فقط",
+    "updates": "يتوفر تحديث",
+    "hasNote": "بها ملاحظة",
+    "ungrouped": "بلا مجموعة",
+    "allGroups": "كل المجموعات",
+    "inGroup": "في {{name}}",
+    "groupAria": "التصفية حسب المجموعة",
+    "multiId": "متعدّدة المعرّفات فقط",
+    "needsAttention": "تحتاج انتباهًا",
+    "notEnabled": "غير مُفعَّلة",
+    "missingDep": "اعتمادية مفقودة"
+  },
+  "whatChanged": {
+    "label": "ما الذي تغيّر",
+    "updateLabel": "تحديث · ما الذي تغيّر",
+    "aria": "ما الذي تغيّر في {{name}}: ملاحظات التغيير في Steam (تُفتح في تبويب جديد)"
+  },
+  "rowMenu": {
+    "actionsAria": "إجراءات {{name}}"
+  },
+  "notes": {
+    "addAction": "إضافة ملاحظة",
+    "editAction": "تعديل الملاحظة",
+    "addTitle": "إضافة ملاحظة",
+    "editTitle": "تعديل الملاحظة",
+    "dialogDesc": "ملاحظة على {{name}}. يراها كل مشرفي هذه اللوحة.",
+    "label": "الملاحظة",
+    "placeholder": "سبب وجوده هنا، أو إصدار يجب الإبقاء عليه، أو من يجب سؤاله قبل إزالته",
+    "counter": "{{count}} / {{max}}",
+    "save": "حفظ الملاحظة",
+    "delete": "حذف الملاحظة",
+    "cancel": "إلغاء",
+    "close": "إغلاق",
+    "lastEdited": "آخر تعديل بواسطة {{name}} في {{date}}",
+    "lastEditedNoName": "آخر تعديل في {{date}}",
+    "sharedHint": "مشتركة مع كل مشرفي هذه اللوحة.",
+    "savedTitle": "تم حفظ الملاحظة",
+    "deletedTitle": "تم حذف الملاحظة",
+    "saveFailedFallback": "تعذّر حفظ الملاحظة.",
+    "indicatorAria": "ملاحظة: {{text}}",
+    "inspectorTitle": "الملاحظة",
+    "empty": "لا توجد ملاحظة بعد."
+  },
+  "collectionView": {
+    "importTitle": "استيراد مجموعة",
+    "importDesc": "أضف كل مودات مجموعة من ورشة Steam إلى هذا الخادم دفعة واحدة."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "الاعتماديات",
+      "groupOrder": "ترتيب المجموعات",
+      "together": "الإبقاء معًا",
+      "placement": "المواضع",
+      "winners": "الإبقاء على الفائزين في التعارضات"
+    },
+    "reason": {
+      "requires": "بعد {{mod}}، فهو من متطلَّباته",
+      "requiredBy": "قبل {{mod}}، الذي يتطلّبه",
+      "groupOrder": "يحافظ على ترتيب {{group}}",
+      "together": "يبقى مع {{group}}",
+      "placementFirst": "المجموعة {{group}} تُحمَّل أولًا",
+      "placementLast": "المجموعة {{group}} تُحمَّل أخيرًا",
+      "winner": "ما زال يستبدل ملفات {{mod}}",
+      "keepsWinner": "يبقى قبل {{mod}}، الذي يستبدل ملفاته"
+    },
+    "issue": {
+      "groupVsDependency": "المجموعة {{group}} تضع {{before}} قبل {{after}}، لكن اعتمادية تتطلّب العكس: الأولوية للاعتمادية. أصلح المجموعة عبر \"ترتيب الأعضاء تلقائيًا\".",
+      "groupVsGroup": "المجموعة {{group}} تضع {{before}} قبل {{after}}، لكن مجموعة أخرى تتطلّب العكس: الأولوية للمجموعة المُدرجة أولًا.",
+      "split": "لا يمكن تحميل {{groups}} ككتلة واحدة: يجب أن يُحمَّل {{mods}} بين مودات المجموعة.",
+      "placement": "يجب أن يُحمَّل {{mods}} قبل مجموعة موضعها \"في البداية\"، لذا يُحمَّل في البداية هو أيضًا ({{groups}}).",
+      "winner": {
+        "dependency": "أصبح {{newWinner}} يستبدل ملفات {{previousWinner}}: اعتمادية تتطلّب تحميله لاحقًا.",
+        "group": "أصبح {{newWinner}} يستبدل ملفات {{previousWinner}}: ترتيب مجموعة يتطلّب تحميله لاحقًا.",
+        "placement": "أصبح {{newWinner}} يستبدل ملفات {{previousWinner}}: موضع مجموعة يتطلّب تحميله لاحقًا."
+      }
+    },
+    "issuesTitle_zero": "لا يمكن استيفاء {{count}} من القواعد",
+    "issuesTitle_one": "لا يمكن استيفاء {{count}} قاعدة",
+    "issuesTitle_two": "لا يمكن استيفاء قاعدتين ({{count}})",
+    "issuesTitle_few": "لا يمكن استيفاء {{count}} قواعد",
+    "issuesTitle_many": "لا يمكن استيفاء {{count}} قاعدة",
+    "issuesTitle_other": "لا يمكن استيفاء {{count}} من القواعد",
+    "moreIssues": "+{{count}} أخرى",
+    "movesTo": "ينتقل إلى",
+    "otherMods": "مودات أخرى",
+    "groupMoves_zero": "نُقل {{count}} من المودات",
+    "groupMoves_one": "نُقل {{count}} مود",
+    "groupMoves_two": "نُقل مودان ({{count}})",
+    "groupMoves_few": "نُقلت {{count}} مودات",
+    "groupMoves_many": "نُقل {{count}} مودًا",
+    "groupMoves_other": "نُقل {{count}} من المودات"
   }
 }

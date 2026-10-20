@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Recht",
+    "title": "Rechte je Rolle",
     "scrollHint": "Nach rechts scrollen, um alle Rollen zu sehen →",
     "seededBadge": "Integriert",
     "memberCount_one": "{{count}} Mitglied",

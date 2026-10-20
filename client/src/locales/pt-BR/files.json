@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "Arquivos do servidor",
-    "eyebrow": "arquivos",
     "description": "Navegue pelos arquivos das pastas de instalação do jogo e Zomboid de cada servidor e altere-os.",
     "serverPicker": "Servidor",
     "activeBadge": "Ativo",
@@ -30,13 +29,13 @@
       "permissions": "A conta do painel não pode gravar aqui."
     },
     "unavailable": {
-      "missing": "Esta pasta não existe. Verifique o caminho em Meus servidores.",
-      "notConfigured": "Nenhuma pasta está definida para este servidor. Adicione-a em Meus servidores.",
+      "missing": "Esta pasta não existe. Verifique o caminho em Servidores.",
+      "notConfigured": "Nenhuma pasta está definida para este servidor. Adicione-a em Servidores.",
       "notMounted": "O contêiner do painel não enxerga esta pasta. Monte-a na sua configuração do Docker e reinicie o painel.",
       "remoteNotActive": "Mude para este servidor para navegar pelos arquivos dele via SFTP.",
       "remoteNotConfigured": "Primeiro adicione o login SFTP e a pasta Server deste servidor em Configurações › PanelBridge.",
       "remoteInstallNotSet": "Defina a pasta de instalação remota do jogo para navegar por ela.",
-      "tooBroad": "Esta é a raiz de uma unidade, uma pasta do sistema ou uma pasta pessoal, então o gerenciador de arquivos não vai abri-la. Aponte o servidor para a própria pasta dele em Meus servidores.",
+      "tooBroad": "Esta é a raiz de uma unidade, uma pasta do sistema ou uma pasta pessoal, então o gerenciador de arquivos não vai abri-la. Aponte o servidor para a própria pasta dele em Servidores.",
       "overlapsPanel": "Esta pasta fica dentro das pastas do próprio painel, então o gerenciador de arquivos não vai abri-la.",
       "unreadable": "O painel não consegue ler esta pasta ({{detail}}).",
       "sftpUnreachable": "O painel não consegue acessar este servidor via SFTP."
@@ -138,7 +137,7 @@
       "panelBackups": "Backups do mundo. Baixe, restaure ou exclua os backups na página Backups do mundo.",
       "bridgeIo": "A pasta de comandos do PanelBridge. Só o painel e o jogo gravam aqui.",
       "bridgeManaged": "Um arquivo do próprio PanelBridge. Mude a forma de instalação em Configurações › PanelBridge.",
-      "launchScripts": "O painel reescreve este script de inicialização antes de cada início. Altere memória, portas e senhas em Meus servidores."
+      "launchScripts": "O painel reescreve este script de inicialização antes de cada início. Altere memória, portas e senhas em Servidores."
     },
     "containsProtected": "Esta pasta contém algo que o painel protege, então não pode ser movida, renomeada ou excluída inteira.",
     "openBackups": "Abrir Backups do mundo",
@@ -264,6 +263,7 @@
     "previousVersion": "A versão anterior está na lixeira",
     "wrap": "Quebrar linhas",
     "escHint": "Pressione Esc e depois Tab para sair do editor.",
+    "editWithForm": "Editar com o formulário em Configuração do servidor",
     "lineCount_one": "{{count}} linha",
     "lineCount_many": "{{count}} linhas",
     "lineCount_other": "{{count}} linhas",
@@ -280,7 +280,7 @@
     },
     "hints": {
       "restartToApply": "O servidor lê este arquivo ao iniciar. Reinicie-o para aplicar sua alteração.",
-      "panelRewritesKeys": "O painel reescreve RCONPassword e RCONPort neste arquivo antes de cada início. Altere-os em Meus servidores.",
+      "panelRewritesKeys": "O painel reescreve RCONPassword e RCONPort neste arquivo antes de cada início. Altere-os em Servidores.",
       "luaChecksum": "Alterar os arquivos Lua do jogo faz com que fiquem diferentes das cópias dos jogadores. Com DoLuaChecksum=true, os jogadores não vão conseguir entrar.",
       "steamUpdateOverwrites": "Atualizações da Steam e a verificação de arquivos substituem os arquivos do jogo alterados aqui.",
       "bridgeWorkshopEntries": "Mantenha ZCPB em Mods= e o item dele em WorkshopItems=. O painel os coloca de volta no próximo início.",

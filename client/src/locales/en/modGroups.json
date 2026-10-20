@@ -27,7 +27,14 @@
     "delete": "Delete",
     "deleteAria": "Delete group {{name}}",
     "enforceLabel": "Keep group order when saving the load order",
-    "enforceDesc": "When on, saving the load order moves group members back into their group order."
+    "enforceDesc": "When on, saving the load order moves group members back into their group order.",
+    "keepsTogether": "Kept together",
+    "loadsFirst": "Loads first",
+    "loadsLast": "Loads last",
+    "conflictsBadge_one": "{{count}} conflict",
+    "conflictsBadge_other": "{{count}} conflicts",
+    "conflictsBadgeAria_one": "{{count}} file conflict involves {{name}}. Show it",
+    "conflictsBadgeAria_other": "{{count}} file conflicts involve {{name}}. Show them"
   },
   "dialog": {
     "createTitle": "New mod group",
@@ -56,7 +63,23 @@
     "create": "Create group",
     "saveChanges": "Save changes",
     "saveFailedTitle": "The group was not saved",
-    "saveFailedFallback": "The group could not be saved."
+    "saveFailedFallback": "The group could not be saved.",
+    "colorLabel": "Colour",
+    "placementLabel": "Where Auto-sort puts it",
+    "placementAnywhere": "Anywhere",
+    "placementFirst": "First",
+    "placementLast": "Last",
+    "placementHint": "Libraries and frameworks first, patches and fixes last. Kept in this browser.",
+    "keepTogetherLabel": "Keep together in load order",
+    "keepTogetherHint": "The mods load as one block, where the first of them is now. Mods between them move after the block.",
+    "memberCount_one": "{{count}} mod",
+    "memberCount_other": "{{count}} mods",
+    "autoOrder": "Auto-order members",
+    "autoOrderDone": "Ordered: requirements first, then libraries, main mods, add-ons and fixes. Check it, then save.",
+    "autoOrderUnchanged": "The members are already in that order.",
+    "autoOrderUndo": "Undo",
+    "absentWarning_one": "{{count}} member is not on this server. It keeps its place and loads once it is enabled.",
+    "absentWarning_other": "{{count}} members are not on this server. They keep their place and load once they are enabled."
   },
   "apply": {
     "confirmTitle": "Apply group order?",
@@ -115,5 +138,112 @@
     "orderKeptWithConflicts": "Saving moved mods back into their group order. Some groups contradict each other: {{items}}",
     "conflictsTitle": "Mod groups contradict each other",
     "conflictsDesc": "No load order can satisfy all groups. Review the order of these: {{items}}"
+  },
+  "dots": {
+    "inGroups": "In groups: {{names}}"
+  },
+  "colors": {
+    "none": "No colour",
+    "slate": "Slate",
+    "red": "Red",
+    "orange": "Orange",
+    "amber": "Amber",
+    "lime": "Lime",
+    "green": "Green",
+    "teal": "Teal",
+    "sky": "Sky",
+    "blue": "Blue",
+    "violet": "Violet",
+    "pink": "Pink"
+  },
+  "addTo": {
+    "menuItem": "Add to group…",
+    "selected": "Add selected to group",
+    "title": "Add to a group",
+    "descriptionOne": "Pick the group for {{name}}. It joins at the end of the group's order.",
+    "descriptionMany_one": "Pick the group for {{count}} mod. It joins at the end of the group's order.",
+    "descriptionMany_other": "Pick the group for {{count}} mods. They join at the end of the group's order.",
+    "search": "Search groups",
+    "listAria": "Groups",
+    "members_one": "{{count}} mod",
+    "members_other": "{{count}} mods",
+    "alreadyIn": "Already in this group",
+    "newGroup": "New group…",
+    "cancel": "Cancel",
+    "noGroups": "No groups yet. Start one with New group.",
+    "noMatches": "No group matches your search.",
+    "failedFallback": "The mods could not be added to the group.",
+    "doneTitle": "Added to {{name}}",
+    "doneDesc_one": "{{count}} mod joined the group.",
+    "doneDesc_other": "{{count}} mods joined the group.",
+    "noModIds": "Its mod IDs are only known once it is on the server.",
+    "pickFirst": "Tick the mods to add first."
+  },
+  "removeFrom": {
+    "menuItem": "Remove from {{name}}",
+    "doneTitle": "Removed from {{name}}",
+    "failedTitle": "Could not remove from the group",
+    "failedFallback": "The group could not be changed.",
+    "tooFew": "A group needs at least two mods. Delete the group instead."
+  },
+  "sections": {
+    "enableAll": "Enable all",
+    "enableAllAria": "Enable every mod of {{name}}",
+    "disableAll": "Disable all",
+    "edit": "Edit group",
+    "actionsAria": "Actions for group {{name}}",
+    "enabledOf": "{{enabled}} of {{total}} enabled",
+    "allEnabled": "Every mod of the group that this server has is enabled.",
+    "noneEnabled": "None of the group's mods is enabled.",
+    "notOnServer": "Not on this server: {{ids}}",
+    "ungrouped": "In no group"
+  },
+  "suggestions": {
+    "title": "Suggested groups ({{count}})",
+    "listAria": "Suggested groups",
+    "create": "Create",
+    "createAria": "Create the group {{name}}",
+    "dismiss": "Dismiss",
+    "dismissAria": "Dismiss the suggestion {{name}}",
+    "kind": {
+      "dependency_one": "{{name}} and the mod that needs it",
+      "dependency_other": "{{name}} and {{count}} mods that need it",
+      "prefix_one": "{{count}} mod named \"{{name}}…\"",
+      "prefix_other": "{{count}} mods named \"{{name}}…\"",
+      "workshop-item_one": "{{count}} mod from one Workshop item",
+      "workshop-item_other": "{{count}} mods from one Workshop item"
+    },
+    "dismissFailedTitle": "Could not dismiss the suggestion",
+    "dismissFailedFallback": "The suggestion could not be dismissed. Try again."
+  },
+  "enable": {
+    "doneTitle": "Enabled {{name}}",
+    "doneDesc_one": "{{count}} mod was added to the server config. Restart the server to load it.",
+    "doneDesc_other": "{{count}} mods were added to the server config. Restart the server to load them.",
+    "nothingTitle": "Nothing to enable",
+    "nothingDesc": "Every mod of {{name}} that this server has is already enabled.",
+    "missingNote_one": "{{count}} mod is not on this server and was skipped: {{ids}}.",
+    "missingNote_other": "{{count}} mods are not on this server and were skipped: {{ids}}.",
+    "failedTitle": "Could not enable the group",
+    "failedFallback": "The group's mods could not be enabled.",
+    "unsavedOrder": "Save or discard your load order changes first: this changes the load order."
+  },
+  "disable": {
+    "title": "Disable {{name}}?",
+    "description_one": "{{count}} mod leaves the server config (Mods=). Its files stay on disk, so enabling the group again is instant.",
+    "description_other": "{{count}} mods leave the server config (Mods=). Their files stay on disk, so enabling the group again is instant.",
+    "sharedNote": "Kept, because another group that is fully enabled needs them: {{items}}",
+    "confirm": "Disable mods",
+    "doneTitle": "Disabled {{name}}",
+    "doneDesc_one": "{{count}} mod left the server config.",
+    "doneDesc_other": "{{count}} mods left the server config.",
+    "keptNote_one": "{{count}} shared mod was kept.",
+    "keptNote_other": "{{count}} shared mods were kept.",
+    "failedTitle": "Could not disable the group",
+    "failedFallback": "The group's mods could not be disabled."
+  },
+  "inspector": {
+    "title": "Groups",
+    "none": "In no group."
   }
 }

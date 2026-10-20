@@ -10,7 +10,9 @@ import { PageHeader } from '@/components/PageHeader'
 import { PageSkeleton } from '@/components/PageSkeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { SectionCard } from '@/components/ui/section-card'
+import { RowActions, type RowActionItem } from '@/components/ui/row-actions'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -75,9 +77,8 @@ function newestIdentityEmail(user: ManagedUserAccount | undefined): string | nul
 
 // `embedded`: rendered inside a Settings tab panel instead of as its own
 // route. The tab trigger already carries the page's name/icon, so the full
-// PageHeader (eyebrow/title/description) would be a second, redundant
-// header stacked on top of Settings' own -- only the action button carries
-// over, in a slim row instead.
+// PageHeader would be a second, redundant header stacked on top of
+// Settings' own -- the Add User button lives on the accounts card either way.
 export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation(['users', 'errors'])
   const { formatDateTime } = useDateFormat()
@@ -115,7 +116,10 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   // next" ref set BEFORE the row is removed (its neighbors are only knowable
   // from the list as it exists right now), and a stable fallback for when
   // the list empties out.
-  const rowDeleteButtonRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  // Each row's actions container; focus goes to the "…" trigger inside it.
+  const rowActionsRefs = useRef<Map<string, HTMLElement>>(new Map())
+  const focusRowActions = (id: string) =>
+    rowActionsRefs.current.get(id)?.querySelector<HTMLButtonElement>('button')?.focus()
   const pendingFocusTargetRef = useRef<string | 'fallback' | null>(null)
   const addUserButtonRef = useRef<HTMLButtonElement>(null)
   const [failedDeleteFocusId, setFailedDeleteFocusId] = useState<string | null>(null)
@@ -155,7 +159,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
       addUserButtonRef.current?.focus()
       return
     }
-    rowDeleteButtonRefs.current.get(target)?.focus()
+    focusRowActions(target)
   }, [users])
 
   // Failed-delete counterpart to the effect above -- can't reuse it because
@@ -170,7 +174,7 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   // the dialog's own close/teardown a chance to finish first.
   useEffect(() => {
     if (failedDeleteFocusId === null) return
-    rowDeleteButtonRefs.current.get(failedDeleteFocusId)?.focus()
+    focusRowActions(failedDeleteFocusId)
     setFailedDeleteFocusId(null)
   }, [failedDeleteFocusId])
 
@@ -485,43 +489,36 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   }
 
   if (loading) {
-    return (
-      <PageSkeleton
-        variant="list"
-        eyebrow={t('pageHeader.eyebrow')}
-        title={t('pageHeader.title')}
-        description={t('pageHeader.description')}
-      />
+    // Inside Settings the page header is already there ("Settings › Users"):
+    // a compact list skeleton, not a second page skeleton with its own title.
+    return embedded ? (
+      <div role="status" aria-busy="true" aria-label={t('loading')} className="rounded-xl border border-border/60 bg-card">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 border-b border-border/40 p-4 last:border-0">
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className="h-8 w-8" />
+          </div>
+        ))}
+      </div>
+    ) : (
+      <PageSkeleton variant="list" title={t('pageHeader.title')} description={t('pageHeader.description')} />
     )
   }
 
+  const addUserButton = (
+    <Button ref={addUserButtonRef} size="sm" onClick={openCreateDialog}>
+      <UserPlus className="h-4 w-4" aria-hidden="true" />
+      {t('toolbar.addUser')}
+    </Button>
+  )
+
   return (
     <div className={embedded ? 'space-y-4' : 'space-y-6 page-transition'}>
-      {embedded ? (
-        !permissionDenied && (
-          <div className="flex justify-end">
-            <Button ref={addUserButtonRef} onClick={openCreateDialog}>
-              <UserPlus className="h-4 w-4" />
-              {t('toolbar.addUser')}
-            </Button>
-          </div>
-        )
-      ) : (
-        <PageHeader
-          eyebrow={t('pageHeader.eyebrow')}
-          title={t('pageHeader.title')}
-          description={t('pageHeader.description')}
-          icon={<UsersIcon className="h-6 w-6" />}
-          tone="config"
-          actions={
-            !permissionDenied ? (
-              <Button ref={addUserButtonRef} onClick={openCreateDialog}>
-                <UserPlus className="h-4 w-4" />
-                {t('toolbar.addUser')}
-              </Button>
-            ) : undefined
-          }
-        />
+      {!embedded && (
+        <PageHeader title={t('pageHeader.title')} description={t('pageHeader.description')} />
       )}
 
       {/* Account and role changes wait for panel logins (server/middleware/
@@ -549,135 +546,125 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
           action={{ label: t('loadError.retry'), onClick: fetchAll }}
         />
       ) : (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 bg-muted/40 text-start text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    <th className="px-4 py-2.5">{t('table.account')}</th>
-                    <th className="px-4 py-2.5">{t('table.role')}</th>
-                    <th className="px-4 py-2.5">{t('table.created')}</th>
-                    <th className="px-4 py-2.5">{t('table.lastSignIn')}</th>
-                    <th className="relative px-4 py-2.5 text-end">
-                      <span className="sr-only">{t('table.actions')}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(users || []).map((user) => {
-                    const isSelf = user.id === currentUser?.id
-                    const deleting = deletingIds.has(user.id)
-                    const identities = user.externalIdentities ?? []
-                    return (
-                      <tr key={user.id} className="border-b border-border/30 last:border-0">
-                        <td className="px-4 py-2.5 font-medium">
-                          {user.username}
-                          {identities.map((identity, index) => (
-                            <div
-                              key={`${identity.issuer}-${identity.subject}-${index}`}
-                              className="text-xs font-normal text-muted-foreground [overflow-wrap:anywhere]"
-                              title={identity.issuer}
-                            >
-                              {t('table.ssoIdentity', { identity: identity.email || identity.subject })}
-                            </div>
-                          ))}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <Badge variant="outline">{user.role}</Badge>
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">
-                          {formatDateTime(user.createdAt, { seconds: true })}
-                        </td>
-                        <td className="px-4 py-2.5 text-muted-foreground">
-                          {user.lastLogin ? formatDateTime(user.lastLogin, { seconds: true }) : t('table.never')}
-                        </td>
-                        <td className="px-4 py-2.5 text-end">
-                          <div className="flex justify-end gap-1">
-                            {canLinkSso && linkingUserId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            ) : canLinkSso ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                title={t('table.linkSsoTooltip', { username: user.username })}
-                                aria-label={t('table.linkSsoTooltip', { username: user.username })}
-                                onClick={() => handleLinkSso(user)}
-                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
-                              >
-                                <Link2 className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                            {canLinkSso && identities.length > 0 && (unlinkingUserId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another link, unlink or delete is in flight, not for a reason worth a DisabledReason.
-                                title={t('table.unlinkSsoTooltip', { username: user.username })}
-                                aria-label={t('table.unlinkSsoTooltip', { username: user.username })}
-                                onClick={() => handleUnlinkSso(user)}
-                                disabled={linkingUserId !== null || unlinkingUserId !== null || deleting}
-                              >
-                                <Unlink className="h-4 w-4" />
-                              </Button>
-                            ))}
-                            {!isSelf && (signingOutUserId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            ) : (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action (same text as aria-label); disabled only while another sign-out or a delete is in flight.
-                                title={t('table.signOutTooltip', { username: user.username })}
-                                aria-label={t('table.signOutTooltip', { username: user.username })}
-                                onClick={() => handleSignOutUser(user)}
-                                disabled={signingOutUserId !== null || deleting}
-                              >
-                                <LogOut className="h-4 w-4 rtl:-scale-x-100" />
-                              </Button>
-                            ))}
-                            {!isSelf && (deleting ? (
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            ) : (
-                              <Button
-                                ref={(el) => {
-                                  if (el) rowDeleteButtonRefs.current.set(user.id, el)
-                                  else rowDeleteButtonRefs.current.delete(user.id)
-                                }}
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive hover:text-destructive"
-                                title={t('table.removeTooltip', { username: user.username })}
-                                aria-label={t('table.removeTooltip', { username: user.username })}
-                                onClick={() => handleDelete(user)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            ))}
+        <SectionCard
+          flush
+          icon={UsersIcon}
+          title={t('table.title')}
+          status={<Badge variant="outline" className="tabular-nums">{(users || []).length}</Badge>}
+          actions={addUserButton}
+          footer={
+            <Link
+              to="/settings?tab=roles"
+              className="me-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+            >
+              {t('manageRolesLink')}
+              <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+            </Link>
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/60 bg-muted/40 text-start">
+                  <th className="label-micro px-4 py-2.5 text-start">{t('table.account')}</th>
+                  <th className="label-micro px-4 py-2.5 text-start">{t('table.role')}</th>
+                  {/* The dates step aside on a phone so each row's "…" stays on screen. */}
+                  <th className="label-micro hidden px-4 py-2.5 text-start md:table-cell">{t('table.created')}</th>
+                  <th className="label-micro hidden px-4 py-2.5 text-start md:table-cell">{t('table.lastSignIn')}</th>
+                  <th className="relative px-4 py-2.5 text-end">
+                    <span className="sr-only">{t('table.actions')}</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {(users || []).map((user) => {
+                  const isSelf = user.id === currentUser?.id
+                  const deleting = deletingIds.has(user.id)
+                  const identities = user.externalIdentities ?? []
+                  const busy =
+                    deleting || linkingUserId === user.id || unlinkingUserId === user.id || signingOutUserId === user.id
+                  const linkBusy = linkingUserId !== null || unlinkingUserId !== null || deleting
+                  const items: RowActionItem[] = []
+                  if (canLinkSso) {
+                    items.push({
+                      label: t('table.linkSsoTooltip', { username: user.username }),
+                      icon: Link2,
+                      onSelect: () => handleLinkSso(user),
+                      disabled: linkBusy,
+                    })
+                    if (identities.length > 0) {
+                      items.push({
+                        label: t('table.unlinkSsoTooltip', { username: user.username }),
+                        icon: Unlink,
+                        onSelect: () => handleUnlinkSso(user),
+                        disabled: linkBusy,
+                      })
+                    }
+                  }
+                  if (!isSelf) {
+                    items.push({
+                      label: t('table.signOutTooltip', { username: user.username }),
+                      icon: LogOut,
+                      onSelect: () => handleSignOutUser(user),
+                      disabled: signingOutUserId !== null || deleting,
+                    })
+                    items.push({
+                      label: t('table.removeTooltip', { username: user.username }),
+                      icon: Trash2,
+                      onSelect: () => handleDelete(user),
+                      destructive: true,
+                      disabled: deleting,
+                    })
+                  }
+                  return (
+                    <tr key={user.id} className="border-b border-border/30 last:border-0">
+                      <td className="px-4 py-2.5 font-medium">
+                        {user.username}
+                        {identities.map((identity, index) => (
+                          <div
+                            key={`${identity.issuer}-${identity.subject}-${index}`}
+                            className="text-xs font-normal text-muted-foreground [overflow-wrap:anywhere]"
+                            title={identity.issuer}
+                          >
+                            {t('table.ssoIdentity', { identity: identity.email || identity.subject })}
                           </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="border-t border-border/40 px-4 py-3">
-              <Link
-                to="/settings?tab=roles"
-                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-              >
-                {t('manageRolesLink')}
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
+                        ))}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge variant="outline">{user.role}</Badge>
+                      </td>
+                      <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
+                        {formatDateTime(user.createdAt, { seconds: true })}
+                      </td>
+                      <td className="hidden px-4 py-2.5 text-muted-foreground md:table-cell">
+                        {user.lastLogin ? formatDateTime(user.lastLogin, { seconds: true }) : t('table.never')}
+                      </td>
+                      <td className="px-4 py-2.5 text-end">
+                        {/* One "…" per row; its trigger is where focus lands
+                            after a delete (see the focus-restore effects). */}
+                        <div
+                          className="flex justify-end"
+                          ref={(el) => {
+                            if (el) rowActionsRefs.current.set(user.id, el)
+                            else rowActionsRefs.current.delete(user.id)
+                          }}
+                        >
+                          <RowActions
+                            ariaLabel={t('table.rowActions', { username: user.username })}
+                            primary={
+                              busy ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : undefined
+                            }
+                            items={items}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </SectionCard>
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => !open && setCreateOpen(false)}>

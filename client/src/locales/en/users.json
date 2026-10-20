@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Account",
+    "title": "Panel accounts",
     "role": "Role",
     "created": "Created",
     "lastSignIn": "Last sign-in",
     "never": "Never",
     "actions": "Actions",
+    "rowActions": "Actions for {{username}}",
     "removeTooltip": "Remove {{username}}",
     "linkSsoTooltip": "Link SSO to {{username}}",
     "unlinkSsoTooltip": "Unlink SSO from {{username}}",

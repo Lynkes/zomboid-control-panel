@@ -62,6 +62,7 @@
   },
   "afterThisStep": {
     "heading": "Depois desta etapa",
+    "nextHeading": "O que vem a seguir",
     "previewBadge": "Prévia",
     "step1Title": "Trazer um servidor para o painel",
     "step1Desc": "Adicione uma instalação existente ou use a configuração guiada para criar uma.",

@@ -5,6 +5,10 @@
     "eyebrow": "維護",
     "newTask": "新建任務"
   },
+  "settings": {
+    "title": "排程任務設定",
+    "description": "所有排程使用的時區，以及重新啟動前玩家看到的倒數。"
+  },
   "fetchError": {
     "title": "排程任務資料載入失敗",
     "fallback": "排程任務資料載入失敗，後端可能無法訪問。",
@@ -139,8 +143,10 @@
     "welcome": "歡迎！請在出生點閱讀規則"
   },
   "scheduledTasks": {
-    "title": "排程任務",
-    "description": "管理自動執行的命令。",
+    "title": "任務",
+    "description": "按排程執行的命令。可立即執行、編輯或暫停。",
+    "activeCount": "{{active}}/{{total}} 個已啟用",
+    "modUpdatePending": "模組更新重新啟動待處理",
     "emptyTitle": "暫無排程任務",
     "emptyDesc": "建立一個任務，依 cron 排程執行重新啟動、儲存、伺服器訊息或 PanelBridge 命令(天氣、設施)。",
     "emptyActionLabel": "新建排程任務",
@@ -199,7 +205,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = 每天 6 點"
   },
   "timezone": {
-    "title": "排程任務時區",
+    "title": "時區",
     "description": "以下所有計劃——你的任務、自動備份和自動重新啟動——都按此時區執行。",
     "inputLabel": "IANA 時區名稱",
     "noMatches": "沒有匹配的時區",
@@ -210,7 +216,9 @@
     "backupScheduleOff": "未啟用",
     "autoRestartOn": "開啟",
     "autoRestartOff": "關閉",
-    "backupHealthTitle": "備份排程狀態",
+    "backupHealthTitle": "自動備份",
+    "backupHealthDesc": "最近一次排程的世界備份和下一次備份。",
+    "backupHealthLink": "備份排程",
     "backupLastAttemptOk": "上次嘗試成功 · {{date}}",
     "backupLastAttemptFailed": "上次嘗試失敗 · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "上次嘗試因重新啟動而略過 · {{date}}",
@@ -220,7 +228,9 @@
     "savedDesc": "計劃現在按 {{tz}} 執行。",
     "saveFailedFallback": "儲存時區失敗",
     "fallbackTitle": "已儲存的時區不再有效",
-    "fallbackDesc": "無法使用“{{configured}}”（可能已從時區資料庫中移除，或此面板是從另一臺機器恢復的）。在此問題解決之前，計劃按 {{effective}} 執行。"
+    "fallbackDesc": "無法使用“{{configured}}”（可能已從時區資料庫中移除，或此面板是從另一臺機器恢復的）。在此問題解決之前，計劃按 {{effective}} 執行。",
+    "fallbackAction": "變更時區",
+    "emptyReason": "請先選擇時區。"
   },
   "toasts": {
     "errorTitle": "錯誤",
@@ -263,6 +273,7 @@
     "saveButton": "儲存警告",
     "saved": "重新啟動警告已儲存",
     "saveFailed": "儲存重新啟動警告失敗",
+    "emptyReason": "請先填寫倒數訊息。",
     "languages": {
       "en": "英語",
       "zh-CN": "簡體中文",

@@ -242,5 +242,8 @@
   "loses": "負",
   "winIt": "使其勝出",
   "view": "檢視",
-  "close": "關閉"
+  "close": "關閉",
+  "subTabsAria": "衝突清單",
+  "focusChip": "{{name}} 的模組",
+  "focusClearAria": "再次顯示所有衝突（停止依 {{name}} 篩選）"
 }

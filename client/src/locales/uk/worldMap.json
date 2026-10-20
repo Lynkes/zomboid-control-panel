@@ -13,7 +13,7 @@
   },
   "pageHeader": {
     "title": "Карта світу",
-    "description": "Позиції гравців у реальному часі на карті округу Нокс. Клацніть правою кнопкою для дій."
+    "description": "Позиції гравців наживо. Клацніть правою кнопкою або утримуйте палець на карті для дій."
   },
   "refresh": "Оновити",
   "errorTitle": "Помилка",
@@ -24,12 +24,12 @@
     "zoomIn": "Збільшити",
     "zoomOut": "Зменшити",
     "fitToPlayers": "Вмістити гравців",
-    "floorHeader": "поверх",
+    "floorHeader": "Поверх",
     "floorUp": "Поверхом вище",
     "floorDown": "Поверхом нижче",
     "currentFloorAria": "Поточний поверх: {{floor}}",
     "currentFloorTitle": "{{floor}} — натисніть, щоб повернутися на рівень землі",
-    "layersHeader": "шари",
+    "layersHeader": "Шари карти",
     "vehiclesHideAria": "Сховати транспорт ({{count}} завантажено)",
     "vehiclesShowAria": "Показати транспорт ({{count}} завантажено)",
     "vehiclesHideTitle": "Сховати транспорт ({{count}}) — видно лише транспорт поблизу гравців",
@@ -45,8 +45,6 @@
     "basementN": "Підв.{{n}}"
   },
   "tileFailure": {
-    "signalLost": "сигнал.втрачено",
-    "tilesOffline": "тайли офлайн",
     "coverageTitle": "На цьому масштабі немає тайлів карти",
     "coverageDesc": "<1>tiles.pzmap.org</1> доступний, але ще не відрендерив цю ділянку з таким рівнем деталізації. Зменште масштаб або спробуйте Оновити пізніше.",
     "networkTitle": "Тайли карти не завантажуються",
@@ -69,42 +67,52 @@
     "unrecognizedTitle": "Тайл карти надійшов як нерозпізнані дані",
     "unrecognizedDesc": "Дані цього тайла не відповідають жодному формату, який панель розпізнає. Сирі байти: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge офлайн",
+    "bridgeOfflineDesc": "Позиції наживо, транспорт і дії на карті потребують мода PanelBridge, запущеного на цьому сервері.",
+    "bridgeOfflineAction": "Налаштувати PanelBridge",
+    "noServerTitle": "Немає активного сервера",
+    "noServerDesc": "Виберіть або додайте сервер, щоб побачити його гравців на карті.",
+    "noServerAction": "Відкрити «Сервери»",
+    "playerNotOnlineTitle": "{{name}} немає на карті",
+    "playerNotOnlineDesc": "Цей гравець офлайн, або PanelBridge ще не повідомив про нього.",
+    "openInPlayers": "Відкрити в «Гравцях»"
+  },
   "roster": {
-    "label": "гравці",
-    "live": "наживо",
-    "offline": "офлайн",
+    "label": "Гравці",
+    "live": "Наживо",
+    "offline": "Офлайн",
     "panToAria": "Перейти до {{name}}",
     "panToAriaWithHealth": "Перейти до {{name}}, здоров'я {{health}}%",
-    "loading": "завантаження…",
-    "noPlayersOnline": "немає гравців онлайн",
-    "bridgeOffline": "міст офлайн",
+    "loading": "Завантаження…",
+    "noPlayersOnline": "Немає гравців онлайн",
+    "bridgeOffline": "PanelBridge офлайн",
     "collapseAria": "Згорнути список гравців",
-    "expandAria": "Розгорнути список гравців"
+    "expandAria": "Розгорнути список гравців",
+    "toggleAria": "Гравці на карті: {{count}}",
+    "closeSheet": "Закрити список гравців"
   },
   "hud": {
-    "hoverForCoords": "наведіть для координат"
+    "hoverForCoords": "Наведіть на карту, щоб побачити координати",
+    "zoomTitle": "Масштаб"
   },
   "dossier": {
-    "label": "досьє",
-    "targetAcquired": "ціль.захоплено",
+    "targetAcquired": "Онлайн",
     "closeAria": "Закрити досьє",
-    "pos": "поз",
-    "floor": "поверх",
-    "hp": "hp",
-    "hunger": "голод",
-    "thirst": "спрага",
-    "fatigue": "втома",
-    "role": "роль",
-    "status": "стан",
-    "infected": "інфікований",
+    "pos": "Позиція",
+    "floor": "Поверх",
+    "hp": "Здоров'я",
+    "hunger": "Голод",
+    "thirst": "Спрага",
+    "fatigue": "Втома",
+    "role": "Роль",
+    "status": "Стан",
+    "infected": "Інфікований",
     "heal": "Вилікувати",
-    "god": "Бог",
-    "godTip": "Завжди вмикає режим бога для цього гравця — це не перемикач. Вимкнути його можна в розділі «Гравці».",
     "openPlayerControls": "Відкрити керування гравцем",
     "healedTitle": "Вилікувано",
     "healedDesc": "{{username}} вилікуваний",
-    "godModeEnabled": "Режим бога увімкнено",
-    "offline": "офлайн",
+    "offline": "Офлайн",
     "offlineReason": "Цей гравець уже не в мережі."
   },
   "contextMenu": {

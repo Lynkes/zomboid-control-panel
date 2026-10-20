@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "Serveurs gérés",
-    "description": "Gérez plusieurs serveurs Project Zomboid depuis un seul panneau",
-    "eyebrow": "Flotte",
+    "title": "Serveurs",
+    "description": "Ajoutez, changez, mettez à jour et modifiez les serveurs Project Zomboid gérés par ce panneau.",
     "scanAria": "Rechercher des serveurs",
     "scanTitle": "Rechercher des serveurs",
     "scanNoPermission": "La recherche d'installations bind-mount nécessite la permission servers.discover, que ce rôle ne possède pas.",
-    "addRemote": "Ajouter un serveur distant",
-    "addExisting": "Ajouter un serveur existant",
-    "installNew": "Installer un nouveau serveur"
+    "publicServers": "Serveurs publics",
+    "installNoPermission": "L'installation d'un nouveau serveur nécessite la permission server.install, que ce rôle ne possède pas."
   },
+  "addServer": {
+    "menu": "Ajouter un serveur",
+    "listLabel": "Façons d'ajouter un serveur",
+    "recommended": "Recommandé",
+    "fresh": {
+      "label": "Installer un nouveau serveur",
+      "description": "Téléchargez le serveur dédié avec SteamCMD, puis réglez les ports, les mots de passe et la mémoire."
+    },
+    "existing": {
+      "label": "Utiliser des fichiers de serveur existants",
+      "description": "Indiquez au panneau un serveur déjà installé sur cette machine."
+    },
+    "remote": {
+      "label": "Connecter un serveur distant",
+      "description": "Gérez un serveur qui tourne sur une autre machine, via RCON."
+    }
+  },
+  "loadingLabel": "Chargement des serveurs",
   "fetchError": {
     "title": "Impossible de charger les serveurs",
     "fallback": "Échec du chargement des serveurs. Le backend est peut-être injoignable.",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "Aucun serveur configuré",
-    "description": "Commencez par un serveur. Une fois qu'il est actif, le tableau de bord, les joueurs, les sauvegardes, les mods et les actions distantes deviennent disponibles.",
-    "addLocalTitle": "Ajouter un serveur local existant",
-    "addLocalDesc": "Utilisez ceci lorsque les fichiers du serveur existent déjà sur cette machine.",
-    "installTitle": "Installer un nouveau serveur local",
-    "installDesc": "Utilisez l'installateur pour configurer fichiers, ports, mots de passe et mémoire en un seul flux.",
-    "connectRemoteTitle": "Connecter un serveur distant",
-    "connectRemoteDesc": "Utilisez ceci pour les serveurs qui s'exécutent sur une autre machine, via RCON.",
-    "step1Label": "Étape 1",
-    "step1Text": "Ajoutez un serveur",
-    "step2Label": "Étape 2",
-    "step2Text": "Rendez-le actif et vérifiez le RCON",
-    "step3Label": "Étape 3",
-    "step3Text": "Retournez au tableau de bord pour le contrôle en direct"
+    "description": "Commencez par un serveur. Une fois qu'il est actif, le tableau de bord, les joueurs, les sauvegardes, les mods et les actions distantes deviennent disponibles."
   },
   "card": {
     "selected": "Sélectionné",
-    "inactive": "Inactif",
     "remote": "Distant",
     "updateAvailable": "Mise à jour disponible",
     "updateStatusUnknown": "Update status unknown",
@@ -69,8 +72,12 @@
     "statusNotConfigured": "Non configuré",
     "statusAuthFailed": "Échec de l'authentification",
     "statusUnavailable": "Indisponible",
-    "buildLabel": "Build :",
-    "branchLabel": "Branche :",
+    "buildLabel": "Build",
+    "branchLabel": "Branche",
+    "version": "Version",
+    "detailsPaths": "Chemins",
+    "detailsPathsContainer": "Chemins et conteneur",
+    "detailsRemote": "Détails",
     "stopThisServer": "Arrêter ce serveur",
     "stopConfirmTitle": "Arrêter {{name}} ?",
     "stopConfirmDescription": "Cela déconnectera tous les joueurs actuellement connectés à « {{name}} ». Vous pouvez le redémarrer à tout moment.",
@@ -83,7 +90,6 @@
     "configureSftpTitle": "Configurer le bridge SFTP pour ce serveur distant",
     "configureSftp": "Configurer le bridge SFTP",
     "configureSftpTip": "Si ce n'est pas déjà votre serveur actif, cliquer ici bascule votre serveur actif vers celui-ci avant d'ouvrir la configuration SFTP dans Paramètres.",
-    "updateNow": "Mettre à jour maintenant",
     "activating": "Activation...",
     "switchToThisServer": "Basculer sur ce serveur",
     "added": "Ajouté le {{date}}",
@@ -213,6 +219,11 @@
     "lifecycleCompleteFirst": "Activez le fournisseur sélectionné ou revenez au fournisseur actuel avant d'enregistrer d'autres paramètres du serveur.",
     "title": "Modifier le serveur",
     "description": "Mettre à jour les paramètres de configuration du serveur",
+    "sectionIdentity": "Identité",
+    "sectionPaths": "Chemins",
+    "sectionNetwork": "Réseau et RCON",
+    "sectionLaunch": "Lancement et mémoire",
+    "sectionDocker": "Docker",
     "remoteTitle": "Serveur distant",
     "remoteDesc": "La gestion RCON uniquement est disponible pour ce serveur.",
     "displayNameLabel": "Nom d'affichage",

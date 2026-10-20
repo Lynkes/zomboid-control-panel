@@ -12,7 +12,7 @@ const ORDINARY_ROLES = new Set(['none', 'user'])
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0 space-y-0.5">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</dt>
+      <dt className="label-micro">{label}</dt>
       <dd className="text-sm text-foreground/90">{children}</dd>
     </div>
   )

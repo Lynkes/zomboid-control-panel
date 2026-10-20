@@ -104,7 +104,8 @@ describe('ServerConfig.tsx: leaving the raw editor with unsaved edits asks first
     openTab(/sandbox/i)
     fireEvent.click(await screen.findByRole('button', { name: 'Discard edits' }))
     await waitFor(() => expect(getRaw).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole('tab', { name: /sandbox/i, hidden: true })).toHaveAttribute('aria-selected', 'true')
+    // The tab is ?tab= now: the router applies it in a transition.
+    await waitFor(() => expect(screen.getByRole('tab', { name: /sandbox/i, hidden: true })).toHaveAttribute('aria-selected', 'true'))
   })
 
   it('the Form button keeps the raw editor and its edits when cancelled', async () => {

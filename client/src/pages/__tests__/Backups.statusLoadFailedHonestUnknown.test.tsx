@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 import en from '../../locales/en/backups.json'
 import settingsEn from '../../locales/en/settings.json'
@@ -85,7 +86,7 @@ afterEach(() => {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -104,6 +105,8 @@ describe('Backups.tsx: scheduled-backups status card distinguishes "unknown" fro
     expect(screen.queryByText(en.statusCards.on)).not.toBeInTheDocument()
     expect(screen.queryByText(en.statusCards.off)).not.toBeInTheDocument()
 
+    // The switch is in "Schedule & retention".
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     const toggle = await screen.findByRole('switch', { name: en.statusCards.toggleAria })
     expect(toggle).toBeDisabled()
   })
@@ -118,6 +121,8 @@ describe('Backups.tsx: scheduled-backups status card distinguishes "unknown" fro
     expect(await screen.findByText(en.statusCards.on)).toBeInTheDocument()
     expect(screen.queryByText(settingsEn.backups.statusLoadFailed)).not.toBeInTheDocument()
 
+    // The switch is in "Schedule & retention".
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     const toggle = await screen.findByRole('switch', { name: en.statusCards.toggleAria })
     expect(toggle).not.toBeDisabled()
   })

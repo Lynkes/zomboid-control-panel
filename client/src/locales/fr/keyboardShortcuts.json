@@ -7,17 +7,6 @@
     "pageActions": "Actions de page",
     "general": "Général"
   },
-  "nav": {
-    "dashboard": "Tableau de bord",
-    "console": "Console",
-    "players": "Joueurs",
-    "chat": "Chat",
-    "events": "Événements",
-    "mods": "Mods",
-    "backups": "Sauvegardes",
-    "serverConfig": "Config serveur",
-    "settings": "Paramètres"
-  },
   "page": {
     "save": "Enregistrer",
     "focusSearch": "Rechercher",
@@ -25,5 +14,6 @@
     "switchConsoleTab": "Changer d'onglet console",
     "toggleAutoScroll": "Basculer le défilement auto (Console)"
   },
+  "openPalette": "Ouvrir la palette de commandes",
   "showShortcuts": "Afficher les raccourcis clavier"
 }

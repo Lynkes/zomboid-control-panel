@@ -12,7 +12,7 @@
     "retry": "重試"
   },
   "pageHeader": {
-    "title": "模組管理器",
+    "title": "模組",
     "description": "在你的伺服器上新增、更新和設定 Steam 創意工坊模組",
     "eyebrow": "創意工坊",
     "addMod": "新增模組"
@@ -40,7 +40,11 @@
     "importCollection": "匯入收藏集",
     "autoRestartSettings": "自動重新啟動設定",
     "autoRestart": "自動重新啟動",
-    "autoRestartAria": "切換模組更新時是否自動重新啟動"
+    "autoRestartAria": "切換模組更新時是否自動重新啟動",
+    "autoRestartOn": "自動重新啟動：開",
+    "autoRestartOff": "自動重新啟動：關",
+    "autoRestartOnAria": "自動重新啟動已開啟。開啟其設定",
+    "autoRestartOffAria": "自動重新啟動已關閉。開啟其設定"
   },
   "restartPending": {
     "title": "等待重新啟動",
@@ -102,8 +106,8 @@
       "hint": "通過 Workshop ID 或連結新增"
     },
     "collection": {
-      "label": "匯入收藏集",
-      "hint": "從 Steam 收藏集中拉取所有專案"
+      "label": "收藏集",
+      "hint": "匯入收藏集，或讓你的收藏集保持同步"
     },
     "order": {
       "label": "載入順序",
@@ -120,7 +124,10 @@
     "tools": {
       "label": "工具",
       "hint": "修復、去重和清理"
-    }
+    },
+    "groupLibrary": "模組庫",
+    "groupServer": "伺服器上",
+    "groupTools": "工具"
   },
   "collectionDialog": {
     "title": "匯入 Steam 創意工坊收藏集",
@@ -145,7 +152,8 @@
     "openWorkshopAria": "開啟創意工坊頁面（在新分頁中開啟）",
     "cancel": "取消",
     "adding": "正在新增…",
-    "addToServer": "將 {{count}} 個模組新增到伺服器"
+    "addToServer": "將 {{count}} 個模組新增到伺服器",
+    "fetchAria": "查詢該收藏集"
   },
   "addModDialog": {
     "title": "新增創意工坊模組",
@@ -202,7 +210,8 @@
     "currentMaxDelay": "• 最長延遲：{{minutes}} 分鐘",
     "cancel": "取消",
     "saving": "正在儲存…",
-    "saveSettings": "儲存設定"
+    "saveSettings": "儲存設定",
+    "autoRestartHint": "當 Steam 發布其中某個模組的更新時，自動重新啟動伺服器。"
   },
   "installedTab": {
     "searchPlaceholder": "搜尋模組…",
@@ -220,6 +229,7 @@
     "collectionDrift": "{{count}} 項差異",
     "collectionSyncTooltip": "將已追蹤模組同步到 Steam 創意工坊收藏集",
     "collectionSync": "同步",
+    "collectionSyncAria": "同步收藏集",
     "collectionChecking": "正在檢查收藏集…",
     "selectedCount": "已選 {{count}} 個",
     "deselect": "取消選擇",
@@ -255,7 +265,12 @@
     "modFallback": "模組 {{id}}",
     "selectAria": "選取 {{name}}",
     "removeModAria": "移除模組 {{name}}",
-    "removeFromServer": "從伺服器移除"
+    "removeFromServer": "從伺服器移除",
+    "loading": "正在載入模組",
+    "selectionAria": "已選模組",
+    "allDeactivatedTitle": "伺服器上沒有已追蹤的模組",
+    "allDeactivatedDesc_one": "{{count}} 個已追蹤的模組已停用。請在「已停用」中重新啟用。",
+    "allDeactivatedDesc_other": "{{count}} 個已追蹤的模組已停用。請在「已停用」中重新啟用。"
   },
   "disabledPanel": {
     "title": "磁碟上已停用的模組",
@@ -268,7 +283,11 @@
     "enable": "啟用",
     "deleteFromDisk": "從磁碟刪除",
     "scanFailedTitle": "無法掃描已停用的模組",
-    "scanFailedDesc": "Workshop 資料夾掃描失敗。請再次重新整理。"
+    "scanFailedDesc": "Workshop 資料夾掃描失敗。請再次重新整理。",
+    "sectionTitle": "在磁碟上，但不在伺服器上",
+    "description": "已下載到創意工坊資料夾，但不在伺服器的 WorkshopItems= 中，因此伺服器不會載入它們。",
+    "notScanned": "尚未掃描。",
+    "deleteFromDiskAria": "從磁碟刪除 {{name}}"
   },
   "ignoredPanel": {
     "count_one": "{{count}} 個已忽略的模組",
@@ -282,7 +301,8 @@
     "selectAll": "全選",
     "selectRow": "選取 {{name}}",
     "removeSelected": "移除所選（{{n}}）",
-    "reTrackHint": "將此模組從忽略清單中移除，之後同步與合集匯入可以再次新增它。伺服器設定與模組檔案不會被更動。"
+    "reTrackHint": "將此模組從忽略清單中移除，之後同步與合集匯入可以再次新增它。伺服器設定與模組檔案不會被更動。",
+    "description": "同步與收藏集匯入不會再次新增這些模組。"
   },
   "serverConfigTab": {
     "summaryMods": "個模組",
@@ -411,7 +431,13 @@
     "removeWorkshopDialogTitle": "移除創意工坊專案？",
     "removeWorkshopDialogDesc": "這會將該創意工坊專案及其 Mod ID 從伺服器 INI 中移除。磁碟上的創意工坊檔案不會被刪除。",
     "cancel": "取消",
-    "remove": "移除"
+    "remove": "移除",
+    "hasNoteChip": "有備註（{{count}}）",
+    "updatesChip": "有可用更新（{{count}}）",
+    "noFilterMatches": "沒有創意工坊專案符合這些篩選條件。",
+    "select": "選取",
+    "selectItemAria": "選取 {{name}}",
+    "selectionAria": "已選創意工坊專案"
   },
   "loadOrder": {
     "emptyTitle": "載入順序中沒有模組",
@@ -424,8 +450,8 @@
     "groupNeedsTwo": "至少選取 2 個模組才能新增群組。",
     "selectRowAria": "選取 {{name}}",
     "previewLockHint": "請先套用或取消下方的建議順序，再手動調整排序。",
-    "filteredHint": "僅顯示匹配「{{query}}」的模組（篩選條件來自「伺服器上已啟用」）。設定篩選時無法拖動；箭頭按鈕仍會在完整的載入順序中移動模組。",
-    "autoSort": "按依賴關係自動排序",
+    "filteredHint": "僅顯示符合「{{query}}」的模組。篩選時無法拖曳；箭頭按鈕仍會在完整的載入順序中移動模組。",
+    "autoSort": "自動排序",
     "proposedOrder_one": "建議順序：{{count}} 個模組將移動",
     "proposedOrder_other": "建議順序：{{count}} 個模組將移動",
     "basedOnDependencies_one": "基於 mod.info 中宣告的 {{count}} 個依賴項。沒有依賴的模組將保持原有順序。",
@@ -448,7 +474,27 @@
     "movedAnnouncement": "{{name}} 已移至第 {{position}} 位（共 {{total}} 個）",
     "unsavedChanges": "載入順序有未儲存的變更",
     "reset": "重設",
-    "saveOrder": "儲存順序"
+    "saveOrder": "儲存順序",
+    "searchPlaceholder": "依 Mod ID 或名稱篩選…",
+    "searchAria": "篩選載入順序",
+    "showGroups": "顯示群組",
+    "blockCount_one": "{{count}} 個模組",
+    "blockCount_other": "{{count}} 個模組",
+    "blockTogether": "保持在一起",
+    "blockApart": "成員已分散",
+    "gather": "排到一起",
+    "gatheredAnnouncement": "{{name}} 已排到一起",
+    "blockToTopAria": "將群組 {{name}} 移至頂部",
+    "blockUpAria": "將群組 {{name}} 上移",
+    "blockDownAria": "將群組 {{name}} 下移",
+    "blockToBottomAria": "將群組 {{name}} 移至底部",
+    "blockAlreadyFirst": "此群組已最先載入",
+    "blockAlreadyLast": "此群組已最後載入",
+    "blockMovedAnnouncement": "群組 {{name}} 已移至第 {{position}} 位（共 {{total}} 個）",
+    "collapseBlockAria": "摺疊群組 {{name}}",
+    "expandBlockAria": "展開群組 {{name}}",
+    "blockConflictsAria_one": "{{count}} 個檔案衝突涉及 {{name}}。顯示衝突",
+    "blockConflictsAria_other": "{{count}} 個檔案衝突涉及 {{name}}。顯示衝突"
   },
   "addModsTab": {
     "syncTitle": "從下載內容同步 Mod ID",
@@ -487,7 +533,8 @@
     "applyPreset": "套用預設",
     "deleteDialogTitle": "刪除預設「{{name}}」？",
     "deleteDialogDesc": "此預設將被永久刪除。此操作無法撤銷。",
-    "deletePreset": "刪除預設"
+    "deletePreset": "刪除預設",
+    "actionsAria": "預設 {{name}} 的操作"
   },
   "toolsTab": {
     "mapsTitle": "Maps=（{{count}}）",
@@ -782,6 +829,110 @@
     "scanFailedGeneric": "掃描失敗",
     "scanParseFailed": "解析掃描結果失敗",
     "comparingFileContents": "正在比較檔案內容…",
-    "groupingResults": "正在對結果分組…"
+    "groupingResults": "正在對結果分組…",
+    "noSortRulesDesc": "沒有已啟用的模組宣告依賴，也沒有群組設定順序或位置，因此沒有可排序的依據。",
+    "loadOrderRulesMetDesc": "所有依賴、群組順序與群組位置均已滿足。"
+  },
+  "listMode": {
+    "aria": "清單顯示方式",
+    "list": "清單",
+    "groups": "群組"
+  },
+  "sort": {
+    "aria": "排序方式",
+    "status": "排序：更新狀態",
+    "name": "排序：名稱",
+    "updated": "排序：最近更新",
+    "config": "排序：設定順序",
+    "loadOrder": "排序：載入順序"
+  },
+  "filters": {
+    "filteredBy": "篩選條件：",
+    "activeAria": "目前的篩選條件",
+    "removeAria": "移除篩選條件：{{name}}",
+    "clearAll": "清除篩選",
+    "updatesOnly": "僅顯示有更新",
+    "updates": "有可用更新",
+    "hasNote": "有備註",
+    "ungrouped": "不在任何群組中",
+    "allGroups": "所有群組",
+    "inGroup": "在 {{name}} 中",
+    "groupAria": "依群組篩選",
+    "multiId": "僅多 ID",
+    "needsAttention": "需要關注",
+    "notEnabled": "未啟用",
+    "missingDep": "缺失依賴"
+  },
+  "whatChanged": {
+    "label": "更新內容",
+    "updateLabel": "更新 · 更新內容",
+    "aria": "{{name}} 的更新內容：Steam 更新說明（在新分頁中開啟）"
+  },
+  "rowMenu": {
+    "actionsAria": "{{name}} 的操作"
+  },
+  "notes": {
+    "addAction": "新增備註",
+    "editAction": "編輯備註",
+    "addTitle": "新增備註",
+    "editTitle": "編輯備註",
+    "dialogDesc": "關於 {{name}} 的備註。此面板的所有管理員都看得到。",
+    "label": "備註",
+    "placeholder": "為什麼保留它、要維持的版本、移除前該詢問誰",
+    "counter": "{{count}} / {{max}}",
+    "save": "儲存備註",
+    "delete": "刪除備註",
+    "cancel": "取消",
+    "close": "關閉",
+    "lastEdited": "最後由 {{name}} 於 {{date}} 編輯",
+    "lastEditedNoName": "最後編輯於 {{date}}",
+    "sharedHint": "與此面板的所有管理員共用。",
+    "savedTitle": "備註已儲存",
+    "deletedTitle": "備註已刪除",
+    "saveFailedFallback": "無法儲存備註。",
+    "indicatorAria": "備註：{{text}}",
+    "inspectorTitle": "備註",
+    "empty": "尚無備註。"
+  },
+  "collectionView": {
+    "importTitle": "匯入收藏集",
+    "importDesc": "一次將 Steam 創意工坊收藏集中的所有模組新增到此伺服器。"
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "依賴",
+      "groupOrder": "群組順序",
+      "together": "保持在一起",
+      "placement": "位置",
+      "winners": "保留的衝突勝出者"
+    },
+    "reason": {
+      "requires": "在其依賴的 {{mod}} 之後",
+      "requiredBy": "在依賴它的 {{mod}} 之前",
+      "groupOrder": "維持 {{group}} 的順序",
+      "together": "與 {{group}} 保持在一起",
+      "placementFirst": "{{group}} 最先載入",
+      "placementLast": "{{group}} 最後載入",
+      "winner": "仍會覆蓋 {{mod}}",
+      "keepsWinner": "保持在覆蓋它的 {{mod}} 之前"
+    },
+    "issue": {
+      "groupVsDependency": "{{group}} 將 {{before}} 排在 {{after}} 之前，但某個依賴要求相反的順序：以依賴為準。請用「自動排列成員」修正此群組。",
+      "groupVsGroup": "{{group}} 將 {{before}} 排在 {{after}} 之前，但另一個群組要求相反的順序：以先列出的群組為準。",
+      "split": "{{groups}} 無法作為一個整體載入：{{mods}} 必須在其模組之間載入。",
+      "placement": "{{mods}} 必須在一個「最先」群組之前載入，因此它也會最先載入（{{groups}}）。",
+      "winner": {
+        "dependency": "{{newWinner}} 現在會覆蓋 {{previousWinner}}：某個依賴要求它較晚載入。",
+        "group": "{{newWinner}} 現在會覆蓋 {{previousWinner}}：某個群組順序要求它較晚載入。",
+        "placement": "{{newWinner}} 現在會覆蓋 {{previousWinner}}：某個群組位置要求它較晚載入。"
+      }
+    },
+    "issuesTitle_one": "{{count}} 條規則無法滿足",
+    "issuesTitle_other": "{{count}} 條規則無法滿足",
+    "moreIssues": "還有 {{count}} 條",
+    "movesTo": "移至",
+    "otherMods": "其他模組",
+    "groupMoves_one": "移動了 {{count}} 個",
+    "groupMoves_other": "移動了 {{count}} 個"
   }
 }

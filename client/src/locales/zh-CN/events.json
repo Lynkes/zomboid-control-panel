@@ -1,8 +1,7 @@
 {
   "pageHeader": {
-    "title": "事件控制台",
-    "description": "天气、时间、音效、玩家操作与桥接工具",
-    "eyebrow": "世界控制",
+    "title": "事件与天气",
+    "description": "更改天气和时间、播放音效、生成尸群和载具，或运行桥接工具。",
     "refreshPlayers": "刷新玩家"
   },
   "common": {
@@ -11,10 +10,6 @@
     "noPermissionEndangerOrImpersonate": "此操作需要 players.endanger_or_impersonate 权限，此角色没有该权限。"
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "在线",
-    "offline": "离线",
-    "configureLink": "配置 →",
     "eventTarget": "事件目标",
     "allOnline": "全部在线",
     "specific": "指定",
@@ -35,7 +30,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge 已离线",
-    "description": "这些控制项需要 Lua 桥接。请在<1>设置</1>中连接，然后启动 PZ 服务器。"
+    "description": "这些控制项需要 Lua 桥接。请在设置中连接，然后启动 PZ 服务器。",
+    "action": "打开 PanelBridge 设置"
   },
   "groups": {
     "weather": "天气",
@@ -235,7 +231,7 @@
   "utilities": {
     "sublabel": "电力与供水系统",
     "refresh": "刷新",
-    "b42Warning": "b42 多人游戏 · 沙盒更改尚不会同步到已连接的客户端",
+    "b42Warning": "Build 42 多人游戏：沙盒更改尚不会同步到已连接的客户端。",
     "power": "电力",
     "water": "供水",
     "statusOnline": "在线",
@@ -298,7 +294,10 @@
     "clearNear": "清除 {{target}} 附近",
     "clearNearConfirmTitle": "清除该玩家附近的丧尸？",
     "clearNearConfirmDescTargeted": "这会立即清除 {{player}} 所选半径内的所有丧尸——包括其正在战斗的丧尸。丧尸会随时间重新生成，但这会立刻结束该玩家当前的这场战斗。",
-    "clearNearConfirmDescRandom": "这会立即清除一名随机在线玩家所选半径内的所有丧尸——包括其正在战斗的丧尸。丧尸会随时间重新生成，但这会立刻结束该玩家当前的这场战斗。"
+    "clearNearConfirmDescRandom": "这会立即清除一名随机在线玩家所选半径内的所有丧尸——包括其正在战斗的丧尸。丧尸会随时间重新生成，但这会立刻结束该玩家当前的这场战斗。",
+    "spawnConfirmTitle": "生成 {{size}} 只丧尸？",
+    "spawnConfirmDescTargeted": "由 {{size}} 只丧尸组成的尸群会立即出现在 {{player}} 附近，并一直留在世界中，直到被消灭或清除。",
+    "spawnConfirmDescRandom": "由 {{size}} 只丧尸组成的尸群会立即出现在一名随机在线玩家附近，并一直留在世界中，直到被消灭或清除。"
   },
   "vehicles": {
     "sublabel": "RCON · 在玩家旁生成",
@@ -399,8 +398,6 @@
     "lastRun": "上次运行：{{time}}",
     "notRunYet": "尚未运行",
     "bridgeFileLink": "桥接文件链接：{{summary}}",
-    "bridgeConnectionRequiredTitle": "需要桥接连接",
-    "bridgeConnectionRequiredDesc": "这些操作需要有效的 PanelBridge 连接。请先在设置中进行配置。",
     "moderationConfirmTitle": "运行{{operation}}？",
     "moderationConfirmDescription": "这将通过实时桥接发送真实的管理命令{{target}}{{reason}}。请在继续之前仔细核对上方的值。",
     "moderationConfirmTarget": "，目标为 {{target}}",

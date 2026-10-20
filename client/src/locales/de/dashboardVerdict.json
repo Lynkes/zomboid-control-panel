@@ -1,5 +1,7 @@
 {
   "noUpdateYet": "noch keine Aktualisierung",
+  "verdictAria": "Serverlage",
+  "workListAria": "Serverbereiche",
   "updatedJustNow": "gerade aktualisiert",
   "updatedSecondsAgo": "vor {{count}} s aktualisiert",
   "updatedMinutesAgo": "vor {{count}} min aktualisiert",

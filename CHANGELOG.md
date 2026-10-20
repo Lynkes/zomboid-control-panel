@@ -50,10 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod groups to organise big mod lists:** a group can have a colour and keep its mods together in the load order, be enabled or disabled in one step (mods another enabled group needs, and PanelBridge, stay on), and the panel suggests groups from shared libraries, multi-mod Workshop items and name prefixes; any Workshop item can carry a note.
 - **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
 - **Load order the way the game sees it:** the Mods page data now includes loadModAfter=, loadModBefore= and incompatible= (read like Build 42 reads them), the order the server really loads, what keeps a mod from loading (an empty or spaced require= entry, a require= loop, a missing dependency) and every ordering rule for sorting.
+- **Mod Manager, Groups view:** Active on server can list mods by group with Enable all / Disable all per group, every mod row has colour dots and "Add to group" (also for a selection), group blocks on the Load order tab move as one, and a group's conflict badge opens Conflicts filtered to it.
+- **Group-aware Auto-sort:** Auto-sort keeps dependencies, each group's order, kept-together blocks and conflict winners, can put a group first or last, and shows why each mod moves before you apply it.
+- **Mod list filters and sorting:** filter by group, note, update or missing dependency, sort by name, load order or last update; the panel remembers your chips, and updated mods link to their Workshop change notes.
 
 ### Changed
 
+- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (Ctrl+K), and mod lists that stay fast with 600+ mods.
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
+- **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
+- **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.
 
 ### Fixed
 

@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "Nouveau serveur",
-    "title": "Configuration du serveur",
     "description": "Choisissez comment vous voulez mettre un serveur Project Zomboid en ligne.",
     "fullCard": {
-      "recommendedBadge": "Recommandé",
-      "title": "Nouvelle installation",
-      "description": "Téléchargez et configurez un nouveau serveur dédié de A à Z",
       "bullet1": "Téléchargement des fichiers serveur via SteamCMD",
       "bullet1Size": "(~3 Go)",
       "bullet2": "Choix de la branche de version du jeu",
-      "bullet3": "Génération automatique des fichiers de configuration et de démarrage",
-      "cta": "Commencer l'installation"
+      "bullet3": "Génération automatique des fichiers de configuration et de démarrage"
     },
     "quickCard": {
-      "title": "Utiliser des fichiers existants",
-      "description": "Enregistrez un serveur à partir de fichiers déjà téléchargés",
       "bullet1": "Aucun téléchargement nécessaire",
       "bullet2": "Indiquez un dossier de serveur PZ existant",
-      "bullet3": "Configuration rapide en 3 étapes",
-      "cta": "Enregistrer le serveur"
+      "bullet3": "Configuration rapide en 3 étapes"
     },
     "tips": {
       "title": "Vous ne savez pas quoi choisir ?",
-      "description": "Si vous n'avez jamais configuré de serveur Project Zomboid, choisissez <1>Nouvelle installation</1>. Tout le nécessaire sera téléchargé automatiquement."
+      "description": "Si vous n'avez jamais configuré de serveur Project Zomboid, choisissez <1>Installer un nouveau serveur</1>. Tout le nécessaire sera téléchargé automatiquement."
     }
   },
   "resumeBanner": {
     "title": "Une installation est peut-être encore en cours",
     "description": "Une session précédente a commencé à installer vers {{installPath}} (il y a {{elapsed}}), et la page a été fermée ou rechargée avant la fin. Elle est peut-être toujours en cours de téléchargement en arrière-plan.",
-    "continueButton": "Continuer la configuration",
-    "dismissButton": "Ignorer"
+    "continueButton": "Continuer la configuration"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> existe déjà. Si un serveur de ce nom l'a utilisé auparavant, celui-ci démarrera avec ses réglages et son monde. Pour repartir de zéro, choisissez un autre nom de serveur ou un autre dossier."
   },
   "full": {
-    "pageTitle": "Nouvelle installation",
-    "pageDescription": "Téléchargez, configurez et enregistrez un nouveau serveur dédié.",
     "step1": {
       "title": "Configurer SteamCMD",
       "description": "SteamCMD est nécessaire pour télécharger et mettre à jour les fichiers du serveur dédié Project Zomboid.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Configuration rapide",
-    "pageDescription": "Créez et enregistrez un serveur à partir de fichiers de serveur dédié existants.",
     "step1": {
       "title": "Sélectionner les fichiers du serveur",
       "description": "Choisissez le dossier existant du serveur dédié Project Zomboid.",
@@ -303,9 +289,9 @@
     "serverStartingDesc": "Redirection vers le tableau de bord...",
     "startFailedTitle": "Échec du démarrage",
     "registerFailedTitle": "Fichiers du serveur installés, mais l'enregistrement a échoué",
-    "registerFailedDesc": "Les fichiers du jeu sont sur le disque, mais le panneau n'a pas pu ajouter ce serveur à sa base de données : il n'apparaîtra donc pas encore dans Mes serveurs. Consultez le journal ci-dessus, puis relancez l'installation — la réexécution est sans risque.",
+    "registerFailedDesc": "Les fichiers du jeu sont sur le disque, mais le panneau n'a pas pu ajouter ce serveur à sa base de données : il n'apparaîtra donc pas encore dans Serveurs. Consultez le journal ci-dessus, puis relancez Ajouter un serveur — la réexécution est sans risque.",
     "activateFailedLog": "Avertissement : le serveur a été enregistré, mais n'a pas pu être défini comme serveur actif.",
     "activateFailedTitle": "Serveur enregistré, mais non activé",
-    "activateFailedDesc": "Le serveur a été ajouté à Mes serveurs, mais le panneau n'a pas pu basculer automatiquement vers lui. Allez dans Mes serveurs et sélectionnez-le manuellement avant de le démarrer."
+    "activateFailedDesc": "Le serveur a été ajouté à Serveurs, mais le panneau n'a pas pu basculer automatiquement vers lui. Allez dans Serveurs et sélectionnez-le manuellement avant de le démarrer."
   }
 }

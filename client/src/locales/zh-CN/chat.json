@@ -2,7 +2,7 @@
   "pageHeader": {
     "title": "游戏内聊天",
     "description": "向所有在线玩家广播消息，并实时查看他们的聊天内容。",
-    "refresh": "刷新"
+    "refresh": "刷新玩家"
   },
   "chatWindow": {
     "streamLabel": "聊天流",
@@ -44,15 +44,22 @@
   "playersPanel": {
     "label": "玩家",
     "onlineCount": "{{count}} 人在线",
-    "noPlayersConnected": "无已连接玩家"
+    "noPlayersConnected": "无已连接玩家",
+    "openPlayer": "在“玩家”中打开 {{name}}"
+  },
+  "bridgeOffline": {
+    "title": "PanelBridge 未运行",
+    "description": "无法发送服务器广播。管理员聊天和普通聊天会通过 RCON 以普通消息发出，所有玩家都能看到。",
+    "action": "PanelBridge 设置"
   },
   "quickBroadcasts": {
     "label": "快捷广播",
+    "description": "整个面板共用一份列表：所有管理员看到的快捷广播都相同。选择一条即可填入消息框。",
     "edit": "编辑",
     "done": "完成",
     "editAria": "编辑快捷广播",
     "doneAria": "完成编辑快捷广播",
-    "noPresets": "// 暂无快捷广播——点击编辑以添加",
+    "noPresets": "暂无快捷广播。点击编辑以添加。",
     "addPlaceholder": "添加新的快捷广播…",
     "addAria": "添加快捷广播",
     "saveAria": "保存",

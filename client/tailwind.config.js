@@ -75,6 +75,14 @@ export default {
   		},
   		fontFamily: {
   			display: ["'Bebas Neue'", 'var(--font-display)'],
+  			// Data only (paths, IDs, ports, versions, coordinates, logs,
+  			// commands), never labels, buttons or errors. See DESIGN.md.
+  			mono: ['var(--font-mono)'],
+  		},
+  		fontSize: {
+  			// The one size below text-xs: group labels, stat labels, kbd hints.
+  			// Use it through `.label-micro` (index.css) for uppercase labels.
+  			micro: ['0.6875rem', { lineHeight: '1rem', letterSpacing: '0.08em' }],
   		},
   		keyframes: {
   			'accordion-down': {

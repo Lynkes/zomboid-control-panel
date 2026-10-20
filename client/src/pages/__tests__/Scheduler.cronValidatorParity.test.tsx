@@ -98,7 +98,7 @@ async function setUp() {
 }
 
 async function openAdvancedTaskDialog(cron: string) {
-  fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
   fireEvent.change(await screen.findByPlaceholderText('e.g., Daily Restart'), { target: { value: 'A task' } })
   // Radix's TabsTrigger switches on mousedown, not click (see Console.test.tsx's openRconTab).
   fireEvent.mouseDown(screen.getByRole('tab', { name: 'Advanced (Cron)' }), { button: 0 })

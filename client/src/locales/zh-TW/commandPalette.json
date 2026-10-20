@@ -1,0 +1,21 @@
+{
+  "title": "命令面板",
+  "description": "輸入以尋找頁面、頁面中的分區，或要切換到的伺服器。",
+  "inputLabel": "搜尋頁面、分區與伺服器",
+  "placeholder": "前往頁面、分區或伺服器…",
+  "resultsLabel": "結果",
+  "noResults": "沒有與「{{query}}」相符的結果。",
+  "switchServer": "切換到 {{name}}",
+  "showShortcuts": "顯示鍵盤快捷鍵",
+  "groups": {
+    "pages": "頁面",
+    "sections": "分區",
+    "servers": "伺服器",
+    "actions": "操作"
+  },
+  "hints": {
+    "move": "↑ ↓ 移動",
+    "open": "Enter 開啟",
+    "close": "Esc 關閉"
+  }
+}

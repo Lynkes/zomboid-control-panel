@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Limpeza do mapa",
     "description": "Redefina áreas do mapa danificadas ou saqueadas demais para que o mundo se regenere do zero",
+    "warningTitle": "Excluir chunks não pode ser desfeito",
     "warning": "Excluir chunks redefine essas áreas — construções, saque e zumbis serão perdidos. Pare o servidor primeiro e mantenha os backups ativados."
   },
   "activePathDefaultLabel": "Caminho de dados do servidor ativo",
@@ -64,7 +65,8 @@
     "all": "Todos",
     "clear": "Limpar",
     "invert": "Inverter",
-    "selectAllTip": "\"Todos\" seleciona todos os chunks que este save já gerou, não só os que estão visíveis na tela agora. Excluir essa seleção redefine o mapa inteiro."
+    "selectAllTip": "\"Todos\" seleciona todos os chunks que este save já gerou, não só os que estão visíveis na tela agora. Excluir essa seleção redefine o mapa inteiro.",
+    "title": "Ferramentas do mapa"
   },
   "deleteButton_one": "Excluir {{count}} chunk",
   "deleteButton_other": "Excluir {{count}} chunks",

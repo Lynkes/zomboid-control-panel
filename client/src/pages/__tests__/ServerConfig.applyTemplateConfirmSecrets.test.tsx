@@ -79,7 +79,7 @@ async function openSavedConfigs() {
     </MemoryRouter>,
   )
   await waitFor(() => expect(getIni).toHaveBeenCalled())
-  fireEvent.click(await screen.findByRole('button', { name: /^saved configs$/i }))
+  fireEvent.click(await screen.findByRole('button', { name: /^config snapshots$/i }))
   return screen.findByRole('dialog')
 }
 

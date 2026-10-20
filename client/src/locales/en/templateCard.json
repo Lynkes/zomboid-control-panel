@@ -5,7 +5,9 @@
   "settingsOverridden_other": "{{count}} settings overridden",
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
-  "preview": "Preview",
+  "preview": "Preview & apply",
   "exportTitle": "Export template",
-  "deleteTitle": "Delete template"
+  "deleteTitle": "Delete template",
+  "hideTitle": "Hide template",
+  "actionsAria": "Actions for {{name}}"
 }

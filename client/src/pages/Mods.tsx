@@ -6,8 +6,7 @@ import { useSocket } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useAuth } from '@/contexts/AuthContext'
 import { DisabledReason } from '@/components/DisabledReason'
-import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
-import { copyText } from '@/lib/utils'
+import { copyText, cn } from '@/lib/utils'
 import {
   Package,
   RefreshCw,
@@ -15,7 +14,6 @@ import {
   Trash2,
   ExternalLink,
   AlertTriangle,
-  AlertCircle,
   CheckCircle,
   Clock,
   Download,
@@ -32,25 +30,42 @@ import {
   Save,
   FolderOpen,
   Loader2,
-  GripVertical,
-  MoreVertical,
+  MoreHorizontal,
   Wrench,
   PlusCircle,
   X,
   EyeOff,
-  Eye,
-  ArrowRight,
   Wand2,
   ShieldAlert,
-  CloudOff,
+  Power,
+  ListOrdered,
+  Bookmark,
+  StickyNote,
+  FolderPlus,
+  FolderMinus,
+  History,
+  HardDrive,
 } from 'lucide-react'
 import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } from '@/types'
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
-import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
+import { ConflictsPanel, type ConflictsFocus } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
-import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
 import { BridgeManagedBadge } from '@/components/mods/BridgeManagedBadge'
 import { ModGroupsPanel, type CreateGroupRequest } from '@/components/mods/ModGroupsPanel'
+import { ModGroupDialog, type ModGroupDialogValues } from '@/components/mods/ModGroupDialog'
+import { AddToGroupDialog } from '@/components/mods/AddToGroupDialog'
+import { ModNoteDialog } from '@/components/mods/ModNoteDialog'
+import { GroupDot, GroupDots, NoteIndicator } from '@/components/mods/GroupDots'
+import { GroupSections } from '@/components/mods/GroupSections'
+import { GroupSuggestions } from '@/components/mods/GroupSuggestions'
+import { useGroupSuggestions } from '@/components/mods/useGroupSuggestions'
+import { LoadOrderList } from '@/components/mods/LoadOrderList'
+import { AutoSortPreview } from '@/components/mods/AutoSortPreview'
+import { VirtualRows } from '@/components/mods/VirtualRows'
+import { useModGroupsStore } from '@/components/mods/useModGroupsStore'
+import { useModNotes } from '@/components/mods/useModNotes'
+import { addModsToGroup, removalLeavesTooFew, removeModsFromGroup, saveGroupValues } from '@/components/mods/groupActions'
+import { useApplyGroupOrder } from '@/components/mods/useApplyGroupOrder'
 import { useGroupOrderNotice } from '@/components/mods/useGroupOrderNotice'
 import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
 import type { BridgeManaged } from '@/lib/bridgeDeliveryTypes'
@@ -66,8 +81,17 @@ import {
 import { getAccessToken } from '@/lib/authToken'
 import { isDemoMode } from '@/lib/demo'
 import { createConflictScanSnapshot, recalculateConflictWinners } from '@/lib/conflictSeverity'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { SaveBar } from '@/components/SaveBar'
+import { SubNav, SubNavLayout, type SubNavGroup } from '@/components/ui/sub-nav'
+import { Toolbar } from '@/components/ui/toolbar'
+import { Segmented } from '@/components/ui/segmented'
+import { RowActions, type RowActionItem } from '@/components/ui/row-actions'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatusPill } from '@/components/ui/status-pill'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useUrlParamState } from '@/hooks/useUrlParamState'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/NumberInput'
@@ -96,30 +120,44 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
-import { modsApi, serversApi, ApiError } from '@/lib/api'
+import { modsApi, serversApi, ApiError, type ModGroup } from '@/lib/api'
 import { launchIsOperatorDefined } from '@/lib/launchTarget'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import {
   buildRequiresMap,
-  computeAutoSortedOrder,
   createRequirementResolver,
-  loadOrderMoveTarget,
-  moveLoadOrderEntry,
-  type AutoSortResult,
-  type LoadOrderMove,
 } from '@/lib/modLoadOrder'
+import { autoSortLoadOrder, hasSortRules, type AutoSortResult } from '@/lib/loadOrderAutoSort'
+import { groupsOfMods, summarizeGroupConflicts, type GroupConflictSummary } from '@/lib/modGroupTools'
+import {
+  ACTIVE_SORTS,
+  ALL_GROUPS,
+  INSTALLED_SORTS,
+  filterActiveItems,
+  filterInstalledMods,
+  matchesActiveSearch,
+  parseGroupFilter,
+  sortActiveItems,
+  sortInstalledMods,
+  type ActiveSort,
+  type GroupFilter,
+  type InstalledSort,
+} from '@/lib/modListFilters'
 import { EmptyState } from '@/components/EmptyState'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -176,53 +214,48 @@ function parseWorkshopId(input: string): string | null {
 }
 
 /**
- * One flat set of destinations. The page previously nested five "Advanced"
- * sub-tabs inside a top-level tab, which hid half the features a level deep
- * and gave two different mod lists names that did not distinguish them.
+ * One flat set of destinations, kept in the URL (`/mods?view=`): the Library
+ * (what the panel tracks), what is on the server (and in which order), and
+ * the tools. The old "Add mods" view is gone: its queue was never filled, and
+ * Sync Mod IDs lives in Tools.
  */
-type ModsView =
-  | 'installed'
-  | 'active'
-  | 'order'
-  | 'add'
-  | 'collection'
-  | 'conflicts'
-  | 'presets'
-  | 'tools'
-  | 'deactivated'
+const MODS_VIEWS = ['installed', 'deactivated', 'active', 'order', 'conflicts', 'collection', 'presets', 'tools'] as const
+type ModsView = (typeof MODS_VIEWS)[number]
 
-const CONFIG_VIEWS: ModsView[] = ['active', 'order', 'add', 'presets', 'tools']
+const CONFIG_VIEWS: readonly ModsView[] = ['active', 'order', 'presets', 'tools']
 
-function getModsNav(t: (key: string) => string): Array<{
-  group: string
-  items: Array<{ id: ModsView; label: string; hint: string }>
-}> {
-  return [
-    {
-      group: t('nav.groupMods'),
-      items: [
-        { id: 'installed', label: t('nav.installed.label'), hint: t('nav.installed.hint') },
-        { id: 'active', label: t('nav.active.label'), hint: t('nav.active.hint') },
-        { id: 'deactivated', label: t('nav.deactivated.label'), hint: t('nav.deactivated.hint') },
-      ],
-    },
-    {
-      group: t('nav.groupAdd'),
-      items: [
-        { id: 'add', label: t('nav.add.label'), hint: t('nav.add.hint') },
-        { id: 'collection', label: t('nav.collection.label'), hint: t('nav.collection.hint') },
-        { id: 'order', label: t('nav.order.label'), hint: t('nav.order.hint') },
-      ],
-    },
-    {
-      group: t('nav.groupMaintenance'),
-      items: [
-        { id: 'conflicts', label: t('nav.conflicts.label'), hint: t('nav.conflicts.hint') },
-        { id: 'presets', label: t('nav.presets.label'), hint: t('nav.presets.hint') },
-        { id: 'tools', label: t('nav.tools.label'), hint: t('nav.tools.hint') },
-      ],
-    },
-  ]
+const VIEW_ICONS: Record<ModsView, typeof Package> = {
+  installed: Package,
+  deactivated: EyeOff,
+  active: Power,
+  order: ListOrdered,
+  conflicts: ShieldAlert,
+  collection: Library,
+  presets: Bookmark,
+  tools: Wrench,
+}
+
+const NAV_GROUPS: Array<{ id: string; labelKey: string; views: ModsView[] }> = [
+  { id: 'library', labelKey: 'nav.groupLibrary', views: ['installed', 'deactivated'] },
+  { id: 'server', labelKey: 'nav.groupServer', views: ['active', 'order', 'conflicts'] },
+  { id: 'tools', labelKey: 'nav.groupTools', views: ['collection', 'presets', 'tools'] },
+]
+
+// "What changed" for a Workshop item with an update: its Steam change notes.
+const changelogUrl = (workshopId: string) => `https://steamcommunity.com/sharedfiles/filedetails/changelog/${workshopId}`
+
+type ListMode = 'list' | 'groups'
+
+interface ActiveExtraFilters {
+  updates: boolean
+  missingDep: boolean
+  hasNote: boolean
+  group: GroupFilter
+}
+
+interface InstalledExtraFilters {
+  hasNote: boolean
+  group: GroupFilter
 }
 
 // Stores the exact lastSteamApiFailureAt value that was dismissed, not a
@@ -248,13 +281,18 @@ function modsFallback(key: string, fallback: string): string {
 
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
+  const { t: tGroups } = useTranslation('modGroups')
   const { formatDate } = useDateFormat()
-  const MODS_NAV = useMemo(() => getModsNav(t), [t])
   const [searchParams] = useSearchParams()
   const reviewUnresolved = searchParams.get('review') === 'unresolved'
   const reviewDeepLinkStarted = useRef(false)
   const demoMode = isDemoMode()
+  // The section in the URL (?view=), so a reload or a link opens it. The
+  // dashboard's "review unresolved dependencies" link lands on Conflicts.
+  const [activeTab, setActiveTab] = useUrlParamState<ModsView>('view', MODS_VIEWS, reviewUnresolved ? 'conflicts' : 'installed')
   const [mods, setMods] = useState<TrackedMod[]>([])
+  // Until the first load lands, the lists show a skeleton instead of an empty state.
+  const [initialLoading, setInitialLoading] = useState(true)
   const [status, setStatus] = useState<ModStatus | null>(null)
   const [steamApiIssueDismissed, setSteamApiIssueDismissed] = useState<string | null>(() => {
     try {
@@ -286,26 +324,33 @@ export default function Mods() {
   // script also takes files.manage (RCE-STARTCMD, lib/launchTarget.ts).
   const canFilesManage = can('files.manage')
 
-  // Search and filters
+  // Search and filters (Installed). The chips are remembered per browser.
   const [searchQuery, setSearchQuery] = useState('')
   const [deferredSearchQuery, setDeferredSearchQuery] = useState('')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const trackedModsRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const [showUpdatesOnly, setShowUpdatesOnly] = useState(false)
+  const [showUpdatesOnly, setShowUpdatesOnly] = useLocalStorageState<boolean>('zcp:mods:installed:updatesOnly', false)
+  const [installedFilters, setInstalledFilters] = useLocalStorageState<InstalledExtraFilters>('zcp:mods:installed:filters', { hasNote: false, group: ALL_GROUPS })
+  const [installedSort, setInstalledSort] = useLocalStorageState<InstalledSort>('zcp:mods:installed:sort', 'status')
+  const [installedMode, setInstalledMode] = useLocalStorageState<ListMode>('zcp:mods:installed:mode', 'list')
   const [selectedMods, setSelectedMods] = useState<Set<string>>(new Set())
 
-  // Disabled-mods reveal (mods downloaded into the Steam workshop folder but
-  // not present in the server INI's WorkshopItems= list). Off by default to
-  // keep the page focused on what's actually loaded by the server.
-  const [showDisabled, setShowDisabled] = useState(false)
+  // Mods downloaded into the Steam workshop folder but not in the server
+  // INI's WorkshopItems= list: a section of the Deactivated view, scanned
+  // when that view opens.
   const [disabledMods, setDisabledMods] = useState<Array<{ workshop_id: string; name: string }>>([])
   const [disabledLoading, setDisabledLoading] = useState(false)
+  const [disabledScanned, setDisabledScanned] = useState(false)
   const [enablingId, setEnablingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  // Ctrl+K = focus search
-  usePageShortcut('k', () => { searchInputRef.current?.focus() }, { ctrl: true })
+  // Which group dialog / picker / note editor is open, from any view.
+  const [groupEditor, setGroupEditor] = useState<{ group: ModGroup | null; initialModIds?: readonly string[]; initialName?: string; fromSuggestion?: boolean } | null>(null)
+  const [addToGroup, setAddToGroup] = useState<{ modIds: string[]; label?: string; clearSelection?: 'installed' | 'order' } | null>(null)
+  const [noteEditor, setNoteEditor] = useState<{ workshopId: string; name: string } | null>(null)
+  const [busyGroupId, setBusyGroupId] = useState<string | null>(null)
+  // The Conflicts view filtered to one group's mods (its badge was clicked).
+  const [conflictsFocus, setConflictsFocus] = useState<ConflictsFocus | null>(null)
 
   // Advanced Add Mod dialog (with multi-ID selection)
   const [advancedAddOpen, setAdvancedAddOpen] = useState(false)
@@ -337,7 +382,11 @@ export default function Mods() {
 
   // INI configuration
   const [iniConfig, setIniConfig] = useState<IniConfig | null>(null)
-  const [modsToInstall, setModsToInstall] = useState<CollectionMod[]>([])
+  // Mod groups and notes, shared by every view (dots on rows, Groups view,
+  // Load order blocks, Auto-sort). The groups' in-order status is read again
+  // whenever the saved Mods= order changes (a save, an Apply, a toggle).
+  const groupsStore = useModGroupsStore({ savedModIds: iniConfig?.modIds })
+  const notesStore = useModNotes()
   const [orderedModIds, setOrderedModIds] = useState<string[]>([])
   // Mods ticked on the Load order tab, for "Create group from selection".
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set())
@@ -363,11 +412,8 @@ export default function Mods() {
   // now; other actions sharing the same no-server-id shape were a flagged
   // follow-up, picked up by pz-bughunt round 17 below (see
   // pendingAddServerChanged) -- one of the originally-named examples,
-  // writeToIni/modsToInstall, turned out to be unreachable in the current
-  // build (modsToInstall is only ever cleared/filtered, never populated, so
-  // handleWriteToIni's early "nothing to write" return always fires) --
-  // confirmed by grepping every setModsToInstall call site before treating
-  // it as a live risk. batchRemove/deleteDiskMod/toggleModId/etc. are a
+  // writeToIni and its "Add mods" queue, was unreachable (the queue was never
+  // filled) and has since been removed. batchRemove/deleteDiskMod/toggleModId/etc. are a
   // narrower, race-window-only class (a rendered list row stays clickable
   // for the few hundred ms before a plain refetch lands) rather than an
   // open-ended dirty-edit window like this one; reported to god, not fixed
@@ -391,22 +437,8 @@ export default function Mods() {
   // (handleSaveModOrder, promoteModOverOpponent) for the reorder hazard.
   const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
   const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
-  const [draggedModIndex, setDraggedModIndex] = useState<number | null>(null)
-  // Load Order move controls (top/up/down/bottom). With 200+ mods a jump to
-  // the top lands the row a whole scroll-height away from the button that
-  // was clicked, so the page scrolls it back into view, puts focus back on
-  // it, marks the row, and announces its new position.
-  //
-  // `order` is the exact orderedModIds array that move produced, and the
-  // mark and announcement apply only while that array is still the order on
-  // screen (lastMoveOnScreen below). Whatever replaces it -- a drag, Reset,
-  // Auto-sort, a save's reload, a mod toggled on another tab -- retires both
-  // without any of those paths having to remember to clear them, so the
-  // live region never keeps describing an order that is gone, and a move
-  // that happens to restore the saved order is still announced.
-  const [lastLoadOrderMove, setLastLoadOrderMove] = useState<{ order: string[]; index: number; announcement: string } | null>(null)
-  const loadOrderListRef = useRef<HTMLDivElement | null>(null)
-  const pendingMoveFocusRef = useRef<{ index: number; move: LoadOrderMove; source: LoadOrderMoveSource } | null>(null)
+  // "Show groups" on the Load order list: each group as a block with a header.
+  const [showGroupBlocks, setShowGroupBlocks] = useLocalStorageState<boolean>('zcp:mods:order:showGroups', false)
   // Expand/collapse states
   const [repairingMaps, setRepairingMaps] = useState(false)
   const [mapRepairResult, setMapRepairResult] = useState<{ removed: string[]; added?: string[]; remaining: string[]; message: string } | null>(null)
@@ -417,7 +449,6 @@ export default function Mods() {
   const [confirmRemoveMod, setConfirmRemoveMod] = useState<{ wsId: string; label: string } | null>(null)
   const [confirmBulkRemove, setConfirmBulkRemove] = useState(false)
   const [ignoredMods, setIgnoredMods] = useState<Array<{ workshop_id: string; name: string | null; ignored_at: string }>>([])
-  const [ignoredModsOpen, setIgnoredModsOpen] = useState(false)
   // Rows ticked in the ignored list, for "Remove selected" (issue #232).
   const [selectedIgnored, setSelectedIgnored] = useState<Set<string>>(() => new Set())
   // Conflict pairs the user has explicitly dismissed as false positives.
@@ -425,17 +456,23 @@ export default function Mods() {
   const [confirmRemoveWorkshop, setConfirmRemoveWorkshop] = useState<{ wsId: string; knownModIds: string[] } | null>(null) // wsId for config tab remove
   const [deduplicating, setDeduplicating] = useState(false)
   const [deduplicateResult, setDeduplicateResult] = useState<string | null>(null)
-  const [filterMultiId, setFilterMultiId] = useState(true)
+  const [filterMultiId, setFilterMultiId] = useLocalStorageState<boolean>('zcp:mods:active:multiIdOnly', true)
   // "Active on server" list shape. Compact hides the per-ID chip grid (still
   // reachable in the inspector); warnings render in both densities.
   const [filterAttention, setFilterAttention] = useLocalStorageState<boolean>('zcp:mods:active:attentionOnly', false)
   // Only the workshop items that have a mod ID which is not in Mods= (the "170 of 186 IDs enabled" gap).
   const [filterNotEnabled, setFilterNotEnabled] = useLocalStorageState<boolean>('zcp:mods:active:notEnabledOnly', false)
+  const [activeFilters, setActiveFilters] = useLocalStorageState<ActiveExtraFilters>('zcp:mods:active:filters', { updates: false, missingDep: false, hasNote: false, group: ALL_GROUPS })
+  const [activeSort, setActiveSort] = useLocalStorageState<ActiveSort>('zcp:mods:active:sort', 'config')
+  const [activeMode, setActiveMode] = useLocalStorageState<ListMode>('zcp:mods:active:mode', 'list')
+  // "Select" on Active on server: a tick per row for "Add selected to group"
+  // (the row's own checkbox is the enable switch, so ticks only show in this mode).
+  const [activeSelecting, setActiveSelecting] = useState(false)
+  const [selectedActiveWs, setSelectedActiveWs] = useState<Set<string>>(() => new Set())
   const [activeDensity, setActiveDensity] = useLocalStorageState<'compact' | 'detailed'>('zcp:mods:active:density', 'compact')
   const [modManagerSearch, setModManagerSearch] = useState('')
   const [deferredModManagerSearch, setDeferredModManagerSearch] = useState('')
   const modSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [configSubTab, setConfigSubTab] = useState<'active' | 'order' | 'add' | 'presets' | 'tools'>('active')
   const [lastSavedMod, setLastSavedMod] = useState<string | null>(null)
   const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const busyRef = useRef(false) // Synchronous guard against double-submission
@@ -465,12 +502,6 @@ export default function Mods() {
   // Batched scan-progress ref — flush via rAF to coalesce rapid SSE updates into 1 render
   const scanBatchRef = useRef<{ progress: number; modName: string | null; modsScanned: number; dirty: boolean; raf: number }>({ progress: 0, modName: null, modsScanned: 0, dirty: false, raf: 0 })
 
-  // Inner sub-tab within Conflicts: 'network' or 'dependencies'
-  const [activeTab, setActiveTab] = useState<ModsView>(reviewUnresolved ? 'conflicts' : 'installed')  // Severity filter for pairs list: 'all' | 'high' | 'medium' | 'low'
-  // Graph filter state (used for pair filtering in the conflict list)
-
-  // Track which conflict pairs have "show all files" expanded
-  // Mod-details drawer — when set, opens a Dialog showing every conflict that mod is in.
   // Missing deps state
   const [depAdding, setDepAdding] = useState<string[]>([])
   const [depAddResults, setDepAddResults] = useState<Record<string, 'added' | 'error'>>({})
@@ -678,6 +709,7 @@ export default function Mods() {
       )
       if (allRejected403) {
         setPermissionDenied(true)
+        setInitialLoading(false)
         return
       }
       setPermissionDenied(false)
@@ -738,6 +770,7 @@ export default function Mods() {
       reportClientError('Failed to fetch mods data.', error)
       setFetchError('Failed to load mod data. The backend may be unreachable.')
     }
+    setInitialLoading(false)
     // After any tracked-mod refresh, re-check the collection chip in the
     // background. The status hook short-circuits if no collection is wired,
     // so this is a no-op for users who don't use the feature.
@@ -816,6 +849,7 @@ export default function Mods() {
     try {
       const result = await modsApi.listDiskOnly()
       setDisabledMods(result.mods || [])
+      setDisabledScanned(true)
     } catch (error) {
       reportClientError('Failed to fetch disabled mods.', error)
       toast({
@@ -1161,56 +1195,79 @@ export default function Mods() {
     }
   }
 
-  // Filtered mods based on search and filters
-  const filteredMods = useMemo(() => {
-    let result = [...mods]
-
-    if (deferredSearchQuery) {
-      const query = deferredSearchQuery.toLowerCase()
-      result = result.filter(m =>
-        m.name?.toLowerCase().includes(query) ||
-        m.workshop_id.includes(query)
-      )
-    }
-
-    if (showUpdatesOnly) {
-      result = result.filter(m => m.update_available)
-    }
-
-    return result.sort((a, b) => {
-      if (a.update_available !== b.update_available) {
-        return b.update_available - a.update_available
+  // ── Lookups shared by every view ──────────────────────────────────────────
+  // Workshop item -> its mod IDs, mod ID -> its item and name (from the
+  // server's mod.info files, then the tracked mods' Workshop titles).
+  const { wsModIds, modIdNameMap, modIdWsMap, availableModIds } = useMemo(() => {
+    const byWs = new Map<string, string[]>()
+    const names = new Map<string, string>()
+    const owner = new Map<string, string>()
+    const wsMap = iniConfig?.workshopModMap || {}
+    for (const [wsId, details] of Object.entries(wsMap)) {
+      byWs.set(wsId, details.map((m) => m.id))
+      for (const m of details) {
+        if (m.name && m.name !== m.id) names.set(m.id, m.name)
+        owner.set(m.id, wsId)
       }
-      return (a.name || '').localeCompare(b.name || '')
-    })
-  }, [mods, deferredSearchQuery, showUpdatesOnly])
+    }
+    for (const mod of mods) {
+      for (const m of wsMap[mod.workshop_id] ?? []) {
+        if (!names.has(m.id) && mod.name) names.set(m.id, mod.name)
+      }
+    }
+    return { wsModIds: byWs, modIdNameMap: names, modIdWsMap: owner, availableModIds: new Set(owner.keys()) }
+  }, [iniConfig?.workshopModMap, mods])
+  const modNamesRecord = useMemo(() => Object.fromEntries(modIdNameMap), [modIdNameMap])
+  const enabledModIds = useMemo(() => new Set(iniConfig?.modIds ?? []), [iniConfig?.modIds])
+  const trackedByWs = useMemo(() => new Map(mods.map((m) => [m.workshop_id, m])), [mods])
+  const groupIds = useMemo(() => groupsStore.groups.map((group) => group.id), [groupsStore.groups])
+  const groupsOfWorkshop = useCallback(
+    (wsId: string) => groupsOfMods(wsModIds.get(wsId) ?? [], groupsStore.membership),
+    [wsModIds, groupsStore.membership],
+  )
+  const groupIdsOfWorkshop = useCallback((wsId: string) => groupsOfWorkshop(wsId).map((group) => group.id), [groupsOfWorkshop])
+  const requiresMap = useMemo(() => buildRequiresMap(iniConfig?.workshopModMap), [iniConfig?.workshopModMap])
 
   // Group mods by status for scannable display.
   // Mods that are tracked but no longer present in the server INI's
   // WorkshopItems= list are routed to a separate "Deactivated" bucket so
   // they don't pollute the active server view.
   const configuredWorkshopIds = useMemo(() => new Set(iniConfig?.workshopIds || []), [iniConfig?.workshopIds])
+  const deactivatedMods = useMemo(() => {
+    if (iniConfig === null) return [] as TrackedMod[]
+    return sortInstalledMods(mods.filter((mod) => !configuredWorkshopIds.has(mod.workshop_id)), 'name')
+  }, [mods, iniConfig, configuredWorkshopIds])
+
+  // A remembered "In group" filter whose group was deleted reads as "all".
+  const installedGroupFilter = useMemo(() => parseGroupFilter(installedFilters.group, groupIds), [installedFilters.group, groupIds])
+  // Installed: tracked mods that are in the server config, searched (names,
+  // IDs, notes), filtered by the chips and sorted.
+  const filteredMods = useMemo(() => {
+    const onServer = iniConfig === null ? mods : mods.filter((mod) => configuredWorkshopIds.has(mod.workshop_id))
+    const filtered = filterInstalledMods(
+      onServer,
+      deferredSearchQuery,
+      { updatesOnly: showUpdatesOnly, hasNote: installedFilters.hasNote, group: installedGroupFilter },
+      { noteText: notesStore.noteText, groupIdsOf: groupIdsOfWorkshop },
+    )
+    return sortInstalledMods(filtered, installedSort)
+  }, [mods, iniConfig, configuredWorkshopIds, deferredSearchQuery, showUpdatesOnly, installedFilters.hasNote, installedGroupFilter, notesStore.noteText, groupIdsOfWorkshop, installedSort])
+
   const groupedMods = useMemo(() => {
     const updateAvailable: TrackedMod[] = []
     const neverChecked: TrackedMod[] = []
     const upToDate: TrackedMod[] = []
-    const deactivated: TrackedMod[] = []
-    const configLoaded = iniConfig !== null
     for (const mod of filteredMods) {
-      if (configLoaded && !configuredWorkshopIds.has(mod.workshop_id)) {
-        deactivated.push(mod)
-        continue
-      }
       if (mod.update_available) updateAvailable.push(mod)
       else if (!mod.last_checked) neverChecked.push(mod)
       else upToDate.push(mod)
     }
-    return { updateAvailable, neverChecked, upToDate, deactivated }
-  }, [filteredMods, iniConfig, configuredWorkshopIds])
+    return { updateAvailable, neverChecked, upToDate, deactivated: deactivatedMods }
+  }, [filteredMods, deactivatedMods])
 
   const visibleServerMods = useMemo(
-    () => [...groupedMods.updateAvailable, ...groupedMods.neverChecked, ...groupedMods.upToDate],
-    [groupedMods]
+    () => (installedSort === 'status' ? [...groupedMods.updateAvailable, ...groupedMods.neverChecked, ...groupedMods.upToDate] : filteredMods),
+    [groupedMods, filteredMods, installedSort]
   )
 
   // status.removedWorkshopIds contains Workshop IDs still present in tracking
@@ -2042,60 +2099,6 @@ export default function Mods() {
     }
   }
 
-  const handleWriteToIni = async () => {
-    if (!canManageMods) return
-    if (modsToInstall.length === 0) {
-      toast({
-        title: t('toasts.nothingToWriteTitle'),
-        description: t('toasts.nothingToWriteDesc'),
-        variant: 'destructive',
-      })
-      return
-    }
-
-    setLoading(true)
-    try {
-      const modsData = modsToInstall.map(m => ({
-        workshopId: m.workshopId,
-        modId: m.modId || m.workshopId
-      }))
-
-      const mapFolders = modsToInstall
-        .filter(m => m.isMap && m.mapFolder)
-        .map(m => m.mapFolder!)
-
-      const result = await modsApi.writeToIni(modsData, mapFolders)
-
-      // The server's `message` already spells out which workshop IDs were
-      // subscribed but couldn't be enabled (see unresolvedModIds in
-      // server/routes/mods.js) -- reuse it as-is instead of composing a new
-      // (English-only, untranslated) sentence here. Append resolved mod
-      // names in parens so the warning names mods, not just numeric IDs.
-      const unresolvedIds: string[] = result.unresolvedModIds || []
-      const nameByWorkshopId = new Map(modsToInstall.map(m => [m.workshopId, m.name]))
-      const unresolvedNames = unresolvedIds.map(id => nameByWorkshopId.get(id) || id)
-      const hasResolvedNames = unresolvedNames.some((name, i) => name !== unresolvedIds[i])
-
-      toast({
-        title: t('toasts.configSavedTitle'),
-        description: unresolvedIds.length > 0
-          ? `${result.message}${hasResolvedNames ? ` (${unresolvedNames.join(', ')})` : ''}`
-          : t('toasts.configSavedDesc', { count: result.modsConfigured }),
-        variant: unresolvedIds.length > 0 ? 'destructive' : undefined,
-      })
-
-      setModsToInstall([])
-      fetchData()
-    } catch (error) {
-      toast({
-        title: t('toasts.writeToIniFailedTitle'),
-        description: getUserErrorMessage(error, t('toasts.writeToIniFailedFallback')),
-        variant: 'destructive',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
 
   // Sync mod IDs from downloaded workshop mods to the Mods= line in server.ini
   const handleSyncModIds = async () => {
@@ -2151,132 +2154,57 @@ export default function Mods() {
   // the save's reload overwrites orderedModIds with what the server wrote,
   // and Apply writes the proposal computed from the order as it was.
   //
-  // The guard sits in handleDragOver too, not just handleDragStart: dragover
-  // is what actually rewrites the order, and draggedModIndex can outlive its
-  // drag -- a dragend the page never sees (the source row unmounted mid-drag
-  // by a reload, say) leaves it set, and every later dragover over the list,
-  // a file or a text selection included, would otherwise reorder with it.
+  // The list itself (components/mods/LoadOrderList) guards every move and
+  // drag with these too, so a lost dragend can't reorder behind a lock.
   const loadOrderLocked = savingModOrder || autoSortPreview !== null
 
-  const handleDragStart = (index: number) => {
-    if (!canManageMods || loadOrderLocked) return
-    setDraggedModIndex(index)
-  }
-
-  const handleDragOver = (e: React.DragEvent, index: number) => {
-    e.preventDefault()
-    if (!canManageMods || loadOrderLocked) return
-    if (draggedModIndex === null || draggedModIndex === index) return
-    if (draggedModIndex < 0 || draggedModIndex >= orderedModIds.length) return
-
-    setOrderedModIds(moveLoadOrderEntry(orderedModIds, draggedModIndex, index))
-    setDraggedModIndex(index)
-  }
-
-  const handleDragEnd = () => {
-    setDraggedModIndex(null)
-  }
-
-  // Move to top / up / down / to bottom. Same state as a drag (orderedModIds),
-  // so the unsaved marker, Reset and Save Order all work unchanged.
-  // useCallback keeps it stable across the page's unrelated re-renders
-  // (keystrokes, socket events), which the memoized per-row
-  // LoadOrderMoveControls then skip. It closes over orderedModIds, so a move
-  // itself still re-renders every row's controls -- once per click.
-  const moveModInLoadOrder = useCallback((index: number, move: LoadOrderMove, source: LoadOrderMoveSource) => {
-    if (!canManageMods || loadOrderLocked) return
-    const to = loadOrderMoveTarget(index, orderedModIds.length, move)
-    if (to === null) return
-    const next = moveLoadOrderEntry(orderedModIds, index, to)
-    setOrderedModIds(next)
-    // No drag is in progress while a button is being pressed; clear any
-    // index a lost dragend left behind (see loadOrderLocked's comment) so it
-    // can't fade a row or steer a later dragover in the new order.
-    setDraggedModIndex(null)
-    setLastLoadOrderMove({
-      order: next,
-      index: to,
-      announcement: t('loadOrder.movedAnnouncement', { name: orderedModIds[index], position: to + 1, total: next.length }),
-    })
-    pendingMoveFocusRef.current = { index: to, move, source }
-  }, [canManageMods, loadOrderLocked, orderedModIds, t])
-
-  // Runs after the reordered list has rendered. The row keeps its DOM node
-  // (rows are keyed by mod ID), but React may re-insert it to reorder the
-  // list, and a focused node that is re-inserted loses focus; at either end
-  // the pressed control is also swapped for a disabled one. Without this,
-  // focus drops to <body> and a keyboard user has to Tab back down from the
-  // top of the page.
-  useEffect(() => {
-    const pending = pendingMoveFocusRef.current
-    if (!pending) return
-    pendingMoveFocusRef.current = null
-    const row = loadOrderListRef.current?.querySelector<HTMLElement>(`[data-load-order-index="${pending.index}"]`)
-    if (!row) return
-    // 'nearest' only scrolls the list (and the page, if the list itself is
-    // off-screen) as far as needed -- a one-step move of a visible row
-    // doesn't scroll at all.
-    row.scrollIntoView({ block: 'nearest' })
-    // The same control again, so pressing Move up/down repeatedly keeps
-    // working.
-    const pressed = row.querySelector<HTMLButtonElement>(`button[data-move-action="${pending.move}"]`)
-    if (pressed && !pressed.disabled) {
-      pressed.focus({ preventScroll: true })
-      return
-    }
-    // The move reached the first or last slot and disabled the pressed
-    // control. Never hand focus to a control that moves the other way: a
-    // held or repeated Enter on "Move up" would then walk the mod straight
-    // back down, and at the bottom flip again. From the keyboard, focus the
-    // disabled control's DisabledReason wrapper -- Enter there does nothing,
-    // and the "Already first in the load order" tooltip that focus opens is
-    // the feedback a keyboard user needs. From a mouse or a tap, focus the
-    // row itself: the same tooltip popping up right after a click that just
-    // worked reads as an error.
-    const wrapper = pressed?.parentElement
-    const target = pending.source === 'keyboard' && wrapper && wrapper.tabIndex >= 0 ? wrapper : row
-    target.focus({ preventScroll: true })
-  }, [orderedModIds])
-
-  // Dependency-aware auto-sort. Computes a proposal only; nothing is written
-  // until the user applies it and then saves the order.
+  // Group-aware Auto-sort (lib/loadOrderAutoSort): dependencies, group order,
+  // keep-together blocks, first/last placement and the conflict winners the
+  // cached scan knows. Computes a proposal only; nothing is written until the
+  // user applies it and then saves the order.
   const handleAutoSort = () => {
     if (!canManageMods) return
-    const requiresByModId = buildRequiresMap(iniConfig?.workshopModMap)
-    const result = computeAutoSortedOrder(orderedModIds, requiresByModId)
+    const result = autoSortLoadOrder({
+      order: orderedModIds,
+      requires: requiresMap,
+      groups: groupsStore.groups.map((group) => ({
+        id: group.id,
+        modIds: group.modIds,
+        keepTogether: group.keepTogether === true,
+        placement: groupsStore.placements[group.id] ?? null,
+      })),
+      conflictPairs: (conflicts?.pairs ?? []).map((pair) => [pair.modA.modId, pair.modB.modId] as [string, string]),
+    })
 
-    if (result.appliedEdges === 0) {
+    if (!hasSortRules(result)) {
       toast({
         title: result.missing.length > 0 ? t('toasts.nothingToSortByTitle') : t('toasts.noDependencyDataTitle'),
         description:
           result.missing.length > 0
             ? t('toasts.nothingToSortByDesc', { count: result.missing.length })
-            : t('toasts.noDependencyDataDesc'),
+            : t('toasts.noSortRulesDesc'),
       })
       return
     }
 
-    if (result.moved.length === 0) {
+    if (result.moves.length === 0) {
       toast({
         title: t('toasts.loadOrderAlreadyCorrectTitle'),
         description:
           result.cycles.length > 0
             ? t('toasts.loadOrderCyclesDesc', { count: result.cycles.length })
-            : t('toasts.loadOrderCorrectDesc', { count: result.appliedEdges }),
+            : t('toasts.loadOrderRulesMetDesc'),
       })
       return
     }
 
     setAutoSortPreview(result)
-    // The proposal locks the list; drop any index a lost dragend left behind
-    // (see loadOrderLocked's comment).
-    setDraggedModIndex(null)
   }
 
   const applyAutoSort = () => {
     if (!autoSortPreview || !canManageMods) return
     setOrderedModIds(autoSortPreview.order)
-    const movedCount = autoSortPreview.moved.length
+    const movedCount = autoSortPreview.moves.length
     setAutoSortPreview(null)
     toast({
       title: t('toasts.autoSortAppliedTitle'),
@@ -2297,7 +2225,6 @@ export default function Mods() {
     busyRef.current = true
     try {
       setSavingModOrder(true)
-      setDraggedModIndex(null)
       const saved = await modsApi.saveModOrder(orderedModIds)
       // With "Keep group order" on, the server may have moved group members
       // (groupsAdjusted): what it wrote is then not orderedModIds, so the
@@ -2409,10 +2336,6 @@ export default function Mods() {
     return orderedModIds.some((id, i) => id !== iniConfig.modIds[i])
   }, [orderedModIds, iniConfig?.modIds])
 
-  // The last row-control move, only while the order on screen is still the
-  // one it produced (see lastLoadOrderMove's comment).
-  const lastMoveOnScreen = lastLoadOrderMove?.order === orderedModIds ? lastLoadOrderMove : null
-
   // See serverChangedSinceLoad's own comment above. Unlike the other
   // mods:* socket events above (which always just refetch), fetchData()
   // unconditionally overwrites orderedModIds from the server's real list --
@@ -2442,8 +2365,11 @@ export default function Mods() {
       // untouched here, so a pending reorder or add-dialog stays intact.
       setMods([])
       setDisabledMods([])
+      setDisabledScanned(false)
       setIgnoredMods([])
       setSelectedIgnored(new Set())
+      setSelectedActiveWs(new Set())
+      setConflictsFocus(null)
 
       // pz-bughunt round 18: depSearchOpen/depSearchData/depAdding/
       // depAddResults are the SAME lifted state used by both this page's
@@ -2526,9 +2452,6 @@ export default function Mods() {
     }
   }, [pendingAddServerChanged, discoveredMod, collectionMods.length])
 
-  const removeFromInstallList = (workshopId: string) => {
-    setModsToInstall(prev => prev.filter(m => m.workshopId !== workshopId))
-  }
 
   const openWorkshopPage = (workshopId: string) => {
     window.open(`https://steamcommunity.com/sharedfiles/filedetails/?id=${workshopId}`, '_blank', 'noopener,noreferrer')
@@ -2620,7 +2543,8 @@ export default function Mods() {
     const label = mod.name || t('installedTab.modFallback', { id: mod.workshop_id })
     const revealClass = isSelected || anySelected
       ? 'opacity-100'
-      : 'opacity-0 group-hover/modrow:opacity-100 focus-within:opacity-100'
+      // A touch screen has no hover: the controls stay visible there.
+      : 'opacity-0 group-hover/modrow:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100'
     return (
       <ModRow
         key={mod.id}
@@ -2669,6 +2593,8 @@ export default function Mods() {
                 {t('installedTab.update')}
               </Badge>
             ) : null}
+            <GroupDots groups={groupsOfWorkshop(mod.workshop_id)} />
+            <NoteIndicator note={notesStore.notes[mod.workshop_id]} onOpen={() => setNoteEditor({ workshopId: mod.workshop_id, name: label })} />
           </>
         }
         meta={
@@ -2677,6 +2603,19 @@ export default function Mods() {
               wsId={mod.workshop_id}
               onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })}
             />
+            {mod.update_available ? (
+              <a
+                href={changelogUrl(mod.workshop_id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(event) => event.stopPropagation()}
+                className="inline-flex items-center gap-1 rounded text-[11px] font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                aria-label={t('whatChanged.aria', { name: label })}
+              >
+                <History className="h-3 w-3" aria-hidden="true" />
+                {t('whatChanged.label')}
+              </a>
+            ) : null}
             {mod.last_checked ? (
               <span>{t('installedTab.checkedOn', { date: formatDate(mod.last_checked) })}</span>
             ) : (
@@ -2690,38 +2629,45 @@ export default function Mods() {
         actions={
           <div className={`flex items-center gap-0.5 transition-opacity ${revealClass}`}>
             <WorkshopLinkAction wsId={mod.workshop_id} label={label} hint={t('installedTab.openWorkshopPageHint')} />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="iconDense"
-                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                  onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label })}
-                  disabled={loading}
-                  aria-label={t('installedTab.removeModAria', { name: label })}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('installedTab.removeFromServer')}</TooltipContent>
-            </Tooltip>
+            <RowActions
+              ariaLabel={t('rowMenu.actionsAria', { name: label })}
+              items={[
+                ...groupMenuItems(wsModIds.get(mod.workshop_id) ?? [], label),
+                noteMenuItem(mod.workshop_id, label),
+                {
+                  label: t('installedTab.removeFromServer'),
+                  icon: Trash2,
+                  destructive: true,
+                  onSelect: () => setConfirmRemoveMod({ wsId: mod.workshop_id, label }),
+                  disabled: loading || !canManageMods,
+                  reason: !canManageMods ? t('permissions.noModsManage') : undefined,
+                },
+              ]}
+            />
           </div>
         }
       />
     )
-  }, [demoMode, selectedMods, configuredWorkshopIds, loading, toggleModSelect, toast, t, formatDate])
+  // groupMenuItems / noteMenuItem are plain functions of the same state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demoMode, selectedMods, configuredWorkshopIds, loading, toggleModSelect, toast, t, formatDate, wsModIds, groupsOfWorkshop, notesStore.notes, canManageMods, groupsStore.groups])
 
   // ── Virtualized tracked mods list ──
-  type ModGroup = 'update' | 'neverChecked' | 'upToDate' | 'deactivated'
+  type StatusBucket = 'update' | 'neverChecked' | 'upToDate' | 'flat'
   type FlatModItem =
-    | { type: 'header'; group: ModGroup; count: number }
+    | { type: 'header'; group: StatusBucket; count: number }
     | { type: 'hint' }
-    | { type: 'mod'; mod: TrackedMod; group: ModGroup }
+    | { type: 'mod'; mod: TrackedMod; group: StatusBucket }
 
   const modListRef = useRef<HTMLDivElement>(null)
 
   const flatModItems = useMemo<FlatModItem[]>(() => {
     const items: FlatModItem[] = []
+    // Sorted by name or update time: one flat list, no status buckets.
+    if (installedSort !== 'status') {
+      for (const mod of filteredMods) items.push({ type: 'mod', mod, group: 'flat' })
+      return items
+    }
     if (groupedMods.updateAvailable.length > 0) {
       items.push({ type: 'header', group: 'update', count: groupedMods.updateAvailable.length })
       for (const mod of groupedMods.updateAvailable) items.push({ type: 'mod', mod, group: 'update' })
@@ -2742,7 +2688,7 @@ export default function Mods() {
       }
     }
     return items
-  }, [groupedMods, searchQuery, upToDateExpanded, neverCheckedExpanded])
+  }, [groupedMods, searchQuery, upToDateExpanded, neverCheckedExpanded, installedSort, filteredMods])
 
   const modListVirtualizer = useVirtualizer({
     count: flatModItems.length,
@@ -2848,21 +2794,260 @@ export default function Mods() {
     return result
   }, [conflicts?.pairs, activeModsData, isPairIgnored])
 
+  // Search covers the Workshop ID, every mod ID and name, and the item's note.
   const activeModsFiltered = useMemo(() => {
-    const { groups } = activeModsData
-    const q = deferredModManagerSearch.toLowerCase().trim()
-    const filteredGroups = groups
-      .map(g => {
-        if (!q) return g
-        const matchesWs = g.wsId.includes(q)
-        if (matchesWs) return g
-        const matched = g.mods.filter(m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
-        if (matched.length === 0) return null
-        return { ...g, mods: matched }
-      })
+    const filteredGroups = activeModsData.groups
+      .map((g) => matchesActiveSearch(g, deferredModManagerSearch, notesStore.noteText))
       .filter((g): g is WsGroup => g !== null)
     return { filteredGroups }
-  }, [activeModsData, deferredModManagerSearch])
+  }, [activeModsData, deferredModManagerSearch, notesStore.noteText])
+
+  // What warrants a red flag on an Active item: two enabled variants the
+  // scanner confirmed overlap, an enabled mod whose required ID isn't loaded,
+  // or an ID claimed by two Workshop items. A partial "1 of 5 enabled" is
+  // normal and is NOT a problem.
+  const groupAttention = useCallback((g: WsGroup) => {
+    const { missingDepsMap, duplicateModIds } = activeModsData
+    const enabledSet = new Set(g.mods.filter(m => m.enabled).map(m => m.id))
+    const siblings = siblingConflictsMap.get(g.wsId)
+    let clash = false
+    if (siblings) {
+      for (const [modId, sibs] of siblings) {
+        if (!enabledSet.has(modId)) continue
+        for (const s of sibs) if (enabledSet.has(s)) { clash = true; break }
+        if (clash) break
+      }
+    }
+    const missing = g.mods.some(m => m.enabled && (missingDepsMap.get(m.id)?.length ?? 0) > 0)
+    const duplicate = g.mods.some(m => duplicateModIds.has(m.id))
+    return { clash, missing, duplicate, any: clash || missing || duplicate }
+  }, [activeModsData, siblingConflictsMap])
+
+  const activeGroupFilter = useMemo(() => parseGroupFilter(activeFilters.group, groupIds), [activeFilters.group, groupIds])
+  const multiIdFilterOn = filterMultiId && activeModsData.multiIdCount > 0
+  // The Active list as shown: searched, filtered by every chip, then sorted.
+  const displayGroups = useMemo(() => {
+    const filtered = filterActiveItems(
+      activeModsFiltered.filteredGroups,
+      {
+        attention: filterAttention,
+        multiId: multiIdFilterOn,
+        notEnabled: filterNotEnabled,
+        updates: activeFilters.updates,
+        missingDep: activeFilters.missingDep,
+        hasNote: activeFilters.hasNote,
+        group: activeGroupFilter,
+      },
+      {
+        needsAttention: (g) => groupAttention(g).any,
+        hasUpdate: (wsId) => !!trackedByWs.get(wsId)?.update_available,
+        hasMissingDep: (g) => g.mods.some((m) => m.enabled && (activeModsData.missingDepsMap.get(m.id)?.length ?? 0) > 0),
+        noteText: notesStore.noteText,
+        groupIdsOf: groupIdsOfWorkshop,
+      },
+    )
+    const loadIndex = new Map((iniConfig?.modIds ?? []).map((id, i) => [id, i]))
+    return sortActiveItems(filtered, activeSort, {
+      loadIndex: (g) => Math.min(Infinity, ...g.mods.map((m) => loadIndex.get(m.id) ?? Infinity)),
+      name: (g) => (g.mods[0]?.name !== g.mods[0]?.id ? g.mods[0]?.name : g.mods[0]?.id) ?? g.wsId,
+      updatedAt: (wsId) => {
+        const time = Date.parse(trackedByWs.get(wsId)?.last_updated ?? '')
+        return Number.isFinite(time) ? time : 0
+      },
+    })
+  }, [activeModsFiltered, filterAttention, multiIdFilterOn, filterNotEnabled, activeFilters, activeGroupFilter, groupAttention, trackedByWs, activeModsData, notesStore.noteText, groupIdsOfWorkshop, iniConfig?.modIds, activeSort])
+
+  // Counts for the Active chips (over the whole list, not the filtered one).
+  const activeCounts = useMemo(() => {
+    const { groups, missingDepsMap } = activeModsData
+    return {
+      attention: groups.filter((g) => groupAttention(g).any).length,
+      notEnabled: groups.reduce((sum, g) => sum + g.mods.filter((m) => !m.enabled).length, 0),
+      updates: groups.filter((g) => !!trackedByWs.get(g.wsId)?.update_available).length,
+      missingDep: groups.filter((g) => g.mods.some((m) => m.enabled && (missingDepsMap.get(m.id)?.length ?? 0) > 0)).length,
+      hasNote: groups.filter((g) => !!notesStore.noteText(g.wsId)).length,
+      ungrouped: groups.filter((g) => groupIdsOfWorkshop(g.wsId).length === 0).length,
+    }
+  }, [activeModsData, groupAttention, trackedByWs, notesStore, groupIdsOfWorkshop])
+
+  // File conflicts touching each group, from the cached conflict scan.
+  const conflictsByGroup = useMemo(
+    () => summarizeGroupConflicts(groupsStore.groups, conflicts?.pairs ?? []),
+    [groupsStore.groups, conflicts?.pairs],
+  )
+
+  // ── Groups and notes, from any row ─────────────────────────────────────────
+
+  /** "Add to group…" and one "Remove from <group>" per group, for a row's mod IDs. */
+  const groupMenuItems = (modIds: readonly string[], label: string): RowActionItem[] => {
+    const known = modIds.length > 0
+    const items: RowActionItem[] = [{
+      label: tGroups('addTo.menuItem'),
+      icon: FolderPlus,
+      onSelect: () => setAddToGroup({ modIds: [...modIds], label }),
+      disabled: !canManageMods || !known,
+      reason: !canManageMods ? t('permissions.noModsManage') : !known ? tGroups('addTo.noModIds') : undefined,
+    }]
+    for (const group of groupsOfMods(modIds, groupsStore.membership)) {
+      const tooFew = removalLeavesTooFew(group, modIds)
+      items.push({
+        label: tGroups('removeFrom.menuItem', { name: group.name }),
+        icon: FolderMinus,
+        onSelect: () => void handleRemoveFromGroup(group, modIds),
+        disabled: !canManageMods || tooFew,
+        reason: !canManageMods ? t('permissions.noModsManage') : tooFew ? tGroups('removeFrom.tooFew') : undefined,
+      })
+    }
+    return items
+  }
+
+  // Reading a note needs nothing more; without mods.manage the dialog is read-only.
+  const noteMenuItem = (workshopId: string, label: string): RowActionItem => ({
+    label: notesStore.notes[workshopId] ? t('notes.editAction') : t('notes.addAction'),
+    icon: StickyNote,
+    onSelect: () => setNoteEditor({ workshopId, name: label }),
+    disabled: !canManageMods && !notesStore.notes[workshopId],
+    reason: !canManageMods && !notesStore.notes[workshopId] ? t('permissions.noModsManage') : undefined,
+  })
+
+  const handleRemoveFromGroup = async (group: ModGroup, modIds: readonly string[]) => {
+    if (!canManageMods || removalLeavesTooFew(group, modIds)) return
+    try {
+      await removeModsFromGroup(group, modIds, groupsStore)
+      toast({ title: tGroups('removeFrom.doneTitle', { name: group.name }) })
+    } catch (error) {
+      toast({
+        title: tGroups('removeFrom.failedTitle'),
+        description: getUserErrorMessage(error, tGroups('removeFrom.failedFallback')),
+        variant: 'destructive',
+      })
+    }
+  }
+
+  // Rejections stay in the picker, which shows them.
+  const handleAddToGroup = async (group: ModGroup) => {
+    if (!addToGroup || !canManageMods) return
+    const added = await addModsToGroup(group, addToGroup.modIds, groupsStore)
+    toast({ title: tGroups('addTo.doneTitle', { name: group.name }), description: tGroups('addTo.doneDesc', { count: added.length }) })
+    if (addToGroup.clearSelection === 'installed') setSelectedMods(new Set())
+    if (addToGroup.clearSelection === 'order') setSelectedOrderIds(new Set())
+    setAddToGroup(null)
+  }
+
+  const activeSuggestions = useGroupSuggestions(activeTab === 'active' && activeMode === 'groups' && canManageMods && groupsStore.loadState === 'ready')
+
+  const handleSaveGroup = async (values: ModGroupDialogValues) => {
+    const editing = groupEditor?.group ?? null
+    await saveGroupValues(values, editing, groupsStore)
+    toast(editing
+      ? { title: tGroups('toast.updatedTitle'), description: tGroups('toast.updatedDesc', { name: values.name }) }
+      : { title: tGroups('toast.createdTitle'), description: tGroups('toast.createdDesc', { name: values.name }) })
+    if (groupEditor?.fromSuggestion) void activeSuggestions.reload()
+    setGroupEditor(null)
+  }
+
+  const handleSaveNote = async (text: string) => {
+    if (!noteEditor || !canManageMods) return
+    const note = await notesStore.saveNote(noteEditor.workshopId, text)
+    toast({ title: note ? t('notes.savedTitle') : t('notes.deletedTitle'), description: noteEditor.name })
+    setNoteEditor(null)
+  }
+
+  // Enable / Disable every mod of a group: one server write each, then the
+  // page reloads the config. Refused while the load order has unsaved moves:
+  // the reload would throw them away.
+  const handleEnableGroup = async (group: ModGroup) => {
+    if (busyRef.current || !canManageMods) return
+    if (hasModOrderChanged) {
+      toast({ title: tGroups('enable.failedTitle'), description: tGroups('enable.unsavedOrder'), variant: 'destructive' })
+      return
+    }
+    busyRef.current = true
+    setBusyGroupId(group.id)
+    try {
+      const result = await modsApi.enableGroup(group.id)
+      const enabled = result?.enabled ?? []
+      const missing = result?.missing ?? []
+      toast({
+        title: enabled.length > 0 ? tGroups('enable.doneTitle', { name: group.name }) : tGroups('enable.nothingTitle'),
+        description: [
+          enabled.length > 0 ? tGroups('enable.doneDesc', { count: enabled.length }) : tGroups('enable.nothingDesc', { name: group.name }),
+          missing.length > 0 ? tGroups('enable.missingNote', { count: missing.length, ids: missing.join(', ') }) : null,
+        ].filter(Boolean).join(' '),
+        variant: missing.length > 0 ? 'warning' : undefined,
+      })
+      await fetchData()
+      noticeGroupOrder({ groupsAdjusted: result?.groupsAdjusted ?? [] })
+    } catch (error) {
+      toast({ title: tGroups('enable.failedTitle'), description: getUserErrorMessage(error, tGroups('enable.failedFallback')), variant: 'destructive' })
+    } finally {
+      busyRef.current = false
+      setBusyGroupId(null)
+    }
+  }
+
+  const handleDisableGroup = async (group: ModGroup) => {
+    if (busyRef.current || !canManageMods) return
+    if (hasModOrderChanged) {
+      toast({ title: tGroups('disable.failedTitle'), description: tGroups('enable.unsavedOrder'), variant: 'destructive' })
+      return
+    }
+    const members = [...new Set(group.modIds)].filter((id) => enabledModIds.has(id))
+    // The server keeps a mod that another fully enabled group also needs: say which, before asking.
+    const shared = members.filter((id) =>
+      groupsStore.groups.some((other) => other.id !== group.id && other.modIds.includes(id) && other.modIds.every((m) => enabledModIds.has(m))))
+    const leaving = members.filter((id) => !shared.includes(id))
+    const nameOf = (id: string) => (modIdNameMap.get(id) ? `${id} (${modIdNameMap.get(id)})` : id)
+    const ok = await confirm({
+      title: tGroups('disable.title', { name: group.name }),
+      description: tGroups('disable.description', { count: leaving.length }) +
+        (shared.length > 0 ? `\n\n${tGroups('disable.sharedNote', { items: shared.map(nameOf).join(', ') })}` : ''),
+      items: leaving.slice(0, 12).map(nameOf),
+      confirmLabel: tGroups('disable.confirm'),
+      destructive: false,
+    })
+    if (!ok || busyRef.current) return
+    busyRef.current = true
+    setBusyGroupId(group.id)
+    try {
+      const result = await modsApi.disableGroup(group.id, true)
+      const disabled = result?.disabled ?? []
+      const kept = [...(result?.keptShared ?? []), ...(result?.keptManaged ?? [])]
+      toast({
+        title: tGroups('disable.doneTitle', { name: group.name }),
+        description: tGroups('disable.doneDesc', { count: disabled.length }) +
+          (kept.length > 0 ? ` ${tGroups('disable.keptNote', { count: kept.length })}` : ''),
+      })
+      await fetchData()
+    } catch (error) {
+      toast({ title: tGroups('disable.failedTitle'), description: getUserErrorMessage(error, tGroups('disable.failedFallback')), variant: 'destructive' })
+    } finally {
+      busyRef.current = false
+      setBusyGroupId(null)
+    }
+  }
+
+  const { apply: applyGroupOrder, applying: applyingGroupOrder } = useApplyGroupOrder({
+    groupsById: groupsStore.groupsById,
+    modNames: modNamesRecord,
+    onApplied: fetchData,
+    onChecked: groupsStore.reloadStatus,
+  })
+  const applyOrderReason = !canManageMods
+    ? t('permissions.noModsManage')
+    : hasModOrderChanged
+      ? tGroups('panel.applyDisabledDirty')
+      : savingModOrder || applyingGroupOrder
+        ? tGroups('panel.applyDisabledBusy')
+        : groupsStore.status?.inOrder
+          ? tGroups('panel.applyDisabledInOrder')
+          : null
+
+  // A group's conflict badge opens the Conflicts view filtered to its mods.
+  const showGroupConflicts = (group: ModGroup, summary: GroupConflictSummary) => {
+    setConflictsFocus({ label: group.name, modIds: summary.modIds })
+    setActiveTab('conflicts')
+  }
 
 
   const scanConflicts = useCallback(async () => {
@@ -3030,31 +3215,589 @@ export default function Mods() {
     if (!conflicts && !conflictsLoading) void scanConflicts()
   }, [reviewUnresolved, conflicts, conflictsLoading, scanConflicts])
 
+  // ── Active on server: per-item actions ─────────────────────────────────────
+
+  // PanelBridge's own Workshop entry while the active server gets it from the
+  // Steam Workshop (spec §4.11): its enable and remove controls are locked,
+  // with the badge's text as the reason. Only those -- reordering it stays
+  // allowed, as its position in the load order doesn't matter.
+  const bridgeLockReason = t('mods.badgeTooltip', { ns: 'bridgeDelivery' })
+  const isBridgeGroup = (g: { wsId: string; mods: Array<{ id: string }> }) =>
+    isBridgeManagedMod(iniConfig?.bridgeManaged, g.wsId, g.mods.map(m => m.id))
+
+  const toggleMod = async (mod: ModEntry, wsId: string) => {
+    if (busyRef.current || !canManageMods) return
+    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, [mod.id])) return
+    const on = !mod.enabled
+    busyRef.current = true
+    try {
+      await modsApi.toggleModId(mod.id, on)
+      setIniConfig(prev => {
+        if (!prev) return prev
+        const newModIds = on ? [...prev.modIds, mod.id] : prev.modIds.filter(id => id !== mod.id)
+        const newMap = { ...prev.workshopModMap }
+        if (newMap[wsId]) {
+          newMap[wsId] = newMap[wsId].map(m => m.id === mod.id ? { ...m, enabled: on } : m)
+        }
+        return { ...prev, modIds: newModIds, totalMods: newModIds.length, workshopModMap: newMap }
+      })
+      setOrderedModIds(prev => on ? [...prev, mod.id] : prev.filter(id => id !== mod.id))
+      setLastSavedMod(mod.id)
+      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
+      savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
+    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleModTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleModFallback')) }) } finally { busyRef.current = false }
+  }
+
+  // Mark a sibling-conflict pair as a false positive. Used when the variant
+  // detector mis-flags a shared library + dependant (e.g.
+  // DynamicTradingCommon vs DynamicTradingV2) as two variants of the same mod.
+  const dismissPair = async (a: string, b: string) => {
+    if (!canManageMods) return
+    try {
+      await modsApi.addIgnoredModPair(a, b)
+      setIgnoredPairs(prev => {
+        const [x, y] = a < b ? [a, b] : [b, a]
+        if (prev.some(p => p.mod_a === x && p.mod_b === y)) return prev
+        return [...prev, { mod_a: x, mod_b: y, ignored_at: new Date().toISOString() } as any]
+      })
+      toast({ title: t('toasts.conflictDismissedTitle'), description: t('toasts.conflictDismissedDesc', { a, b }) })
+    } catch (e) {
+      reportClientError('Failed to dismiss conflict', e)
+      toast({ variant: 'destructive', title: t('toasts.failedToDismissConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToDismissConflictFallback')) })
+    }
+  }
+  const restorePair = async (a: string, b: string) => {
+    if (!canManageMods) return
+    try {
+      await modsApi.removeIgnoredModPair(a, b)
+      setIgnoredPairs(prev => prev.filter(p => {
+        const [x, y] = a < b ? [a, b] : [b, a]
+        return !(p.mod_a === x && p.mod_b === y)
+      }))
+    } catch (e) {
+      reportClientError('Failed to restore conflict', e)
+      toast({ variant: 'destructive', title: t('toasts.failedToRestoreConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToRestoreConflictFallback')) })
+    }
+  }
+
+  const toggleAllInGroup = async (g: WsGroup) => {
+    if (busyRef.current || !canManageMods || isBridgeGroup(g)) return
+    const on = !g.allEnabled
+    const modsToToggle = g.mods.filter(mod => mod.enabled !== on)
+    if (modsToToggle.length === 0) return
+    busyRef.current = true
+    try {
+      await modsApi.batchToggleModIds(modsToToggle.map(mod => ({ modId: mod.id, enabled: on })))
+      setIniConfig(prev => {
+        if (!prev) return prev
+        let newModIds = [...prev.modIds]
+        const newMap = { ...prev.workshopModMap }
+        for (const mod of modsToToggle) {
+          if (on) {
+            if (!newModIds.includes(mod.id)) newModIds.push(mod.id)
+          } else {
+            newModIds = newModIds.filter(id => id !== mod.id)
+          }
+        }
+        if (newMap[g.wsId]) {
+          newMap[g.wsId] = newMap[g.wsId].map(m => {
+            const toggled = modsToToggle.find(t => t.id === m.id)
+            return toggled ? { ...m, enabled: on } : m
+          })
+        }
+        return { ...prev, modIds: newModIds, totalMods: newModIds.length, workshopModMap: newMap }
+      })
+      setOrderedModIds(prev => {
+        let next = [...prev]
+        for (const mod of modsToToggle) {
+          if (on) { if (!next.includes(mod.id)) next.push(mod.id) }
+          else { next = next.filter(id => id !== mod.id) }
+        }
+        return next
+      })
+    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleGroupTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleGroupFallback')) }) } finally { busyRef.current = false }
+  }
+
+  const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
+    if (!canManageMods) return
+    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, knownModIds ?? [])) return
+    try {
+      await modsApi.removeFromIni(wsId, undefined, knownModIds)
+      const updated = await modsApi.getCurrentConfig()
+      setIniConfig(updated)
+      if (updated?.modIds) setOrderedModIds(updated.modIds)
+      setLastSavedMod(`removed-${wsId}`)
+      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
+      savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
+    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveWorkshopItemTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveWorkshopItemFallback')) }) }
+  }
+
+  // Handle confirmed workshop removal from AlertDialog
+  const handleConfirmedRemoveWorkshop = async () => {
+    if (confirmRemoveWorkshop) {
+      await removeWorkshop(confirmRemoveWorkshop.wsId, confirmRemoveWorkshop.knownModIds)
+      setConfirmRemoveWorkshop(null)
+    }
+  }
+
+  const getGroupLabel = (g: WsGroup): string => {
+    const first = g.mods[0]
+    return first.name !== first.id ? first.name : first.id
+  }
+
+  const getGroupMissingDeps = (g: WsGroup) => Array.from(new Set(g.mods.flatMap(m => activeModsData.missingDepsMap.get(m.id) || [])))
+  const getGroupDuplicateIds = (g: WsGroup) => g.mods.filter(m => activeModsData.duplicateModIds.has(m.id)).map(m => m.id)
+
+  const getInspectorDepKey = (g: WsGroup, dep: string) => `active-${g.wsId}-${dep}`
+
+  const runInspectorDepSearch = async (g: WsGroup, dep: string, force = false) => {
+    if (!canManageMods) return
+    const key = getInspectorDepKey(g, dep)
+    if (!force && depSearchData[key] && !depSearchData[key].error) return
+    setDepSearchData(prev => ({ ...prev, [key]: { loading: true, results: [], error: null, searchUrl: null } }))
+    try {
+      const res = await modsApi.searchWorkshopMods(dep, {
+        parentName: getGroupLabel(g),
+        parentWorkshopId: g.wsId,
+      })
+      setDepSearchData(prev => ({
+        ...prev,
+        [key]: {
+          loading: false,
+          results: res.results || [],
+          error: null,
+          searchUrl: res.searchUrl,
+          variantsTried: res.variantsTried,
+          steamSearchEnabled: res.steamSearchEnabled,
+        }
+      }))
+    } catch (err: any) {
+      setDepSearchData(prev => ({ ...prev, [key]: { loading: false, results: [], error: getUserErrorMessage(err, 'Search failed'), searchUrl: null } }))
+    }
+  }
+
+  const toggleInspectorDepSearch = (g: WsGroup, dep: string) => {
+    const key = getInspectorDepKey(g, dep)
+    setDepSearchOpen(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+    if (!depSearchData[key]) runInspectorDepSearch(g, dep)
+  }
+
+  const handleInspectorAddDep = async (hit: DepSearchHit, dep: string, key: string) => {
+    if (busyRef.current || !canManageMods) return
+    busyRef.current = true
+    setDepAdding(prev => [...prev, key])
+    try {
+      await modsApi.addMissingDep(hit.workshopId, hit.modId || dep)
+      setDepAddResults(prev => ({ ...prev, [key]: 'added' as const }))
+      const updated = await modsApi.getCurrentConfig()
+      setIniConfig(updated)
+      if (updated?.modIds) setOrderedModIds(updated.modIds)
+      toast({ title: t('toasts.dependencyAddedTitle'), description: t('toasts.dependencyAddedDesc', { name: hit.modName }) })
+    } catch (err) {
+      reportClientError('Failed to add dependency from inspector.', err)
+      setDepAddResults(prev => ({ ...prev, [key]: 'error' as const }))
+      toast({ title: t('toasts.addFailedTitle'), description: getUserErrorMessage(err, t('toasts.addFailedFallback')), variant: 'destructive' })
+    } finally {
+      setDepAdding(prev => prev.filter(item => item !== key))
+      busyRef.current = false
+    }
+  }
+
+  // ── Views ──────────────────────────────────────────────────────────────────
+
+  const selectView = (next: string) => {
+    if (!(MODS_VIEWS as readonly string[]).includes(next)) return
+    setActiveTab(next as ModsView)
+    if (next === 'conflicts' && !conflicts && !conflictsLoading) void scanConflicts()
+  }
+
+  // The "downloaded, not on the server" section scans the Workshop folder the
+  // first time the Deactivated view opens (and again from its Refresh).
+  const diskScanRequestedRef = useRef(false)
+  useEffect(() => {
+    if (activeTab !== 'deactivated' || permissionDenied || diskScanRequestedRef.current || disabledScanned) return
+    diskScanRequestedRef.current = true
+    void fetchDisabled()
+  }, [activeTab, permissionDenied, disabledScanned, fetchDisabled])
+  useEffect(() => {
+    if (!disabledScanned) diskScanRequestedRef.current = false
+  }, [disabledScanned])
+
+  const navGroups: SubNavGroup[] = NAV_GROUPS.map((group) => ({
+    id: group.id,
+    label: t(group.labelKey),
+    items: group.views.map((view) => {
+      const count =
+        view === 'deactivated' ? deactivatedMods.length
+        : view === 'installed' ? modsWithUpdates.length
+        : 0
+      return {
+        id: view,
+        label: t(`nav.${view}.label`),
+        icon: VIEW_ICONS[view],
+        dirty: view === 'order' && hasModOrderChanged,
+        badge: count > 0 ? (
+          <span
+            className={cn(
+              'rounded-full px-1.5 text-[10px] font-medium tabular-nums',
+              view === 'installed' ? 'bg-warning/15 text-foreground' : 'bg-muted text-muted-foreground',
+            )}
+            title={view === 'installed' ? t('statusBar.updatesCount', { count }) : undefined}
+          >
+            {count}
+          </span>
+        ) : undefined,
+      }
+    }),
+  }))
+  const currentView = NAV_GROUPS.flatMap((group) => group.views).includes(activeTab) ? activeTab : 'installed'
+
+  // ── Page alerts (after the header, errors first) ───────────────────────────
+  const pageAlerts: PageAlert[] = []
+  if (fetchError) {
+    pageAlerts.push({
+      id: 'fetch-error',
+      tone: 'error',
+      title: t('fetchError.title'),
+      description: <span className="break-words" dir="auto">{fetchError}</span>,
+      action: { label: t('fetchError.retry'), onClick: () => void fetchData({ manual: true }) },
+    })
+  }
+  if (status?.pendingRestart) {
+    pageAlerts.push({
+      id: 'restart-pending',
+      tone: 'warning',
+      title: t('restartPending.title'),
+      description: canManageMods
+        ? t('restartPending.waiting', { minutes: status.maxDelayMinutes })
+        : `${t('restartPending.waiting', { minutes: status.maxDelayMinutes })} ${t('permissions.noModsManage')}`,
+      action: canManageMods ? { label: t('restartPending.cancelAria'), onClick: () => void handleCancelPendingRestart() } : undefined,
+    })
+  }
+  // Stale-flag warning: Steam reports N pending updates from the live Workshop
+  // ACF but the per-mod DB flags don't reflect them yet (e.g. last check was
+  // rejected, or the ACF was rewritten by Steam after a sync).
+  if (!status?.pendingRestart && (status?.updatesAvailable ?? 0) > 0 && groupedMods.updateAvailable.length === 0 && !checking && modsWithUpdates.length === 0) {
+    pageAlerts.push({
+      id: 'stale-flags',
+      tone: 'warning',
+      title: t('staleFlag.reported', { count: status?.updatesAvailable }),
+      description: t('staleFlag.desc'),
+      action: canManageMods ? { label: t('staleFlag.checkNow'), onClick: () => void handleCheckUpdates() } : undefined,
+    })
+  }
+  // Mods Steam confirmed no longer exist on the Workshop (EResult 9). Needs
+  // the operator to act: the item never comes back and keeps breaking update
+  // checks and restarts until removed.
+  if (removedWorkshopMods.length > 0) {
+    pageAlerts.push({
+      id: 'removed-from-workshop',
+      tone: 'warning',
+      title: t('removedFromWorkshop.title', { count: removedWorkshopMods.length }),
+      description: (
+        <div className="space-y-2">
+          <p>{t('removedFromWorkshop.desc')}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {removedWorkshopMods.map((m) => (
+              <span key={m.workshopId} className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/60 py-1 ps-2 pe-1 text-xs text-foreground">
+                <span className="max-w-[16rem] truncate" title={m.name || m.workshopId}>
+                  {m.name || m.workshopId}
+                </span>
+                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmRemoveMod({ wsId: m.workshopId, label: m.name || m.workshopId })}
+                    disabled={loading || !canManageMods}
+                    aria-label={t('removedFromWorkshop.removeAria', { name: m.name || m.workshopId })}
+                    className="grid h-7 w-7 place-items-center rounded text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  </button>
+                </DisabledReason>
+              </span>
+            ))}
+          </div>
+        </div>
+      ),
+    })
+  }
+  // A setting written twice in the raw INI: this page reads the first copy,
+  // the Server Configuration editor the last (server/utils/iniDuplicateKeys.js).
+  if (iniConfig?.duplicateKeys && iniConfig.duplicateKeys.length > 0) {
+    pageAlerts.push({
+      id: 'duplicate-keys',
+      tone: 'warning',
+      title: t('duplicateKeysWarning.title', {
+        count: iniConfig.duplicateKeys.length,
+        keys: iniConfig.duplicateKeys.map(d => d.key).join(', '),
+      }),
+      description: t('duplicateKeysWarning.desc'),
+    })
+  }
+  // Steam Workshop unreachable this cycle: quiet, needs nothing (checks fall
+  // back to local files and retry on their own). Dismissed per failure stamp,
+  // so the next failed cycle shows it again.
+  if (status && !status.steamApiHealthy && status.lastSteamApiFailureAt && steamApiIssueDismissed !== status.lastSteamApiFailureAt) {
+    const since = status.lastSteamApiFailureAt
+    pageAlerts.push({
+      id: 'steam-api',
+      tone: 'info',
+      title: t('steamApiIssue.label'),
+      onDismiss: () => {
+        try {
+          localStorage.setItem(STEAM_API_ISSUE_DISMISSED_KEY, since)
+        } catch {
+          /* ignore storage failures */
+        }
+        setSteamApiIssueDismissed(since)
+      },
+    })
+  }
+  // The third Steam state: an EResult other than found or removed. Shows the
+  // raw code, never an invented explanation.
+  if ((status?.unknownWorkshopIds?.length ?? 0) > 0) {
+    pageAlerts.push({
+      id: 'unknown-workshop-result',
+      tone: 'info',
+      title: t('unknownWorkshopResult.label', { count: status!.unknownWorkshopIds.length }),
+      description: status!.unknownWorkshopIds.map((item) => t('unknownWorkshopResult.item', { id: item.id, code: item.resultCode })).join(', '),
+    })
+  }
+
+  // ── Filters shown as removable chips ───────────────────────────────────────
+  const groupFilterLabel = (filter: GroupFilter) =>
+    filter.kind === 'ungrouped'
+      ? t('filters.ungrouped')
+      : filter.kind === 'group'
+        ? t('filters.inGroup', { name: groupsStore.groupsById.get(filter.groupId)?.name ?? '' })
+        : ''
+
+  const installedChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+    ...(showUpdatesOnly ? [{ key: 'updates', label: t('filters.updatesOnly'), onRemove: () => setShowUpdatesOnly(false) }] : []),
+    ...(installedFilters.hasNote ? [{ key: 'note', label: t('filters.hasNote'), onRemove: () => setInstalledFilters((f) => ({ ...f, hasNote: false })) }] : []),
+    ...(installedGroupFilter.kind !== 'all' ? [{ key: 'group', label: groupFilterLabel(installedGroupFilter), onRemove: () => setInstalledFilters((f) => ({ ...f, group: ALL_GROUPS })) }] : []),
+  ]
+  const clearInstalledFilters = () => {
+    setShowUpdatesOnly(false)
+    setInstalledFilters({ hasNote: false, group: ALL_GROUPS })
+  }
+
+  const activeChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+    ...(multiIdFilterOn ? [{ key: 'multi', label: t('filters.multiId'), onRemove: () => setFilterMultiId(false) }] : []),
+    ...(filterAttention ? [{ key: 'attention', label: t('filters.needsAttention'), onRemove: () => setFilterAttention(false) }] : []),
+    ...(filterNotEnabled ? [{ key: 'notEnabled', label: t('filters.notEnabled'), onRemove: () => setFilterNotEnabled(false) }] : []),
+    ...(activeFilters.updates ? [{ key: 'updates', label: t('filters.updates'), onRemove: () => setActiveFilters((f) => ({ ...f, updates: false })) }] : []),
+    ...(activeFilters.missingDep ? [{ key: 'missingDep', label: t('filters.missingDep'), onRemove: () => setActiveFilters((f) => ({ ...f, missingDep: false })) }] : []),
+    ...(activeFilters.hasNote ? [{ key: 'note', label: t('filters.hasNote'), onRemove: () => setActiveFilters((f) => ({ ...f, hasNote: false })) }] : []),
+    ...(activeGroupFilter.kind !== 'all' ? [{ key: 'group', label: groupFilterLabel(activeGroupFilter), onRemove: () => setActiveFilters((f) => ({ ...f, group: ALL_GROUPS })) }] : []),
+  ]
+  const clearActiveFilters = () => {
+    setFilterMultiId(false)
+    setFilterAttention(false)
+    setFilterNotEnabled(false)
+    setActiveFilters({ updates: false, missingDep: false, hasNote: false, group: ALL_GROUPS })
+  }
+
+  const renderFilterChips = (chips: Array<{ key: string; label: string; onRemove: () => void }>, onClear: () => void) =>
+    chips.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('filters.activeAria')}>
+        <span className="text-xs text-muted-foreground">{t('filters.filteredBy')}</span>
+        {chips.map((chip) => (
+          <span key={chip.key} className="inline-flex h-7 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 ps-2.5 pe-0.5 text-xs text-foreground">
+            {chip.label}
+            <button
+              type="button"
+              onClick={chip.onRemove}
+              aria-label={t('filters.removeAria', { name: chip.label })}
+              className="grid h-6 w-6 place-items-center rounded-full text-muted-foreground hover:bg-primary/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
+          </span>
+        ))}
+        {chips.length > 1 && (
+          <Button variant="ghost" size="sm" onClick={onClear}>
+            {t('filters.clearAll')}
+          </Button>
+        )}
+      </div>
+    ) : null
+
+  // The group filter as one Select: every group, "In no group", or one group.
+  const renderGroupFilter = (filter: GroupFilter, onChange: (next: GroupFilter) => void) => (
+    <Select
+      value={filter.kind === 'group' ? `g:${filter.groupId}` : filter.kind}
+      onValueChange={(value) => onChange(value === 'all' ? ALL_GROUPS : value === 'ungrouped' ? { kind: 'ungrouped' } : { kind: 'group', groupId: value.slice(2) })}
+    >
+      <SelectTrigger className="h-11 w-auto min-w-[9rem] gap-2 text-xs sm:h-8" aria-label={t('filters.groupAria')}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{t('filters.allGroups')}</SelectItem>
+        <SelectItem value="ungrouped">{t('filters.ungrouped')}</SelectItem>
+        {groupsStore.groups.map((group) => (
+          <SelectItem key={group.id} value={`g:${group.id}`}>{group.name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+
+  const filterChipClass = (pressed: boolean) =>
+    cn(
+      'inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 sm:h-8',
+      pressed ? 'border-primary/50 bg-primary/15 text-foreground' : 'border-border/60 text-muted-foreground hover:bg-accent/30 hover:text-foreground',
+    )
+
+  // Selected rows' mod IDs (Installed ticks are Workshop items).
+  const installedSelectionModIds = [...selectedMods].flatMap((wsId) => wsModIds.get(wsId) ?? [])
+  const activeSelectionModIds = [...selectedActiveWs].flatMap((wsId) => wsModIds.get(wsId) ?? [])
+  const orderSelectionModIds = orderedModIds.filter((id, i) => selectedOrderIds.has(id) && orderedModIds.indexOf(id) === i)
+
+  const lastCheckText = status?.lastCheck
+    ? (() => {
+        const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
+        let when: string
+        if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
+        else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
+        else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
+        else when = formatDate(status.lastCheck)
+        return t('statusBar.lastCheckedOn', { when })
+      })()
+    : t('statusBar.neverChecked')
+
+  const renderInstalledRows = () => {
+    if (installedMode === 'groups') {
+      return (
+        <GroupSections
+          items={filteredMods.map((mod) => ({ key: mod.workshop_id, modIds: wsModIds.get(mod.workshop_id) ?? [], mod }))}
+          renderItem={(item) => renderModRow(item.mod)}
+          groups={groupsStore.groups}
+          enabledModIds={enabledModIds}
+          availableModIds={availableModIds}
+          modNames={modIdNameMap}
+          conflictsByGroup={conflictsByGroup}
+          onShowConflicts={showGroupConflicts}
+          canManage={canManageMods}
+          busyGroupId={busyGroupId}
+          onEnable={(group) => void handleEnableGroup(group)}
+          onDisable={(group) => void handleDisableGroup(group)}
+          onEdit={(group) => setGroupEditor({ group })}
+          applyOrder={{ run: () => void applyGroupOrder(), reason: applyOrderReason }}
+          hideEmptyGroups={!!deferredSearchQuery || installedChips.length > 0}
+          storageKey="zcp:mods:installed:collapsedGroups"
+          className="h-[calc(100vh-340px)] min-h-[300px]"
+        />
+      )
+    }
+    return (
+      <div ref={modListRef} className="h-[calc(100vh-340px)] min-h-[300px] overflow-y-auto">
+        <div style={{ height: modListVirtualizer.getTotalSize(), position: 'relative' }}>
+          {modListVirtualizer.getVirtualItems().map(virtualRow => {
+            const item = flatModItems[virtualRow.index]
+            return (
+              <div
+                key={virtualRow.key}
+                // Measured, not estimated: a row wraps taller on a phone
+                // (badges, "What changed", group dots) and must not overlap the next.
+                data-index={virtualRow.index}
+                ref={modListVirtualizer.measureElement}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                {item.type === 'header' && item.group === 'update' && (
+                  <div className="flex items-center gap-2.5 border-b border-warning/25 bg-warning/10 px-4 py-2.5">
+                    <span className="relative inline-flex shrink-0" aria-hidden="true">
+                      <span className="absolute inset-0 animate-ping rounded-full bg-warning/40" />
+                      <span className="relative h-2 w-2 rounded-full bg-warning" />
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">
+                      {t('installedTab.updatesAvailable')}
+                    </span>
+                    <span className="inline-flex h-5 items-center rounded-full bg-warning/20 px-2 text-xs tabular-nums text-foreground">
+                      {item.count}
+                    </span>
+                  </div>
+                )}
+                {item.type === 'header' && item.group === 'neverChecked' && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 border-b border-border/40 bg-muted/20 px-4 py-2 text-start transition-colors hover:bg-muted/30"
+                    onClick={() => setNeverCheckedExpanded(!neverCheckedExpanded)}
+                    aria-expanded={neverCheckedExpanded}
+                  >
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform rtl:-scale-x-100 ${neverCheckedExpanded ? 'rotate-90 rtl:-rotate-90' : ''}`} />
+                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium text-muted-foreground">
+                      {t('installedTab.neverCheckedHeader')}
+                    </span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {item.count}
+                    </span>
+                    {!neverCheckedExpanded && (
+                      <span className="ms-auto hidden text-xs text-muted-foreground sm:inline">
+                        {t('installedTab.expandHint')} <kbd className="rounded border border-border/60 bg-muted/40 px-1 py-0 text-micro">{t('installedTab.checkUpdatesKbd')}</kbd>
+                      </span>
+                    )}
+                  </button>
+                )}
+                {item.type === 'header' && item.group === 'upToDate' && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 border-b border-border/40 bg-primary/5 px-4 py-2 text-start transition-colors hover:bg-primary/10"
+                    onClick={() => setUpToDateExpanded(!upToDateExpanded)}
+                    aria-expanded={upToDateExpanded}
+                  >
+                    <ChevronRight className={`h-4 w-4 text-primary transition-transform rtl:-scale-x-100 ${upToDateExpanded ? 'rotate-90 rtl:-rotate-90' : ''}`} />
+                    <CheckCircle className="h-4 w-4 text-primary" />
+                    <span className="text-sm font-medium text-foreground">
+                      {t('installedTab.upToDate')}
+                    </span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {item.count}
+                    </span>
+                  </button>
+                )}
+                {item.type === 'hint' && (
+                  <div className="flex items-center gap-3 border-b border-border/40 bg-primary/5 px-4 py-3">
+                    <RefreshCw className="h-4 w-4 shrink-0 text-primary" />
+                    <p className="text-sm text-muted-foreground">
+                      <Trans i18nKey="installedTab.hintText" t={t} components={{ 1: <strong className="text-foreground" /> }} />
+                    </p>
+                  </div>
+                )}
+                {item.type === 'mod' && (
+                  <div className="border-b border-border/30">
+                    {renderModRow(item.mod)}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <TooltipProvider>
       <div className="space-y-6 page-transition">
-        {fetchError && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t('fetchError.title')}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-              <Button variant="outline" size="sm" onClick={() => fetchData({ manual: true })} className="self-start">
-                <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-        {/* Header */}
         <PageHeader
           title={t('pageHeader.title')}
           description={t('pageHeader.description')}
-          eyebrow={t('pageHeader.eyebrow')}
-          tone="maintain"
-          icon={<Package className="w-5 h-5" />}
           actions={
-            <Button onClick={() => setAdvancedAddOpen(true)} className="gap-2" variant="command">
-              <Plus className="w-4 h-4" />
+            <Button onClick={() => setAdvancedAddOpen(true)} size="sm" variant="command">
+              <Plus aria-hidden="true" />
               {t('pageHeader.addMod')}
             </Button>
           }
@@ -3069,83 +3812,89 @@ export default function Mods() {
           />
         ) : (
         <>
-        {/* Status Bar — only show when mods are tracked */}
-        {(status?.totalModsTracked || 0) > 0 && (
-        <div className="flex items-center gap-4 rounded-lg border border-border/50 bg-card/60 px-3 py-2 flex-wrap">
-          <div className="flex items-center gap-2">
-            <Package className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="text-sm font-medium">{t('statusBar.onServer', { count: status?.totalModsTracked || 0 })}</span>
-          </div>
-          <Separator orientation="vertical" className="h-4" />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center gap-2 cursor-help">
-                <Layers className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">{t('statusBar.inConfig', { count: iniConfig?.workshopIds?.length || 0 })}</span>
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{t('statusBar.workshopItemsTooltip', { count: iniConfig?.workshopIds?.length || 0 })}</p>
-              <p className="text-muted-foreground">{t('statusBar.modIdsTooltip', { count: iniConfig?.totalMods || 0 })}</p>
-            </TooltipContent>
-          </Tooltip>
-          {modsWithUpdates.length > 0 && (
-            <>
-              <Separator orientation="vertical" className="h-4" />
-              <div className="flex items-center gap-2 text-warning">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                <span className="text-sm font-medium">{t('statusBar.updatesCount', { count: modsWithUpdates.length })}</span>
-              </div>
-            </>
-          )}
+        <PageAlerts alerts={pageAlerts} />
 
-          {/* Workshop ACF Status -- an install with no Workshop ACF file is
-              NOT necessarily broken: it's the normal, permanent state for a
-              non-Steam/GOG install (GitHub #148), and is indistinguishable
-              from a legitimate SteamCMD install that just hasn't downloaded
-              a Workshop mod yet. Neutral/informational styling on purpose --
-              this used to render as a persistent destructive/red banner
-              implying a misconfiguration the operator needed to "fix",
-              which is actively misleading for the non-Steam case. The
-              "Fix path" action stays for the operator who genuinely does
-              use Workshop mods and has the path wrong. */}
-          {!status?.workshopAcfConfigured && (
-            <>
-              <Separator orientation="vertical" className="h-4" />
-              <div className="flex min-w-0 items-center gap-2 text-muted-foreground" role="status">
-                <Info className="w-3.5 h-3.5 shrink-0" />
+        {/* Status bar: always shown, even with nothing tracked yet. */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/60 bg-card px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+              <Package className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              {t('statusBar.onServer', { count: status?.totalModsTracked || 0 })}
+            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex cursor-help items-center gap-1.5 font-medium text-foreground" tabIndex={0}>
+                  <Layers className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+                  {t('statusBar.inConfig', { count: iniConfig?.workshopIds?.length || 0 })}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{t('statusBar.workshopItemsTooltip', { count: iniConfig?.workshopIds?.length || 0 })}</p>
+                <p className="text-muted-foreground">{t('statusBar.modIdsTooltip', { count: iniConfig?.totalMods || 0 })}</p>
+              </TooltipContent>
+            </Tooltip>
+            {modsWithUpdates.length > 0 && (
+              <button
+                type="button"
+                onClick={() => { selectView('installed'); setShowUpdatesOnly(true) }}
+                className="inline-flex items-center gap-1.5 rounded font-medium text-foreground underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+              >
+                <AlertTriangle className="h-4 w-4 text-warning" aria-hidden="true" />
+                {t('statusBar.updatesCount', { count: modsWithUpdates.length })}
+              </button>
+            )}
+            {status && (
+              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                <button
+                  type="button"
+                  onClick={() => { if (!canManageMods) return; setRestartSettingsOpen(true) }}
+                  disabled={!canManageMods}
+                  className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:cursor-not-allowed"
+                  aria-label={t(status.autoRestartEnabled ? 'statusBar.autoRestartOnAria' : 'statusBar.autoRestartOffAria')}
+                >
+                  <StatusPill
+                    size="sm"
+                    tone={status.autoRestartEnabled ? 'ok' : 'idle'}
+                    label={t(status.autoRestartEnabled ? 'statusBar.autoRestartOn' : 'statusBar.autoRestartOff')}
+                    className="transition-colors hover:bg-accent/40"
+                  />
+                </button>
+              </DisabledReason>
+            )}
+            {/* No Workshop ACF file is NOT necessarily broken: it is the
+                normal, permanent state of a non-Steam/GOG install (GitHub
+                #148), indistinguishable from a SteamCMD install that has not
+                downloaded a Workshop mod yet. Neutral on purpose; "Fix path"
+                stays for the operator whose path really is wrong. */}
+            {status && !status.workshopAcfConfigured && (
+              <span className="inline-flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground" role="status">
+                <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
                 <span className="text-xs">{t('statusBar.workshopPathMissing')}</span>
                 <DisabledReason reason={!canManageServers ? t('permissions.noServersManage') : null}>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 px-2 text-xs"
                     onClick={handleOpenWorkshopBrowser}
                     disabled={savingWorkshopPath || !canManageServers}
                   >
-                    <FolderOpen className="me-1.5 h-3.5 w-3.5" />
+                    <FolderOpen aria-hidden="true" />
                     {t('statusBar.fixPath')}
                   </Button>
                 </DisabledReason>
-              </div>
-            </>
-          )}
+              </span>
+            )}
+          </div>
 
           <div className="ms-auto flex items-center gap-2">
-            {/* A disabled Button carries `disabled:pointer-events-none` (see
-                Button's own class list), so it never fires the pointer/focus
-                events a directly-attached Tooltip needs to open -- hovering
-                a permission-grayed Sync/Check Updates button showed nothing
-                at all, leaving the operator with no idea why it's inert.
-                DisabledReason's outer focusable span catches that case and
-                shows the actual reason; when the button is enabled it's a
-                no-op passthrough, so the existing hint Tooltip below still
-                works exactly as before. */}
+            {/* A disabled Button never fires the pointer events its own
+                Tooltip needs, so the permission reason lives in
+                DisabledReason's wrapper; enabled, the hint Tooltip works as
+                before. */}
             <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
-                    <Download className="w-3.5 h-3.5 me-1.5" />
+                  <Button variant="outline" size="sm" onClick={handleSyncFromServer} disabled={loading || !canManageMods}>
+                    <Download aria-hidden="true" />
                     {t('statusBar.sync')}
                   </Button>
                 </TooltipTrigger>
@@ -3155,38 +3904,34 @@ export default function Mods() {
             <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="outline" size="sm" className="min-h-[44px] sm:min-h-0" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
-                    <RefreshCw className={`w-3.5 h-3.5 me-1.5 ${checking ? 'animate-spin' : ''}`} />
+                  <Button variant="outline" size="sm" onClick={handleCheckUpdates} disabled={checking || !canManageMods}>
+                    <RefreshCw className={checking ? 'animate-spin' : undefined} aria-hidden="true" />
                     {t('statusBar.checkUpdates')}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <span>{t('statusBar.checkUpdatesTooltip')}</span>
-                  {status?.lastCheck ? (() => {
-                    const secs = Math.round((Date.now() - new Date(status.lastCheck).getTime()) / 1000)
-                    let when: string
-                    if (secs < 60) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.secondsAgo', { count: secs }) })
-                    else if (secs < 3600) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.minutesAgo', { count: Math.floor(secs / 60) }) })
-                    else if (secs < 86400) when = t('statusBar.lastCheckedAgo', { when: t('statusBar.hoursAgo', { count: Math.floor(secs / 3600) }) })
-                    else when = formatDate(status.lastCheck)
-                    return <span>{t('statusBar.lastCheckedOn', { when })}</span>
-                  })() : <span>{t('statusBar.neverChecked')}</span>}
+                <TooltipContent side="bottom" className="max-w-xs space-y-1">
+                  <p>{t('statusBar.checkUpdatesTooltip')}</p>
+                  <p className="text-muted-foreground">{lastCheckText}</p>
                 </TooltipContent>
               </Tooltip>
             </DisabledReason>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={t('statusBar.moreActionsAria')}>
-                  <MoreVertical className="w-4 h-4" />
+                <Button variant="ghost" size="iconDense" aria-label={t('statusBar.moreActionsAria')} title={t('statusBar.moreActionsAria')}>
+                  <MoreHorizontal aria-hidden="true" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
                   <DropdownMenuItem
-                    onClick={() => { if (!canManageMods) return; setCollectionDialogOpen(true) }}
+                    onClick={() => {
+                      if (!canManageMods) return
+                      selectView('collection')
+                      setCollectionDialogOpen(true)
+                    }}
                     disabled={!canManageMods}
                   >
-                    <Library className="w-4 h-4 me-2" />
+                    <Library className="me-2 h-4 w-4" />
                     {t('statusBar.importCollection')}
                   </DropdownMenuItem>
                 </DisabledReason>
@@ -3195,2468 +3940,1740 @@ export default function Mods() {
                     onClick={() => { if (!canManageMods) return; setRestartSettingsOpen(true) }}
                     disabled={!canManageMods}
                   >
-                    <Settings2 className="w-4 h-4 me-2" />
+                    <Settings2 className="me-2 h-4 w-4" />
                     {t('statusBar.autoRestartSettings')}
                   </DropdownMenuItem>
                 </DisabledReason>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="text-sm">{t('statusBar.autoRestart')}</span>
-                    <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                      <Switch
-                        checked={status?.autoRestartEnabled || false}
-                        onCheckedChange={handleToggleAutoRestart}
-                        disabled={loading || !canManageMods}
-                        aria-label={t('statusBar.autoRestartAria')}
-                      />
-                    </DisabledReason>
-                  </div>
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
-        )}
 
-        {/* Pending Restart Alert */}
-        {status?.pendingRestart && (
-          <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3 sm:items-center">
-              <Clock className="w-5 h-5 animate-pulse text-warning" />
-              <div>
-                <p className="font-medium text-warning">{t('restartPending.title')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('restartPending.waiting', { minutes: status.maxDelayMinutes })}
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" size="sm" onClick={handleCancelPendingRestart} disabled={loading || !canManageMods} aria-label={t('restartPending.cancelAria')}>
-              {t('restartPending.cancel')}
-            </Button>
-          </div>
-        )}
-
-        {/* Stale-flag warning: backend reports N pending updates from live Workshop ACF
-            but the per-mod DB flags don't reflect them yet (e.g. last check was rejected,
-            or the ACF was rewritten by Steam after a sync). Surface it so it's not invisible
-            inside a collapsed group. */}
-        {!status?.pendingRestart
-          && (status?.updatesAvailable ?? 0) > 0
-          && groupedMods.updateAvailable.length === 0
-          && !checking && (
-          <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3 sm:items-center">
-              <AlertTriangle className="w-5 h-5 text-warning" />
-              <div>
-                <p className="font-medium text-warning">
-                  {t('staleFlag.reported', { count: status?.updatesAvailable })}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('staleFlag.desc')}
-                </p>
-              </div>
-            </div>
-            <Button variant="warning" size="sm" onClick={handleCheckUpdates} disabled={loading || checking || !canManageMods}>
-              <RefreshCw className={`w-4 h-4 me-2 ${checking ? 'animate-spin' : ''}`} />
-              {t('staleFlag.checkNow')}
-            </Button>
-          </div>
-        )}
-
-        {/* hunt-wave7-2026-08-29: mods Steam confirmed no longer exist on the
-            Workshop (EResult 9 -- FileNotFound). Warning-style, not quiet --
-            unlike a transient Steam API outage below, this needs the
-            operator to actually act: the item is never coming back and will
-            keep breaking future update checks / restarts until removed. */}
-        {removedWorkshopMods.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm">
-            <div className="flex items-start gap-3">
-              <Trash2 className="w-5 h-5 shrink-0 text-warning" />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-warning">
-                  {t('removedFromWorkshop.title', { count: removedWorkshopMods.length })}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('removedFromWorkshop.desc')}
-                </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {removedWorkshopMods.map((m) => (
-                    <span
-                      key={m.workshopId}
-                      className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/60 py-1 ps-2 pe-1 text-xs"
+        <SubNavLayout
+          nav={<SubNav kind="nav" groups={navGroups} value={currentView} onValueChange={selectView} ariaLabel={t('nav.aria')} />}
+        >
+          {/* Installed: every Workshop item the panel tracks for updates, on the server. */}
+          {activeTab === 'installed' && (
+            <SectionCard
+              title={t('nav.installed.label')}
+              description={t('nav.installed.hint')}
+              icon={Package}
+              flush
+              actions={
+                <Segmented<ListMode>
+                  value={installedMode}
+                  onValueChange={setInstalledMode}
+                  ariaLabel={t('listMode.aria')}
+                  items={[
+                    { value: 'list', label: t('listMode.list') },
+                    { value: 'groups', label: t('listMode.groups') },
+                  ]}
+                />
+              }
+            >
+              {(mods.length > 0 || installedChips.length > 0 || searchQuery) && (
+                <div className="space-y-2 border-b border-border/60 p-4">
+                  <Toolbar
+                    search={{
+                      value: searchQuery,
+                      onChange: handleSearchChange,
+                      placeholder: t('installedTab.searchPlaceholder'),
+                      ariaLabel: t('installedTab.searchAria'),
+                      slashToFocus: true,
+                    }}
+                    end={
+                      <>
+                        {/* Workshop collection sync indicator: only when a
+                            collection ID is wired up. The chip refreshes the
+                            diff; the inline button runs the sync. */}
+                        {collectionStatus.configured && (
+                          collectionStatus.error ? (
+                            <button
+                              type="button"
+                              onClick={fetchCollectionStatus}
+                              title={t('installedTab.collectionErrorTitle', { error: collectionStatus.error })}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-destructive/20"
+                            >
+                              <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                              {t('installedTab.collectionError')}
+                            </button>
+                          ) : collectionStatus.inSync ? (
+                            <button
+                              type="button"
+                              onClick={fetchCollectionStatus}
+                              title={collectionStatus.title ? t('installedTab.collectionInSyncTitleNamed', { title: collectionStatus.title }) : t('installedTab.collectionInSyncTitle')}
+                              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-success/40 bg-success/10 px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-success/20"
+                            >
+                              <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+                              {t('installedTab.collectionInSync')}
+                              {collectionStatus.autoSync && <span className="text-muted-foreground">{t('installedTab.collectionAutoTag')}</span>}
+                            </button>
+                          ) : collectionStatus.drift > 0 ? (
+                            <div className="inline-flex h-8 items-center gap-1 rounded-md border border-warning/40 bg-warning/10 pe-1 ps-2.5 text-xs font-medium text-foreground">
+                              <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
+                              <span>{t('installedTab.collectionDrift', { count: collectionStatus.drift })}</span>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={handleCollectionSyncNow}
+                                disabled={collectionSyncing || !canManageMods}
+                                className="ms-1 h-6 px-2 text-xs hover:bg-warning/20 sm:h-6"
+                                // The status bar has a "Sync" too (from the server INI): this one names the collection.
+                                aria-label={t('installedTab.collectionSyncAria')}
+                                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does ("Sync tracked mods → Steam Workshop collection"), not why it's disabled; unconditional, no permission text to lose. Triaged 2026-08-27.
+                                title={t('installedTab.collectionSyncTooltip')}
+                              >
+                                {collectionSyncing ? <Loader2 className="h-3 w-3 animate-spin" /> : t('installedTab.collectionSync')}
+                              </Button>
+                            </div>
+                          ) : collectionStatus.loading ? (
+                            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 text-xs text-muted-foreground">
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                              {t('installedTab.collectionChecking')}
+                            </span>
+                          ) : null
+                        )}
+                      </>
+                    }
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setShowUpdatesOnly(!showUpdatesOnly)}
+                      aria-pressed={showUpdatesOnly}
+                      className={filterChipClass(showUpdatesOnly)}
                     >
-                      <span className="max-w-[16rem] truncate" title={m.name || m.workshopId}>
-                        {m.name || m.workshopId}
-                      </span>
-                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmRemoveMod({ wsId: m.workshopId, label: m.name || m.workshopId })}
-                          disabled={loading || !canManageMods}
-                          aria-label={t('removedFromWorkshop.removeAria', { name: m.name || m.workshopId })}
-                          className="rounded p-0.5 text-muted-foreground/70 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 disabled:pointer-events-none disabled:opacity-50"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </DisabledReason>
-                    </span>
+                      {showUpdatesOnly ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Filter className="h-3.5 w-3.5" aria-hidden="true" />}
+                      {t('installedTab.updatesOnly')}
+                      {modsWithUpdates.length > 0 && <span className="tabular-nums text-muted-foreground">{modsWithUpdates.length}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInstalledFilters((f) => ({ ...f, hasNote: !f.hasNote }))}
+                      aria-pressed={installedFilters.hasNote}
+                      className={filterChipClass(installedFilters.hasNote)}
+                    >
+                      <StickyNote className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('filters.hasNote')}
+                    </button>
+                    {groupsStore.groups.length > 0 && renderGroupFilter(installedGroupFilter, (group) => setInstalledFilters((f) => ({ ...f, group })))}
+                    <Select value={installedSort} onValueChange={(value) => setInstalledSort(INSTALLED_SORTS.includes(value as InstalledSort) ? (value as InstalledSort) : 'status')}>
+                      <SelectTrigger className="h-11 w-auto min-w-[9rem] gap-2 text-xs sm:h-8" aria-label={t('sort.aria')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="status">{t('sort.status')}</SelectItem>
+                        <SelectItem value="name">{t('sort.name')}</SelectItem>
+                        <SelectItem value="updated">{t('sort.updated')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Toolbar>
+                  {renderFilterChips(installedChips, clearInstalledFilters)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {selectedMods.size > 0 ? (
+                      <div className="bulk-bar-enter flex w-full flex-wrap items-center gap-2 sm:w-auto" role="group" aria-label={t('installedTab.selectionAria')}>
+                        <span className="text-sm text-muted-foreground">
+                          {t('installedTab.selectedCount', { count: selectedMods.size })}
+                        </span>
+                        <Button variant="outline" size="sm" onClick={deselectAll}>
+                          {t('installedTab.deselect')}
+                        </Button>
+                        <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : installedSelectionModIds.length === 0 ? tGroups('addTo.noModIds') : null}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddToGroup({ modIds: installedSelectionModIds, clearSelection: 'installed' })}
+                            disabled={!canManageMods || installedSelectionModIds.length === 0}
+                          >
+                            <FolderPlus aria-hidden="true" />
+                            {tGroups('addTo.selected')}
+                          </Button>
+                        </DisabledReason>
+                        <Button variant="destructive" size="sm" onClick={() => setConfirmBulkRemove(true)} disabled={loading || !canManageMods}>
+                          <Trash2 aria-hidden="true" />
+                          {t('installedTab.remove')}
+                        </Button>
+                      </div>
+                    ) : visibleServerMods.length > 0 ? (
+                      <Button variant="ghost" size="sm" onClick={selectAllVisible}>
+                        {t('installedTab.selectAll', { count: visibleServerMods.length })}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
+              {initialLoading && mods.length === 0 ? (
+                <div className="space-y-3 p-4" role="status" aria-label={t('installedTab.loading')}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="h-16 w-16 rounded-md" />
+                      <div className="flex-1 space-y-2">
+                        <Skeleton className="h-4 w-1/2" />
+                        <Skeleton className="h-3 w-1/3" />
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* hunt-wave7-2026-08-29: Steam Workshop API unreachable this cycle
-            (quiet -- deliberately NOT the accented-warning treatment above).
-            Unlike the removed-mods case, this needs the operator to do
-            NOTHING: mod update-checking silently fell back to local-file-only
-            comparison and will resume checking Steam automatically on the
-            next cycle. Shown immediately on a single failed cycle rather
-            than debounced, because a check cycle (tens of minutes) is
-            already the finest-grained real fact this system produces --
-            there's no sub-cycle flapping to filter the way Discord's
-            multi-second gateway reconnects needed. The muted styling, not a
-            delay, is what keeps this from training the operator to ignore
-            it. */}
-        {status && !status.steamApiHealthy && status.lastSteamApiFailureAt &&
-          steamApiIssueDismissed !== status.lastSteamApiFailureAt && (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <CloudOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-              <span className="min-w-0">{t('steamApiIssue.label')}</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const since = status.lastSteamApiFailureAt
-                  if (!since) return
-                  try {
-                    localStorage.setItem(STEAM_API_ISSUE_DISMISSED_KEY, since)
-                  } catch {
-                    /* ignore storage failures */
-                  }
-                  setSteamApiIssueDismissed(since)
-                }}
-                aria-label={t('steamApiIssue.dismissAria')}
-                title={t('steamApiIssue.dismissTooltip')}
-                className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-        )}
-
-        {/* hunt-wave7-2026-08-29: the THIRD state -- Steam answered with a
-            resultCode other than 1 (found) or 9 (removed). Neither
-            "confirmed gone" nor "healthy", so no warning/action framing and
-            no muted "this will self-heal" framing either -- purely
-            informational, no icon severity. Deliberately shows the RAW
-            resultCode rather than any invented explanation: only 1 and 9
-            are verified against Steam's own EResult meaning here, and a
-            guessed label for an unverified code is worse than the bare
-            number, which at least a support ticket can act on precisely. */}
-        {(status?.unknownWorkshopIds?.length ?? 0) > 0 && (
-          <div className="flex flex-wrap items-start gap-2 px-1 text-xs text-muted-foreground">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-            <span>
-              {t('unknownWorkshopResult.label', { count: status!.unknownWorkshopIds.length })}
-              {' '}
-              {status!.unknownWorkshopIds
-                .map((item) => t('unknownWorkshopResult.item', { id: item.id, code: item.resultCode }))
-                .join(', ')}
-            </span>
-          </div>
-        )}
-
-        {/* Duplicate-key warning: a setting appears more than once as its own
-            line in the raw INI. This page's own reads/writes (content.match()
-            with no /g, server-side) only ever see the FIRST copy; the Server
-            Configuration editor's line-by-line parser lets the LAST copy win.
-            Two screens the operator can both have open at once, showing
-            different values for the same nominal setting, with nothing else
-            telling either of them the file is like this. See
-            server/utils/iniDuplicateKeys.js. */}
-        {iniConfig?.duplicateKeys && iniConfig.duplicateKeys.length > 0 && (
-          <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3 sm:items-center">
-              <AlertTriangle className="w-5 h-5 text-warning" />
-              <div>
-                <p className="font-medium text-warning">
-                  {t('duplicateKeysWarning.title', {
-                    count: iniConfig.duplicateKeys.length,
-                    keys: iniConfig.duplicateKeys.map(d => d.key).join(', '),
-                  })}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t('duplicateKeysWarning.desc')}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="grid gap-5 lg:grid-cols-[236px_minmax(0,1fr)]">
-          <nav aria-label={t('nav.aria')} className="space-y-4 lg:sticky lg:top-4 lg:self-start">
-            {MODS_NAV.map((section) => (
-              <div key={section.group}>
-                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
-                  {section.group}
-                </p>
-                <div className="space-y-0.5">
-                  {section.items.map((item) => {
-                    const isActive = activeTab === item.id
-                    const count =
-                      item.id === 'deactivated' ? groupedMods.deactivated.length : null
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        aria-current={isActive ? 'true' : undefined}
-                        title={item.hint}
-                        onClick={() => {
-                          setActiveTab(item.id)
-                          if (CONFIG_VIEWS.includes(item.id)) {
-                            setConfigSubTab(item.id as 'active' | 'order' | 'add' | 'presets' | 'tools')
-                          }
-                          if (item.id === 'conflicts' && !conflicts && !conflictsLoading) void scanConflicts()
-                        }}
-                        className={`flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-start transition-colors ${
-                          isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                        }`}
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5 text-sm font-medium">
-                            <span className="truncate">{item.label}</span>
-                            {item.id === 'order' && hasModOrderChanged && (
-                              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" />
-                            )}
-                            {count != null && count > 0 && (
-                              <span
-                                className={`ms-auto shrink-0 rounded-full px-1.5 font-mono text-[10px] tabular-nums ${
-                                  isActive ? 'bg-primary-foreground/20' : 'bg-muted-foreground/20'
-                                }`}
-                              >
-                                {count}
-                              </span>
-                            )}
-                          </span>
-                          <span
-                            className={`mt-0.5 block text-[11px] leading-snug ${
-                              isActive ? 'text-primary-foreground/75' : 'text-muted-foreground/70'
-                            }`}
-                          >
-                            {item.hint}
-                          </span>
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </nav>
-
-          <div className="min-w-0 space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <h2 className="text-base font-semibold text-foreground">
-                {MODS_NAV.flatMap((s) => s.items).find((i) => i.id === activeTab)?.label}
-              </h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {MODS_NAV.flatMap((s) => s.items).find((i) => i.id === activeTab)?.hint}
-              </p>
-            </div>
-
-            {/* Import Collection Dialog */}
-            <Dialog
-              open={collectionDialogOpen}
-              onOpenChange={(open) => {
-                setCollectionDialogOpen(open)
-                if (!open) {
-                  setShowCollectionAdvanced(false)
-                  setCollectionImported(false)
-                  setCollectionUrl('')
-                  setCollectionMods([])
-                }
-              }}
-            >
-                {/* 2026-09 dialog sweep: this scrolled as a whole under its own
-                    85vh cap, with a fixed-height mod list scrolling inside it,
-                    so on a 1280x620 laptop "Add N Mods to Server" started
-                    below the fold and the wheel over the list never reached
-                    it. Now DialogContent's own bound applies and only the
-                    DialogBody scrolls; it is a flex column whose mod list
-                    keeps its old height cap on a tall window but shrinks
-                    (never below 6rem) to the room left on a short one, so
-                    the list is the one scroller. */}
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>{t('collectionDialog.title')}</DialogTitle>
-                    <DialogDescription>
-                      {t('collectionDialog.description')}
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogBody className="flex flex-col gap-4">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <Label htmlFor="collection-url-input">{t('collectionDialog.urlLabel')}</Label>
-                        <HelpTip label={t('collectionDialog.urlLabel')}>{t('collectionDialog.urlHelp')}</HelpTip>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          id="collection-url-input"
-                          value={collectionUrl}
-                          onChange={(e) => setCollectionUrl(e.target.value)}
-                          placeholder={t('collectionDialog.urlPlaceholder')}
-                          maxLength={200}
-                          autoFocus
-                        />
-                        <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                        <Button onClick={handleImportCollection} disabled={importingCollection || !canManageMods} className="w-full sm:w-auto">
-                          {importingCollection ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Download className="w-4 h-4" />
-                          )}
-                        </Button>
-                        </DisabledReason>
-                      </div>
-                    </div>
-
-                    {collectionImported && collectionMods.length === 0 && !importingCollection && (
-                      <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning">
-                        <AlertTriangle className="w-4 h-4 shrink-0" />
-                        {t('collectionDialog.noModsFound')}
-                      </div>
-                    )}
-
-                    {collectionMods.length > 0 && (
-                      <div className="flex min-h-0 flex-col gap-2">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <Label>{t('collectionDialog.foundMods', { count: collectionMods.length })}</Label>
-                          <div className="flex gap-2 flex-wrap justify-end">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => setShowCollectionAdvanced(!showCollectionAdvanced)}
-                            >
-                              {showCollectionAdvanced ? t('collectionDialog.hideAdvanced') : t('collectionDialog.editIdsAndMaps')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setCollectionMods(prev => prev.map(m => ({ ...m, selected: true })))}
-                            >
-                              {t('collectionDialog.selectAll')}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => setCollectionMods(prev => prev.map(m => ({ ...m, selected: false })))}
-                            >
-                              {t('collectionDialog.deselectAll')}
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="min-h-24 max-h-[min(48vh,22rem)] overflow-y-auto rounded-lg border p-2 sm:max-h-[min(52vh,24rem)]">
-                          <div className="space-y-2">
-                            {collectionMods.map((mod) => {
-                              const alreadyInstalled = iniConfig?.workshopIds?.includes(mod.workshopId)
-                              return (
-                              <div
-                                key={mod.workshopId}
-                                className={`flex items-start gap-3 rounded-lg border p-3 transition-colors ${mod.selected ? 'border-primary/30 bg-primary/10' : 'bg-card/60 hover:bg-accent/20'}`}
-                              >
-                                <Checkbox
-                                  checked={mod.selected}
-                                  onCheckedChange={() => toggleModSelection(mod.workshopId)}
-                                aria-label={t('collectionDialog.selectAria', { name: mod.name })}
-                                />
-                                <div className="flex-1 space-y-1 min-w-0">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <span className="font-medium text-sm truncate" title={mod.name}>{mod.name}</span>
-                                    {alreadyInstalled && (
-                                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                                        {t('collectionDialog.installedBadge')}
-                                      </Badge>
-                                    )}
-                                    {mod.isMap && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        <MapIcon className="w-3 h-3 me-1" />
-                                        {t('collectionDialog.mapBadge')}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t('collectionDialog.idLabel', { id: mod.workshopId })}
-                                  </p>
-                                  {mod.selected && showCollectionAdvanced && (
-                                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                      <div>
-                                        <Label className="text-xs" htmlFor={`collection-mod-id-${mod.workshopId}`}>{t('collectionDialog.modIdLabel')}</Label>
-                                        <Input
-                                          id={`collection-mod-id-${mod.workshopId}`}
-                                          value={mod.modId || ''}
-                                          onChange={(e) => updateModId(mod.workshopId, e.target.value)}
-                                          placeholder={t('collectionDialog.modIdPlaceholder')}
-                                          maxLength={200}
-                                          className="h-7 text-xs"
-                                        />
-                                      </div>
-                                      {mod.isMap && (
-                                        <div>
-                                          <Label className="text-xs" htmlFor={`collection-map-folder-${mod.workshopId}`}>{t('collectionDialog.mapFolderLabel')}</Label>
-                                          <Input
-                                            id={`collection-map-folder-${mod.workshopId}`}
-                                            value={mod.mapFolder || ''}
-                                            onChange={(e) => updateMapFolder(mod.workshopId, e.target.value)}
-                                            placeholder={t('collectionDialog.mapFolderPlaceholder')}
-                                            maxLength={200}
-                                            className="h-7 text-xs"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                                <Button
-                                  size="iconDense"
-                                  variant="ghost"
-                                  className="h-10 w-10 sm:h-10 sm:w-10"
-                                  onClick={() => openWorkshopPage(mod.workshopId)}
-                                  aria-label={t('collectionDialog.openWorkshopAria')}
-                                >
-                                  <ExternalLink className="w-3 h-3" />
-                                </Button>
-                              </div>
-                            )})}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </DialogBody>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setCollectionDialogOpen(false)}>
-                      {t('collectionDialog.cancel')}
-                    </Button>
-                    <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                    <Button
-                      onClick={handleAddCollectionMods}
-                      disabled={loading || selectedCollectionCount === 0 || !canManageMods || pendingAddServerChanged}
-                    >
-                      {loading ? t('collectionDialog.adding') : t('collectionDialog.addToServer', { count: selectedCollectionCount })}
-                    </Button>
-                    </DisabledReason>
-                  </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Add Single Mod Dialog - Improved with Multi-ID support */}
-            <Dialog open={advancedAddOpen} onOpenChange={setAdvancedAddDialogOpen}>
-                {/* 2026-09 dialog sweep: after Discover, the mod panel (and
-                    the mod-ID list with Review IDs open, its own 50vh scroller
-                    inside a dialog that scrolled as a whole) pushed the Add
-                    button below the fold at 1280x620. Only the DialogBody
-                    scrolls now, under DialogContent's own bound, and the ID
-                    list flows in it. */}
-                <DialogContent className="max-w-lg">
-                  <DialogHeader>
-                    <DialogTitle>{t('addModDialog.title')}</DialogTitle>
-                    <DialogDescription>
-                      {t('addModDialog.descPrefix')}{' '}
-                      <button
-                        type="button"
-                        className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded-sm"
-                        onClick={() => { setAdvancedAddDialogOpen(false); setCollectionDialogOpen(true) }}
-                      >
-                        {t('addModDialog.importCollectionLink')}
-                      </button>.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <DialogBody className="space-y-4">
-                    {/* Input section */}
-                    <div className="space-y-2">
-                      <Label htmlFor="advanced-mod-input" className="sr-only">{t('addModDialog.inputLabel')}</Label>
-                      <div className="flex flex-col gap-2 sm:flex-row">
-                        <Input
-                          id="advanced-mod-input"
-                          value={advancedModInput}
-                          onChange={(e) => handleModInputChange(e.target.value)}
-                          placeholder={t('addModDialog.inputPlaceholder')}
-                          onKeyDown={(e) => e.key === 'Enter' && !discoveringMod && handleDiscoverMod()}
-                          className="font-mono text-sm"
-                          maxLength={200}
-                        />
-                        <Button
-                          id="discover-mod-btn"
-                          onClick={handleDiscoverMod}
-                          disabled={discoveringMod || !advancedModInput.trim() || !canManageMods}
-                          variant="secondary"
-                          className="w-full shrink-0 sm:w-auto"
-                        >
-                          {discoveringMod ? (
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <>
-                              <Search className="w-4 h-4 me-1" />
-                              {t('addModDialog.discover')}
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {t('addModDialog.example')}
-                      </p>
-                    </div>
-
-                    {/* Loading skeleton */}
-                    {discoveringMod && (
-                      <p className="text-xs text-muted-foreground" role="status">{t('addModDialog.discoveringHint')}</p>
-                    )}
-                    {discoveringMod && (
-                      <div className="space-y-3 p-4 border rounded-lg bg-muted/30 animate-pulse">
-                        <div className="flex items-start justify-between">
-                          <div className="space-y-2 flex-1">
-                            <div className="h-4 bg-muted rounded w-3/4" />
-                            <div className="h-3 bg-muted rounded w-1/2" />
-                          </div>
-                          <div className="h-5 bg-muted rounded w-16" />
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="h-8 bg-muted rounded" />
-                          <div className="h-8 bg-muted rounded" />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Discovered mod info */}
-                    {discoveredMod && !discoveringMod && (
-                      <div className="space-y-3 p-3 border rounded-lg bg-muted/30">
-                        {/* Mod header */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-medium text-sm truncate" title={discoveredMod.name}>
-                              {discoveredMod.name}
-                            </h4>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <code className="text-xs text-muted-foreground font-mono">
-                                {discoveredMod.workshopId}
-                              </code>
-                              <button
-                                onClick={() => window.open(`https://steamcommunity.com/sharedfiles/filedetails/?id=${discoveredMod.workshopId}`, '_blank', 'noopener,noreferrer')}
-                                className="text-xs text-primary hover:underline flex items-center gap-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded-sm"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                                {t('addModDialog.view')}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            {discoveredMod.isMap && (
-                              <Badge variant="secondary" className="text-xs h-5">
-                                <MapIcon className="w-3 h-3 me-1" />
-                                {t('addModDialog.mapBadge')}
-                              </Badge>
-                            )}
-                            {discoveredMod.isDownloaded ? (
-                              <Badge variant="success" className="text-xs h-5">
-                                <CheckCircle className="w-3 h-3 me-1" />
-                                {t('addModDialog.downloadedBadge')}
-                              </Badge>
-                            ) : (
-                              <Badge variant="warning" className="text-xs h-5">
-                                <Download className="w-3 h-3 me-1" />
-                                {t('addModDialog.notDownloadedBadge')}
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Already added warning */}
-                        {discoveredMod.isAlreadyAdded && (
-                          <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2 text-xs text-foreground">
-                            <Info className="w-4 h-4 text-primary shrink-0" />
-                            <span>{t('addModDialog.alreadyAdded')}</span>
-                          </div>
-                        )}
-
-                        {/* Mod IDs selection */}
-                        {discoveredMod.modIds.length > 0 ? (
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-1.5">
-                                <Label className="text-xs font-medium">
-                                  {discoveredMod.hasMultipleModIds
-                                    ? t('addModDialog.modIdsSelectedLabel', { selected: selectedModIds.size, total: discoveredMod.modIds.length })
-                                    : t('addModDialog.modIdLabel')}
-                                </Label>
-                                <HelpTip
-                                  label={
-                                    discoveredMod.hasMultipleModIds
-                                      ? t('addModDialog.modIdsSelectedLabel', { selected: selectedModIds.size, total: discoveredMod.modIds.length })
-                                      : t('addModDialog.modIdLabel')
-                                  }
-                                >
-                                  {t('addModDialog.modIdsHelp')}
-                                </HelpTip>
-                              </div>
-                              {discoveredMod.hasMultipleModIds && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs px-2.5"
-                                  onClick={() => setShowAdvancedIdSelection(!showAdvancedIdSelection)}
-                                >
-                                  {showAdvancedIdSelection ? t('addModDialog.hide') : t('addModDialog.reviewIds')}
-                                </Button>
-                              )}
-                            </div>
-
-                            {discoveredMod.hasMultipleModIds && !showAdvancedIdSelection ? (
-                              <p className="text-xs text-muted-foreground">
-                                {t('addModDialog.preSelectedHint')}
-                              </p>
-                            ) : (
-                              <>
-                                {discoveredMod.hasMultipleModIds && (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs px-2.5"
-                                      onClick={() => {
-                                        const newIds = discoveredMod.modIds.filter(
-                                          id => !discoveredMod.alreadyConfigured?.includes(id)
-                                        )
-                                        setSelectedModIds(new Set(newIds))
-                                      }}
-                                    >
-                                      {t('addModDialog.selectNew')}
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      className="h-7 text-xs px-2.5"
-                                      onClick={() => {
-                                        if (selectedModIds.size === discoveredMod.modIds.length) {
-                                          setSelectedModIds(new Set())
-                                        } else {
-                                          setSelectedModIds(new Set(discoveredMod.modIds))
-                                        }
-                                      }}
-                                    >
-                                      {selectedModIds.size === discoveredMod.modIds.length ? t('addModDialog.none') : t('addModDialog.all')}
-                                    </Button>
-                                  </div>
-                                )}
-                                <div className="space-y-1 rounded-lg border border-border/50 bg-background/50 p-1.5">
-                                  {discoveredMod.modIds.map((modId) => {
-                                    const isConfigured = discoveredMod.alreadyConfigured?.includes(modId)
-                                    return (
-                                      <div
-                                        key={modId}
-                                        role="button"
-                                        tabIndex={0}
-                                        aria-pressed={selectedModIds.has(modId)}
-                                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${
-                                          selectedModIds.has(modId)
-                                            ? 'bg-primary/10 border-s-2 border-s-primary'
-                                            : isConfigured
-                                              ? 'bg-muted/30 opacity-70'
-                                              : 'hover:bg-muted/40'
-                                        }`}
-                                        onClick={() => toggleModIdSelection(modId)}
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter' || event.key === ' ') {
-                                            event.preventDefault()
-                                            toggleModIdSelection(modId)
-                                          }
-                                        }}
-                                      >
-                                        <Checkbox
-                                          checked={selectedModIds.has(modId)}
-                                          onCheckedChange={() => toggleModIdSelection(modId)}
-                                        aria-label={t('addModDialog.selectModIdAria', { id: modId })}
-                                        />
-                                        <code className="text-xs font-mono flex-1 truncate" title={modId}>
-                                          {modId}
-                                        </code>
-                                        {isConfigured && (
-                                          <Badge variant="outline" className="text-xs h-5 shrink-0 text-muted-foreground">
-                                            {t('addModDialog.existsBadge')}
-                                          </Badge>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
-                            <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
-                            <div>
-                              <p className="font-medium text-warning">
-                                {discoveredMod.isDownloaded
-                                  ? t('addModDialog.noModInfoTitle')
-                                  : t('addModDialog.notDownloadedTitle')}
-                              </p>
-                              <p className="text-muted-foreground mt-0.5">
-                                {discoveredMod.isDownloaded
-                                  ? t('addModDialog.unconventionalStructure')
-                                  : t('addModDialog.addAndSyncLater')}
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Map folders info */}
-                        {discoveredMod.mapFolders.length > 0 && (
-                          <div className="flex items-start gap-2 text-xs">
-                            <MapIcon className="w-3.5 h-3.5 text-muted-foreground mt-0.5 shrink-0" />
-                            <div>
-                              <span className="font-medium">{t('addModDialog.mapFoldersWillBeAdded')}</span>
-                              <div className="text-muted-foreground mt-0.5 [overflow-wrap:anywhere]">
-                                {discoveredMod.mapFolders.join(', ')}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </DialogBody>
-                  <DialogFooter className="flex-col sm:flex-row gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setAdvancedAddDialogOpen(false)}
-                      className="w-full sm:order-1 sm:w-auto"
-                    >
-                      {t('addModDialog.cancel')}
-                    </Button>
-                    <Button
-                      onClick={handleAddModAdvanced}
-                      disabled={loading || !discoveredMod || discoveringMod || !canManageMods || pendingAddServerChanged}
-                      className="w-full sm:order-2 sm:w-auto"
-                    >
-                      {loading ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 me-2 animate-spin" />
-                          {t('addModDialog.adding')}
-                        </>
-                      ) : discoveredMod?.modIds.length ? (
-                        selectedModIds.size > 0
-                          ? t('addModDialog.addModIds', { count: selectedModIds.size })
-                          : t('addModDialog.addWorkshopIdOnly')
-                      ) : discoveredMod ? (
-                        t('addModDialog.addWorkshopId')
-                      ) : (
-                        t('addModDialog.discoverFirst')
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Restart Settings Dialog */}
-            <Dialog open={restartSettingsOpen} onOpenChange={setRestartSettingsOpen}>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>{t('restartSettingsDialog.title')}</DialogTitle>
-                    <DialogDescription>
-                      {t('restartSettingsDialog.description')}
-                    </DialogDescription>
-                  </DialogHeader>
-                  {/* DialogBody (2026-09 dialog sweep): with "Delay if players
-                      online" on, a landscape phone scrolled Save Settings
-                      below the fold. */}
-                  <DialogBody className="space-y-4">
-                    <div>
-                      <Label htmlFor="restart-warning-minutes">{t('restartSettingsDialog.warningTimeLabel')}</Label>
-                      <NumberInput
-                        id="restart-warning-minutes"
-                        min={0}
-                        max={30}
-                        value={restartWarningMinutes}
-                        onChange={setRestartWarningMinutes}
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t('restartSettingsDialog.warningTimeHint')}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center justify-between rounded-lg border border-border/70 bg-card/65 p-3">
-                      <div className="space-y-1">
-                        <Label>{t('restartSettingsDialog.delayIfPlayersLabel')}</Label>
-                        <p className="text-xs text-muted-foreground">
-                          {t('restartSettingsDialog.delayIfPlayersHint')}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={delayIfPlayersOnline}
-                        onCheckedChange={setDelayIfPlayersOnline}
-                      />
-                    </div>
-
-                    {delayIfPlayersOnline && (
-                      <div>
-                        <Label htmlFor="restart-max-delay">{t('restartSettingsDialog.maxDelayLabel')}</Label>
-                        <NumberInput
-                          id="restart-max-delay"
-                          min={5}
-                          max={120}
-                          value={maxDelayMinutes}
-                          onChange={setMaxDelayMinutes}
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {t('restartSettingsDialog.maxDelayHint')}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="rounded-lg border border-border/70 bg-secondary/40 p-3">
-                      <p className="text-sm font-medium mb-2">{t('restartSettingsDialog.currentSettingsTitle')}</p>
-                      <div className="text-xs text-muted-foreground space-y-1">
-                        <p>{t('restartSettingsDialog.currentWarningTime', { minutes: restartWarningMinutes })}</p>
-                        <p>{t('restartSettingsDialog.currentDelayForPlayers', { value: delayIfPlayersOnline ? t('restartSettingsDialog.yes') : t('restartSettingsDialog.no') })}</p>
-                        {delayIfPlayersOnline && <p>{t('restartSettingsDialog.currentMaxDelay', { minutes: maxDelayMinutes })}</p>}
-                      </div>
-                    </div>
-                  </DialogBody>
-                  <DialogFooter className="flex-col sm:flex-row gap-2">
-                    <Button variant="outline" onClick={() => setRestartSettingsOpen(false)} className="w-full sm:w-auto">
-                      {t('restartSettingsDialog.cancel')}
-                    </Button>
-                    <Button onClick={handleSaveRestartSettings} disabled={loading || !canManageMods} className="w-full sm:w-auto">
-                      {loading ? t('restartSettingsDialog.saving') : t('restartSettingsDialog.saveSettings')}
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-            </Dialog>
-          </div>
-
-          {/* Server Mods Tab — auto-tracks every workshop ID in the server INI. */}
-          {activeTab === 'installed' && (
-          <div className="space-y-4">
-            {/* Search and Filters */}
-            {mods.length > 0 && (
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="relative min-w-0 basis-full sm:basis-auto sm:flex-1 sm:max-w-sm">
-                <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  placeholder={t('installedTab.searchPlaceholder')}
-                  maxLength={200}
-                  className="ps-9"
-                  aria-label={t('installedTab.searchAria')}
-                />
-              </div>
-
-              <Button
-                variant={showUpdatesOnly ? "secondary" : "outline"}
-                size="sm"
-                onClick={() => setShowUpdatesOnly(!showUpdatesOnly)}
-                aria-pressed={showUpdatesOnly}
-                className={showUpdatesOnly ? "w-full border-warning/40 bg-warning/15 text-warning hover:bg-warning/25 sm:w-auto" : "w-full sm:w-auto"}
-              >
-                {showUpdatesOnly ? <Check className="w-4 h-4 me-2" /> : <Filter className="w-4 h-4 me-2" />}
-                {t('installedTab.updatesOnly')}
-              </Button>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={showDisabled ? 'secondary' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      const next = !showDisabled
-                      setShowDisabled(next)
-                      if (next) fetchDisabled()
-                    }}
-                    aria-pressed={showDisabled}
-                    className="w-full sm:w-auto"
-                  >
-                    {showDisabled ? <EyeOff className="w-4 h-4 me-2" /> : <Eye className="w-4 h-4 me-2" />}
-                    {showDisabled ? t('installedTab.hideDisabled') : t('installedTab.showDisabled')}
-                    {showDisabled && disabledMods.length > 0 && (
-                      <span className="ms-2 inline-flex items-center justify-center rounded-full bg-muted/40 px-1.5 text-[10px] font-medium tabular-nums">
-                        {disabledMods.length}
-                      </span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t('installedTab.showDisabledTooltip')}</TooltipContent>
-              </Tooltip>
-
-              {/* Workshop collection sync indicator. Shown only when an admin
-                  has wired up a collection ID. Clicking the chip refreshes
-                  the diff; the inline button performs the actual sync. */}
-              {collectionStatus.configured && (
-                collectionStatus.error ? (
-                  <button
-                    type="button"
-                    onClick={fetchCollectionStatus}
-                    title={t('installedTab.collectionErrorTitle', { error: collectionStatus.error })}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive hover:bg-destructive/20 transition-colors"
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    {t('installedTab.collectionError')}
-                  </button>
-                ) : collectionStatus.inSync ? (
-                  <button
-                    type="button"
-                    onClick={fetchCollectionStatus}
-                    title={collectionStatus.title ? t('installedTab.collectionInSyncTitleNamed', { title: collectionStatus.title }) : t('installedTab.collectionInSyncTitle')}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-success/40 bg-success/10 px-2.5 py-1 text-xs font-medium text-success hover:bg-success/20 transition-colors"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    {t('installedTab.collectionInSync')}
-                    {collectionStatus.autoSync && <span className="text-[10px] opacity-70">{t('installedTab.collectionAutoTag')}</span>}
-                  </button>
-                ) : collectionStatus.drift > 0 ? (
-                  <div className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 ps-2.5 pe-1 py-0.5 text-xs font-medium text-warning">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>{t('installedTab.collectionDrift', { count: collectionStatus.drift })}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={handleCollectionSyncNow}
-                      disabled={collectionSyncing || !canManageMods}
-                      className="h-6 px-2 ms-1 text-xs hover:bg-warning/20"
-                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does ("Sync tracked mods → Steam Workshop collection"), not why it's disabled; unconditional, no permission text to lose. Triaged 2026-08-27.
-                      title={t('installedTab.collectionSyncTooltip')}
-                    >
-                      {collectionSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : t('installedTab.collectionSync')}
-                    </Button>
+              ) : filteredMods.length === 0 ? (
+                searchQuery || installedChips.length > 0 ? (
+                  <div className="p-6">
+                    <EmptyState
+                      type="noResults"
+                      compact
+                      title={t('installedTab.noResultsTitle')}
+                      description={t('installedTab.noResultsDesc')}
+                      action={{
+                        label: searchQuery ? t('installedTab.clearSearch') : t('filters.clearAll'),
+                        onClick: () => { handleSearchChange(''); clearInstalledFilters() },
+                        variant: 'outline',
+                      }}
+                    />
                   </div>
-                ) : collectionStatus.loading ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    {t('installedTab.collectionChecking')}
-                  </span>
-                ) : null
-              )}
-
-              {selectedMods.size > 0 && (
-                <div className="ms-auto flex w-full flex-wrap items-center gap-2 sm:w-auto bulk-bar-enter">
-                  <span className="text-sm text-muted-foreground">
-                    {t('installedTab.selectedCount', { count: selectedMods.size })}
-                  </span>
-                  <Button variant="outline" size="sm" onClick={deselectAll}>
-                    {t('installedTab.deselect')}
-                  </Button>
-                  <Button variant="destructive" size="sm" onClick={() => setConfirmBulkRemove(true)} disabled={loading}>
-                    <Trash2 className="w-4 h-4 me-2" />
-                    {t('installedTab.remove')}
-                  </Button>
-                </div>
-              )}
-
-              {selectedMods.size === 0 && visibleServerMods.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={selectAllVisible} className="ms-auto w-full sm:w-auto">
-                  {t('installedTab.selectAll', { count: visibleServerMods.length })}
-                </Button>
-              )}
-            </div>
-            )}
-
-            {/* Mods List — grouped by status */}
-            <Card>
-              <CardContent className="p-0">
-                {filteredMods.length === 0 ? (
-                  searchQuery ? (
-                    <div className="p-6">
-                      <EmptyState
-                        type="noResults"
-                        title={t('installedTab.noResultsTitle')}
-                        description={t('installedTab.noResultsDesc')}
-                        action={{ label: t('installedTab.clearSearch'), onClick: () => handleSearchChange(''), variant: 'outline' }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="px-4 py-10 sm:px-8">
-                      <div className="mx-auto max-w-2xl">
-                        {/* Hero */}
-                        <div className="flex flex-col items-center text-center mb-6">
-                          <div className="relative mb-4" aria-hidden="true">
-                            <div className="absolute inset-0 rounded-2xl bg-primary/15 blur-xl" />
-                            <div className="relative w-16 h-16 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center">
-                              <Package className="w-8 h-8 text-primary" />
-                            </div>
-                          </div>
-                          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground/80">
-                            {t('installedTab.emptyEyebrow')}
-                          </p>
-                          <h3 className="text-base font-semibold text-foreground">{t('installedTab.emptyTitle')}</h3>
-                          <p className="mt-1.5 text-sm text-muted-foreground max-w-md leading-relaxed">
-                            {t('installedTab.emptyDesc')}
-                          </p>
+                ) : mods.length > 0 ? (
+                  <div className="p-6">
+                    <EmptyState
+                      type="noData"
+                      compact
+                      title={t('installedTab.allDeactivatedTitle')}
+                      description={t('installedTab.allDeactivatedDesc', { count: deactivatedMods.length })}
+                      action={{ label: t('nav.deactivated.label'), onClick: () => selectView('deactivated'), variant: 'outline' }}
+                    />
+                  </div>
+                ) : (
+                  <div className="px-4 py-10 sm:px-8">
+                    <div className="mx-auto max-w-2xl">
+                      <div className="mb-6 flex flex-col items-center text-center">
+                        <div className="mb-4 grid h-14 w-14 place-items-center rounded-xl border border-primary/25 bg-primary/10" aria-hidden="true">
+                          <Package className="h-7 w-7 text-primary" />
                         </div>
+                        <h3 className="text-base font-semibold text-foreground">{t('installedTab.emptyTitle')}</h3>
+                        <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+                          {t('installedTab.emptyDesc')}
+                        </p>
+                      </div>
 
-                        {/* 3 paths to populate the list */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-5">
-                          {/* First-time operators land here with an empty list, and
-                              this Sync tile is marked "Recommended" -- exactly the
-                              button they'll try first. Same missing-tooltip-on-disable
-                              issue as the header Sync button above; wrap it the same
-                              way so a mods.manage-less role sees why, instead of a
-                              silently grayed-out "recommended" action. */}
-                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
+                      {/* Three ways to fill the list. */}
+                      <div className="mb-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {/* First-time operators land here with an empty list,
+                            and this "Recommended" tile is the button they try
+                            first: without mods.manage it says why it is off. */}
+                        <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null} className="w-full">
                           <button
                             type="button"
                             onClick={handleSyncFromServer}
                             disabled={loading || !canManageMods}
-                            className="group w-full text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                            className="group w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-3 text-start transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <RefreshCw className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
-                              <span className="text-xs font-semibold text-foreground/90">{t('installedTab.syncFromServerTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                            <div className="mb-1.5 flex items-center gap-2">
+                              <RefreshCw className="h-4 w-4 text-primary" aria-hidden="true" />
+                              <span className="text-sm font-semibold text-foreground">{t('installedTab.syncFromServerTitle')}</span>
                             </div>
-                            <p className="text-[11px] text-muted-foreground leading-snug">
+                            <p className="text-xs leading-snug text-muted-foreground">
                               {t('installedTab.syncFromServerDesc')}
                             </p>
-                            <p className="mt-1.5 text-[10px] uppercase tracking-wider text-primary/70">{t('installedTab.recommended')}</p>
+                            <p className="label-micro mt-1.5 text-primary">{t('installedTab.recommended')}</p>
                           </button>
-                          </DisabledReason>
+                        </DisabledReason>
 
-                          <button
-                            type="button"
-                            onClick={() => setCollectionDialogOpen(true)}
-                            disabled={loading}
-                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                          >
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <Library className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
-                              <span className="text-xs font-semibold text-foreground/90">{t('installedTab.importCollectionTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-snug">
-                              {t('installedTab.importCollectionDesc')}
-                            </p>
-                          </button>
+                        <button
+                          type="button"
+                          onClick={() => { selectView('collection'); setCollectionDialogOpen(true) }}
+                          disabled={loading}
+                          className="group rounded-lg border border-border/60 bg-muted/20 px-3 py-3 text-start transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <Library className="h-4 w-4 text-primary" aria-hidden="true" />
+                            <span className="text-sm font-semibold text-foreground">{t('installedTab.importCollectionTitle')}</span>
+                          </div>
+                          <p className="text-xs leading-snug text-muted-foreground">
+                            {t('installedTab.importCollectionDesc')}
+                          </p>
+                        </button>
 
-                          <button
-                            type="button"
-                            onClick={() => setAdvancedAddOpen(true)}
-                            disabled={loading}
-                            className="group text-start rounded-lg border border-border/50 hover:border-primary/40 hover:bg-primary/[0.04] bg-muted/15 px-3 py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                          >
-                            <div className="flex items-center gap-2 mb-1.5">
-                              <PlusCircle className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
-                              <span className="text-xs font-semibold text-foreground/90">{t('installedTab.addSingleModTitle')}</span>
-                              <ChevronRight className="w-3 h-3 ms-auto text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
-                            </div>
-                            <p className="text-[11px] text-muted-foreground leading-snug">
-                              {t('installedTab.addSingleModDesc')}
-                            </p>
-                          </button>
-                        </div>
-
-                        <p className="text-[11px] text-center text-muted-foreground/70 flex items-center justify-center gap-1.5">
-                          <Info className="w-3 h-3" aria-hidden="true" />
-                          {t('installedTab.trackingMetadataOnly')}
-                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setAdvancedAddOpen(true)}
+                          disabled={loading}
+                          className="group rounded-lg border border-border/60 bg-muted/20 px-3 py-3 text-start transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <div className="mb-1.5 flex items-center gap-2">
+                            <PlusCircle className="h-4 w-4 text-primary" aria-hidden="true" />
+                            <span className="text-sm font-semibold text-foreground">{t('installedTab.addSingleModTitle')}</span>
+                          </div>
+                          <p className="text-xs leading-snug text-muted-foreground">
+                            {t('installedTab.addSingleModDesc')}
+                          </p>
+                        </button>
                       </div>
-                    </div>
-                  )
-                ) : (
-                  <div ref={modListRef} className="h-[calc(100vh-340px)] min-h-[300px] overflow-y-auto">
-                    <div style={{ height: modListVirtualizer.getTotalSize(), position: 'relative' }}>
-                      {modListVirtualizer.getVirtualItems().map(virtualRow => {
-                        const item = flatModItems[virtualRow.index]
-                        const groupBorder =
-                          item.type === 'hint' ? 'border-s-2 border-muted-foreground/30'
-                          : item.group === 'update' ? 'border-s-2 border-warning'
-                          : item.group === 'neverChecked' ? 'border-s-2 border-muted-foreground/30'
-                          : 'border-s-2 border-primary/30'
 
+                      <p className="flex items-center justify-center gap-1.5 text-center text-xs text-muted-foreground">
+                        <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                        {t('installedTab.trackingMetadataOnly')}
+                      </p>
+                    </div>
+                  </div>
+                )
+              ) : (
+                renderInstalledRows()
+              )}
+            </SectionCard>
+          )}
+
+          {/* Deactivated: tracked items no longer in WorkshopItems=, Workshop
+              folders the server does not load, and the ignore list. */}
+          {activeTab === 'deactivated' && (
+            <>
+              <SectionCard
+                title={t('deactivatedTab.title')}
+                description={<Trans i18nKey="deactivatedTab.description" t={t} components={{ 1: <code className="font-mono text-xs" /> }} />}
+                icon={EyeOff}
+                status={<Badge variant="outline" className="tabular-nums">{deactivatedMods.length}</Badge>}
+                flush
+              >
+                {!iniConfig ? (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    {t('deactivatedTab.loadingConfig')}
+                  </div>
+                ) : deactivatedMods.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+                    <CheckCircle className="h-8 w-8 text-muted-foreground/40" aria-hidden="true" />
+                    <p className="text-sm text-muted-foreground">
+                      {t('deactivatedTab.emptyTitle')}
+                    </p>
+                    <p className="max-w-md text-xs text-muted-foreground">
+                      {t('deactivatedTab.emptyDesc')}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Toolbar: select-all / enable / delete bulk actions */}
+                    {(() => {
+                      const deactivatedIds = deactivatedMods.map(m => m.workshop_id)
+                      const selectedDeactivated = deactivatedIds.filter(id => selectedMods.has(id))
+                      const allSelected = selectedDeactivated.length === deactivatedIds.length && deactivatedIds.length > 0
+                      const someSelected = selectedDeactivated.length > 0
+                      const missingNameCount = deactivatedMods.filter(m => !m.name || /^Workshop Mod /i.test(m.name)).length
+                      return (
+                        <div className="space-y-2 border-b border-border/40 bg-muted/15 px-4 py-2.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                checked={allSelected}
+                                onCheckedChange={(checked) => {
+                                  setSelectedMods(prev => {
+                                    const next = new Set(prev)
+                                    if (checked) {
+                                      for (const id of deactivatedIds) next.add(id)
+                                    } else {
+                                      for (const id of deactivatedIds) next.delete(id)
+                                    }
+                                    return next
+                                  })
+                                }}
+                                aria-label={t('deactivatedTab.selectAllAria')}
+                              />
+                              <span className="text-xs text-muted-foreground">
+                                {someSelected ? t('deactivatedTab.selectedCount', { count: selectedDeactivated.length }) : t('deactivatedTab.selectAllCount', { count: deactivatedIds.length })}
+                              </span>
+                            </div>
+                            <div className="ms-auto flex items-center gap-2">
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={!someSelected || loading || !canManageMods}
+                                  onClick={() => handleBulkEnable(selectedDeactivated)}
+                                >
+                                  <PlusCircle aria-hidden="true" />
+                                  {someSelected ? t('deactivatedTab.reEnableCount', { count: selectedDeactivated.length }) : t('deactivatedTab.reEnable')}
+                                </Button>
+                              </DisabledReason>
+                            </div>
+                          </div>
+                          <details className="group/deactivated-danger rounded-md border border-border/50 bg-card px-2.5 py-1.5">
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs text-muted-foreground hover:text-foreground">
+                              <span className="inline-flex items-center gap-1.5">
+                                <ChevronRight className="h-3 w-3 transition-transform group-open/deactivated-danger:rotate-90 rtl:-scale-x-100" aria-hidden="true" />
+                                {t('deactivatedTab.trackingCleanup')}
+                              </span>
+                              <span className="text-muted-foreground">{t('deactivatedTab.destructive')}</span>
+                            </summary>
+                            <div className="mt-2 flex flex-col gap-2 border-t border-border/40 pt-2 sm:flex-row sm:items-center sm:justify-between">
+                              <p className="text-xs leading-4 text-muted-foreground">
+                                {t('deactivatedTab.deleteHint')}
+                              </p>
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="self-start sm:self-auto"
+                                  disabled={loading || (deactivatedIds.length === 0) || !canManageMods}
+                                  onClick={async () => {
+                                    if (!canManageMods) return
+                                    const ids = someSelected ? selectedDeactivated : deactivatedIds
+                                    const label = someSelected
+                                      ? t('deactivatedTab.deleteSelectedConfirm', { count: ids.length })
+                                      : t('deactivatedTab.deleteAllConfirm', { count: ids.length })
+                                    // Only an INI untrack (files stay on disk, see deleteHint
+                                    // above) -- not a disk delete, so no red/no-undo framing.
+                                    const ok = await confirm({ title: t('deactivatedTab.deleteFromTrackingTitle'), description: label, confirmLabel: t('deactivatedTab.deleteConfirmButton'), destructive: false })
+                                    if (!ok) return
+                                    setSelectedMods(new Set(ids))
+                                    handleBulkRemove(ids)
+                                  }}
+                                >
+                                  <Trash2 aria-hidden="true" />
+                                  {someSelected ? t('deactivatedTab.deleteSelected', { count: selectedDeactivated.length }) : t('deactivatedTab.deleteAll', { count: deactivatedIds.length })}
+                                </Button>
+                              </DisabledReason>
+                            </div>
+                          </details>
+                          {missingNameCount > 0 && (
+                            <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+                              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                              <div className="flex flex-1 flex-wrap items-center gap-2">
+                                <span className="min-w-0 flex-1">
+                                  <Trans i18nKey="deactivatedTab.genericNameNotice" t={t} count={missingNameCount} values={{ count: missingNameCount }} components={{ 1: <strong className="text-foreground" />, 3: <strong /> }} />
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={loading || !canManageMods}
+                                  onClick={() => {
+                                    const targets = deactivatedMods
+                                      .filter(m => !m.name || /^Workshop Mod /i.test(m.name))
+                                      .map(m => m.workshop_id)
+                                    handleRefreshNames(targets)
+                                  }}
+                                >
+                                  <RefreshCw className={loading ? 'animate-spin' : undefined} aria-hidden="true" />
+                                  {t('deactivatedTab.refreshNames')}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
+
+                    {/* Rows: per-row Enable + Delete; checkbox for bulk select */}
+                    <div className="divide-y divide-border/40">
+                      {deactivatedMods.map(mod => {
+                        const isSelected = selectedMods.has(mod.workshop_id)
+                        const name = mod.name || t('deactivatedTab.workshopModFallback', { id: mod.workshop_id })
                         return (
                           <div
-                            key={virtualRow.key}
-                            className={groupBorder}
-                            style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              width: '100%',
-                              transform: `translateY(${virtualRow.start}px)`,
-                            }}
+                            key={mod.id}
+                            className={cn('group/modrow flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/40', isSelected && 'bg-accent/30')}
                           >
-                            {item.type === 'header' && item.group === 'update' && (
-                              <div className="flex items-center gap-2.5 bg-warning/10 px-4 py-2.5 border-b border-warning/25">
-                                <span className="relative inline-flex shrink-0" aria-hidden="true">
-                                  <span className="absolute inset-0 rounded-full bg-warning/40 animate-ping" />
-                                  <span className="relative w-2 h-2 rounded-full bg-warning" />
-                                </span>
-                                <span className="text-sm font-semibold text-warning">
-                                  {t('installedTab.updatesAvailable')}
-                                </span>
-                                <span className="inline-flex h-5 items-center rounded-full bg-warning/20 px-2 font-mono text-[11px] tabular-nums text-warning">
-                                  {item.count}
-                                </span>
+                            <div className="shrink-0">
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleModSelect(mod.workshop_id)}
+                                aria-label={t('deactivatedTab.selectAria', { name: mod.name || mod.workshop_id })}
+                              />
+                            </div>
+                            <a
+                              href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${mod.workshop_id}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="relative grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-md border border-border/50 bg-muted/30 text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
+                              aria-label={t('deactivatedTab.openOnSteamAria', { name })}
+                              title={t('deactivatedTab.openWorkshopPageTitle')}
+                            >
+                              <Package className="h-6 w-6" aria-hidden="true" />
+                              <img
+                                src={demoMode ? `${import.meta.env.BASE_URL}spiffo.png` : `/api/mods/thumbnail/${mod.workshop_id}`}
+                                alt=""
+                                loading="lazy"
+                                decoding="async"
+                                className="absolute inset-0 h-full w-full rounded-md object-cover opacity-80"
+                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                              />
+                            </a>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="truncate text-sm font-medium text-foreground">{name}</span>
+                                <NoteIndicator note={notesStore.notes[mod.workshop_id]} onOpen={() => setNoteEditor({ workshopId: mod.workshop_id, name })} />
                               </div>
-                            )}
-                            {item.type === 'header' && item.group === 'neverChecked' && (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 bg-muted/20 px-4 py-2 border-b border-border/40 hover:bg-muted/30 transition-colors text-start"
-                                onClick={() => setNeverCheckedExpanded(!neverCheckedExpanded)}
-                                aria-expanded={neverCheckedExpanded}
-                              >
-                                <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${neverCheckedExpanded ? 'rotate-90' : ''}`} />
-                                <Clock className="w-4 h-4 text-muted-foreground" />
-                                <span className="text-sm font-medium text-muted-foreground">
-                                  {t('installedTab.neverCheckedHeader')}
-                                </span>
-                                <span className="font-mono text-[11px] tabular-nums text-muted-foreground/70">
-                                  {item.count}
-                                </span>
-                                {!neverCheckedExpanded && (
-                                  <span className="ms-auto text-[11px] text-muted-foreground/70">
-                                    {t('installedTab.expandHint')} <kbd className="rounded border border-border/60 bg-muted/40 px-1 py-0 font-mono text-[10px]">{t('installedTab.checkUpdatesKbd')}</kbd>
-                                  </span>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                <WorkshopIdChip
+                                  wsId={mod.workshop_id}
+                                  onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })}
+                                />
+                                {mod.last_checked && (
+                                  <span>{t('deactivatedTab.checkedOn', { date: formatDate(mod.last_checked) })}</span>
                                 )}
-                              </button>
-                            )}
-                            {item.type === 'header' && item.group === 'upToDate' && (
-                              <button
-                                type="button"
-                                className="flex w-full items-center gap-2 bg-primary/5 px-4 py-2 border-b border-border/40 hover:bg-primary/10 transition-colors text-start"
-                                onClick={() => setUpToDateExpanded(!upToDateExpanded)}
-                                aria-expanded={upToDateExpanded}
-                              >
-                                <ChevronRight className={`w-4 h-4 text-primary transition-transform ${upToDateExpanded ? 'rotate-90' : ''}`} />
-                                <CheckCircle className="w-4 h-4 text-primary" />
-                                <span className="text-sm font-medium text-primary">
-                                  {t('installedTab.upToDate')}
-                                </span>
-                                <span className="font-mono text-[11px] tabular-nums text-primary/80">
-                                  {item.count}
-                                </span>
-                              </button>
-                            )}
-                            {item.type === 'hint' && (
-                              <div className="flex items-center gap-3 bg-primary/5 border-b border-border/40 px-4 py-3">
-                                <RefreshCw className="w-4 h-4 text-primary shrink-0" />
-                                <p className="text-sm text-muted-foreground">
-                                  <Trans i18nKey="installedTab.hintText" t={t} components={{ 1: <strong className="text-foreground" /> }} />
-                                </p>
                               </div>
-                            )}
-                            {item.type === 'mod' && (
-                              <div className="border-b border-border/30">
-                                {renderModRow(item.mod)}
-                              </div>
-                            )}
+                            </div>
+                            <div className="flex shrink-0 items-center gap-0.5">
+                              <WorkshopLinkAction wsId={mod.workshop_id} label={name} hint={t('deactivatedTab.openWorkshopPageTooltip')} />
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEnableMod(mod.workshop_id)}
+                                  disabled={loading || !canManageMods}
+                                  aria-label={t('deactivatedTab.reEnableAria', { name: mod.name || mod.workshop_id })}
+                                  // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what re-enabling does); the disabled-reason lives in the wrapping DisabledReason.
+                                  title={t('deactivatedTab.reEnableTooltip')}
+                                >
+                                  <PlusCircle aria-hidden="true" />
+                                  <span className="hidden sm:inline">{t('deactivatedTab.reEnable')}</span>
+                                </Button>
+                              </DisabledReason>
+                              <RowActions
+                                ariaLabel={t('rowMenu.actionsAria', { name })}
+                                items={[
+                                  noteMenuItem(mod.workshop_id, name),
+                                  {
+                                    label: t('deactivatedTab.deleteTooltip'),
+                                    icon: Trash2,
+                                    destructive: true,
+                                    onSelect: () => setConfirmRemoveMod({ wsId: mod.workshop_id, label: mod.name || mod.workshop_id }),
+                                    disabled: loading || !canManageMods,
+                                    reason: !canManageMods ? t('permissions.noModsManage') : undefined,
+                                  },
+                                ]}
+                              />
+                            </div>
                           </div>
                         )
                       })}
                     </div>
-                  </div>
+                  </>
                 )}
-              </CardContent>
-            </Card>
+              </SectionCard>
 
-            {/* ─── Disabled mods ──────────────────────────────────────────
-                Mods downloaded into the Workshop content folder but not in
-                the server INI's WorkshopItems= list. Hidden by default; the
-                "Show disabled" toggle in the filter bar reveals this panel
-                and triggers a one-shot fetch. Each row offers a quick Enable
-                that adds it to the INI (and lifts any prior ignore-list
-                entry so auto-track picks it up). */}
-            {showDisabled && (
-              <div className="rounded-lg border border-dashed border-border/50 bg-card/40">
-                <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/30">
-                  <div className="flex items-center gap-2 text-sm">
-                    <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="font-medium text-muted-foreground">{t('disabledPanel.title')}</span>
-                    {!disabledLoading && (
-                      <span className="text-xs text-muted-foreground/70">
-                        {t('disabledPanel.subtitle')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 px-2 text-xs"
-                      onClick={fetchDisabled}
-                      disabled={disabledLoading}
-                    >
-                      {disabledLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                      <span className="ms-1.5">{t('disabledPanel.refresh')}</span>
+              {/* Mods downloaded into the Workshop content folder but not in the
+                  server INI's WorkshopItems= list. Each row's Enable adds it to
+                  the INI (and lifts any ignore-list entry). */}
+              <SectionCard
+                title={t('disabledPanel.sectionTitle')}
+                description={t('disabledPanel.description')}
+                icon={HardDrive}
+                status={disabledScanned && !disabledLoading ? <Badge variant="outline" className="tabular-nums">{disabledMods.length}</Badge> : undefined}
+                flush
+                actions={
+                  <>
+                    <Button variant="ghost" size="sm" onClick={fetchDisabled} disabled={disabledLoading}>
+                      {disabledLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+                      {/* Icon-only on a phone, so the card's title keeps its line. */}
+                      <span className="sr-only sm:not-sr-only">{t('disabledPanel.refresh')}</span>
                     </Button>
                     {disabledMods.length > 0 && !disabledLoading && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                        onClick={handleDeleteAllDisabled}
-                        disabled={deletingId !== null || loading || !canManageMods}
-                      >
-                        {deletingId === '__batch_disabled__' ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-3.5 h-3.5" />
-                        )}
-                        <span className="ms-1.5">{t('disabledPanel.deleteAll')}</span>
-                      </Button>
+                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={handleDeleteAllDisabled}
+                          disabled={deletingId !== null || loading || !canManageMods}
+                        >
+                          {deletingId === '__batch_disabled__' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+                          <span className="sr-only sm:not-sr-only">{t('disabledPanel.deleteAll')}</span>
+                        </Button>
+                      </DisabledReason>
                     )}
-                  </div>
-                </div>
+                  </>
+                }
+              >
                 {disabledLoading ? (
-                  <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin inline me-2" />
+                  <div className="px-4 py-6 text-center text-sm text-muted-foreground" role="status">
+                    <Loader2 className="me-2 inline h-4 w-4 animate-spin" aria-hidden="true" />
                     {t('disabledPanel.scanning')}
                   </div>
                 ) : disabledMods.length === 0 ? (
                   <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                    {t('disabledPanel.empty')}
+                    {disabledScanned ? t('disabledPanel.empty') : t('disabledPanel.notScanned')}
                   </div>
                 ) : (
-                  <div className="divide-y divide-border/30">
+                  <div className="divide-y divide-border/40">
                     {disabledMods.map((mod) => (
-                      <div key={mod.workshop_id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                        <div className="flex items-center gap-2 min-w-0 opacity-70">
-                          <Package className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
-                          <span className="truncate">{mod.name}</span>
-                          <span className="text-xs text-muted-foreground/60 tabular-nums shrink-0">{mod.workshop_id}</span>
+                      <div key={mod.workshop_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2 text-sm sm:flex-nowrap">
+                        {/* Full width on a phone (the buttons go under it), so the name stays readable. */}
+                        <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto">
+                          <Package className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="truncate text-foreground">{mod.name}</span>
+                          <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{mod.workshop_id}</span>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <a
-                                href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${mod.workshop_id}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex"
-                              >
-                                <Button variant="ghost" size="iconDense" className="h-7 w-7 text-muted-foreground hover:text-primary">
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </Button>
-                              </a>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('disabledPanel.openWorkshopPage')}</TooltipContent>
-                          </Tooltip>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2.5 text-xs"
-                            onClick={() => handleEnableDiskMod(mod.workshop_id)}
-                            disabled={enablingId === mod.workshop_id || deletingId !== null || loading || !canManageMods}
-                          >
-                            {enablingId === mod.workshop_id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <>
-                                <Plus className="w-3.5 h-3.5 me-1" />
-                                {t('disabledPanel.enable')}
-                              </>
-                            )}
-                          </Button>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="iconDense"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name)}
-                                disabled={deletingId !== null || enablingId === mod.workshop_id || loading || !canManageMods}
-                              >
-                                {deletingId === mod.workshop_id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('disabledPanel.deleteFromDisk')}</TooltipContent>
-                          </Tooltip>
+                        <div className="ms-auto flex shrink-0 items-center gap-1">
+                          <WorkshopLinkAction wsId={mod.workshop_id} label={mod.name || mod.workshop_id} hint={t('disabledPanel.openWorkshopPage')} />
+                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEnableDiskMod(mod.workshop_id)}
+                              disabled={enablingId === mod.workshop_id || deletingId !== null || loading || !canManageMods}
+                            >
+                              {enablingId === mod.workshop_id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Plus aria-hidden="true" />}
+                              {t('disabledPanel.enable')}
+                            </Button>
+                          </DisabledReason>
+                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                            <Button
+                              variant="ghost"
+                              size="iconDense"
+                              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name)}
+                              disabled={deletingId !== null || enablingId === mod.workshop_id || loading || !canManageMods}
+                              aria-label={t('disabledPanel.deleteFromDiskAria', { name: mod.name || mod.workshop_id })}
+                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what the icon does); the disabled-reason lives in the wrapping DisabledReason.
+                              title={t('disabledPanel.deleteFromDisk')}
+                            >
+                              {deletingId === mod.workshop_id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+                            </Button>
+                          </DisabledReason>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
-              </div>
-            )}
+              </SectionCard>
 
-            {/* Ignored Mods — collapsible section */}
-            {ignoredMods.length > 0 && (
-              <div className="rounded-lg border border-border/30 bg-card/50">
-                <button
-                  type="button"
-                  className="flex w-full items-center justify-between px-4 py-2.5 text-start text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setIgnoredModsOpen(!ignoredModsOpen)}
+              {/* Ignored mods: auto-sync and collection import won't add them back. */}
+              {ignoredMods.length > 0 && (
+                <SectionCard
+                  title={t('ignoredPanel.count', { count: ignoredMods.length })}
+                  description={t('ignoredPanel.description')}
+                  icon={EyeOff}
+                  collapsible
+                  defaultOpen={false}
+                  storageKey="zcp:mods:ignoredOpen"
+                  flush
                 >
-                  <span className="flex items-center gap-2">
-                    <EyeOff className="w-3.5 h-3.5" />
-                    {t('ignoredPanel.count', { count: ignoredMods.length })}
-                    <span className="text-xs opacity-60">{t('ignoredPanel.note')}</span>
-                  </span>
-                  <ChevronRight className={`w-4 h-4 transition-transform ${ignoredModsOpen ? 'rotate-90' : ''}`} />
-                </button>
-                {ignoredModsOpen && (
-                  <div className="border-t border-border/30">
-                    {/* The bulk actions sit above the list, not below it: with hundreds of
-                        entries the bottom of the list is a long scroll away. */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/20 px-4 py-2">
-                      <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted-foreground">
-                        <Checkbox
-                          checked={selectedIgnored.size === ignoredMods.length}
-                          onCheckedChange={() =>
-                            setSelectedIgnored(
-                              selectedIgnored.size === ignoredMods.length
-                                ? new Set()
-                                : new Set(ignoredMods.map(m => m.workshop_id)),
-                            )
-                          }
-                          disabled={loading || deletingId !== null || !canManageMods}
-                        />
-                        {t('ignoredPanel.selectAll')}
-                      </label>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={handleUnignoreSelected}
-                          disabled={selectedIgnored.size === 0 || loading || deletingId !== null || !canManageMods}
-                        >
-                          {t('ignoredPanel.removeSelected', { n: selectedIgnored.size })}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                          onClick={handleClearAllIgnored}
-                          disabled={loading || deletingId !== null || !canManageMods}
-                        >
-                          {t('ignoredPanel.clearAllIgnored')}
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="max-h-96 space-y-1 overflow-y-auto px-4 py-2">
-                      {ignoredMods.map((mod) => {
-                        const label = mod.name || t('ignoredPanel.workshopModFallback', { id: mod.workshop_id })
-                        return (
-                          <div key={mod.workshop_id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <Checkbox
-                                checked={selectedIgnored.has(mod.workshop_id)}
-                                onCheckedChange={() => toggleIgnoredSelect(mod.workshop_id)}
-                                disabled={loading || deletingId !== null || !canManageMods}
-                                aria-label={t('ignoredPanel.selectRow', { name: label })}
-                              />
-                              <EyeOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
-                              <span className="truncate text-muted-foreground">{label}</span>
-                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground/50">{mod.workshop_id}</span>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-1">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    onClick={() => handleUnignoreMod(mod.workshop_id)}
-                                    disabled={loading || deletingId !== null || !canManageMods}
-                                  >
-                                    {t('ignoredPanel.reTrack')}
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">{t('ignoredPanel.reTrackHint')}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="iconDense"
-                                    className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                    onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name || undefined)}
-                                    disabled={deletingId !== null || loading || !canManageMods}
-                                    aria-label={t('ignoredPanel.deleteFromDisk')}
-                                  >
-                                    {deletingId === mod.workshop_id ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    )}
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent className="max-w-xs">{t('ignoredPanel.deleteFromDisk')}</TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    <div className="flex justify-end gap-1 border-t border-border/20 px-4 pb-2 pt-1">
+                  {/* The bulk actions sit above the list, not below it: with hundreds of
+                      entries the bottom of the list is a long scroll away. */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 px-4 py-2">
+                    <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-muted-foreground">
+                      <Checkbox
+                        checked={selectedIgnored.size === ignoredMods.length}
+                        onCheckedChange={() =>
+                          setSelectedIgnored(
+                            selectedIgnored.size === ignoredMods.length
+                              ? new Set()
+                              : new Set(ignoredMods.map(m => m.workshop_id)),
+                          )
+                        }
+                        disabled={loading || deletingId !== null || !canManageMods}
+                      />
+                      {t('ignoredPanel.selectAll')}
+                    </label>
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        onClick={handleDeleteAllIgnoredFromDisk}
+                        onClick={handleUnignoreSelected}
+                        disabled={selectedIgnored.size === 0 || loading || deletingId !== null || !canManageMods}
+                      >
+                        {t('ignoredPanel.removeSelected', { n: selectedIgnored.size })}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={handleClearAllIgnored}
                         disabled={loading || deletingId !== null || !canManageMods}
                       >
-                        {deletingId === '__batch_ignored__' ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-3.5 w-3.5" />
-                        )}
-                        <span className="ms-1.5">{t('ignoredPanel.deleteAllFromDisk')}</span>
+                        {t('ignoredPanel.clearAllIgnored')}
                       </Button>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
+                  <div className="max-h-96 space-y-1 overflow-y-auto px-4 py-2">
+                    {ignoredMods.map((mod) => {
+                      const label = mod.name || t('ignoredPanel.workshopModFallback', { id: mod.workshop_id })
+                      return (
+                        <div key={mod.workshop_id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Checkbox
+                              checked={selectedIgnored.has(mod.workshop_id)}
+                              onCheckedChange={() => toggleIgnoredSelect(mod.workshop_id)}
+                              disabled={loading || deletingId !== null || !canManageMods}
+                              aria-label={t('ignoredPanel.selectRow', { name: label })}
+                            />
+                            <EyeOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            <span className="truncate text-muted-foreground">{label}</span>
+                            <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{mod.workshop_id}</span>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleUnignoreMod(mod.workshop_id)}
+                                  disabled={loading || deletingId !== null || !canManageMods}
+                                >
+                                  {t('ignoredPanel.reTrack')}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">{t('ignoredPanel.reTrackHint')}</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="iconDense"
+                                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  onClick={() => handleDeleteDiskMod(mod.workshop_id, mod.name || undefined)}
+                                  disabled={deletingId !== null || loading || !canManageMods}
+                                  aria-label={t('ignoredPanel.deleteFromDisk')}
+                                >
+                                  {deletingId === mod.workshop_id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">{t('ignoredPanel.deleteFromDisk')}</TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="flex justify-end gap-1 border-t border-border/40 px-4 pb-2 pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={handleDeleteAllIgnoredFromDisk}
+                      disabled={loading || deletingId !== null || !canManageMods}
+                    >
+                      {deletingId === '__batch_ignored__' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+                      {t('ignoredPanel.deleteAllFromDisk')}
+                    </Button>
+                  </div>
+                </SectionCard>
+              )}
+            </>
           )}
 
-          {/* Server Config Tab */}
-          {CONFIG_VIEWS.includes(activeTab) && (
-          <div className="space-y-4">
-            {iniConfig?.configured ? (
+          {/* Server config views (Active, Load order, Presets, Tools) need the server's INI. */}
+          {CONFIG_VIEWS.includes(activeTab) && !iniConfig?.configured && (
+            <SectionCard title={t(`nav.${activeTab}.label`)} description={t(`nav.${activeTab}.hint`)} icon={VIEW_ICONS[activeTab]}>
+              {initialLoading ? (
+                <div className="space-y-2" role="status" aria-label={t('installedTab.loading')}>
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-4 w-1/3" />
+                </div>
+              ) : (
+                <div className="py-6 text-center">
+                  <FileText className="mx-auto mb-4 h-10 w-10 text-muted-foreground" aria-hidden="true" />
+                  {iniConfig?.code && FOLDER_REFUSAL_CODES.has(iniConfig.code) ? (
+                    // PT3: the server's folders were refused (the data folder
+                    // no longer meets the data-folder rule, or a config folder
+                    // has no data folder): the refusal says what to set, and
+                    // starting the server won't make the ini appear here.
+                    <p className="mx-auto max-w-xl text-muted-foreground">
+                      {getResultErrorMessage(iniConfig, t('serverConfigTab.notConfiguredTitle'))}
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">{iniConfig?.error || t('serverConfigTab.notConfiguredTitle')}</p>
+                      <p className="text-sm text-muted-foreground">{t('serverConfigTab.notConfiguredHint')}</p>
+                    </>
+                  )}
+                </div>
+              )}
+            </SectionCard>
+          )}
+
+          {/* ═══ ACTIVE ON SERVER ═══ */}
+          {activeTab === 'active' && iniConfig?.configured && (() => {
+            const { orphaned, enabledCount, multiIdCount, groups, missingDepsMap, duplicateModIds } = activeModsData
+            const totalModCount = groups.reduce((s, g) => s + g.mods.length, 0)
+            const q = deferredModManagerSearch.toLowerCase().trim()
+            const inspectedGroup = groups.find(g => g.wsId === selectedActiveWsId) || displayGroups[0] || null
+            const inspectedLocked = !!inspectedGroup && isBridgeGroup(inspectedGroup)
+            const inspectedLockReason = !canManageMods ? t('permissions.noModsManage') : inspectedLocked ? bridgeLockReason : null
+            const copyWs = (wsId: string) => copyText(wsId).then(() => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: wsId }) })).catch(() => {})
+            const showOrphans = !multiIdFilterOn && !filterNotEnabled && activeChips.length === 0
+
+            const renderActiveRow = (g: WsGroup) => {
+              const isSingle = g.mods.length === 1
+              const mod0 = g.mods[0]
+              const isInspected = inspectedGroup?.wsId === g.wsId
+              const label = getGroupLabel(g)
+              const att = groupAttention(g)
+              const bridgeLocked = isBridgeGroup(g)
+              const rowLockReason = !canManageMods ? t('permissions.noModsManage') : bridgeLocked ? bridgeLockReason : null
+              const enabledN = g.mods.filter(m => m.enabled).length
+              const totalN = g.mods.length
+              const tracked = trackedByWs.get(g.wsId)
+              const itemGroups = groupsOfWorkshop(g.wsId)
+              // Chips are the dense part of the row. Compact keeps them in the
+              // inspector; the selected row always shows them so a click still
+              // reveals everything in place.
+              const showChips = !isSingle && (activeDensity === 'detailed' || isInspected)
+              const groupMissing = g.mods.flatMap(m => missingDepsMap.get(m.id) || [])
+              const groupRequires = g.mods.flatMap(m => m.require || []).filter((v, i, a) => a.indexOf(v) === i)
+              const missingRequired = groupRequires.filter(dep => groupMissing.includes(dep))
+
+              // Only colour the count when something is actually wrong. A partial
+              // "1 of 5" is the normal, correct state for most multi-ID items.
+              const countTone = att.any
+                ? 'border-destructive/40 bg-destructive/10 text-foreground'
+                : g.allEnabled
+                  ? 'border-success/30 bg-success/10 text-foreground'
+                  : 'border-border/50 bg-muted/30 text-muted-foreground'
+
+              const menu = (
+                <RowActions
+                  ariaLabel={t('activeMods.moreActionsAria', { name: label })}
+                  items={[
+                    { label: t('activeMods.copyWorkshopId'), icon: FileText, onSelect: () => void copyWs(g.wsId) },
+                    ...groupMenuItems(g.mods.map(m => m.id), label),
+                    noteMenuItem(g.wsId, label),
+                    {
+                      label: t('activeMods.removeFromIni'),
+                      icon: Trash2,
+                      destructive: true,
+                      onSelect: () => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) },
+                      disabled: !canManageMods || bridgeLocked,
+                      reason: rowLockReason ?? undefined,
+                    },
+                    {
+                      label: t('activeMods.removeFromServer'),
+                      icon: Trash2,
+                      destructive: true,
+                      onSelect: () => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveMod({ wsId: g.wsId, label }) },
+                      disabled: !canManageMods || bridgeLocked,
+                      reason: rowLockReason ?? undefined,
+                    },
+                  ]}
+                />
+              )
+
+              const extraBadges = (
+                <>
+                  <GroupDots groups={itemGroups} />
+                  <NoteIndicator note={notesStore.notes[g.wsId]} onOpen={() => setNoteEditor({ workshopId: g.wsId, name: label })} />
+                  {tracked?.update_available ? (
+                    <a
+                      href={changelogUrl(g.wsId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => event.stopPropagation()}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 text-[11px] font-medium text-foreground hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                      aria-label={t('whatChanged.aria', { name: label })}
+                    >
+                      <History className="h-3 w-3 text-warning" aria-hidden="true" />
+                      {t('whatChanged.updateLabel')}
+                    </a>
+                  ) : null}
+                </>
+              )
+
+              const selectBox = activeSelecting ? (
+                <Checkbox
+                  checked={selectedActiveWs.has(g.wsId)}
+                  onCheckedChange={(checked) => setSelectedActiveWs((prev) => {
+                    const next = new Set(prev)
+                    if (checked === true) next.add(g.wsId)
+                    else next.delete(g.wsId)
+                    return next
+                  })}
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label={t('activeMods.selectItemAria', { name: label })}
+                />
+              ) : null
+
+              const missingRequiredBlock = missingRequired.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1">
+                  <AlertTriangle className="h-3 w-3 text-destructive" aria-hidden="true" />
+                  <span className="text-xs font-medium text-foreground">{t('activeMods.missingRequiredId')}</span>
+                  {missingRequired.map(dep => (
+                    <span key={dep} className="rounded border border-destructive/30 bg-destructive/15 px-1 font-mono text-[10px] text-foreground" title={t('activeMods.missingRequiredTooltip', { dep })}>
+                      {dep}
+                    </span>
+                  ))}
+                </div>
+              ) : null
+
+              if (isSingle) {
+                return (
+                  <ModRow
+                    key={g.wsId}
+                    selected={isInspected}
+                    dimmed={!mod0.enabled}
+                    onClick={() => setSelectedActiveWsId(g.wsId)}
+                    leading={
+                      <div className="flex items-center gap-2">
+                        {selectBox}
+                        <DisabledReason reason={bridgeLocked ? bridgeLockReason : null}>
+                          <Checkbox
+                            checked={mod0.enabled}
+                            onCheckedChange={() => toggleMod(mod0, g.wsId)}
+                            disabled={bridgeLocked}
+                            aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
+                          />
+                        </DisabledReason>
+                      </div>
+                    }
+                    title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{mod0.name || mod0.id}</span>}
+                    titleBadges={
+                      <>
+                        {mod0.name !== mod0.id && (
+                          <span className="inline-flex items-center rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px] leading-none text-muted-foreground">
+                            {mod0.id}
+                          </span>
+                        )}
+                        {att.duplicate && (
+                          <span className="shrink-0 rounded border border-warning/40 bg-warning/15 px-1.5 text-[10px] text-foreground" title={t('activeMods.duplicateTooltip', { count: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).length, ids: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).join(', ') })}>
+                            {t('activeMods.duplicate')}
+                          </span>
+                        )}
+                        {bridgeLocked && <BridgeManagedBadge />}
+                        {extraBadges}
+                      </>
+                    }
+                    meta={
+                      <>
+                        <span className={cn('inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-medium', mod0.enabled ? 'border-success/30 bg-success/10 text-foreground' : 'border-border/50 bg-muted/30 text-muted-foreground')}>
+                          <span className={cn('h-1.5 w-1.5 rounded-full', mod0.enabled ? 'bg-success' : 'bg-muted-foreground/50')} aria-hidden="true" />
+                          {mod0.enabled ? t('activeMods.enabled') : t('activeMods.disabled')}
+                        </span>
+                        <WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />
+                      </>
+                    }
+                    actions={
+                      <>
+                        <WorkshopLinkAction wsId={g.wsId} label={mod0.name || mod0.id} />
+                        {menu}
+                      </>
+                    }
+                    footer={mod0.enabled ? missingRequiredBlock : null}
+                  />
+                )
+              }
+
+              return (
+                <ModRow
+                  key={g.wsId}
+                  selected={isInspected}
+                  dimmed={!g.someEnabled}
+                  onClick={() => setSelectedActiveWsId(g.wsId)}
+                  leading={
+                    <div className="flex items-center gap-2">
+                      {selectBox}
+                      <div className={cn('h-2 w-2 rounded-sm', g.allEnabled ? 'bg-success' : g.someEnabled ? 'bg-success/40' : 'bg-muted-foreground/20')} aria-hidden="true" />
+                    </div>
+                  }
+                  title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{label}</span>}
+                  titleBadges={
+                    <>
+                      <span
+                        className={cn('inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums', countTone)}
+                        title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
+                      >
+                        <span>{enabledN}</span>
+                        <span className="opacity-60">{t('activeMods.of')}</span>
+                        <span>{totalN}</span>
+                        <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
+                      </span>
+                      {bridgeLocked && <BridgeManagedBadge />}
+                      {extraBadges}
+                    </>
+                  }
+                  meta={<WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />}
+                  actions={
+                    <>
+                      <WorkshopLinkAction wsId={g.wsId} label={label} hint={t('activeMods.openWorkshopToChooseHint')} />
+                      {menu}
+                    </>
+                  }
+                  footer={
+                    <>
+                      {showChips && (
+                        <div className="flex flex-wrap gap-1">
+                          {(() => {
+                            const groupSiblings = siblingConflictsMap.get(g.wsId)
+                            // `conflicts` is null until a scan has ever run: an
+                            // unscanned pill gets the dashed "unverified" look,
+                            // never the green a scanned-and-clean mod earns.
+                            const scanned = conflicts !== null
+                            const enabledSet = new Set(g.mods.filter(m => m.enabled).map(m => m.id))
+                            const scanClashing = new Set<string>()
+                            if (groupSiblings) {
+                              for (const [modId, sibs] of groupSiblings) {
+                                if (!enabledSet.has(modId)) continue
+                                for (const s of sibs) {
+                                  if (enabledSet.has(s)) { scanClashing.add(modId); scanClashing.add(s) }
+                                }
+                              }
+                            }
+                            return g.mods.map(mod => {
+                              const isDupe = duplicateModIds.has(mod.id)
+                              const sibConflicts = groupSiblings?.get(mod.id)
+                              const hasScanOverlap = !!sibConflicts && sibConflicts.size > 0
+                              const isScanClashing = scanClashing.has(mod.id)
+                              const sibList = sibConflicts ? Array.from(sibConflicts) : []
+                              const enabledSibs = sibList.filter(s => enabledSet.has(s))
+                              const fmtSibs = (arr: string[]) => arr.length <= 4 ? arr.join(', ') : `${arr.slice(0, 4).join(', ')} (+${arr.length - 4} more)`
+                              const tooltipBits = [
+                                `${mod.id}${mod.name !== mod.id ? ` — ${mod.name}` : ''}`,
+                                isDupe ? t('activeMods.chipTooltipDupe', { ids: (duplicateModIds.get(mod.id) || []).filter(w => w !== g.wsId).join(', ') }) : null,
+                                isScanClashing
+                                  ? t('activeMods.chipTooltipClash', { names: fmtSibs(enabledSibs) })
+                                  : hasScanOverlap
+                                    ? t('activeMods.chipTooltipOverlap', { names: fmtSibs(sibList) })
+                                    : null,
+                                mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable'),
+                              ].filter(Boolean).join('\n')
+                              // Colour priority: confirmed clash > known overlap > duplicate > normal.
+                              const styleClass = isScanClashing
+                                ? (mod.enabled ? 'bg-destructive/20 text-destructive hover:bg-destructive/30 ring-1 ring-destructive/50' : 'bg-destructive/5 text-destructive/60 hover:bg-destructive/10 ring-1 ring-destructive/20')
+                                : hasScanOverlap
+                                  ? (mod.enabled ? 'bg-success/15 text-success hover:bg-success/25 ring-1 ring-warning/30' : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25 ring-1 ring-warning/20')
+                                  : isDupe
+                                    ? (mod.enabled ? 'bg-warning/15 text-warning hover:bg-warning/25 ring-1 ring-warning/30' : 'bg-warning/5 text-warning/50 hover:bg-warning/10 ring-1 ring-warning/20')
+                                    : !scanned
+                                      ? (mod.enabled
+                                        ? 'border border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70 hover:bg-muted/15'
+                                        : 'border border-dashed border-muted-foreground/25 bg-transparent text-muted-foreground/40 hover:bg-muted/10')
+                                      : (mod.enabled
+                                        ? 'bg-success/15 text-success hover:bg-success/25'
+                                        : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
+                              return (
+                                <DisabledReason key={mod.id} reason={rowLockReason}>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); toggleMod(mod, g.wsId) }}
+                                    disabled={!canManageMods || bridgeLocked}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- the disabled-reason branch (mods.manage) lives in the DisabledReason wrapper above; this title carries only the always-relevant chip tooltip (id/name, dupe/clash/overlap warnings, click hint), correctly absent rather than dead when actually disabled.
+                                    title={tooltipBits}
+                                    className={`mod-toggle-pill inline-flex max-w-[200px] items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 ${canManageMods ? 'cursor-pointer' : ''} ${styleClass}`}
+                                  >
+                                    {isScanClashing && <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-destructive" />}
+                                    {!isScanClashing && hasScanOverlap && <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-warning/70" />}
+                                    <span className="truncate">{mod.id}</span>
+                                  </button>
+                                </DisabledReason>
+                              )
+                            })
+                          })()}
+                        </div>
+                      )}
+                      {(() => {
+                        const enabledMods = g.mods.filter(m => m.enabled)
+                        const enabledIds = enabledMods.map(m => m.id)
+                        const enabledSet = new Set(enabledIds)
+                        const hasMultipleEnabled = g.mods.length > 1 && enabledIds.length >= 2
+                        const groupSiblings = siblingConflictsMap.get(g.wsId)
+                        const scanClashingPairs: [string, string][] = []
+                        if (groupSiblings) {
+                          const seen = new Set<string>()
+                          for (const [modId, sibs] of groupSiblings) {
+                            if (!enabledSet.has(modId)) continue
+                            for (const s of sibs) {
+                              if (!enabledSet.has(s)) continue
+                              const key = [modId, s].sort().join('--')
+                              if (seen.has(key)) continue
+                              seen.add(key)
+                              scanClashingPairs.push([modId, s])
+                            }
+                          }
+                        }
+                        // Dismissed false positives, so a wrong "Not a conflict" can be undone.
+                        const groupModIds = new Set(g.mods.map(m => m.id))
+                        const dismissedHere = ignoredPairs.filter(p => groupModIds.has(p.mod_a) && groupModIds.has(p.mod_b))
+
+                        // A real clash always shows, at any density.
+                        if (scanClashingPairs.length > 0) {
+                          return (
+                            <div role="alert" className="flex flex-wrap items-start gap-1.5 text-xs sm:items-center">
+                              <AlertTriangle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0 text-destructive sm:mt-0" />
+                              <span className="min-w-0 break-words font-medium text-foreground">
+                                {t('activeMods.clashWarning')}
+                              </span>
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    for (const [a, b] of scanClashingPairs) dismissPair(a, b)
+                                  }}
+                                  disabled={!canManageMods}
+                                  // eslint-disable-next-line local/no-dead-disabled-title -- the disabled-reason branch (mods.manage) lives in the DisabledReason wrapper above; this title carries only the always-relevant dismiss-pair hint, correctly absent rather than dead when actually disabled.
+                                  title={scanClashingPairs.length === 1
+                                    ? t('activeMods.dismissOneTooltip', { a: scanClashingPairs[0][0], b: scanClashingPairs[0][1] })
+                                    : t('activeMods.dismissAllTooltip', { count: scanClashingPairs.length })}
+                                  className="ms-auto inline-flex items-center gap-1 rounded border border-border/60 bg-muted/40 px-2 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {t('activeMods.notAConflict')}
+                                </button>
+                              </DisabledReason>
+                            </div>
+                          )
+                        }
+
+                        // Everything below is reassurance or nuance, not a problem —
+                        // it only earns space in the detailed density.
+                        if (activeDensity !== 'detailed' && !isInspected) return null
+
+                        if (groupSiblings && groupSiblings.size > 0) {
+                          const overlapIds = new Set<string>()
+                          for (const [id, sibs] of groupSiblings) if (sibs.size > 0) overlapIds.add(id)
+                          return (
+                            <div
+                              className="flex flex-wrap items-start gap-1 text-xs text-muted-foreground sm:items-center"
+                              title={t('activeMods.variantsShareFilesTooltip', { ids: Array.from(overlapIds).join(', ') })}
+                            >
+                              <Check aria-hidden="true" className="mt-px h-3 w-3 shrink-0 text-success sm:mt-0" />
+                              <span className="min-w-0 break-words">{t('activeMods.variantsShareFiles')}</span>
+                            </div>
+                          )
+                        }
+                        if (hasMultipleEnabled) {
+                          return (
+                            <div className="flex flex-wrap items-start gap-1 text-xs text-muted-foreground sm:items-center">
+                              <Info aria-hidden="true" className="mt-px h-3 w-3 shrink-0 sm:mt-0" />
+                              <span className="min-w-0 break-words">{t('activeMods.multipleEnabledHint', { count: enabledIds.length })}</span>
+                              {dismissedHere.length > 0 && (
+                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); for (const p of dismissedHere) restorePair(p.mod_a, p.mod_b) }}
+                                    disabled={!canManageMods}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- the disabled-reason branch (mods.manage) lives in the DisabledReason wrapper above; this title carries only the always-relevant restore-dismissed hint, correctly absent rather than dead when actually disabled.
+                                    title={t('activeMods.restoreDismissedTooltip', { count: dismissedHere.length })}
+                                    className="ms-auto text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {t('activeMods.restoreDismissed', { count: dismissedHere.length })}
+                                  </button>
+                                </DisabledReason>
+                              )}
+                            </div>
+                          )
+                        }
+                        if (dismissedHere.length > 0) {
+                          return (
+                            <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                              <span className="min-w-0">{t('activeMods.dismissedCount', { count: dismissedHere.length })}</span>
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); for (const p of dismissedHere) restorePair(p.mod_a, p.mod_b) }}
+                                  disabled={!canManageMods}
+                                  className="underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {t('activeMods.restore')}
+                                </button>
+                              </DisabledReason>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
+                      {g.someEnabled ? missingRequiredBlock : null}
+                    </>
+                  }
+                />
+              )
+            }
+
+            // PanelBridge's mod id shows as "not on disk" until Steam has
+            // downloaded its Workshop item (the first start after a switch),
+            // so the same lock applies.
+            const orphanRows = showOrphans ? orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
+              const orphanBridgeLocked = isBridgeManagedMod(iniConfig?.bridgeManaged, null, [id])
+              return (
+                <div key={`orphan-${id}`} className="group flex items-center gap-3 px-3 py-1.5 opacity-70">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
+                  <span className="flex-1 truncate font-mono text-xs">{id}</span>
+                  {orphanBridgeLocked && <BridgeManagedBadge />}
+                  <span className="text-xs text-muted-foreground">{t('activeMods.orphanNotOnDisk')}</span>
+                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : orphanBridgeLocked ? bridgeLockReason : null}>
+                    <button
+                      onClick={async () => {
+                        if (busyRef.current || !canManageMods || orphanBridgeLocked) return
+                        busyRef.current = true
+                        try {
+                          await modsApi.toggleModId(id, false)
+                          const updated = await modsApi.getCurrentConfig()
+                          setIniConfig(updated)
+                          if (updated?.modIds) setOrderedModIds(updated.modIds)
+                        } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
+                      }}
+                      disabled={!canManageMods || orphanBridgeLocked}
+                      className="grid h-8 w-8 place-items-center rounded text-destructive/80 transition-colors duration-150 hover:bg-destructive/15 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:cursor-not-allowed disabled:opacity-40"
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what removing this orphan does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                      title={t('activeMods.removeOrphanTooltip', { id })}
+                      aria-label={t('activeMods.removeOrphanAria', { id })}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </DisabledReason>
+                </div>
+              )
+            }) : []
+
+            const emptyList = (
+              <div className="space-y-2 px-3 py-8 text-center text-sm text-muted-foreground">
+                {filterAttention && activeCounts.attention === 0 ? (
+                  <>
+                    <p className="text-foreground">{t('activeMods.nothingNeedsAttention')}</p>
+                    <button type="button" onClick={() => setFilterAttention(false)} className="underline underline-offset-2 hover:text-foreground">
+                      {t('activeMods.showAllItems')}
+                    </button>
+                  </>
+                ) : filterNotEnabled && activeCounts.notEnabled === 0 ? (
+                  <>
+                    <p className="text-foreground">{t('activeMods.everythingEnabled')}</p>
+                    <button type="button" onClick={() => setFilterNotEnabled(false)} className="underline underline-offset-2 hover:text-foreground">
+                      {t('activeMods.showAllItems')}
+                    </button>
+                  </>
+                ) : q ? (
+                  <p>{t('activeMods.noMatchesFor', { query: modManagerSearch })}</p>
+                ) : activeChips.length > 0 ? (
+                  <>
+                    <p>{t('activeMods.noFilterMatches')}</p>
+                    <button type="button" onClick={clearActiveFilters} className="underline underline-offset-2 hover:text-foreground">
+                      {t('filters.clearAll')}
+                    </button>
+                  </>
+                ) : (
+                  <p>{t('activeMods.noModIdsFound')}</p>
+                )}
+              </div>
+            )
+
+            return (
               <>
-                {/* ─── Summary bar ───
-                    Hidden in the Active Mods sub-tab, where the per-row toolbar
-                    already shows the more-useful "enabled / total" count. */}
-                {configSubTab !== 'active' && (
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span className="tabular-nums">{iniConfig.totalMods} <span className="opacity-50">{t('serverConfigTab.summaryMods')}</span></span>
-                    <span className="tabular-nums">{iniConfig.workshopIds.length} <span className="opacity-50">{t(iniConfig.workshopIds.length !== 1 ? 'serverConfigTab.summaryWorkshopItems_other' : 'serverConfigTab.summaryWorkshopItems_one')}</span></span>
-                    <span className="tabular-nums">{iniConfig.maps.length} <span className="opacity-50">{t(iniConfig.maps.length !== 1 ? 'serverConfigTab.summaryMaps_other' : 'serverConfigTab.summaryMaps_one')}</span></span>
+                {detectedConflicts.length > 0 && (
+                  <div className="space-y-1.5">
+                    {detectedConflicts.map((conflict, idx) => (
+                      <div
+                        key={idx}
+                        className={cn('flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm', conflict.severity === 'warning' ? 'border-warning/40 bg-warning/10' : 'border-border/60 bg-muted/40')}
+                      >
+                        <AlertTriangle className={cn('h-4 w-4 shrink-0', conflict.severity === 'warning' ? 'text-warning' : 'text-primary')} aria-hidden="true" />
+                        <span className="min-w-0 flex-1 break-words">
+                          <span className="font-medium text-foreground">
+                            {conflict.type === 'duplicate' && t('serverConfigTab.duplicateModsTitle')}
+                            {conflict.type === 'missing_modid' && t('serverConfigTab.missingModIdsTitle')}
+                            {conflict.type === 'outdated_dependency' && t('serverConfigTab.outdatedDependencyTitle')}
+                          </span>
+                          <span className="text-muted-foreground">: {conflict.message}</span>
+                        </span>
+                        {conflict.type === 'duplicate' && (
+                          <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={deduplicating || !canManageMods}
+                              onClick={async () => {
+                                if (!canManageMods) return
+                                setDeduplicating(true)
+                                setDeduplicateResult(null)
+                                try {
+                                  const result = await modsApi.deduplicateModIds()
+                                  setDeduplicateResult(result.message)
+                                  if (result.removed.length > 0) {
+                                    const updated = await modsApi.getCurrentConfig()
+                                    setIniConfig(updated)
+                                    if (updated?.modIds) setOrderedModIds(updated.modIds)
+                                  }
+                                } catch (err: unknown) {
+                                  const errMsg = getUserErrorMessage(err, 'Failed to deduplicate')
+                                  const msg = errMsg.includes('<')
+                                    ? t('serverConfigTab.deduplicateEndpointUnavailable')
+                                    : errMsg
+                                  setDeduplicateResult(t('serverConfigTab.deduplicateError', { message: msg }))
+                                } finally {
+                                  setDeduplicating(false)
+                                }
+                              }}
+                            >
+                              {deduplicating ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wrench aria-hidden="true" />}
+                              {t('serverConfigTab.fix')}
+                            </Button>
+                          </DisabledReason>
+                        )}
+                      </div>
+                    ))}
+                    {deduplicateResult && (
+                      <p className="px-3 text-xs text-muted-foreground">{deduplicateResult}</p>
+                    )}
                   </div>
                 )}
 
-                {/* ═══ ACTIVE MODS SUB-TAB ═══ */}
-                {configSubTab === 'active' && (() => {
-                  const { orphaned, enabledCount, multiIdCount, groups, missingDepsMap, duplicateModIds } = activeModsData
-                  const { filteredGroups } = activeModsFiltered
-
-                  // What actually warrants a red flag: two enabled variants the
-                  // scanner confirmed overlap, an enabled mod whose required ID
-                  // isn't loaded, or an ID claimed by two Workshop items.
-                  // A partial "1 of 5 enabled" is normal and is NOT a problem.
-                  const groupAttention = (g: WsGroup) => {
-                    const enabledSet = new Set(g.mods.filter(m => m.enabled).map(m => m.id))
-                    const siblings = siblingConflictsMap.get(g.wsId)
-                    let clash = false
-                    if (siblings) {
-                      for (const [modId, sibs] of siblings) {
-                        if (!enabledSet.has(modId)) continue
-                        for (const s of sibs) if (enabledSet.has(s)) { clash = true; break }
-                        if (clash) break
-                      }
-                    }
-                    const missing = g.mods.some(m => m.enabled && (missingDepsMap.get(m.id)?.length ?? 0) > 0)
-                    const duplicate = g.mods.some(m => duplicateModIds.has(m.id))
-                    return { clash, missing, duplicate, any: clash || missing || duplicate }
+                <SectionCard
+                  title={t('nav.active.label')}
+                  description={t('nav.active.hint')}
+                  icon={Power}
+                  flush
+                  actions={
+                    <Segmented<ListMode>
+                      value={activeMode}
+                      onValueChange={setActiveMode}
+                      ariaLabel={t('listMode.aria')}
+                      items={[
+                        { value: 'list', label: t('listMode.list') },
+                        { value: 'groups', label: t('listMode.groups') },
+                      ]}
+                    />
                   }
-                  const attentionCount = groups.filter(g => groupAttention(g).any).length
-
-                  // IDs that are listed under a workshop item but not enabled: the
-                  // difference between the header's "enabled" and "total" counts.
-                  const notEnabledCount = groups.reduce((s, g) => s + g.mods.filter(m => !m.enabled).length, 0)
-
-                  // The Multi-ID chip only exists while some item has several IDs: with none,
-                  // leaving its filter on would hide every (single-ID) item behind no chip to turn it off.
-                  const multiIdFilterOn = filterMultiId && multiIdCount > 0
-                  let displayGroups = multiIdFilterOn ? filteredGroups.filter(g => g.mods.length > 1) : filteredGroups
-                  if (filterAttention) displayGroups = displayGroups.filter(g => groupAttention(g).any)
-                  if (filterNotEnabled) displayGroups = displayGroups.filter(g => !g.allEnabled)
-                  const totalModCount = groups.reduce((s, g) => s + g.mods.length, 0)
-                  const q = deferredModManagerSearch.toLowerCase().trim()
-                  const inspectedGroup = groups.find(g => g.wsId === selectedActiveWsId) || displayGroups[0] || null
-
-                  // PanelBridge's own Workshop entry while the active server
-                  // gets it from the Steam Workshop (spec §4.11): its enable
-                  // and remove controls are locked, with the badge's text as
-                  // the reason. Only those -- reordering it stays allowed, as
-                  // its position in the load order doesn't matter.
-                  const bridgeLockReason = t('mods.badgeTooltip', { ns: 'bridgeDelivery' })
-                  const isBridgeGroup = (g: { wsId: string; mods: Array<{ id: string }> }) =>
-                    isBridgeManagedMod(iniConfig?.bridgeManaged, g.wsId, g.mods.map(m => m.id))
-                  const inspectedLocked = !!inspectedGroup && isBridgeGroup(inspectedGroup)
-                  const inspectedLockReason = !canManageMods ? t('permissions.noModsManage') : inspectedLocked ? bridgeLockReason : null
-
-                  const toggleMod = async (mod: ModEntry, wsId: string) => {
-                    if (busyRef.current || !canManageMods) return
-                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, [mod.id])) return
-                    const on = !mod.enabled
-                    busyRef.current = true
-                    try {
-                      await modsApi.toggleModId(mod.id, on)
-                      setIniConfig(prev => {
-                        if (!prev) return prev
-                        const newModIds = on ? [...prev.modIds, mod.id] : prev.modIds.filter(id => id !== mod.id)
-                        const newMap = { ...prev.workshopModMap }
-                        if (newMap[wsId]) {
-                          newMap[wsId] = newMap[wsId].map(m => m.id === mod.id ? { ...m, enabled: on } : m)
-                        }
-                        return { ...prev, modIds: newModIds, totalMods: newModIds.length, workshopModMap: newMap }
-                      })
-                      setOrderedModIds(prev => on ? [...prev, mod.id] : prev.filter(id => id !== mod.id))
-                      setLastSavedMod(mod.id)
-                      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
-                      savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to toggle mod', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleModTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleModFallback')) }) } finally { busyRef.current = false }
-                  }
-
-                  // Mark a sibling-conflict pair as a false positive. Used when the
-                  // variant detector mis-flags a shared library + dependant
-                  // (e.g. DynamicTradingCommon vs DynamicTradingV2) as two
-                  // variants of the same mod.
-                  const dismissPair = async (a: string, b: string) => {
-                    if (!canManageMods) return
-                    try {
-                      await modsApi.addIgnoredModPair(a, b)
-                      setIgnoredPairs(prev => {
-                        const [x, y] = a < b ? [a, b] : [b, a]
-                        if (prev.some(p => p.mod_a === x && p.mod_b === y)) return prev
-                        return [...prev, { mod_a: x, mod_b: y, ignored_at: new Date().toISOString() } as any]
-                      })
-                      toast({ title: t('toasts.conflictDismissedTitle'), description: t('toasts.conflictDismissedDesc', { a, b }) })
-                    } catch (e) {
-                      reportClientError('Failed to dismiss conflict', e)
-                      toast({ variant: 'destructive', title: t('toasts.failedToDismissConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToDismissConflictFallback')) })
-                    }
-                  }
-                  const restorePair = async (a: string, b: string) => {
-                    if (!canManageMods) return
-                    try {
-                      await modsApi.removeIgnoredModPair(a, b)
-                      setIgnoredPairs(prev => prev.filter(p => {
-                        const [x, y] = a < b ? [a, b] : [b, a]
-                        return !(p.mod_a === x && p.mod_b === y)
-                      }))
-                    } catch (e) {
-                      reportClientError('Failed to restore conflict', e)
-                      toast({ variant: 'destructive', title: t('toasts.failedToRestoreConflictTitle'), description: getUserErrorMessage(e, t('toasts.failedToRestoreConflictFallback')) })
-                    }
-                  }
-
-                  const toggleAllInGroup = async (g: WsGroup) => {
-                    if (busyRef.current || !canManageMods || isBridgeGroup(g)) return
-                    const on = !g.allEnabled
-                    const modsToToggle = g.mods.filter(mod => mod.enabled !== on)
-                    if (modsToToggle.length === 0) return
-                    busyRef.current = true
-                    try {
-                      await modsApi.batchToggleModIds(modsToToggle.map(mod => ({ modId: mod.id, enabled: on })))
-                      setIniConfig(prev => {
-                        if (!prev) return prev
-                        let newModIds = [...prev.modIds]
-                        const newMap = { ...prev.workshopModMap }
-                        for (const mod of modsToToggle) {
-                          if (on) {
-                            if (!newModIds.includes(mod.id)) newModIds.push(mod.id)
-                          } else {
-                            newModIds = newModIds.filter(id => id !== mod.id)
-                          }
-                        }
-                        if (newMap[g.wsId]) {
-                          newMap[g.wsId] = newMap[g.wsId].map(m => {
-                            const toggled = modsToToggle.find(t => t.id === m.id)
-                            return toggled ? { ...m, enabled: on } : m
-                          })
-                        }
-                        return { ...prev, modIds: newModIds, totalMods: newModIds.length, workshopModMap: newMap }
-                      })
-                      setOrderedModIds(prev => {
-                        let next = [...prev]
-                        for (const mod of modsToToggle) {
-                          if (on) { if (!next.includes(mod.id)) next.push(mod.id) }
-                          else { next = next.filter(id => id !== mod.id) }
-                        }
-                        return next
-                      })
-                    } catch (e) { reportClientError('Failed to toggle group', e); toast({ variant: 'destructive', title: t('toasts.failedToToggleGroupTitle'), description: getUserErrorMessage(e, t('toasts.failedToToggleGroupFallback')) }) } finally { busyRef.current = false }
-                  }
-
-                  const removeWorkshop = async (wsId: string, knownModIds?: string[]) => {
-                    if (!canManageMods) return
-                    if (isBridgeManagedMod(iniConfig?.bridgeManaged, wsId, knownModIds ?? [])) return
-                    try {
-                      await modsApi.removeFromIni(wsId, undefined, knownModIds)
-                      const updated = await modsApi.getCurrentConfig()
-                      setIniConfig(updated)
-                      if (updated?.modIds) setOrderedModIds(updated.modIds)
-                      setLastSavedMod(`removed-${wsId}`)
-                      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current)
-                      savedTimeoutRef.current = setTimeout(() => setLastSavedMod(null), 2000)
-                    } catch (e) { reportClientError('Failed to remove workshop item', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveWorkshopItemTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveWorkshopItemFallback')) }) }
-                  }
-
-                  // Handle confirmed workshop removal from AlertDialog
-                  const handleConfirmedRemoveWorkshop = async () => {
-                    if (confirmRemoveWorkshop) {
-                      await removeWorkshop(confirmRemoveWorkshop.wsId, confirmRemoveWorkshop.knownModIds)
-                      setConfirmRemoveWorkshop(null)
-                    }
-                  }
-
-                  const getGroupLabel = (g: WsGroup): string => {
-                    const first = g.mods[0]
-                    return first.name !== first.id ? first.name : first.id
-                  }
-
-                  const getGroupMissingDeps = (g: WsGroup) => Array.from(new Set(g.mods.flatMap(m => missingDepsMap.get(m.id) || [])))
-                  const getGroupDuplicateIds = (g: WsGroup) => g.mods.filter(m => duplicateModIds.has(m.id)).map(m => m.id)
-
-                  const getInspectorDepKey = (g: WsGroup, dep: string) => `active-${g.wsId}-${dep}`
-
-                  const runInspectorDepSearch = async (g: WsGroup, dep: string, force = false) => {
-                    if (!canManageMods) return
-                    const key = getInspectorDepKey(g, dep)
-                    if (!force && depSearchData[key] && !depSearchData[key].error) return
-                    setDepSearchData(prev => ({ ...prev, [key]: { loading: true, results: [], error: null, searchUrl: null } }))
-                    try {
-                      const res = await modsApi.searchWorkshopMods(dep, {
-                        parentName: getGroupLabel(g),
-                        parentWorkshopId: g.wsId,
-                      })
-                      setDepSearchData(prev => ({
-                        ...prev,
-                        [key]: {
-                          loading: false,
-                          results: res.results || [],
-                          error: null,
-                          searchUrl: res.searchUrl,
-                          variantsTried: res.variantsTried,
-                          steamSearchEnabled: res.steamSearchEnabled,
-                        }
-                      }))
-                    } catch (err: any) {
-                      setDepSearchData(prev => ({ ...prev, [key]: { loading: false, results: [], error: getUserErrorMessage(err, 'Search failed'), searchUrl: null } }))
-                    }
-                  }
-
-                  const toggleInspectorDepSearch = (g: WsGroup, dep: string) => {
-                    const key = getInspectorDepKey(g, dep)
-                    setDepSearchOpen(prev => {
-                      const next = new Set(prev)
-                      if (next.has(key)) next.delete(key)
-                      else next.add(key)
-                      return next
-                    })
-                    if (!depSearchData[key]) runInspectorDepSearch(g, dep)
-                  }
-
-                  const handleInspectorAddDep = async (hit: DepSearchHit, dep: string, key: string) => {
-                    if (busyRef.current || !canManageMods) return
-                    busyRef.current = true
-                    setDepAdding(prev => [...prev, key])
-                    try {
-                      await modsApi.addMissingDep(hit.workshopId, hit.modId || dep)
-                      setDepAddResults(prev => ({ ...prev, [key]: 'added' as const }))
-                      const updated = await modsApi.getCurrentConfig()
-                      setIniConfig(updated)
-                      if (updated?.modIds) setOrderedModIds(updated.modIds)
-                      toast({ title: t('toasts.dependencyAddedTitle'), description: t('toasts.dependencyAddedDesc', { name: hit.modName }) })
-                    } catch (err) {
-                      reportClientError('Failed to add dependency from inspector.', err)
-                      setDepAddResults(prev => ({ ...prev, [key]: 'error' as const }))
-                      toast({ title: t('toasts.addFailedTitle'), description: getUserErrorMessage(err, t('toasts.addFailedFallback')), variant: 'destructive' })
-                    } finally {
-                      setDepAdding(prev => prev.filter(item => item !== key))
-                      busyRef.current = false
-                    }
-                  }
-
-                  return (
-                    <div className="space-y-3 sub-tab-enter">
-                      {detectedConflicts.length > 0 && (
-                        <div className="space-y-1.5">
-                          {detectedConflicts.map((conflict, idx) => (
-                            <div
-                              key={idx}
-                              className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm ${
-                                conflict.severity === 'warning' ? 'bg-warning/10 border-warning/40' : 'bg-primary/10 border-primary/30'
-                              }`}
-                            >
-                              <AlertTriangle className={`w-3.5 h-3.5 shrink-0 ${conflict.severity === 'warning' ? 'text-warning' : 'text-primary'}`} />
-                              <span className="flex-1 min-w-0 break-words">
-                                <span className={`font-medium ${conflict.severity === 'warning' ? 'text-warning' : 'text-primary'}`}>
-                                  {conflict.type === 'duplicate' && t('serverConfigTab.duplicateModsTitle')}
-                                  {conflict.type === 'missing_modid' && t('serverConfigTab.missingModIdsTitle')}
-                                  {conflict.type === 'outdated_dependency' && t('serverConfigTab.outdatedDependencyTitle')}
-                                </span>
-                                <span className="text-muted-foreground">: {conflict.message}</span>
-                              </span>
-                              {conflict.type === 'duplicate' && (
-                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="shrink-0 h-8 text-xs border-warning/40 text-warning hover:bg-warning/20"
-                                  disabled={deduplicating || !canManageMods}
-                                  onClick={async () => {
-                                    if (!canManageMods) return
-                                    setDeduplicating(true)
-                                    setDeduplicateResult(null)
-                                    try {
-                                      const result = await modsApi.deduplicateModIds()
-                                      setDeduplicateResult(result.message)
-                                      if (result.removed.length > 0) {
-                                        const updated = await modsApi.getCurrentConfig()
-                                        setIniConfig(updated)
-                                        if (updated?.modIds) setOrderedModIds(updated.modIds)
-                                      }
-                                    } catch (err: unknown) {
-                                      const errMsg = getUserErrorMessage(err, 'Failed to deduplicate')
-                                      const msg = errMsg.includes('<')
-                                        ? t('serverConfigTab.deduplicateEndpointUnavailable')
-                                        : errMsg
-                                      setDeduplicateResult(t('serverConfigTab.deduplicateError', { message: msg }))
-                                    } finally {
-                                      setDeduplicating(false)
-                                    }
-                                  }}
-                                >
-                                  {deduplicating ? <Loader2 className="w-3 h-3 animate-spin me-1" /> : <Wrench className="w-3 h-3 me-1" />}
-                                  {t('serverConfigTab.fix')}
-                                </Button>
-                                </DisabledReason>
-                              )}
-                            </div>
-                          ))}
-                          {deduplicateResult && (
-                            <p className={`text-xs px-3 ${deduplicateResult.startsWith('Removed') ? 'text-success' : 'text-muted-foreground'}`}>{deduplicateResult}</p>
-                          )}
-                        </div>
+                >
+                  <div className="space-y-3 border-b border-border/60 p-4">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1 text-foreground"
+                        title={t('activeMods.idsEnabledTooltip', { enabled: enabledCount, total: totalModCount })}
+                      >
+                        <span className="tabular-nums font-medium">{enabledCount}</span>
+                        <span className="text-muted-foreground">{t('activeMods.of')}</span>
+                        <span className="tabular-nums font-medium">{totalModCount}</span>
+                        <span className="text-muted-foreground">{t('activeMods.idsEnabled')}</span>
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1 text-muted-foreground">
+                        <Package className="h-3 w-3" aria-hidden="true" />
+                        <span className="tabular-nums text-foreground">{groups.length}</span>
+                        {t('activeMods.workshopItems', { count: groups.length })}
+                      </span>
+                      {duplicateModIds.size > 0 && (
+                        <span className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 font-medium text-foreground" title={t('activeMods.duplicateIdTooltip')}>
+                          <AlertTriangle className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
+                          {t('activeMods.duplicateId', { count: duplicateModIds.size })}
+                        </span>
                       )}
+                      {lastSavedMod && (
+                        <span className="flex items-center gap-1 text-success animate-in fade-in duration-300" role="status">
+                          <Check className="h-3 w-3" aria-hidden="true" /> {t('activeMods.savedToIni')}
+                        </span>
+                      )}
+                      {/* Collapsed by default: onboarding copy, not a status line. */}
+                      <details className="group/help w-full">
+                        <summary className="inline-flex cursor-pointer select-none list-none items-center gap-1 text-muted-foreground transition-colors hover:text-foreground">
+                          <ChevronRight className="h-3 w-3 transition-transform group-open/help:rotate-90 rtl:-scale-x-100" aria-hidden="true" />
+                          {t('activeMods.helpToggle')}
+                        </summary>
+                        <p className="mt-1.5 max-w-prose text-xs leading-5 text-muted-foreground">
+                          {t('activeMods.helpText')}
+                        </p>
+                      </details>
+                    </div>
 
-                      <div className="rounded-lg border border-border/45 bg-card/35 px-3 py-2.5">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                          <div className="min-w-0 space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className="inline-flex items-center gap-1.5 rounded border border-primary/35 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary"
-                                title={t('activeMods.idsEnabledTooltip', { enabled: enabledCount, total: totalModCount })}
-                              >
-                                <span className="font-mono tabular-nums text-foreground">{enabledCount}</span>
-                                <span className="text-muted-foreground">{t('activeMods.of')}</span>
-                                <span className="font-mono tabular-nums text-foreground">{totalModCount}</span>
-                                <span>{t('activeMods.idsEnabled')}</span>
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 rounded border border-border/45 bg-muted/25 px-2 py-1 text-[11px] text-muted-foreground">
-                                <Package className="h-3 w-3" aria-hidden="true" />
-                                <span className="font-mono tabular-nums text-foreground/85">{groups.length}</span>
-                                {t(groups.length !== 1 ? 'activeMods.workshopItems_other' : 'activeMods.workshopItems_one')}
-                              </span>
-                              {/* One switch to jump straight to the items that are actually
-                                  broken, instead of scrolling the whole list looking for red. */}
-                              {attentionCount > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setFilterAttention(!filterAttention)}
-                                  aria-pressed={filterAttention}
-                                  title={t('activeMods.needsAttentionTooltip')}
-                                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 ${filterAttention ? 'border-destructive/60 bg-destructive/20 text-destructive' : 'border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15'}`}
-                                >
-                                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                                  {t('activeMods.needsAttention', { count: attentionCount })}
-                                </button>
-                              )}
-                              {multiIdCount > 0 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setFilterMultiId(!filterMultiId)}
-                                  aria-pressed={filterMultiId}
-                                  title={filterMultiId
-                                    ? t('activeMods.multiIdShowingTooltip')
-                                    : t('activeMods.multiIdHint')}
-                                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${filterMultiId ? 'bg-primary/20 border-primary/50 text-primary' : 'border-border/40 text-muted-foreground hover:bg-muted/35 hover:text-foreground'}`}
-                                >
-                                  <Filter className="h-3 w-3" aria-hidden="true" />
-                                  {t('activeMods.multiId', { count: multiIdCount })}
-                                </button>
-                              )}
-                              {/* Kept while the filter is on even at zero, so it can be switched off again. */}
-                              {(notEnabledCount > 0 || filterNotEnabled) && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    // Turning it on lists every item with a not-enabled ID, single-ID ones included:
-                                    // the Multi-ID filter (on by default) would otherwise hide most of them.
-                                    if (!filterNotEnabled) setFilterMultiId(false)
-                                    setFilterNotEnabled(!filterNotEnabled)
-                                  }}
-                                  aria-pressed={filterNotEnabled}
-                                  title={t('activeMods.notEnabledTooltip')}
-                                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${filterNotEnabled ? 'bg-primary/20 border-primary/50 text-primary' : 'border-border/40 text-muted-foreground hover:bg-muted/35 hover:text-foreground'}`}
-                                >
-                                  <Filter className="h-3 w-3" aria-hidden="true" />
-                                  {t('activeMods.notEnabled', { count: notEnabledCount })}
-                                </button>
-                              )}
-                              {missingDepsMap.size > 0 && (
-                                <span className="inline-flex items-center gap-1.5 rounded border border-destructive/45 bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive" title={t('activeMods.missingDepTooltip')}>
-                                  <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                                  {t(missingDepsMap.size !== 1 ? 'activeMods.missingDep_other' : 'activeMods.missingDep_one', { count: missingDepsMap.size })}
-                                </span>
-                              )}
-                              {duplicateModIds.size > 0 && (
-                                <span className="inline-flex items-center gap-1.5 rounded border border-warning/45 bg-warning/10 px-2 py-1 text-[11px] font-medium text-warning" title={t('activeMods.duplicateIdTooltip')}>
-                                  <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                                  {t(duplicateModIds.size !== 1 ? 'activeMods.duplicateId_other' : 'activeMods.duplicateId_one', { count: duplicateModIds.size })}
-                                </span>
-                              )}
-                              {lastSavedMod && (
-                                <span className="text-[11px] text-success flex items-center gap-1 animate-in fade-in duration-300">
-                                  <Check className="w-3 h-3" /> {t('activeMods.savedToIni')}
-                                </span>
-                              )}
+                    <Toolbar
+                      search={{
+                        value: modManagerSearch,
+                        onChange: handleModManagerSearchChange,
+                        placeholder: t('activeMods.filterPlaceholder'),
+                        ariaLabel: t('activeMods.filterAria'),
+                        slashToFocus: true,
+                      }}
+                      end={
+                        <>
+                          <Segmented<'compact' | 'detailed'>
+                            value={activeDensity}
+                            onValueChange={setActiveDensity}
+                            ariaLabel={t('activeMods.densityAria')}
+                            items={[
+                              { value: 'compact', label: t('activeMods.densityCompactLabel') },
+                              { value: 'detailed', label: t('activeMods.densityDetailedLabel') },
+                            ]}
+                          />
+                          <Button
+                            variant={activeSelecting ? 'secondary' : 'outline'}
+                            size="sm"
+                            aria-pressed={activeSelecting}
+                            onClick={() => { setActiveSelecting(!activeSelecting); setSelectedActiveWs(new Set()) }}
+                          >
+                            <Check aria-hidden="true" />
+                            {t('activeMods.select')}
+                          </Button>
+                        </>
+                      }
+                    >
+                      {/* One switch to jump straight to the items that are
+                          actually broken, instead of scrolling for red. */}
+                      {activeCounts.attention > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFilterAttention(!filterAttention)}
+                          aria-pressed={filterAttention}
+                          title={t('activeMods.needsAttentionTooltip')}
+                          className={filterChipClass(filterAttention)}
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />
+                          {t('activeMods.needsAttention', { count: activeCounts.attention })}
+                        </button>
+                      )}
+                      {multiIdCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFilterMultiId(!filterMultiId)}
+                          aria-pressed={filterMultiId}
+                          title={filterMultiId ? t('activeMods.multiIdShowingTooltip') : t('activeMods.multiIdHint')}
+                          className={filterChipClass(filterMultiId)}
+                        >
+                          <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t('activeMods.multiId', { count: multiIdCount })}
+                        </button>
+                      )}
+                      {/* Kept while the filter is on even at zero, so it can be switched off again. */}
+                      {(activeCounts.notEnabled > 0 || filterNotEnabled) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Turning it on lists every item with a not-enabled ID, single-ID ones included:
+                            // the Multi-ID filter (on by default) would otherwise hide most of them.
+                            if (!filterNotEnabled) setFilterMultiId(false)
+                            setFilterNotEnabled(!filterNotEnabled)
+                          }}
+                          aria-pressed={filterNotEnabled}
+                          title={t('activeMods.notEnabledTooltip')}
+                          className={filterChipClass(filterNotEnabled)}
+                        >
+                          <Filter className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t('activeMods.notEnabled', { count: activeCounts.notEnabled })}
+                        </button>
+                      )}
+                      {(activeCounts.updates > 0 || activeFilters.updates) && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveFilters((f) => ({ ...f, updates: !f.updates }))}
+                          aria-pressed={activeFilters.updates}
+                          className={filterChipClass(activeFilters.updates)}
+                        >
+                          <History className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
+                          {t('activeMods.updatesChip', { count: activeCounts.updates })}
+                        </button>
+                      )}
+                      {(activeCounts.missingDep > 0 || activeFilters.missingDep) && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveFilters((f) => ({ ...f, missingDep: !f.missingDep }))}
+                          aria-pressed={activeFilters.missingDep}
+                          title={t('activeMods.missingDepTooltip')}
+                          className={filterChipClass(activeFilters.missingDep)}
+                        >
+                          <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                          {t('activeMods.missingDep', { count: missingDepsMap.size })}
+                        </button>
+                      )}
+                      {(activeCounts.hasNote > 0 || activeFilters.hasNote) && (
+                        <button
+                          type="button"
+                          onClick={() => setActiveFilters((f) => ({ ...f, hasNote: !f.hasNote }))}
+                          aria-pressed={activeFilters.hasNote}
+                          className={filterChipClass(activeFilters.hasNote)}
+                        >
+                          <StickyNote className="h-3.5 w-3.5" aria-hidden="true" />
+                          {t('activeMods.hasNoteChip', { count: activeCounts.hasNote })}
+                        </button>
+                      )}
+                      {groupsStore.groups.length > 0 && renderGroupFilter(activeGroupFilter, (group) => setActiveFilters((f) => ({ ...f, group })))}
+                      <Select value={activeSort} onValueChange={(value) => setActiveSort(ACTIVE_SORTS.includes(value as ActiveSort) ? (value as ActiveSort) : 'config')}>
+                        <SelectTrigger className="h-11 w-auto min-w-[9rem] gap-2 text-xs sm:h-8" aria-label={t('sort.aria')}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="config">{t('sort.config')}</SelectItem>
+                          <SelectItem value="loadOrder">{t('sort.loadOrder')}</SelectItem>
+                          <SelectItem value="name">{t('sort.name')}</SelectItem>
+                          <SelectItem value="updated">{t('sort.updated')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Toolbar>
+                    {renderFilterChips(activeChips, clearActiveFilters)}
+                    {activeSelecting && (
+                      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t('activeMods.selectionAria')}>
+                        <span className="text-sm text-muted-foreground">{t('installedTab.selectedCount', { count: selectedActiveWs.size })}</span>
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedActiveWs(new Set(displayGroups.map((g) => g.wsId)))}>
+                          {t('installedTab.selectAll', { count: displayGroups.length })}
+                        </Button>
+                        <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : selectedActiveWs.size === 0 ? tGroups('addTo.pickFirst') : null}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setAddToGroup({ modIds: activeSelectionModIds })}
+                            disabled={!canManageMods || selectedActiveWs.size === 0}
+                          >
+                            <FolderPlus aria-hidden="true" />
+                            {tGroups('addTo.selected')}
+                          </Button>
+                        </DisabledReason>
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedActiveWs(new Set())} disabled={selectedActiveWs.size === 0}>
+                          {t('loadOrder.clearSelection')}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {activeMode === 'groups' && (
+                    <div className="border-b border-border/60 p-4 empty:hidden">
+                      <GroupSuggestions
+                        suggestions={activeSuggestions.suggestions}
+                        modNames={modNamesRecord}
+                        canManage={canManageMods}
+                        onCreate={(suggestion) => setGroupEditor({ group: null, initialModIds: suggestion.modIds, initialName: suggestion.name, fromSuggestion: true })}
+                        onDismiss={(suggestion) => {
+                          void activeSuggestions.dismiss(suggestion.key).catch((error) => {
+                            toast({ title: tGroups('suggestions.dismissFailedTitle'), description: getUserErrorMessage(error, tGroups('suggestions.dismissFailedFallback')), variant: 'destructive' })
+                            void activeSuggestions.reload()
+                          })
+                        }}
+                        storageKey="zcp:mods:suggestionsOpen:active"
+                      />
+                    </div>
+                  )}
+
+                  {/* The list and, from xl, the selected item's inspector. */}
+                  <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_21rem]">
+                    <div className="min-w-0">
+                      {displayGroups.length === 0 && orphanRows.length === 0 ? (
+                        emptyList
+                      ) : activeMode === 'groups' ? (
+                        <GroupSections
+                          items={displayGroups.map((g) => ({ key: g.wsId, modIds: g.mods.map((m) => m.id), g }))}
+                          renderItem={(item) => renderActiveRow(item.g)}
+                          groups={groupsStore.groups}
+                          enabledModIds={enabledModIds}
+                          availableModIds={availableModIds}
+                          modNames={modIdNameMap}
+                          conflictsByGroup={conflictsByGroup}
+                          onShowConflicts={showGroupConflicts}
+                          canManage={canManageMods}
+                          busyGroupId={busyGroupId}
+                          onEnable={(group) => void handleEnableGroup(group)}
+                          onDisable={(group) => void handleDisableGroup(group)}
+                          onEdit={(group) => setGroupEditor({ group })}
+                          applyOrder={{ run: () => void applyGroupOrder(), reason: applyOrderReason }}
+                          hideEmptyGroups={!!q || activeChips.length > 0}
+                          storageKey="zcp:mods:active:collapsedGroups"
+                          className="h-[calc(100vh-340px)] min-h-[300px]"
+                        />
+                      ) : (
+                        <VirtualRows
+                          rows={[...displayGroups.map((g) => ({ kind: 'item' as const, g })), ...orphanRows.map((node) => ({ kind: 'orphan' as const, node }))]}
+                          getKey={(row) => (row.kind === 'item' ? row.g.wsId : String(row.node.key))}
+                          renderRow={(row) => (row.kind === 'item' ? renderActiveRow(row.g) : row.node)}
+                          estimateSize={(row) => (row.kind === 'item' ? 64 : 36)}
+                          className="h-[calc(100vh-340px)] min-h-[300px]"
+                          listClassName="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70"
+                          virtualRowClassName={(_row, index) => cn('border-b border-border/60', index % 2 === 1 && 'bg-card/70')}
+                        />
+                      )}
+                    </div>
+
+                    {inspectedGroup && (
+                      <aside className="border-t border-border/60 xl:sticky xl:top-3 xl:self-start xl:border-s xl:border-t-0" aria-label={t('activeMods.selectedItemAria')}>
+                        <div className="border-b border-border/50 px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="label-micro">{t('activeMods.selectedItemLabel')}</p>
+                              <h3 className="mt-1 truncate text-sm font-semibold text-foreground" title={getGroupLabel(inspectedGroup)}>{getGroupLabel(inspectedGroup)}</h3>
                             </div>
-                            {/* Collapsed by default — it's onboarding copy, not a status line. */}
-                            <details className="group/help">
-                              <summary className="inline-flex cursor-pointer select-none list-none items-center gap-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground">
-                                <ChevronRight className="h-3 w-3 transition-transform group-open/help:rotate-90" aria-hidden="true" />
-                                {t('activeMods.helpToggle')}
-                              </summary>
-                              <p className="mt-1.5 max-w-prose text-[11px] leading-4 text-muted-foreground/75">
-                                {t('activeMods.helpText')}
-                              </p>
-                            </details>
+                            <span className={cn('inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-xs font-medium tabular-nums', inspectedGroup.allEnabled ? 'border-success/30 bg-success/10 text-foreground' : inspectedGroup.someEnabled ? 'border-warning/40 bg-warning/10 text-foreground' : 'border-border/50 bg-muted/30 text-muted-foreground')}>
+                              {inspectedGroup.mods.filter(m => m.enabled).length} {t('activeMods.of')} {inspectedGroup.mods.length}
+                            </span>
                           </div>
-                          <div className="flex w-full shrink-0 flex-col gap-2 lg:w-auto lg:items-end">
-                            <div className="relative w-full lg:w-72">
-                              <Search className="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
-                              <Input value={modManagerSearch} onChange={e => handleModManagerSearchChange(e.target.value)} placeholder={t('activeMods.filterPlaceholder')} aria-label={t('activeMods.filterAria')} className="h-9 text-xs ps-8 bg-background/60" />
-                              {modManagerSearch && (
-                                <button onClick={() => { handleModManagerSearchChange('') }} aria-label={t('activeMods.clearSearchAria')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[11px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded">✕</button>
-                              )}
-                            </div>
-                            <div className="inline-flex items-center gap-1 rounded-md border border-border/45 bg-muted/20 p-0.5" role="group" aria-label={t('activeMods.densityAria')}>
-                              {(['compact', 'detailed'] as const).map(d => (
-                                <button
-                                  key={d}
-                                  type="button"
-                                  onClick={() => setActiveDensity(d)}
-                                  aria-pressed={activeDensity === d}
-                                  title={d === 'compact'
-                                    ? t('activeMods.densityCompactTooltip')
-                                    : t('activeMods.densityDetailedTooltip')}
-                                  className={`rounded px-2 py-1 text-[11px] font-medium capitalize transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 ${activeDensity === d ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-                                >
-                                  {d === 'compact' ? t('activeMods.densityCompactLabel') : t('activeMods.densityDetailedLabel')}
-                                </button>
-                              ))}
-                            </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center rounded border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono tabular-nums">WS {inspectedGroup.wsId}</span>
+                            {inspectedGroup.mods.length > 1 && <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-foreground">{t('activeMods.multiIdBadge')}</span>}
+                            {inspectedLocked && <BridgeManagedBadge />}
                           </div>
                         </div>
-                      </div>
 
-                      {/* (Dependency / duplicate badges are now inline above) */}
-
-                      {/* Scrollable mod list */}
-                      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_21rem]">
-                      <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-muted/50 shadow-md">
-                        {displayGroups.length > 0 ? (
-                          <ScrollArea className="h-[calc(100vh-340px)] min-h-[300px]">
-                            <div className="min-w-0 divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70">
-                              {displayGroups.map(g => {
-                                const isSingle = g.mods.length === 1
-                                const mod0 = g.mods[0]
-                                const isInspected = inspectedGroup?.wsId === g.wsId
-                                const label = getGroupLabel(g)
-                                const att = groupAttention(g)
-                                const bridgeLocked = isBridgeGroup(g)
-                                const rowLockReason = !canManageMods ? t('permissions.noModsManage') : bridgeLocked ? bridgeLockReason : null
-                                const enabledN = g.mods.filter(m => m.enabled).length
-                                const totalN = g.mods.length
-                                // Chips are the dense part of the row. Compact keeps them in the
-                                // inspector; the selected row always shows them so a click still
-                                // reveals everything in place.
-                                const showChips = !isSingle && (activeDensity === 'detailed' || isInspected)
-                                const groupMissing = g.mods.flatMap(m => missingDepsMap.get(m.id) || [])
-                                const groupRequires = g.mods.flatMap(m => m.require || []).filter((v, i, a) => a.indexOf(v) === i)
-                                const missingRequired = groupRequires.filter(dep => groupMissing.includes(dep))
-
-                                // Only colour the count when something is actually wrong. A partial
-                                // "1 of 5" is the normal, correct state for most multi-ID items.
-                                const countTone = att.any
-                                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
-                                  : g.allEnabled
-                                    ? 'border-success/30 bg-success/10 text-success'
-                                    : g.someEnabled
-                                      ? 'border-border/45 bg-muted/25 text-foreground/80'
-                                      : 'border-border/45 bg-muted/25 text-muted-foreground'
-
-                                const kebab = (
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <Button variant="ghost" size="iconDense" className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground" aria-label={t('activeMods.moreActionsAria', { name: label })}>
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem onClick={() => copyText(g.wsId).then(() => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: g.wsId }) })).catch(() => {})}>
-                                        <FileText className="me-2 h-4 w-4" />
-                                        {t('activeMods.copyWorkshopId')}
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DisabledReason reason={rowLockReason} className="w-full">
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
-                                          title={t('activeMods.removeFromIniHint')}
-                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveWorkshop({ wsId: g.wsId, knownModIds: g.mods.map(m => m.id) }) }}
-                                          disabled={!canManageMods || bridgeLocked}
-                                        >
-                                          <Trash2 className="me-2 h-4 w-4" />
-                                          {t('activeMods.removeFromIni')}
-                                        </DropdownMenuItem>
-                                      </DisabledReason>
-                                      <DropdownMenuSeparator />
-                                      <DisabledReason reason={rowLockReason} className="w-full">
-                                        <DropdownMenuItem
-                                          className="text-destructive focus:text-destructive"
-                                          // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage, or PanelBridge's Workshop lock) now lives in the DisabledReason wrapper above; this title carries only the always-relevant "what removing does" hint, correctly absent (via DisabledReason's own tooltip taking over) rather than dead when actually disabled.
-                                          title={t('activeMods.removeFromServerHint')}
-                                          onClick={() => { if (!canManageMods || bridgeLocked) return; setConfirmRemoveMod({ wsId: g.wsId, label }) }}
-                                          disabled={!canManageMods || bridgeLocked}
-                                        >
-                                          <Trash2 className="me-2 h-4 w-4" />
-                                          {t('activeMods.removeFromServer')}
-                                        </DropdownMenuItem>
-                                      </DisabledReason>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                )
-
-                                const missingRequiredBlock = missingRequired.length > 0 ? (
-                                  <div className="flex flex-wrap items-center gap-1 rounded border border-destructive/35 bg-destructive/10 px-2 py-1">
-                                    <AlertTriangle className="h-3 w-3 text-destructive" aria-hidden="true" />
-                                    <span className="text-[10px] font-medium text-destructive/90">{t('activeMods.missingRequiredId')}</span>
-                                    {missingRequired.map(dep => (
-                                      <span key={dep} className="rounded border border-destructive/30 bg-destructive/15 px-1 font-mono text-[10px] text-destructive" title={t('activeMods.missingRequiredTooltip', { dep })}>
-                                        {dep}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null
-
-                                if (isSingle) {
-                                  return (
-                                    <ModRow
-                                      key={g.wsId}
-                                      selected={isInspected}
-                                      dimmed={!mod0.enabled}
-                                      onClick={() => setSelectedActiveWsId(g.wsId)}
-                                      leading={
-                                        <DisabledReason reason={bridgeLocked ? bridgeLockReason : null}>
-                                          <Checkbox
-                                            checked={mod0.enabled}
-                                            onCheckedChange={() => toggleMod(mod0, g.wsId)}
-                                            disabled={bridgeLocked}
-                                            aria-label={t('activeMods.toggleEnableAria', { action: mod0.enabled ? t('activeMods.disableAction') : t('activeMods.enableAction'), name: mod0.name || mod0.id })}
-                                          />
-                                        </DisabledReason>
-                                      }
-                                      title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{mod0.name || mod0.id}</span>}
-                                      titleBadges={
-                                        <>
-                                          {mod0.name !== mod0.id && (
-                                            <span className="inline-flex items-center rounded border border-success/25 bg-success/10 px-1.5 py-0.5 font-mono text-[10px] leading-none text-success">
-                                              {mod0.id}
-                                            </span>
-                                          )}
-                                          {att.duplicate && (
-                                            <span className="shrink-0 rounded border border-warning/30 bg-warning/15 px-1.5 text-[10px] text-warning" title={t('activeMods.duplicateTooltip', { count: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).length, ids: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).join(', ') })}>
-                                              {t('activeMods.duplicate')}
-                                            </span>
-                                          )}
-                                          {bridgeLocked && <BridgeManagedBadge />}
-                                        </>
-                                      }
-                                      meta={
-                                        <>
-                                          <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-medium ${mod0.enabled ? 'border-success/30 bg-success/10 text-success' : 'border-border/45 bg-muted/25 text-muted-foreground'}`}>
-                                            <span className={`h-1.5 w-1.5 rounded-full ${mod0.enabled ? 'bg-success' : 'bg-muted-foreground/50'}`} aria-hidden="true" />
-                                            {mod0.enabled ? t('activeMods.enabled') : t('activeMods.disabled')}
-                                          </span>
-                                          <WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />
-                                        </>
-                                      }
-                                      actions={
-                                        <>
-                                          <WorkshopLinkAction wsId={g.wsId} label={mod0.name || mod0.id} />
-                                          {kebab}
-                                        </>
-                                      }
-                                      footer={mod0.enabled ? missingRequiredBlock : null}
-                                    />
-                                  )
-                                }
-
-                                return (
-                                  <ModRow
-                                    key={g.wsId}
-                                    selected={isInspected}
-                                    dimmed={!g.someEnabled}
-                                    onClick={() => setSelectedActiveWsId(g.wsId)}
-                                    leading={
-                                      <div className={`h-2 w-2 rounded-sm ${g.allEnabled ? 'bg-success' : g.someEnabled ? 'bg-success/40' : 'bg-muted-foreground/20'}`} aria-hidden="true" />
-                                    }
-                                    title={<span className="truncate text-sm font-semibold leading-tight text-foreground">{label}</span>}
-                                    titleBadges={
-                                      <>
-                                        <span
-                                          className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium tabular-nums ${countTone}`}
-                                          title={t('activeMods.enabledOfTotalTooltip', { enabled: enabledN, total: totalN })}
-                                        >
-                                          <span>{enabledN}</span>
-                                          <span className="opacity-60">{t('activeMods.of')}</span>
-                                          <span>{totalN}</span>
-                                          <span className="hidden opacity-75 sm:inline">{t('activeMods.enabledLabel')}</span>
-                                        </span>
-                                        {bridgeLocked && <BridgeManagedBadge />}
-                                      </>
-                                    }
-                                    meta={<WorkshopIdChip wsId={g.wsId} onCopied={(id) => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id }) })} />}
-                                    actions={
-                                      <>
-                                        <WorkshopLinkAction
-                                          wsId={g.wsId}
-                                          label={label}
-                                          hint={t('activeMods.openWorkshopToChooseHint')}
-                                        />
-                                        {kebab}
-                                      </>
-                                    }
-                                    footer={
-                                      <>
-                                        {showChips && (
-                                          <div className="flex flex-wrap gap-1">
-                                            {(() => {
-                                              const groupSiblings = siblingConflictsMap.get(g.wsId)
-                                              // bug-hunt-2026-09-08 (three-state collapse residual sweep): `conflicts`
-                                              // is null until a scan has ever run (fresh install, or a cleared
-                                              // server-side cache) -- siblingConflictsMap is then empty for every
-                                              // group, and every mod fell through to the SAME bg-success/bg-muted
-                                              // pair a genuinely scanned-and-cleared mod gets. No text ever claimed
-                                              // "clean" (the pill only ever showed mod.id), but the color did --
-                                              // an operator who never opens the Conflicts tab could not tell "nobody
-                                              // has scanned this" from "this is fine". Reusing the file's own
-                                              // existing neutral-for-unverified language (WorkshopThumb's
-                                              // !mod.last_checked tone, the dashed/muted "Unchecked" badge a few
-                                              // hundred lines up) rather than inventing a new one -- this is the
-                                              // removal of a false claim, not a new claim, so it needed no new copy.
-                                              const scanned = conflicts !== null
-                                              const enabledSet = new Set(g.mods.filter(m => m.enabled).map(m => m.id))
-                                              const scanClashing = new Set<string>()
-                                              if (groupSiblings) {
-                                                for (const [modId, sibs] of groupSiblings) {
-                                                  if (!enabledSet.has(modId)) continue
-                                                  for (const s of sibs) {
-                                                    if (enabledSet.has(s)) { scanClashing.add(modId); scanClashing.add(s) }
-                                                  }
-                                                }
-                                              }
-                                              return g.mods.map(mod => {
-                                                const isDupe = duplicateModIds.has(mod.id)
-                                                const sibConflicts = groupSiblings?.get(mod.id)
-                                                const hasScanOverlap = !!sibConflicts && sibConflicts.size > 0
-                                                const isScanClashing = scanClashing.has(mod.id)
-                                                const sibList = sibConflicts ? Array.from(sibConflicts) : []
-                                                const enabledSibs = sibList.filter(s => enabledSet.has(s))
-                                                const fmtSibs = (arr: string[]) => arr.length <= 4 ? arr.join(', ') : `${arr.slice(0, 4).join(', ')} (+${arr.length - 4} more)`
-                                                const tooltipBits = [
-                                                  `${mod.id}${mod.name !== mod.id ? ` — ${mod.name}` : ''}`,
-                                                  isDupe ? t('activeMods.chipTooltipDupe', { ids: (duplicateModIds.get(mod.id) || []).filter(w => w !== g.wsId).join(', ') }) : null,
-                                                  isScanClashing
-                                                    ? t('activeMods.chipTooltipClash', { names: fmtSibs(enabledSibs) })
-                                                    : hasScanOverlap
-                                                      ? t('activeMods.chipTooltipOverlap', { names: fmtSibs(sibList) })
-                                                      : null,
-                                                  mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable'),
-                                                ].filter(Boolean).join('\n')
-                                                // Colour priority: confirmed clash > known overlap > duplicate > normal.
-                                                // Heuristics alone never earn red — many multi-ID mods are legit bundles.
-                                                // The final fallback only reads as "clean" once a scan has actually
-                                                // run (`scanned`) -- unscanned gets the file's existing dashed/muted
-                                                // "unverified" treatment instead, still varying by enabled state
-                                                // (same intensity trick the clean branch already uses) so the
-                                                // toggle's on/off signal isn't lost, just no longer painted green.
-                                                const styleClass = isScanClashing
-                                                  ? (mod.enabled ? 'bg-destructive/20 text-destructive hover:bg-destructive/30 ring-1 ring-destructive/50' : 'bg-destructive/5 text-destructive/60 hover:bg-destructive/10 ring-1 ring-destructive/20')
-                                                  : hasScanOverlap
-                                                    ? (mod.enabled ? 'bg-success/15 text-success hover:bg-success/25 ring-1 ring-warning/30' : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25 ring-1 ring-warning/20')
-                                                    : isDupe
-                                                      ? (mod.enabled ? 'bg-warning/15 text-warning hover:bg-warning/25 ring-1 ring-warning/30' : 'bg-warning/5 text-warning/50 hover:bg-warning/10 ring-1 ring-warning/20')
-                                                      : !scanned
-                                                        ? (mod.enabled
-                                                          ? 'border border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground/70 hover:bg-muted/15'
-                                                          : 'border border-dashed border-muted-foreground/25 bg-transparent text-muted-foreground/40 hover:bg-muted/10')
-                                                        : (mod.enabled
-                                                          ? 'bg-success/15 text-success hover:bg-success/25'
-                                                          : 'bg-muted/15 text-muted-foreground/75 hover:text-muted-foreground hover:bg-muted/25')
-                                                return (
-                                                  <DisabledReason key={mod.id} reason={rowLockReason}>
-                                                  <button
-                                                    onClick={(e) => { e.stopPropagation(); toggleMod(mod, g.wsId) }}
-                                                    disabled={!canManageMods || bridgeLocked}
-                                                    // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant chip tooltip (id/name, dupe/clash/overlap warnings, click hint), correctly absent rather than dead when actually disabled.
-                                                    title={tooltipBits}
-                                                    className={`mod-toggle-pill inline-flex max-w-[200px] items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 ${canManageMods ? 'cursor-pointer' : ''} ${styleClass}`}
-                                                  >
-                                                    {isScanClashing && <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-destructive" />}
-                                                    {!isScanClashing && hasScanOverlap && <AlertTriangle className="h-2.5 w-2.5 shrink-0 text-warning/70" />}
-                                                    <span className="truncate">{mod.id}</span>
-                                                  </button>
-                                                  </DisabledReason>
-                                                )
-                                              })
-                                            })()}
-                                          </div>
-                                        )}
-                                        {(() => {
-                                          const enabledMods = g.mods.filter(m => m.enabled)
-                                          const enabledIds = enabledMods.map(m => m.id)
-                                          const enabledSet = new Set(enabledIds)
-                                          const hasMultipleEnabled = g.mods.length > 1 && enabledIds.length >= 2
-                                          const groupSiblings = siblingConflictsMap.get(g.wsId)
-                                          const scanClashingPairs: [string, string][] = []
-                                          if (groupSiblings) {
-                                            const seen = new Set<string>()
-                                            for (const [modId, sibs] of groupSiblings) {
-                                              if (!enabledSet.has(modId)) continue
-                                              for (const s of sibs) {
-                                                if (!enabledSet.has(s)) continue
-                                                const key = [modId, s].sort().join('--')
-                                                if (seen.has(key)) continue
-                                                seen.add(key)
-                                                scanClashingPairs.push([modId, s])
-                                              }
-                                            }
-                                          }
-                                          // Dismissed false positives, so a wrong "Not a conflict" can be undone.
-                                          const groupModIds = new Set(g.mods.map(m => m.id))
-                                          const dismissedHere = ignoredPairs.filter(p => groupModIds.has(p.mod_a) && groupModIds.has(p.mod_b))
-
-                                          // A real clash always shows, at any density.
-                                          if (scanClashingPairs.length > 0) {
-                                            return (
-                                              <div role="alert" className="flex flex-wrap items-start gap-1.5 text-[11px] sm:items-center">
-                                                <AlertTriangle aria-hidden="true" className="mt-px h-3.5 w-3.5 shrink-0 text-destructive sm:mt-0" />
-                                                <span className="min-w-0 break-words font-medium text-destructive/90">
-                                                  {t('activeMods.clashWarning')}
-                                                </span>
-                                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    for (const [a, b] of scanClashingPairs) dismissPair(a, b)
-                                                  }}
-                                                  disabled={!canManageMods}
-                                                  // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant dismiss-pair hint, correctly absent rather than dead when actually disabled.
-                                                  title={scanClashingPairs.length === 1
-                                                    ? t('activeMods.dismissOneTooltip', { a: scanClashingPairs[0][0], b: scanClashingPairs[0][1] })
-                                                    : t('activeMods.dismissAllTooltip', { count: scanClashingPairs.length })}
-                                                  className="ms-auto inline-flex items-center gap-1 rounded border border-border/50 bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50"
-                                                >
-                                                  {t('activeMods.notAConflict')}
-                                                </button>
-                                                </DisabledReason>
-                                              </div>
-                                            )
-                                          }
-
-                                          // Everything below is reassurance or nuance, not a problem —
-                                          // it only earns space in the detailed density.
-                                          if (activeDensity !== 'detailed' && !isInspected) return null
-
-                                          if (groupSiblings && groupSiblings.size > 0) {
-                                            const overlapIds = new Set<string>()
-                                            for (const [id, sibs] of groupSiblings) if (sibs.size > 0) overlapIds.add(id)
-                                            return (
-                                              <div
-                                                className="flex flex-wrap items-start gap-1 text-[11px] text-muted-foreground/70 sm:items-center"
-                                                title={t('activeMods.variantsShareFilesTooltip', { ids: Array.from(overlapIds).join(', ') })}
-                                              >
-                                                <Check aria-hidden="true" className="mt-px h-3 w-3 shrink-0 text-success/70 sm:mt-0" />
-                                                <span className="min-w-0 break-words">{t('activeMods.variantsShareFiles')}</span>
-                                              </div>
-                                            )
-                                          }
-                                          if (hasMultipleEnabled) {
-                                            return (
-                                              <div className="flex flex-wrap items-start gap-1 text-[11px] text-muted-foreground/70 sm:items-center">
-                                                <Info aria-hidden="true" className="mt-px h-3 w-3 shrink-0 sm:mt-0" />
-                                                <span className="min-w-0 break-words">{t('activeMods.multipleEnabledHint', { count: enabledIds.length })}</span>
-                                                {dismissedHere.length > 0 && (
-                                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) => { e.stopPropagation(); for (const p of dismissedHere) restorePair(p.mod_a, p.mod_b) }}
-                                                    disabled={!canManageMods}
-                                                    // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant restore-dismissed hint, correctly absent rather than dead when actually disabled.
-                                                    title={t('activeMods.restoreDismissedTooltip', { count: dismissedHere.length })}
-                                                    className="ms-auto text-[10px] text-muted-foreground/60 underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                                                  >
-                                                    {t('activeMods.restoreDismissed', { count: dismissedHere.length })}
-                                                  </button>
-                                                  </DisabledReason>
-                                                )}
-                                              </div>
-                                            )
-                                          }
-                                          if (dismissedHere.length > 0) {
-                                            return (
-                                              <div className="flex flex-wrap items-center gap-1 text-[10px] text-muted-foreground/50">
-                                                <span className="min-w-0">{t('activeMods.dismissedCount', { count: dismissedHere.length })}</span>
-                                                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                                                  <button
-                                                    type="button"
-                                                    onClick={(e) => { e.stopPropagation(); for (const p of dismissedHere) restorePair(p.mod_a, p.mod_b) }}
-                                                    disabled={!canManageMods}
-                                                    className="underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-                                                  >
-                                                    {t('activeMods.restore')}
-                                                  </button>
-                                                </DisabledReason>
-                                              </div>
-                                            )
-                                          }
-                                          return null
-                                        })()}
-                                        {g.someEnabled ? missingRequiredBlock : null}
-                                      </>
-                                    }
-                                  />
-                                )
-                              })}
-                              {/* Orphaned mods */}
-                              {/* PanelBridge's mod id shows here until Steam has
-                                  downloaded its Workshop item (the first start
-                                  after a switch), so the same lock applies. */}
-                              {!multiIdFilterOn && !filterNotEnabled && orphaned.filter(id => !q || id.toLowerCase().includes(q)).map(id => {
-                                const orphanBridgeLocked = isBridgeManagedMod(iniConfig?.bridgeManaged, null, [id])
-                                return (
-                                <div key={`orphan-${id}`} className="group flex items-center gap-3 px-3 py-1.5 opacity-60">
-                                  <AlertTriangle className="w-3 h-3 text-warning/60 shrink-0" />
-                                  <span className="text-xs font-mono truncate flex-1">{id}</span>
-                                  {orphanBridgeLocked && <BridgeManagedBadge />}
-                                  <span className="text-[11px] text-warning/50">{t('activeMods.orphanNotOnDisk')}</span>
-                                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : orphanBridgeLocked ? bridgeLockReason : null}>
-                                  <button
-                                    onClick={async () => {
-                                      if (busyRef.current || !canManageMods || orphanBridgeLocked) return
-                                      busyRef.current = true
-                                      try {
-                                        await modsApi.toggleModId(id, false)
-                                        const updated = await modsApi.getCurrentConfig()
-                                        setIniConfig(updated)
-                                        if (updated?.modIds) setOrderedModIds(updated.modIds)
-                                      } catch (e) { reportClientError('Failed to remove orphaned mod', e); toast({ variant: 'destructive', title: t('toasts.failedToRemoveOrphanedModTitle'), description: getUserErrorMessage(e, t('toasts.failedToRemoveOrphanedModFallback')) }) } finally { busyRef.current = false }
-                                    }}
-                                    disabled={!canManageMods || orphanBridgeLocked}
-                                    className="text-destructive/80 hover:text-destructive hover:bg-destructive/15 rounded p-1.5 transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (what removing this orphan does); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                                    title={t('activeMods.removeOrphanTooltip', { id })}
-                                    aria-label={t('activeMods.removeOrphanAria', { id })}
-                                  >
-                                    <X className="w-4 h-4" />
-                                  </button>
-                                  </DisabledReason>
-                                </div>
-                                )
-                              })}
-                            </div>
-                          </ScrollArea>
-                        ) : (
-                          <div className="space-y-2 px-3 py-8 text-center text-xs text-muted-foreground">
-                            {filterAttention && attentionCount === 0 ? (
-                              <>
-                                <p className="text-success">{t('activeMods.nothingNeedsAttention')}</p>
-                                <button type="button" onClick={() => setFilterAttention(false)} className="underline underline-offset-2 hover:text-foreground">
-                                  {t('activeMods.showAllItems')}
-                                </button>
-                              </>
-                            ) : filterNotEnabled && notEnabledCount === 0 ? (
-                              <>
-                                <p className="text-success">{t('activeMods.everythingEnabled')}</p>
-                                <button type="button" onClick={() => setFilterNotEnabled(false)} className="underline underline-offset-2 hover:text-foreground">
-                                  {t('activeMods.showAllItems')}
-                                </button>
-                              </>
-                            ) : q ? (
-                              <p>{t('activeMods.noMatchesFor', { query: modManagerSearch })}</p>
-                            ) : (
-                              <p>{t('activeMods.noModIdsFound')}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {inspectedGroup && (
-                        <aside className="rounded-lg border border-border/55 bg-card/55 shadow-md xl:sticky xl:top-3 xl:self-start" aria-label={t('activeMods.selectedItemAria')}>
-                          <div className="border-b border-border/45 px-3 py-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{t('activeMods.selectedItemLabel')}</p>
-                                <h3 className="mt-1 truncate text-sm font-semibold text-foreground" title={getGroupLabel(inspectedGroup)}>{getGroupLabel(inspectedGroup)}</h3>
-                              </div>
-                              <span className={`inline-flex shrink-0 items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium tabular-nums ${inspectedGroup.allEnabled ? 'border-success/30 bg-success/10 text-success' : inspectedGroup.someEnabled ? 'border-warning/35 bg-warning/10 text-warning' : 'border-border/45 bg-muted/25 text-muted-foreground'}`}>
-                                {inspectedGroup.mods.filter(m => m.enabled).length} {t('activeMods.of')} {inspectedGroup.mods.length}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-                              <span className="inline-flex items-center rounded border border-border/35 bg-muted/20 px-1.5 py-0.5 font-mono tabular-nums">WS {inspectedGroup.wsId}</span>
-                              {inspectedGroup.mods.length > 1 && <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-primary">{t('activeMods.multiIdBadge')}</span>}
-                              {inspectedLocked && <BridgeManagedBadge />}
-                            </div>
+                        <div className="space-y-4 px-4 py-3">
+                          <div className="grid grid-cols-2 gap-2">
+                            <a
+                              href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${inspectedGroup.wsId}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 text-xs font-medium text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                              {t('activeMods.workshop')}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => void copyWs(inspectedGroup.wsId)}
+                              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2 text-xs font-medium text-foreground hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                            >
+                              <FileText className="h-3.5 w-3.5" aria-hidden="true" />
+                              {t('activeMods.copyWs')}
+                            </button>
                           </div>
 
-                          <div className="space-y-3 px-3 py-3">
-                            <div className="grid grid-cols-2 gap-2">
-                              <a
-                                href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${inspectedGroup.wsId}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border/55 bg-background/55 px-2 text-xs font-medium text-foreground hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                                {t('activeMods.workshop')}
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() => copyText(inspectedGroup.wsId).then(() => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: inspectedGroup.wsId }) })).catch(() => {})}
-                                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-border/55 bg-background/55 px-2 text-xs font-medium text-foreground hover:bg-muted/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                              >
-                                <FileText className="h-3.5 w-3.5" />
-                                {t('activeMods.copyWs')}
-                              </button>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="label-micro">{t('activeMods.loadedIds')}</p>
+                              <DisabledReason reason={inspectedLockReason}>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAllInGroup(inspectedGroup)}
+                                  disabled={!canManageMods || inspectedLocked}
+                                  className="rounded border border-border/50 bg-muted/30 px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {inspectedGroup.allEnabled ? t('activeMods.disableAll') : t('activeMods.enableAll')}
+                                </button>
+                              </DisabledReason>
                             </div>
-
                             <div className="space-y-1.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground/75">{t('activeMods.loadedIds')}</p>
-                                <DisabledReason reason={inspectedLockReason}>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleAllInGroup(inspectedGroup)}
-                                    disabled={!canManageMods || inspectedLocked}
-                                    className="rounded border border-border/45 bg-muted/25 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50"
-                                  >
-                                    {inspectedGroup.allEnabled ? t('activeMods.disableAll') : t('activeMods.enableAll')}
-                                  </button>
-                                </DisabledReason>
-                              </div>
-                              <div className="space-y-1.5">
-                                {inspectedGroup.mods.map(mod => {
-                                  const missing = missingDepsMap.get(mod.id) || []
-                                  const isDupe = duplicateModIds.has(mod.id)
-                                  return (
-                                    <DisabledReason key={mod.id} reason={inspectedLockReason}>
+                              {inspectedGroup.mods.map(mod => {
+                                const missing = missingDepsMap.get(mod.id) || []
+                                const isDupe = duplicateModIds.has(mod.id)
+                                return (
+                                  <DisabledReason key={mod.id} reason={inspectedLockReason}>
                                     <button
                                       type="button"
                                       onClick={() => toggleMod(mod, inspectedGroup.wsId)}
                                       disabled={!canManageMods || inspectedLocked}
-                                      className={`flex w-full items-center gap-2 rounded border px-2 py-1.5 text-start text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50 ${mod.enabled ? 'border-success/25 bg-success/10 text-success' : 'border-border/45 bg-muted/20 text-muted-foreground hover:text-foreground'}`}
-                                      // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (mods.manage) now lives in the DisabledReason wrapper above; this title carries only the always-relevant click-to-toggle hint, correctly absent rather than dead when actually disabled.
+                                      className={cn('flex w-full items-center gap-2 rounded border px-2 py-1.5 text-start text-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-50', mod.enabled ? 'border-success/30 bg-success/10 text-foreground' : 'border-border/50 bg-muted/20 text-muted-foreground hover:text-foreground')}
+                                      // eslint-disable-next-line local/no-dead-disabled-title -- the disabled-reason branch (mods.manage) lives in the DisabledReason wrapper above; this title carries only the always-relevant click-to-toggle hint, correctly absent rather than dead when actually disabled.
                                       title={`${mod.enabled ? t('activeMods.clickToDisable') : t('activeMods.clickToEnable')} ${mod.id}`}
                                     >
-                                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${mod.enabled ? 'bg-success' : 'bg-muted-foreground/45'}`} aria-hidden="true" />
+                                      <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', mod.enabled ? 'bg-success' : 'bg-muted-foreground/50')} aria-hidden="true" />
                                       <span className="min-w-0 flex-1 truncate font-mono">{mod.id}</span>
                                       {missing.length > 0 && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" aria-label={t('activeMods.missingDependencyAria')} />}
-                                      {isDupe && <span className="shrink-0 rounded border border-warning/35 bg-warning/10 px-1 py-0 text-[9px] uppercase tracking-wide text-warning">dup</span>}
+                                      {isDupe && <span className="shrink-0 rounded border border-warning/40 bg-warning/10 px-1 py-0 text-[10px] text-foreground">{t('activeMods.dupBadge')}</span>}
                                     </button>
-                                    </DisabledReason>
+                                  </DisabledReason>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {/* Groups this item belongs to, and its note. */}
+                          <div className="space-y-1.5 border-t border-border/50 pt-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="label-micro">{tGroups('inspector.title')}</p>
+                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setAddToGroup({ modIds: inspectedGroup.mods.map((m) => m.id), label: getGroupLabel(inspectedGroup) })}
+                                  disabled={!canManageMods}
+                                >
+                                  <FolderPlus aria-hidden="true" />
+                                  {tGroups('addTo.menuItem')}
+                                </Button>
+                              </DisabledReason>
+                            </div>
+                            {groupsOfWorkshop(inspectedGroup.wsId).length === 0 ? (
+                              <p className="text-xs text-muted-foreground">{tGroups('inspector.none')}</p>
+                            ) : (
+                              <ul className="space-y-1">
+                                {groupsOfWorkshop(inspectedGroup.wsId).map((group) => {
+                                  const ids = inspectedGroup.mods.map((m) => m.id)
+                                  const tooFew = removalLeavesTooFew(group, ids)
+                                  return (
+                                    <li key={group.id} className="flex items-center gap-2 text-xs">
+                                      <GroupDot color={group.color} />
+                                      <span className="min-w-0 flex-1 truncate text-foreground">{group.name}</span>
+                                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : tooFew ? tGroups('removeFrom.tooFew') : null}>
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleRemoveFromGroup(group, ids)}
+                                          disabled={!canManageMods || tooFew}
+                                          aria-label={tGroups('removeFrom.menuItem', { name: group.name })}
+                                          className="grid h-8 w-8 place-items-center rounded text-muted-foreground hover:bg-muted/40 hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
+                                        >
+                                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                                        </button>
+                                      </DisabledReason>
+                                    </li>
                                   )
                                 })}
-                              </div>
+                              </ul>
+                            )}
+                          </div>
+                          <div className="space-y-1.5 border-t border-border/50 pt-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="label-micro">{t('notes.inspectorTitle')}</p>
+                              <Button variant="ghost" size="sm" onClick={() => setNoteEditor({ workshopId: inspectedGroup.wsId, name: getGroupLabel(inspectedGroup) })} disabled={!canManageMods && !notesStore.notes[inspectedGroup.wsId]}>
+                                <StickyNote aria-hidden="true" />
+                                {notesStore.notes[inspectedGroup.wsId] ? t('notes.editAction') : t('notes.addAction')}
+                              </Button>
                             </div>
+                            {notesStore.notes[inspectedGroup.wsId] ? (
+                              <p className="whitespace-pre-wrap break-words text-xs text-foreground">{notesStore.notes[inspectedGroup.wsId].text}</p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">{t('notes.empty')}</p>
+                            )}
+                          </div>
 
-                            {getGroupMissingDeps(inspectedGroup).length > 0 && (
-                              <div className="rounded border border-destructive/35 bg-destructive/10 px-2 py-2">
-                                <div className="flex items-center gap-1.5 text-[11px] font-medium text-destructive">
-                                  <AlertTriangle className="h-3.5 w-3.5" />
-                                  {t('activeMods.missingRequiredIdsTitle')}
-                                </div>
-                                <div className="mt-1.5 space-y-2">
-                                  {getGroupMissingDeps(inspectedGroup).map(dep => {
-                                    const key = getInspectorDepKey(inspectedGroup, dep)
-                                    const searchOpen = depSearchOpen.has(key)
-                                    const searchState = depSearchData[key]
-                                    const adding = depAdding.includes(key)
-                                    const added = depAddResults[key] === 'added'
-                                    const errored = depAddResults[key] === 'error'
+                          {getGroupMissingDeps(inspectedGroup).length > 0 && (
+                            <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-2">
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                                <AlertTriangle className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                                {t('activeMods.missingRequiredIdsTitle')}
+                              </div>
+                              <div className="mt-1.5 space-y-2">
+                                {getGroupMissingDeps(inspectedGroup).map(dep => {
+                                  const key = getInspectorDepKey(inspectedGroup, dep)
+                                  const searchOpen = depSearchOpen.has(key)
+                                  const searchState = depSearchData[key]
+                                  const adding = depAdding.includes(key)
+                                  const added = depAddResults[key] === 'added'
+                                  const errored = depAddResults[key] === 'error'
 
-                                    return (
-                                      <div key={dep} className="rounded border border-destructive/25 bg-background/25 p-1.5">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleInspectorDepSearch(inspectedGroup, dep)}
-                                            className="inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-destructive transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60"
-                                            aria-expanded={searchOpen}
-                                            aria-controls={`active-dep-search-${key}`}
-                                            title={t('activeMods.searchWorkshopTooltip', { dep })}
-                                          >
-                                            <Search className="h-3 w-3" aria-hidden="true" />
-                                            {dep}
-                                          </button>
-                                          <Button
-                                            type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="h-6 px-2 text-[10px]"
-                                            onClick={() => {
-                                              if (!searchOpen) toggleInspectorDepSearch(inspectedGroup, dep)
-                                              else runInspectorDepSearch(inspectedGroup, dep, true)
-                                            }}
-                                            disabled={searchState?.loading}
-                                          >
-                                            {searchState?.loading ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : <Search className="me-1 h-3 w-3" />}
-                                            {t('activeMods.findInWorkshop')}
-                                          </Button>
-                                          {added && <span className="inline-flex items-center gap-1 text-[10px] font-medium text-success"><Check className="h-3 w-3" /> {t('activeMods.added')}</span>}
-                                          {errored && <span className="text-[10px] font-medium text-destructive">{t('activeMods.addFailed')}</span>}
-                                        </div>
+                                  return (
+                                    <div key={dep} className="rounded border border-destructive/30 bg-background/40 p-1.5">
+                                      <div className="flex flex-wrap items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => toggleInspectorDepSearch(inspectedGroup, dep)}
+                                          className="inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/15 px-1.5 py-0.5 font-mono text-[10px] text-foreground transition-colors hover:bg-destructive/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-destructive/60"
+                                          aria-expanded={searchOpen}
+                                          aria-controls={`active-dep-search-${key}`}
+                                          title={t('activeMods.searchWorkshopTooltip', { dep })}
+                                        >
+                                          <Search className="h-3 w-3" aria-hidden="true" />
+                                          {dep}
+                                        </button>
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 px-2 text-xs sm:h-7"
+                                          onClick={() => {
+                                            if (!searchOpen) toggleInspectorDepSearch(inspectedGroup, dep)
+                                            else runInspectorDepSearch(inspectedGroup, dep, true)
+                                          }}
+                                          disabled={searchState?.loading}
+                                        >
+                                          {searchState?.loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Search aria-hidden="true" />}
+                                          {t('activeMods.findInWorkshop')}
+                                        </Button>
+                                        {added && <span className="inline-flex items-center gap-1 text-xs font-medium text-success"><Check className="h-3 w-3" aria-hidden="true" /> {t('activeMods.added')}</span>}
+                                        {errored && <span className="text-xs font-medium text-destructive">{t('activeMods.addFailed')}</span>}
+                                      </div>
 
-                                        {searchOpen && (
-                                          <div id={`active-dep-search-${key}`} className="mt-2 space-y-2">
-                                            {searchState?.loading ? (
-                                              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                                <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t('activeMods.searchingWorkshop', { dep })}
-                                              </div>
-                                            ) : searchState?.error ? (
-                                              <div className="flex items-center justify-between gap-2 text-[11px]">
-                                                <span className="break-words text-destructive">{t('activeMods.searchFailed', { error: searchState.error })}</span>
-                                                <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={() => runInspectorDepSearch(inspectedGroup, dep, true)}>{t('activeMods.retry')}</Button>
-                                              </div>
-                                            ) : searchState && searchState.results.length === 0 ? (
-                                              <div className="space-y-1 text-[11px] text-muted-foreground">
-                                                <p>{t('activeMods.noMatchesFound')}</p>
-                                                {searchState.searchUrl && (
-                                                  <a href={searchState.searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:text-primary/80">
-                                                    <ExternalLink className="h-3 w-3" /> {t('activeMods.openWorkshopSearch')}
-                                                  </a>
-                                                )}
-                                              </div>
-                                            ) : searchState && searchState.results.length > 0 ? (
-                                              <div className="space-y-1.5">
-                                                <p className="text-[10px] text-muted-foreground">{t('activeMods.pickMatchingItem')}</p>
-                                                {searchState.results.slice(0, 4).map((hit, hitIndex) => {
-                                                  const isBest = hit.matchType === 'exact-id' || hitIndex === 0
-                                                  return (
-                                                  <div key={`${dep}-${hit.workshopId}-${hit.modId || ''}`} className={`rounded border px-2 py-1.5 ${isBest ? 'border-success/35 bg-success/[0.055]' : 'border-border/40 bg-card/45'}`}>
+                                      {searchOpen && (
+                                        <div id={`active-dep-search-${key}`} className="mt-2 space-y-2">
+                                          {searchState?.loading ? (
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> {t('activeMods.searchingWorkshop', { dep })}
+                                            </div>
+                                          ) : searchState?.error ? (
+                                            <div className="flex items-center justify-between gap-2 text-xs">
+                                              <span className="break-words text-destructive">{t('activeMods.searchFailed', { error: searchState.error })}</span>
+                                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs sm:h-7" onClick={() => runInspectorDepSearch(inspectedGroup, dep, true)}>{t('activeMods.retry')}</Button>
+                                            </div>
+                                          ) : searchState && searchState.results.length === 0 ? (
+                                            <div className="space-y-1 text-xs text-muted-foreground">
+                                              <p>{t('activeMods.noMatchesFound')}</p>
+                                              {searchState.searchUrl && (
+                                                <a href={searchState.searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                                                  <ExternalLink className="h-3 w-3" aria-hidden="true" /> {t('activeMods.openWorkshopSearch')}
+                                                </a>
+                                              )}
+                                            </div>
+                                          ) : searchState && searchState.results.length > 0 ? (
+                                            <div className="space-y-1.5">
+                                              <p className="text-xs text-muted-foreground">{t('activeMods.pickMatchingItem')}</p>
+                                              {searchState.results.slice(0, 4).map((hit, hitIndex) => {
+                                                const isBest = hit.matchType === 'exact-id' || hitIndex === 0
+                                                return (
+                                                  <div key={`${dep}-${hit.workshopId}-${hit.modId || ''}`} className={cn('rounded border px-2 py-1.5', isBest ? 'border-success/40 bg-success/5' : 'border-border/50 bg-card')}>
                                                     <div className="flex items-start justify-between gap-2">
                                                       <div className="min-w-0">
                                                         <div className="flex min-w-0 items-center gap-1.5">
-                                                          <p className="truncate text-[11px] font-medium text-foreground" title={hit.modName}>{hit.modName}</p>
+                                                          <p className="truncate text-xs font-medium text-foreground" title={hit.modName}>{hit.modName}</p>
                                                           {isBest && (
-                                                            <span className="shrink-0 rounded border border-success/35 bg-success/10 px-1 py-0 text-[9px] font-semibold uppercase tracking-wide text-success">
+                                                            <span className="shrink-0 rounded border border-success/40 bg-success/10 px-1 py-0 text-[10px] font-semibold text-foreground">
                                                               {t('activeMods.bestBadge')}
                                                             </span>
                                                           )}
@@ -5673,168 +5690,161 @@ export default function Mods() {
                                                           href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${hit.workshopId}`}
                                                           target="_blank"
                                                           rel="noopener noreferrer"
-                                                          className="rounded p-1 text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+                                                          className="rounded p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
                                                           aria-label={t('activeMods.openOnSteamAria', { name: hit.modName })}
                                                         >
-                                                          <ExternalLink className="h-3.5 w-3.5" />
+                                                          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                                                         </a>
                                                         <Button
                                                           type="button"
                                                           variant="outline"
                                                           size="sm"
-                                                          className="h-6 px-2 text-[10px]"
+                                                          className="h-7 px-2 text-xs sm:h-7"
                                                           onClick={() => handleInspectorAddDep(hit, dep, key)}
                                                           disabled={adding || added || !canManageMods}
                                                         >
-                                                          {adding ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : added ? <Check className="me-1 h-3 w-3" /> : <Plus className="me-1 h-3 w-3" />}
+                                                          {adding ? <Loader2 className="animate-spin" aria-hidden="true" /> : added ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
                                                           {added ? t('activeMods.addedButton') : t('activeMods.addButton')}
                                                         </Button>
                                                       </div>
                                                     </div>
                                                   </div>
-                                                )})}
-                                                {searchState.searchUrl && (
-                                                  <a href={searchState.searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-primary hover:text-primary/80">
-                                                    <ExternalLink className="h-3 w-3" /> {t('activeMods.openFullWorkshopSearch')}
-                                                  </a>
-                                                )}
-                                              </div>
-                                            ) : null}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  })}
-                                </div>
+                                                )
+                                              })}
+                                              {searchState.searchUrl && (
+                                                <a href={searchState.searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                                                  <ExternalLink className="h-3 w-3" aria-hidden="true" /> {t('activeMods.openFullWorkshopSearch')}
+                                                </a>
+                                              )}
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
-                            )}
-
-                            {getGroupDuplicateIds(inspectedGroup).length > 0 && (
-                              <div className="rounded border border-warning/35 bg-warning/10 px-2 py-2">
-                                <div className="flex items-center gap-1.5 text-[11px] font-medium text-warning">
-                                  <AlertTriangle className="h-3.5 w-3.5" />
-                                  {t('activeMods.duplicateInternalIdsTitle')}
-                                </div>
-                                <div className="mt-1.5 flex flex-wrap gap-1">
-                                  {getGroupDuplicateIds(inspectedGroup).map(id => (
-                                    <span key={id} className="rounded border border-warning/30 bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-warning">{id}</span>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            <div className="border-t border-border/35 pt-3">
-                              <DisabledReason reason={inspectedLockReason} className="w-full">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                  onClick={() => { if (!canManageMods || inspectedLocked) return; setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) }) }}
-                                  disabled={!canManageMods || inspectedLocked}
-                                >
-                                  <Trash2 className="me-2 h-3.5 w-3.5" />
-                                  {t('activeMods.removeFromIni')}
-                                </Button>
-                              </DisabledReason>
                             </div>
+                          )}
+
+                          {getGroupDuplicateIds(inspectedGroup).length > 0 && (
+                            <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-2">
+                              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                                <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
+                                {t('activeMods.duplicateInternalIdsTitle')}
+                              </div>
+                              <div className="mt-1.5 flex flex-wrap gap-1">
+                                {getGroupDuplicateIds(inspectedGroup).map(id => (
+                                  <span key={id} className="rounded border border-warning/30 bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-foreground">{id}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="border-t border-border/50 pt-3">
+                            <DisabledReason reason={inspectedLockReason} className="w-full">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="w-full justify-start text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => { if (!canManageMods || inspectedLocked) return; setConfirmRemoveWorkshop({ wsId: inspectedGroup.wsId, knownModIds: inspectedGroup.mods.map(m => m.id) }) }}
+                                disabled={!canManageMods || inspectedLocked}
+                              >
+                                <Trash2 aria-hidden="true" />
+                                {t('activeMods.removeFromIni')}
+                              </Button>
+                            </DisabledReason>
                           </div>
-                        </aside>
-                      )}
-                      </div>
-
-                      {/* Mods= raw line — collapsed by default */}
-                      <details className="pt-2 border-t border-border/20 group/raw">
-                        <summary className="text-[11px] text-muted-foreground/60 hover:text-foreground cursor-pointer select-none list-none flex items-center gap-1 transition-colors">
-                          <ChevronRight className="w-3 h-3 transition-transform group-open/raw:rotate-90" aria-hidden="true" />
-                          <Trans i18nKey="activeMods.showRawModsLine" t={t} components={{ 1: <span className="font-mono" /> }} />
-                        </summary>
-                        <div className="text-[11px] text-muted-foreground font-mono break-all leading-tight mt-1.5" title={`Mods=${iniConfig.modIds?.join(';') || ''}`}>
-                          Mods={iniConfig.modIds?.join(';') || ''}
                         </div>
-                      </details>
+                      </aside>
+                    )}
+                  </div>
 
-                      {/* Workshop item remove confirmation */}
-                      <AlertDialog open={!!confirmRemoveWorkshop} onOpenChange={(open) => { if (!open) setConfirmRemoveWorkshop(null) }}>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t('activeMods.removeWorkshopDialogTitle')}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t('activeMods.removeWorkshopDialogDesc')}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t('activeMods.cancel')}</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              onClick={handleConfirmedRemoveWorkshop}
-                              disabled={!canManageMods}
-                            >
-                              {t('activeMods.remove')}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                  {/* Mods= raw line — collapsed by default */}
+                  <details className="group/raw border-t border-border/50 px-4 py-2">
+                    <summary className="flex cursor-pointer select-none list-none items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground">
+                      <ChevronRight className="h-3 w-3 transition-transform group-open/raw:rotate-90 rtl:-scale-x-100" aria-hidden="true" />
+                      <Trans i18nKey="activeMods.showRawModsLine" t={t} components={{ 1: <span className="font-mono" /> }} />
+                    </summary>
+                    <div className="mt-1.5 break-all font-mono text-xs leading-tight text-muted-foreground" title={`Mods=${iniConfig.modIds?.join(';') || ''}`}>
+                      Mods={iniConfig.modIds?.join(';') || ''}
                     </div>
-                  )
-                })()}
+                  </details>
+                </SectionCard>
+              </>
+            )
+          })()}
 
-                {/* ═══ LOAD ORDER SUB-TAB ═══ */}
-                {configSubTab === 'order' && (() => {
-                  // Build modId → display name lookup from workshopModMap + tracked mods
-                  const modIdNameMap = new Map<string, string>()
-                  const modIdWsMap = new Map<string, string>()
-                  const wsMap = iniConfig?.workshopModMap || {}
-                  for (const [wsId, details] of Object.entries(wsMap)) {
-                    for (const m of details) {
-                      if (m.name && m.name !== m.id) modIdNameMap.set(m.id, m.name)
-                      modIdWsMap.set(m.id, wsId)
-                    }
-                  }
-                  // Fallback: use tracked mod names matched via workshop ID
-                  for (const mod of mods) {
-                    const details = wsMap[mod.workshop_id]
-                    if (details) {
-                      for (const m of details) {
-                        if (!modIdNameMap.has(m.id) && mod.name) modIdNameMap.set(m.id, mod.name)
-                      }
-                    }
-                  }
-                  // Row keys, see where the list is rendered below.
-                  const loadOrderKeyRepeats = new Map<string, number>()
-
-                  return (
-                  <div className="space-y-3 sub-tab-enter">
-                    <ModGroupsPanel
-                      canManage={canManageMods}
-                      serverModIds={orderedModIds}
-                      modNames={Object.fromEntries(modIdNameMap)}
-                      savedModIds={iniConfig?.modIds}
-                      orderDirty={hasModOrderChanged}
-                      orderSaving={savingModOrder}
-                      onOrderApplied={fetchData}
-                      createRequest={createGroupRequest}
-                      onCreatedFromRequest={() => setSelectedOrderIds(new Set())}
-                    />
-                    {orderedModIds.length === 0 ? (
-                      <div className="flex items-center justify-center py-10 text-muted-foreground">
-                        <div className="text-center space-y-2">
-                          <Layers className="w-8 h-8 mx-auto opacity-30" />
-                          <p className="text-sm font-medium text-foreground/70">{t('loadOrder.emptyTitle')}</p>
-                          <p className="text-xs">{t('loadOrder.emptyDesc')}</p>
-                        </div>
-                      </div>
-                    ) : (
+          {/* ═══ LOAD ORDER ═══ */}
+          {activeTab === 'order' && iniConfig?.configured && (
+            <>
+              <ModGroupsPanel
+                canManage={canManageMods}
+                serverModIds={orderedModIds}
+                modNames={modNamesRecord}
+                savedModIds={iniConfig.modIds}
+                orderDirty={hasModOrderChanged}
+                orderSaving={savingModOrder}
+                onOrderApplied={fetchData}
+                createRequest={createGroupRequest}
+                onCreatedFromRequest={() => setSelectedOrderIds(new Set())}
+                store={groupsStore}
+                requires={requiresMap}
+                conflictsByGroup={conflictsByGroup}
+                onShowConflicts={showGroupConflicts}
+              />
+              <SectionCard
+                title={t('nav.order.label')}
+                description={t('nav.order.hint')}
+                icon={ListOrdered}
+                flush
+                actions={
+                  orderedModIds.length > 0 ? (
                     <>
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <Button
+                        variant={showGroupBlocks ? 'secondary' : 'outline'}
+                        size="sm"
+                        aria-pressed={showGroupBlocks}
+                        onClick={() => setShowGroupBlocks(!showGroupBlocks)}
+                      >
+                        <Layers aria-hidden="true" />
+                        {/* Icon-only on a phone, so the card's title keeps its line. */}
+                        <span className="sr-only sm:not-sr-only">{t('loadOrder.showGroups')}</span>
+                      </Button>
+                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleAutoSort}
+                          disabled={savingModOrder || !!autoSortPreview || !canManageMods}
+                        >
+                          <Wand2 aria-hidden="true" />
+                          <span className="sr-only sm:not-sr-only">{t('loadOrder.autoSort')}</span>
+                        </Button>
+                      </DisabledReason>
+                    </>
+                  ) : undefined
+                }
+              >
+                {orderedModIds.length === 0 ? (
+                  <div className="p-6">
+                    <EmptyState
+                      type="noData"
+                      compact
+                      title={t('loadOrder.emptyTitle')}
+                      description={t('loadOrder.emptyDesc')}
+                      action={{ label: t('nav.active.label'), onClick: () => selectView('active'), variant: 'outline' }}
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-3 border-b border-border/60 p-4">
                       {/* Without mods.manage the per-row move controls are
-                          hidden, and while an Auto-sort proposal is open
-                          they are disabled; a reason on each would be four
+                          hidden, and while an Auto-sort proposal is open they
+                          are disabled; a reason on each would be four
                           tooltips and dead tab stops per row, times 200+
                           rows, so it goes here once. (During Save Order they
-                          are disabled too, and Save's spinner says why.)
-                          The Active tab's filter also narrows this list, and
-                          turns drag off, from a tab the operator has left --
-                          so say so here too, or rows just seem to be missing. */}
+                          are disabled too, and Save's spinner says why.) */}
                       <p className="text-xs text-muted-foreground">
                         {!canManageMods
                           ? t('permissions.noModsManage')
@@ -5844,587 +5854,93 @@ export default function Mods() {
                               ? t('loadOrder.filteredHint', { query: modManagerSearch.trim() })
                               : t('loadOrder.dragHint')}
                       </p>
-                      {canManageMods && selectedOrderIds.size > 0 && (
-                        <div className="flex items-center gap-1.5" role="group" aria-label={t('loadOrder.selectionAria')}>
-                          <span className="text-xs tabular-nums text-muted-foreground">{t('loadOrder.selectedCount', { n: selectedOrderIds.size })}</span>
-                          <DisabledReason reason={selectedOrderIds.size < 2 ? t('loadOrder.groupNeedsTwo') : null}>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 text-xs"
-                              onClick={() => {
-                                // In load order, not in the order they were ticked: that is the order the group starts with.
-                                const picked = orderedModIds.filter((id, i) => selectedOrderIds.has(id) && orderedModIds.indexOf(id) === i)
-                                setCreateGroupRequest({ modIds: picked, nonce: Date.now() })
-                              }}
-                              disabled={selectedOrderIds.size < 2}
-                            >
-                              <Layers className="w-3 h-3 me-1" />
-                              {t('loadOrder.createGroupFromSelection')}
+                      <Toolbar
+                        search={{
+                          value: modManagerSearch,
+                          onChange: handleModManagerSearchChange,
+                          placeholder: t('loadOrder.searchPlaceholder'),
+                          ariaLabel: t('loadOrder.searchAria'),
+                          slashToFocus: true,
+                        }}
+                      >
+                        {canManageMods && selectedOrderIds.size > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t('loadOrder.selectionAria')}>
+                            <span className="text-xs tabular-nums text-muted-foreground">{t('loadOrder.selectedCount', { n: selectedOrderIds.size })}</span>
+                            <DisabledReason reason={selectedOrderIds.size < 2 ? t('loadOrder.groupNeedsTwo') : null}>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  // In load order, not in the order they were ticked: that is the order the group starts with.
+                                  setCreateGroupRequest({ modIds: orderSelectionModIds, nonce: Date.now() })
+                                }}
+                                disabled={selectedOrderIds.size < 2}
+                              >
+                                <Layers aria-hidden="true" />
+                                {t('loadOrder.createGroupFromSelection')}
+                              </Button>
+                            </DisabledReason>
+                            <Button variant="outline" size="sm" onClick={() => setAddToGroup({ modIds: orderSelectionModIds, clearSelection: 'order' })}>
+                              <FolderPlus aria-hidden="true" />
+                              {tGroups('addTo.selected')}
                             </Button>
-                          </DisabledReason>
-                          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedOrderIds(new Set())}>
-                            {t('loadOrder.clearSelection')}
-                          </Button>
-                        </div>
-                      )}
-                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 text-xs"
-                          onClick={handleAutoSort}
-                          disabled={savingModOrder || !!autoSortPreview || !canManageMods}
-                        >
-                          <Wand2 className="w-3 h-3 me-1" />
-                          {t('loadOrder.autoSort')}
-                        </Button>
-                      </DisabledReason>
+                            <Button variant="ghost" size="sm" onClick={() => setSelectedOrderIds(new Set())}>
+                              {t('loadOrder.clearSelection')}
+                            </Button>
+                          </div>
+                        )}
+                      </Toolbar>
                     </div>
 
                     {autoSortPreview && (
-                      <div className="rounded-lg border border-primary/40 bg-primary/5 p-3 space-y-2">
-                        <div className="flex items-center justify-between gap-3 flex-wrap">
-                          <div className="space-y-0.5">
-                            <p className="text-xs font-medium text-foreground">
-                              {t(autoSortPreview.moved.length === 1 ? 'loadOrder.proposedOrder_one' : 'loadOrder.proposedOrder_other', { count: autoSortPreview.moved.length })}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {t(autoSortPreview.appliedEdges === 1 ? 'loadOrder.basedOnDependencies_one' : 'loadOrder.basedOnDependencies_other', { count: autoSortPreview.appliedEdges })}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setAutoSortPreview(null)}>{t('loadOrder.cancel')}</Button>
-                            <Button size="sm" className="h-8 text-xs" onClick={applyAutoSort}>{t('loadOrder.apply')}</Button>
-                          </div>
-                        </div>
-
-                        <ScrollArea className="max-h-40">
-                          <div className="space-y-0.5 pe-2">
-                            {autoSortPreview.moved.map((move) => (
-                              <div key={move.modId} className="flex items-center gap-2 text-[11px]">
-                                <span className="tabular-nums text-muted-foreground w-8 text-end shrink-0">#{move.from}</span>
-                                <ArrowRight className="w-3 h-3 text-muted-foreground/60 shrink-0" />
-                                <span className="tabular-nums text-primary w-8 text-end shrink-0">#{move.to}</span>
-                                <span className="font-mono truncate shrink-0">{move.modId}</span>
-                                {modIdNameMap.get(move.modId) && (
-                                  <span className="text-muted-foreground/60 truncate">{modIdNameMap.get(move.modId)}</span>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
-
-                        {autoSortPreview.cycles.length > 0 && (
-                          <div className="space-y-0.5">
-                            {autoSortPreview.cycles.map((group) => (
-                              <p key={group.join('|')} className="text-[11px] text-warning">
-                                {t('loadOrder.circularDependency', { mods: group.join(', ') })}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {autoSortPreview.missing.length > 0 && (
-                          <p className="text-[11px] text-muted-foreground">
-                            {t(autoSortPreview.missing.length === 1 ? 'loadOrder.missingRequirements_one' : 'loadOrder.missingRequirements_other', { count: autoSortPreview.missing.length })}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    <div className="rounded-lg border border-border bg-muted/50 shadow-md overflow-hidden">
-                      <ScrollArea className="h-[calc(100vh-320px)] min-h-[200px]">
-                        {/* onDrop: the drop event bubbles here from a row that
-                            is still mounted, so it ends a drag even when its
-                            dragend is lost; preventDefault also stops a file
-                            dropped on the list (every row accepts drops, via
-                            handleDragOver) from navigating the tab to it. */}
-                        <div
-                          ref={loadOrderListRef}
-                          className="divide-y divide-border/60 [&>*:nth-child(even)]:bg-card/70"
-                          onDrop={(e) => { e.preventDefault(); setDraggedModIndex(null) }}
-                        >
-                          {orderedModIds
-                            .map((modId, idx) => {
-                              // Keyed by mod ID plus which repeat of it this is
-                              // (Mods= can list an ID twice), not by position:
-                              // a position key gave every row between the old
-                              // and new slot a new key on each reorder, so the
-                              // dragged row itself was unmounted by the first
-                              // dragover -- its dragend then never reached the
-                              // page -- and Move to top remounted every row
-                              // instead of reordering them.
-                              const repeat = loadOrderKeyRepeats.get(modId) ?? 0
-                              loadOrderKeyRepeats.set(modId, repeat + 1)
-                              return { modId, idx, key: `${modId}#${repeat}` }
-                            })
-                            .filter(({ modId }) => {
-                              const q = deferredModManagerSearch.toLowerCase().trim()
-                              if (!q) return true
-                              if (modId.toLowerCase().includes(q)) return true
-                              const name = modIdNameMap.get(modId)
-                              return name ? name.toLowerCase().includes(q) : false
-                            })
-                            .map(({ modId, idx, key }) => {
-                                const displayName = modIdNameMap.get(modId)
-                                const canDrag = canManageMods && !loadOrderLocked && !modManagerSearch.trim()
-                                // Same accent as a selected ModRow, on the row the
-                                // last move control put there, for as long as that
-                                // move's order is the one on screen. The `!` on it
-                                // and on the drag tint: the list stripes even rows
-                                // with a child selector (specificity 0,2,0) that a
-                                // plain bg class on the row (0,1,0) loses to, so
-                                // without it neither tint showed on even rows.
-                                const justMoved = lastMoveOnScreen?.index === idx
-                                return (
-                                <div
-                                  key={key}
-                                  data-load-order-index={idx}
-                                  // Focusable from script only: where focus goes
-                                  // after a mouse move reaches the first or last
-                                  // slot (see the move-focus effect). The row's
-                                  // own accent marks it, so no outline.
-                                  tabIndex={-1}
-                                  draggable={canDrag}
-                                  onDragStart={() => handleDragStart(idx)}
-                                  onDragOver={(e) => handleDragOver(e, idx)}
-                                  onDragEnd={handleDragEnd}
-                                  className={`flex items-center gap-2 px-2.5 py-1 outline-none transition-colors duration-150 hover:bg-muted/15 ${canDrag ? 'cursor-move' : ''} ${
-                                    draggedModIndex === idx ? 'opacity-30 !bg-primary/5' : ''
-                                  } ${justMoved ? '!bg-primary/[0.055] shadow-[inset_2px_0_0_hsl(var(--primary)/0.55)]' : ''}`}
-                                >
-                                  {/* Only where the row can actually be dragged;
-                                      `invisible` keeps its column so rows don't
-                                      shift sideways while the list is locked. */}
-                                  <GripVertical className={`w-3 h-3 text-muted-foreground/30 shrink-0 ${canDrag ? '' : 'invisible'}`} aria-hidden="true" />
-                                  {canManageMods && (
-                                    <Checkbox
-                                      checked={selectedOrderIds.has(modId)}
-                                      onCheckedChange={(checked) => setSelectedOrderIds((prev) => {
-                                        const next = new Set(prev)
-                                        if (checked === true) next.add(modId)
-                                        else next.delete(modId)
-                                        return next
-                                      })}
-                                      aria-label={t('loadOrder.selectRowAria', { name: displayName ? `${modId} (${displayName})` : modId })}
-                                      className="shrink-0"
-                                    />
-                                  )}
-                                  <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-end shrink-0">{idx + 1}</span>
-                                  {/* Shrinkable (truncates) so the four move
-                                      controls stay on-screen at phone width
-                                      instead of being clipped by the ScrollArea. */}
-                                  <span className="text-[11px] font-mono truncate min-w-0">{modId}</span>
-                                  {displayName && <span className="text-[11px] text-muted-foreground/60 truncate flex-1">{displayName}</span>}
-                                  {!displayName && <span className="flex-1" />}
-                                  {canManageMods && (
-                                    <LoadOrderMoveControls
-                                      index={idx}
-                                      total={orderedModIds.length}
-                                      modId={modId}
-                                      onMove={moveModInLoadOrder}
-                                      disabled={loadOrderLocked}
-                                    />
-                                  )}
-                                </div>
-                              )})
-                            }
-                        </div>
-                      </ScrollArea>
-                      {/* Not gated on hasModOrderChanged: a move that puts
-                          the saved order back (a nudge undone) is still a
-                          move, and must still be announced. */}
-                      <p className="sr-only" role="status" aria-live="polite">
-                        {lastMoveOnScreen?.announcement}
-                      </p>
-                      {hasModOrderChanged && (
-                        <div className="px-3 py-2 border-t border-border/40 bg-muted/20 flex items-center justify-between">
-                          <span className="text-[11px] text-warning">{t('loadOrder.unsavedChanges')}</span>
-                          <div className="flex gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}>{t('loadOrder.reset')}</Button>
-                            <Button size="sm" className="h-8 text-xs" onClick={handleSaveModOrder} disabled={savingModOrder || !canManageMods || serverChangedSinceLoad}>
-                              {savingModOrder ? <Loader2 className="w-3 h-3 me-1 animate-spin" /> : <Save className="w-3 h-3 me-1" />}
-                              {t('loadOrder.saveOrder')}
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    </>
-                    )}
-                  </div>
-                  )
-                })()}
-
-                {/* ═══ ADD MODS SUB-TAB ═══ */}
-                {configSubTab === 'add' && (
-                  <div className="space-y-4 sub-tab-enter">
-                    {/* Sync Mod IDs */}
-                    <div className="flex flex-col gap-3 rounded-lg border border-border/70 bg-secondary p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">{t('addModsTab.syncTitle')}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {t('addModsTab.syncDesc')}
-                        </p>
-                      </div>
-                      <Button
-                        onClick={handleSyncModIds}
-                        disabled={syncing || !canManageMods}
-                        size="sm"
-                        variant="outline"
-                      >
-                        {syncing ? (
-                          <RefreshCw className="w-4 h-4 me-2 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-4 h-4 me-2" />
-                        )}
-                        {t('addModsTab.syncButton')}
-                      </Button>
-                    </div>
-
-                    {/* Pending Mods to Install */}
-                    {modsToInstall.length > 0 && (
-                      <div className="space-y-3 rounded-lg border border-border/70 bg-secondary p-3">
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <Label className="flex items-center gap-2">
-                            <Plus className="w-4 h-4" />
-                            {t(modsToInstall.length === 1 ? 'addModsTab.queued_one' : 'addModsTab.queued_other', { count: modsToInstall.length })}
-                          </Label>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setModsToInstall([])}
-                          >
-                            {t('addModsTab.clearAll')}
-                          </Button>
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {modsToInstall.map(mod => (
-                            <Badge key={mod.workshopId} variant="outline" className="max-w-full text-xs sm:max-w-[200px]">
-                              <span className="truncate">{mod.name}</span>
-                              {mod.isMap && <MapIcon className="w-3 h-3 ms-1" />}
-                              <button
-                                type="button"
-                                aria-label={t('addModsTab.removeFromQueueAria', { name: mod.name })}
-                                onClick={() => removeFromInstallList(mod.workshopId)}
-                                className="ms-1 hover:text-destructive"
-                              >
-                                ×
-                              </button>
-                            </Badge>
-                          ))}
-                        </div>
-                        <Button onClick={handleWriteToIni} disabled={loading || !canManageMods} size="sm">
-                          <FileText className="w-4 h-4 me-2" />
-                          {t('addModsTab.writeToIni')}
-                        </Button>
+                      <div className="border-b border-border/60 p-4">
+                        <AutoSortPreview
+                          result={autoSortPreview}
+                          modNames={modIdNameMap}
+                          groupsById={groupsStore.groupsById}
+                          membership={groupsStore.membership}
+                          onApply={applyAutoSort}
+                          onCancel={() => setAutoSortPreview(null)}
+                        />
                       </div>
                     )}
 
-                    {modsToInstall.length === 0 && (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Plus className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">{t('addModsTab.noModsPendingTitle')}</p>
-                        <p className="text-xs">{t('addModsTab.noModsPendingDesc')}</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* ═══ PRESETS SUB-TAB ═══ */}
-                {configSubTab === 'presets' && (
-                  <div className="space-y-4 sub-tab-enter">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs text-muted-foreground">{t('presetsTab.intro')}</p>
-                      <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                      <Dialog open={savePresetOpen} onOpenChange={setSavePresetOpen}>
-                        <DialogTrigger asChild>
-                          <Button size="sm" disabled={!iniConfig?.configured || !canManageMods}>
-                            <Save className="w-4 h-4 me-2" />
-                            {t('presetsTab.saveCurrent')}
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>{t('presetsTab.saveDialogTitle')}</DialogTitle>
-                            <DialogDescription>
-                              {t('presetsTab.saveDialogDesc')}
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="presetName">{t('presetsTab.nameLabel')}</Label>
-                              <Input
-                                id="presetName"
-                                value={presetName}
-                                onChange={(e) => setPresetName(e.target.value)}
-                                placeholder={t('presetsTab.namePlaceholder')}
-                                maxLength={100}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="presetDesc">{t('presetsTab.descLabel')}</Label>
-                              <Input
-                                id="presetDesc"
-                                value={presetDescription}
-                                onChange={(e) => setPresetDescription(e.target.value)}
-                                placeholder={t('presetsTab.descPlaceholder')}
-                                maxLength={500}
-                              />
-                            </div>
-                            {iniConfig?.configured && (
-                              <div className="rounded-lg border border-border/70 bg-secondary p-3 text-sm text-muted-foreground">
-                                {t('presetsTab.willSave', { workshopCount: iniConfig.workshopIds?.length || 0, modCount: iniConfig.modIds?.length || 0 })}
-                              </div>
-                            )}
-                          </div>
-                          <DialogFooter className="flex-col sm:flex-row gap-2">
-                            <Button variant="outline" onClick={() => setSavePresetOpen(false)} className="w-full sm:w-auto">
-                              {t('presetsTab.cancel')}
-                            </Button>
-                            <Button onClick={handleSavePreset} disabled={savingPreset || !presetName.trim() || !canManageMods} className="w-full sm:w-auto">
-                              {savingPreset && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
-                              {t('presetsTab.savePreset')}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                      </DisabledReason>
-                    </div>
-
-                    {presetsLoading ? (
-                      <div className="flex items-center justify-center py-8">
-                        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : presets.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <FolderOpen className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                        <p className="text-sm">{t('presetsTab.emptyTitle')}</p>
-                        <p className="text-xs">{t('presetsTab.emptyDesc')}</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {presets.map((preset) => (
-                          <div
-                            key={preset.id}
-                            className="flex flex-col gap-3 rounded-lg border border-border/70 bg-muted/50 p-3 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center sm:justify-between"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate">{preset.name}</div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {t('presetsTab.modsCount', { count: preset.workshop_ids?.length || 0 })} &bull; {preset.description || t('presetsTab.noDescription')}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {t('presetsTab.savedOn', { date: formatDate(preset.created_at) })}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 self-start sm:self-auto">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => setConfirmApplyPreset({ id: preset.id, name: preset.name, modCount: preset.workshop_ids?.length || 0 })}
-                                disabled={applyingPreset === preset.id}
-                              >
-                                {applyingPreset === preset.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Download className="w-4 h-4" />
-                                )}
-                                <span className="ms-1.5">{t('presetsTab.load')}</span>
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setConfirmDeletePreset({ id: preset.id, name: preset.name })}
-                                className="text-destructive hover:text-destructive"
-                                aria-label={t('presetsTab.deletePresetAria', { name: preset.name })}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Preset apply confirmation */}
-                    <AlertDialog open={!!confirmApplyPreset} onOpenChange={(open) => { if (!open) setConfirmApplyPreset(null) }}>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>{t('presetsTab.applyDialogTitle', { name: confirmApplyPreset?.name })}</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t('presetsTab.applyDialogDesc', { count: confirmApplyPreset?.modCount || 0 })}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>{t('presetsTab.cancel')}</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => {
-                              if (confirmApplyPreset) {
-                                handleApplyPreset(confirmApplyPreset.id, confirmApplyPreset.name)
-                                setConfirmApplyPreset(null)
-                              }
-                            }}
-                            disabled={!canManageMods}
-                          >
-                            {t('presetsTab.applyPreset')}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-
-                    {/* Preset delete confirmation */}
-                    <AlertDialog open={!!confirmDeletePreset} onOpenChange={(open) => { if (!open) setConfirmDeletePreset(null) }}>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>{t('presetsTab.deleteDialogTitle', { name: confirmDeletePreset?.name })}</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            {t('presetsTab.deleteDialogDesc')}
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>{t('presetsTab.cancel')}</AlertDialogCancel>
-                          <AlertDialogAction
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                            onClick={() => {
-                              if (confirmDeletePreset) {
-                                handleDeletePreset(confirmDeletePreset.id, confirmDeletePreset.name)
-                                setConfirmDeletePreset(null)
-                              }
-                            }}
-                            disabled={!canManageMods}
-                          >
-                            {t('presetsTab.deletePreset')}
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </div>
-                )}
-
-                {/*  TOOLS SUB-TAB  */}
-                {configSubTab === 'tools' && (
-                  <div className="space-y-4 sub-tab-enter">
-                    <div className="rounded-lg border border-border/40 p-3 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <MapIcon className="w-4 h-4" />
-                          {t('toolsTab.mapsTitle', { count: iniConfig?.maps?.length || 0 })}
-                        </div>
-                        <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                        <button
-                          onClick={async () => {
-                            if (!canManageMods) return
-                            try {
-                              setRepairingMaps(true)
-                              const result = await modsApi.repairMapEntries()
-                              setMapRepairResult(result)
-                            } catch (err) {
-                              reportClientError('Map repair failed.', err)
-                              setMapRepairResult({ removed: [], remaining: iniConfig?.maps || [], message: t('toolsTab.repairFailed') })
-                            } finally {
-                              setRepairingMaps(false)
-                            }
-                          }}
-                          disabled={repairingMaps || !canManageMods}
-                          className="flex items-center gap-1 text-xs px-2 py-0.5 rounded bg-muted hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors disabled:opacity-50"
-                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                          title={t('toolsTab.repairTooltip')}
-                        >
-                          {repairingMaps ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wrench className="w-3 h-3" />}
-                          {t('toolsTab.repair')}
-                        </button>
-                        </DisabledReason>
-                      </div>
-                      {mapRepairResult && (
-                        <div className={`p-2 rounded text-xs ${(mapRepairResult.removed.length > 0 || (mapRepairResult.added?.length ?? 0) > 0) ? 'bg-warning/10 text-warning border border-warning/20' : 'bg-success/10 text-success border border-success/20'}`}>
-                          {mapRepairResult.message}
-                        </div>
-                      )}
-                      <div className="flex flex-wrap gap-1">
-                        {iniConfig.maps.map((map, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs max-w-[250px] truncate">
-                            {map}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Workshop IDs Review */}
-                    <div className="rounded-lg border border-border/40 p-3 space-y-2">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Package className="w-4 h-4" />
-                        {t('toolsTab.workshopItemsTitle', { count: iniConfig.workshopIds?.length || 0 })}
-                      </div>
-                      <div className="flex flex-wrap gap-1 max-h-[200px] overflow-y-auto">
-                        {iniConfig.workshopIds?.map((id, i) => (
-                          <Badge key={i} variant="outline" className="text-xs font-mono max-w-[140px] truncate">
-                            {id}
-                          </Badge>
-                        ))}
-                      </div>
-                      <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded font-mono break-all max-h-[80px] overflow-y-auto">
-                        WorkshopItems={iniConfig.workshopIds?.join(';') || ''}
-                      </div>
-                    </div>
-
-                    {/* Operator Notes */}
-                    <div className="rounded-lg border border-border/40 p-3 space-y-3 text-sm text-muted-foreground">
-                      <div className="text-xs font-semibold text-foreground flex items-center gap-2">
-                        <Info className="w-3.5 h-3.5" />
-                        {t('toolsTab.notesTitle')}
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-warning shrink-0" />
-                        <div>
-                          <p className="font-medium text-foreground text-xs">{t('toolsTab.loadOrderMattersTitle')}</p>
-                          <p className="text-xs">{t('toolsTab.loadOrderMattersDesc')}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <MapIcon className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
-                        <div>
-                          <p className="font-medium text-foreground text-xs">{t('toolsTab.mapModsCareTitle')}</p>
-                          <p className="text-xs">{t('toolsTab.mapModsCareDesc')}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-start gap-3">
-                        <RefreshCw className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
-                        <div>
-                          <p className="font-medium text-foreground text-xs">{t('toolsTab.syncAfterDownloadTitle')}</p>
-                          <p className="text-xs">{t('toolsTab.syncAfterDownloadDesc')}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-8">
-                <FileText className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                {iniConfig?.code && FOLDER_REFUSAL_CODES.has(iniConfig.code) ? (
-                  // PT3: the server's folders were refused (the data folder
-                  // no longer meets the data-folder rule, or a config folder
-                  // has no data folder): the refusal says what to set, and
-                  // starting the server won't make the ini appear here.
-                  <p className="text-muted-foreground max-w-xl mx-auto">
-                    {getResultErrorMessage(iniConfig, t('serverConfigTab.notConfiguredTitle'))}
-                  </p>
-                ) : (
-                  <>
-                    <p className="text-muted-foreground">{iniConfig?.error || t('serverConfigTab.notConfiguredTitle')}</p>
-                    <p className="text-sm text-muted-foreground">{t('serverConfigTab.notConfiguredHint')}</p>
+                    <LoadOrderList
+                      order={orderedModIds}
+                      onOrderChange={setOrderedModIds}
+                      canManage={canManageMods}
+                      locked={loadOrderLocked}
+                      filter={deferredModManagerSearch}
+                      modNames={modIdNameMap}
+                      modWorkshop={modIdWsMap}
+                      notes={notesStore.notes}
+                      groups={groupsStore.groups}
+                      membership={groupsStore.membership}
+                      conflictsByGroup={conflictsByGroup}
+                      onShowGroupConflicts={showGroupConflicts}
+                      showGroups={showGroupBlocks}
+                      selected={selectedOrderIds}
+                      onSelectedChange={(modId, checked) => setSelectedOrderIds((prev) => {
+                        const next = new Set(prev)
+                        if (checked) next.add(modId)
+                        else next.delete(modId)
+                        return next
+                      })}
+                      onOpenNote={(workshopId, label) => setNoteEditor({ workshopId, name: label })}
+                    />
                   </>
                 )}
-              </div>
-            )}
-          </div>
+              </SectionCard>
+            </>
           )}
 
-          {/* ─── Conflicts Tab ─── */}
+          {/* ═══ CONFLICTS ═══ */}
           {activeTab === 'conflicts' && (
             <ConflictsPanel
               conflicts={conflicts}
               focusDependencies={reviewUnresolved}
+              focus={conflictsFocus}
+              onClearFocus={() => setConflictsFocus(null)}
               conflictsLoading={conflictsLoading}
               conflictsError={conflictsError}
               conflictsStale={conflictsStale}
@@ -6451,298 +5967,891 @@ export default function Mods() {
             />
           )}
 
-          {/* ─── Collection Tab ─── */}
+          {/* ═══ COLLECTIONS ═══ */}
           {activeTab === 'collection' && (
-          <div className="space-y-4">
-            <WorkshopCollectionPanel />
-          </div>
+            <>
+              <SectionCard
+                title={t('collectionView.importTitle')}
+                description={t('collectionView.importDesc')}
+                icon={Download}
+                actions={
+                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                    <Button size="sm" variant="outline" onClick={() => setCollectionDialogOpen(true)} disabled={!canManageMods}>
+                      <Library aria-hidden="true" />
+                      {t('statusBar.importCollection')}
+                    </Button>
+                  </DisabledReason>
+                }
+              />
+              <WorkshopCollectionPanel />
+            </>
           )}
 
-          {/* ─── Deactivated Tab ───
-              Tracked mods that are no longer present in the active server INI's
-              WorkshopItems= list. Kept tracked so you can re-enable them, but
-              segregated from the live server view. */}
-          {activeTab === 'deactivated' && (
-          <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center gap-2">
-                  <EyeOff className="w-4 h-4 text-muted-foreground" />
-                  <CardTitle className="text-base">{t('deactivatedTab.title')}</CardTitle>
-                  <Badge variant="outline" className="font-mono text-[11px] tabular-nums">
-                    {groupedMods.deactivated.length}
-                  </Badge>
-                </div>
-                <CardDescription>
-                  <Trans i18nKey="deactivatedTab.description" t={t} components={{ 1: <code className="text-[11px]" /> }} />
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0">
-                {!iniConfig ? (
-                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    {t('deactivatedTab.loadingConfig')}
-                  </div>
-                ) : groupedMods.deactivated.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
-                    <CheckCircle className="w-8 h-8 text-muted-foreground/40" />
-                    <p className="text-sm text-muted-foreground">
-                      {t('deactivatedTab.emptyTitle')}
-                    </p>
-                    <p className="text-xs text-muted-foreground/70 max-w-md">
-                      {t('deactivatedTab.emptyDesc')}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {/* Toolbar: select-all / enable / delete bulk actions */}
-                    {(() => {
-                      const deactivatedIds = groupedMods.deactivated.map(m => m.workshop_id)
-                      const selectedDeactivated = deactivatedIds.filter(id => selectedMods.has(id))
-                      const allSelected = selectedDeactivated.length === deactivatedIds.length && deactivatedIds.length > 0
-                      const someSelected = selectedDeactivated.length > 0
-                      const missingNameCount = groupedMods.deactivated.filter(m => !m.name || /^Workshop Mod /i.test(m.name)).length
-                      return (
-                        <div className="space-y-2 border-b border-border/40 bg-muted/15 px-4 py-2.5">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="flex items-center gap-2">
-                              <Checkbox
-                                checked={allSelected}
-                                onCheckedChange={(checked) => {
-                                  setSelectedMods(prev => {
-                                    const next = new Set(prev)
-                                    if (checked) {
-                                      for (const id of deactivatedIds) next.add(id)
-                                    } else {
-                                      for (const id of deactivatedIds) next.delete(id)
-                                    }
-                                    return next
-                                  })
-                                }}
-                                aria-label={t('deactivatedTab.selectAllAria')}
-                              />
-                              <span className="text-xs text-muted-foreground">
-                                {someSelected ? t('deactivatedTab.selectedCount', { count: selectedDeactivated.length }) : t('deactivatedTab.selectAllCount', { count: deactivatedIds.length })}
-                              </span>
-                            </div>
-                            <div className="ms-auto flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!someSelected || loading || !canManageMods}
-                                onClick={() => handleBulkEnable(selectedDeactivated)}
-                              >
-                                <PlusCircle className="w-4 h-4 me-1.5" />
-                                {someSelected ? t('deactivatedTab.reEnableCount', { count: selectedDeactivated.length }) : t('deactivatedTab.reEnable')}
-                              </Button>
-                            </div>
-                          </div>
-                          <details className="group/deactivated-danger rounded border border-border/35 bg-card/35 px-2.5 py-1.5">
-                            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-[11px] text-muted-foreground hover:text-foreground">
-                              <span className="inline-flex items-center gap-1.5">
-                                <ChevronRight className="h-3 w-3 transition-transform group-open/deactivated-danger:rotate-90" aria-hidden="true" />
-                                {t('deactivatedTab.trackingCleanup')}
-                              </span>
-                              <span className="text-muted-foreground/65">{t('deactivatedTab.destructive')}</span>
-                            </summary>
-                            <div className="mt-2 flex flex-col gap-2 border-t border-border/25 pt-2 sm:flex-row sm:items-center sm:justify-between">
-                              <p className="text-[11px] leading-4 text-muted-foreground">
-                                {t('deactivatedTab.deleteHint')}
-                              </p>
-                              <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="self-start sm:self-auto"
-                                disabled={loading || (deactivatedIds.length === 0) || !canManageMods}
-                                onClick={async () => {
-                                  if (!canManageMods) return
-                                  const ids = someSelected ? selectedDeactivated : deactivatedIds
-                                  const label = someSelected
-                                    ? t(ids.length === 1 ? 'deactivatedTab.deleteSelectedConfirm_one' : 'deactivatedTab.deleteSelectedConfirm_other', { count: ids.length })
-                                    : t(ids.length === 1 ? 'deactivatedTab.deleteAllConfirm_one' : 'deactivatedTab.deleteAllConfirm_other', { count: ids.length })
-                                  // Actually just an INI untrack (files stay on disk, see
-                                  // deleteHint above) -- not a disk delete, so this doesn't
-                                  // get the same red/no-undo framing as Mods.tsx's actual
-                                  // delete-from-disk actions elsewhere in this file.
-                                  const ok = await confirm({ title: t('deactivatedTab.deleteFromTrackingTitle'), description: label, confirmLabel: t('deactivatedTab.deleteConfirmButton'), destructive: false })
-                                  if (!ok) return
-                                  setSelectedMods(new Set(ids))
-                                  handleBulkRemove(ids)
-                                }}
-                              >
-                                <Trash2 className="w-4 h-4 me-1.5" />
-                                {someSelected ? t('deactivatedTab.deleteSelected', { count: selectedDeactivated.length }) : t('deactivatedTab.deleteAll', { count: deactivatedIds.length })}
-                              </Button>
-                              </DisabledReason>
-                            </div>
-                          </details>
-                          {missingNameCount > 0 && (
-                            <div className="flex items-start gap-2 rounded border border-border/40 bg-card/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-                              <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                              <div className="flex-1 flex items-center gap-2 flex-wrap">
-                                <span className="flex-1 min-w-0">
-                                  <Trans i18nKey="deactivatedTab.genericNameNotice" t={t} count={missingNameCount} values={{ count: missingNameCount }} components={{ 1: <strong className="text-foreground/80" />, 3: <strong /> }} />
-                                </span>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 px-2 text-[11px]"
-                                  disabled={loading || !canManageMods}
-                                  onClick={() => {
-                                    const targets = groupedMods.deactivated
-                                      .filter(m => !m.name || /^Workshop Mod /i.test(m.name))
-                                      .map(m => m.workshop_id)
-                                    handleRefreshNames(targets)
-                                  }}
-                                >
-                                  <RefreshCw className={`w-3 h-3 me-1 ${loading ? 'animate-spin' : ''}`} />
-                                  {t('deactivatedTab.refreshNames')}
-                                </Button>
-                              </div>
-                            </div>
-                          )}
+          {/* ═══ PRESETS ═══ */}
+          {activeTab === 'presets' && iniConfig?.configured && (
+            <SectionCard
+              title={t('nav.presets.label')}
+              description={t('presetsTab.intro')}
+              icon={Bookmark}
+              flush
+              actions={
+                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                  <Dialog open={savePresetOpen} onOpenChange={setSavePresetOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm" variant="outline" disabled={!iniConfig?.configured || !canManageMods}>
+                        <Save aria-hidden="true" />
+                        {t('presetsTab.saveCurrent')}
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>{t('presetsTab.saveDialogTitle')}</DialogTitle>
+                        <DialogDescription>
+                          {t('presetsTab.saveDialogDesc')}
+                        </DialogDescription>
+                      </DialogHeader>
+                      <DialogBody className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="presetName">{t('presetsTab.nameLabel')}</Label>
+                          <Input
+                            id="presetName"
+                            value={presetName}
+                            onChange={(e) => setPresetName(e.target.value)}
+                            placeholder={t('presetsTab.namePlaceholder')}
+                            maxLength={100}
+                          />
                         </div>
-                      )
-                    })()}
-
-                    {/* Rows: per-row Enable + Delete; checkbox for bulk select */}
-                    <div className="divide-y divide-border/30">
-                      {groupedMods.deactivated.map(mod => {
-                        const isSelected = selectedMods.has(mod.workshop_id)
-                        return (
-                          <div
-                            key={mod.id}
-                            className={`group/modrow flex items-center gap-3 px-3 py-2.5 border-s-2 border-muted-foreground/20 hover:bg-accent/40 transition-colors ${isSelected ? 'bg-accent/30' : ''}`}
-                          >
-                            <div className="shrink-0">
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggleModSelect(mod.workshop_id)}
-                                aria-label={t('deactivatedTab.selectAria', { name: mod.name || mod.workshop_id })}
-                              />
-                            </div>
-                            <a
-                              href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${mod.workshop_id}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="shrink-0 relative grid place-items-center w-16 h-16 rounded-md border border-border/50 bg-muted/30 text-muted-foreground overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70"
-                              aria-label={t('deactivatedTab.openOnSteamAria', { name: mod.name || t('deactivatedTab.workshopModFallback', { id: mod.workshop_id }) })}
-                              title={t('deactivatedTab.openWorkshopPageTitle')}
-                            >
-                              <Package className="w-7 h-7" aria-hidden="true" />
-                              <img
-                                src={demoMode ? `${import.meta.env.BASE_URL}spiffo.png` : `/api/mods/thumbnail/${mod.workshop_id}`}
-                                alt=""
-                                loading="lazy"
-                                decoding="async"
-                                className="absolute inset-0 w-full h-full object-cover rounded-md opacity-80"
-                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
-                              />
-                            </a>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="truncate text-sm font-medium text-foreground/90">
-                                  {mod.name || t('deactivatedTab.workshopModFallback', { id: mod.workshop_id })}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5 text-[11px] text-muted-foreground">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    copyText(mod.workshop_id).then(() => {
-                                      toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: mod.workshop_id }) })
-                                    }).catch(() => { /* no-op */ })
-                                  }}
-                                  className="inline-flex items-center gap-1 rounded border border-border/40 bg-muted/40 px-1 py-0.5 font-mono text-[10px] leading-none text-muted-foreground hover:border-primary/40 hover:bg-primary/10 hover:text-primary transition-colors"
-                                  aria-label={t('deactivatedTab.copyWorkshopIdAria', { id: mod.workshop_id })}
-                                >
-                                  <span className="text-[9px] font-semibold uppercase tracking-wider opacity-70">WS</span>
-                                  <span>{mod.workshop_id}</span>
-                                </button>
-                                {mod.last_checked && (
-                                  <span>{t('deactivatedTab.checkedOn', { date: formatDate(mod.last_checked) })}</span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="shrink-0 flex items-center gap-0.5">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <a
-                                    href={`https://steamcommunity.com/sharedfiles/filedetails/?id=${mod.workshop_id}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex"
-                                  >
-                                    <Button
-                                      variant="ghost"
-                                      size="iconDense"
-                                      className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                      aria-label={t('deactivatedTab.openWorkshopPageAria')}
-                                    >
-                                      <ExternalLink className="w-4 h-4" />
-                                    </Button>
-                                  </a>
-                                </TooltipTrigger>
-                                <TooltipContent>{t('deactivatedTab.openWorkshopPageTooltip')}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="iconDense"
-                                    className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                    onClick={() => handleEnableMod(mod.workshop_id)}
-                                    disabled={loading || !canManageMods}
-                                    aria-label={t('deactivatedTab.reEnableAria', { name: mod.name || mod.workshop_id })}
-                                  >
-                                    <PlusCircle className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{t('deactivatedTab.reEnableTooltip')}</TooltipContent>
-                              </Tooltip>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="iconDense"
-                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                    onClick={() => setConfirmRemoveMod({ wsId: mod.workshop_id, label: mod.name || mod.workshop_id })}
-                                    disabled={loading || !canManageMods}
-                                    aria-label={t('deactivatedTab.deleteAria', { name: mod.name || mod.workshop_id })}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>{t('deactivatedTab.deleteTooltip')}</TooltipContent>
-                              </Tooltip>
-                            </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="presetDesc">{t('presetsTab.descLabel')}</Label>
+                          <Input
+                            id="presetDesc"
+                            value={presetDescription}
+                            onChange={(e) => setPresetDescription(e.target.value)}
+                            placeholder={t('presetsTab.descPlaceholder')}
+                            maxLength={500}
+                          />
+                        </div>
+                        {iniConfig?.configured && (
+                          <div className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm text-muted-foreground">
+                            {t('presetsTab.willSave', { workshopCount: iniConfig.workshopIds?.length || 0, modCount: iniConfig.modIds?.length || 0 })}
                           </div>
-                        )
-                      })}
+                        )}
+                      </DialogBody>
+                      <DialogFooter className="flex-col gap-2 sm:flex-row">
+                        <Button variant="outline" onClick={() => setSavePresetOpen(false)} className="w-full sm:w-auto">
+                          {t('presetsTab.cancel')}
+                        </Button>
+                        <Button onClick={handleSavePreset} disabled={savingPreset || !presetName.trim() || !canManageMods} className="w-full sm:w-auto">
+                          {savingPreset && <Loader2 className="animate-spin" aria-hidden="true" />}
+                          {t('presetsTab.savePreset')}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </DisabledReason>
+              }
+            >
+              {presetsLoading ? (
+                <div className="space-y-2 p-4" role="status" aria-label={t('presetsTab.loadingPresets')}>
+                  <Skeleton className="h-12 w-full" />
+                  <Skeleton className="h-12 w-full" />
+                </div>
+              ) : presets.length === 0 ? (
+                <div className="p-6">
+                  <EmptyState type="noData" compact title={t('presetsTab.emptyTitle')} description={t('presetsTab.emptyDesc')} />
+                </div>
+              ) : (
+                <div className="divide-y divide-border/50">
+                  {presets.map((preset) => (
+                    <div
+                      key={preset.id}
+                      className="flex flex-col gap-3 px-4 py-3 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate font-medium">{preset.name}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {t('presetsTab.modsCount', { count: preset.workshop_ids?.length || 0 })} &bull; {preset.description || t('presetsTab.noDescription')}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('presetsTab.savedOn', { date: formatDate(preset.created_at) })}
+                        </div>
+                      </div>
+                      <RowActions
+                        ariaLabel={t('presetsTab.actionsAria', { name: preset.name })}
+                        primary={
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setConfirmApplyPreset({ id: preset.id, name: preset.name, modCount: preset.workshop_ids?.length || 0 })}
+                            disabled={applyingPreset === preset.id || !canManageMods}
+                          >
+                            {applyingPreset === preset.id ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
+                            {t('presetsTab.load')}
+                          </Button>
+                        }
+                        items={[
+                          {
+                            label: t('presetsTab.deletePreset'),
+                            icon: Trash2,
+                            destructive: true,
+                            onSelect: () => setConfirmDeletePreset({ id: preset.id, name: preset.name }),
+                            disabled: !canManageMods,
+                            reason: !canManageMods ? t('permissions.noModsManage') : undefined,
+                          },
+                        ]}
+                      />
                     </div>
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Preset apply confirmation */}
+              <AlertDialog open={!!confirmApplyPreset} onOpenChange={(open) => { if (!open) setConfirmApplyPreset(null) }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('presetsTab.applyDialogTitle', { name: confirmApplyPreset?.name })}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('presetsTab.applyDialogDesc', { count: confirmApplyPreset?.modCount || 0 })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('presetsTab.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => {
+                        if (confirmApplyPreset) {
+                          handleApplyPreset(confirmApplyPreset.id, confirmApplyPreset.name)
+                          setConfirmApplyPreset(null)
+                        }
+                      }}
+                      disabled={!canManageMods}
+                    >
+                      {t('presetsTab.applyPreset')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              {/* Preset delete confirmation */}
+              <AlertDialog open={!!confirmDeletePreset} onOpenChange={(open) => { if (!open) setConfirmDeletePreset(null) }}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('presetsTab.deleteDialogTitle', { name: confirmDeletePreset?.name })}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('presetsTab.deleteDialogDesc')}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('presetsTab.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => {
+                        if (confirmDeletePreset) {
+                          handleDeletePreset(confirmDeletePreset.id, confirmDeletePreset.name)
+                          setConfirmDeletePreset(null)
+                        }
+                      }}
+                      disabled={!canManageMods}
+                    >
+                      {t('presetsTab.deletePreset')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </SectionCard>
           )}
-          </div>
-        </div>
+
+          {/* ═══ TOOLS ═══ */}
+          {activeTab === 'tools' && iniConfig?.configured && (
+            <>
+              <SectionCard
+                title={t('addModsTab.syncTitle')}
+                description={t('addModsTab.syncDesc')}
+                icon={RefreshCw}
+                actions={
+                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                    <Button onClick={handleSyncModIds} disabled={syncing || !canManageMods} size="sm" variant="outline">
+                      <RefreshCw className={syncing ? 'animate-spin' : undefined} aria-hidden="true" />
+                      {t('addModsTab.syncButton')}
+                    </Button>
+                  </DisabledReason>
+                }
+              />
+
+              <SectionCard
+                title={t('toolsTab.mapsTitle', { count: iniConfig?.maps?.length || 0 })}
+                icon={MapIcon}
+                actions={
+                  <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        if (!canManageMods) return
+                        try {
+                          setRepairingMaps(true)
+                          const result = await modsApi.repairMapEntries()
+                          setMapRepairResult(result)
+                        } catch (err) {
+                          reportClientError('Map repair failed.', err)
+                          setMapRepairResult({ removed: [], remaining: iniConfig?.maps || [], message: t('toolsTab.repairFailed') })
+                        } finally {
+                          setRepairingMaps(false)
+                        }
+                      }}
+                      disabled={repairingMaps || !canManageMods}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                      title={t('toolsTab.repairTooltip')}
+                    >
+                      {repairingMaps ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wrench aria-hidden="true" />}
+                      {t('toolsTab.repair')}
+                    </Button>
+                  </DisabledReason>
+                }
+              >
+                {mapRepairResult && (
+                  <div className={cn('rounded-md border p-2 text-xs text-foreground', (mapRepairResult.removed.length > 0 || (mapRepairResult.added?.length ?? 0) > 0) ? 'border-warning/40 bg-warning/10' : 'border-success/40 bg-success/10')} role="status">
+                    {mapRepairResult.message}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1">
+                  {iniConfig.maps.map((map, i) => (
+                    <Badge key={i} variant="secondary" className="max-w-[250px] truncate text-xs">
+                      {map}
+                    </Badge>
+                  ))}
+                </div>
+              </SectionCard>
+
+              <SectionCard title={t('toolsTab.workshopItemsTitle', { count: iniConfig.workshopIds?.length || 0 })} icon={Package}>
+                <div className="flex max-h-[200px] flex-wrap gap-1 overflow-y-auto">
+                  {iniConfig.workshopIds?.map((id, i) => (
+                    <Badge key={i} variant="outline" className="max-w-[140px] truncate font-mono text-xs">
+                      {id}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="max-h-[80px] overflow-y-auto break-all rounded-md bg-muted/50 p-2 font-mono text-xs text-muted-foreground">
+                  WorkshopItems={iniConfig.workshopIds?.join(';') || ''}
+                </div>
+              </SectionCard>
+
+              <SectionCard title={t('toolsTab.notesTitle')} icon={Info}>
+                <div className="space-y-3 text-sm text-muted-foreground">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t('toolsTab.loadOrderMattersTitle')}</p>
+                      <p className="text-xs">{t('toolsTab.loadOrderMattersDesc')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <MapIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t('toolsTab.mapModsCareTitle')}</p>
+                      <p className="text-xs">{t('toolsTab.mapModsCareDesc')}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{t('toolsTab.syncAfterDownloadTitle')}</p>
+                      <p className="text-xs">{t('toolsTab.syncAfterDownloadDesc')}</p>
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+            </>
+          )}
+        </SubNavLayout>
         </>
+        )}
+
+        {/* The one save affordance of the load order: sticks to the bottom
+            while the order on screen differs from the saved one, from any view. */}
+        {iniConfig?.configured && !permissionDenied && (
+          <SaveBar
+            dirty={hasModOrderChanged}
+            saving={savingModOrder}
+            onSave={() => void handleSaveModOrder()}
+            onDiscard={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}
+            saveLabel={t('loadOrder.saveOrder')}
+            disabledReason={!canManageMods ? t('permissions.noModsManage') : serverChangedSinceLoad ? t('toasts.serverChangedSinceLoadDesc') : undefined}
+          />
         )}
       </div>
 
-      {/* bug-hunt-2026-09-07 (Discord report: "when pressing fix path nothing
-          happens"): this was nested inside the pendingRestart-only banner
-          above, several hundred lines from here -- FolderBrowser only ever
-          MOUNTED while a mod change was awaiting a restart, so for anyone
-          NOT in that specific state (the overwhelming majority of "Fix
-          path" clicks, including the reporting user's) handleOpenWorkshopBrowser
-          ran fine and called setWorkshopBrowserOpen(true), but there was no
-          component anywhere in the tree to open -- an offered action that
-          could never succeed. Always mounted here now, matching every other
-          page-level dialog's placement. */}
+      {/* Import Collection Dialog */}
+      <Dialog
+        open={collectionDialogOpen}
+        onOpenChange={(open) => {
+          setCollectionDialogOpen(open)
+          if (!open) {
+            setShowCollectionAdvanced(false)
+            setCollectionImported(false)
+            setCollectionUrl('')
+            setCollectionMods([])
+          }
+        }}
+      >
+        {/* Only the DialogBody scrolls, under DialogContent's own bound; it is
+            a flex column whose mod list keeps its height cap on a tall window
+            but shrinks (never below 6rem) to the room left on a short one,
+            so the list is the one scroller. */}
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>{t('collectionDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('collectionDialog.description')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-4">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="collection-url-input">{t('collectionDialog.urlLabel')}</Label>
+                <HelpTip label={t('collectionDialog.urlLabel')}>{t('collectionDialog.urlHelp')}</HelpTip>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="collection-url-input"
+                  value={collectionUrl}
+                  onChange={(e) => setCollectionUrl(e.target.value)}
+                  placeholder={t('collectionDialog.urlPlaceholder')}
+                  maxLength={200}
+                  autoFocus
+                />
+                <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+                  <Button
+                    onClick={handleImportCollection}
+                    disabled={importingCollection || !canManageMods}
+                    className="w-full sm:w-auto"
+                    aria-label={t('collectionDialog.fetchAria')}
+                  >
+                    {importingCollection ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                  </Button>
+                </DisabledReason>
+              </div>
+            </div>
+
+            {collectionImported && collectionMods.length === 0 && !importingCollection && (
+              <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-foreground">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                {t('collectionDialog.noModsFound')}
+              </div>
+            )}
+
+            {collectionMods.length > 0 && (
+              <div className="flex min-h-0 flex-col gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Label>{t('collectionDialog.foundMods', { count: collectionMods.length })}</Label>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setShowCollectionAdvanced(!showCollectionAdvanced)}
+                    >
+                      {showCollectionAdvanced ? t('collectionDialog.hideAdvanced') : t('collectionDialog.editIdsAndMaps')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCollectionMods(prev => prev.map(m => ({ ...m, selected: true })))}
+                    >
+                      {t('collectionDialog.selectAll')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setCollectionMods(prev => prev.map(m => ({ ...m, selected: false })))}
+                    >
+                      {t('collectionDialog.deselectAll')}
+                    </Button>
+                  </div>
+                </div>
+                <div className="min-h-24 max-h-[min(48vh,22rem)] overflow-y-auto rounded-lg border p-2 sm:max-h-[min(52vh,24rem)]">
+                  <div className="space-y-2">
+                    {collectionMods.map((mod) => {
+                      const alreadyInstalled = iniConfig?.workshopIds?.includes(mod.workshopId)
+                      return (
+                        <div
+                          key={mod.workshopId}
+                          className={cn('flex items-start gap-3 rounded-lg border p-3 transition-colors', mod.selected ? 'border-primary/30 bg-primary/10' : 'bg-card/60 hover:bg-accent/20')}
+                        >
+                          <Checkbox
+                            checked={mod.selected}
+                            onCheckedChange={() => toggleModSelection(mod.workshopId)}
+                            aria-label={t('collectionDialog.selectAria', { name: mod.name })}
+                          />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="truncate text-sm font-medium" title={mod.name}>{mod.name}</span>
+                              {alreadyInstalled && (
+                                <Badge variant="outline" className="text-xs text-muted-foreground">
+                                  {t('collectionDialog.installedBadge')}
+                                </Badge>
+                              )}
+                              {mod.isMap && (
+                                <Badge variant="secondary" className="text-xs">
+                                  <MapIcon className="me-1 h-3 w-3" />
+                                  {t('collectionDialog.mapBadge')}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              {t('collectionDialog.idLabel', { id: mod.workshopId })}
+                            </p>
+                            {mod.selected && showCollectionAdvanced && (
+                              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <div>
+                                  <Label className="text-xs" htmlFor={`collection-mod-id-${mod.workshopId}`}>{t('collectionDialog.modIdLabel')}</Label>
+                                  <Input
+                                    id={`collection-mod-id-${mod.workshopId}`}
+                                    value={mod.modId || ''}
+                                    onChange={(e) => updateModId(mod.workshopId, e.target.value)}
+                                    placeholder={t('collectionDialog.modIdPlaceholder')}
+                                    maxLength={200}
+                                    className="h-7 text-xs"
+                                  />
+                                </div>
+                                {mod.isMap && (
+                                  <div>
+                                    <Label className="text-xs" htmlFor={`collection-map-folder-${mod.workshopId}`}>{t('collectionDialog.mapFolderLabel')}</Label>
+                                    <Input
+                                      id={`collection-map-folder-${mod.workshopId}`}
+                                      value={mod.mapFolder || ''}
+                                      onChange={(e) => updateMapFolder(mod.workshopId, e.target.value)}
+                                      placeholder={t('collectionDialog.mapFolderPlaceholder')}
+                                      maxLength={200}
+                                      className="h-7 text-xs"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            size="iconDense"
+                            variant="ghost"
+                            onClick={() => openWorkshopPage(mod.workshopId)}
+                            aria-label={t('collectionDialog.openWorkshopAria')}
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCollectionDialogOpen(false)}>
+              {t('collectionDialog.cancel')}
+            </Button>
+            <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
+              <Button
+                onClick={handleAddCollectionMods}
+                disabled={loading || selectedCollectionCount === 0 || !canManageMods || pendingAddServerChanged}
+              >
+                {loading ? t('collectionDialog.adding') : t('collectionDialog.addToServer', { count: selectedCollectionCount })}
+              </Button>
+            </DisabledReason>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Single Mod Dialog - with Multi-ID support */}
+      <Dialog open={advancedAddOpen} onOpenChange={setAdvancedAddDialogOpen}>
+        {/* Only the DialogBody scrolls, under DialogContent's own bound, and
+            the ID list flows in it. */}
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('addModDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('addModDialog.descPrefix')}{' '}
+              <button
+                type="button"
+                className="rounded-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                onClick={() => { setAdvancedAddDialogOpen(false); setCollectionDialogOpen(true) }}
+              >
+                {t('addModDialog.importCollectionLink')}
+              </button>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-4">
+            {/* Input section */}
+            <div className="space-y-2">
+              <Label htmlFor="advanced-mod-input" className="sr-only">{t('addModDialog.inputLabel')}</Label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  id="advanced-mod-input"
+                  value={advancedModInput}
+                  onChange={(e) => handleModInputChange(e.target.value)}
+                  placeholder={t('addModDialog.inputPlaceholder')}
+                  onKeyDown={(e) => e.key === 'Enter' && !discoveringMod && handleDiscoverMod()}
+                  className="font-mono text-sm"
+                  maxLength={200}
+                />
+                <Button
+                  id="discover-mod-btn"
+                  onClick={handleDiscoverMod}
+                  disabled={discoveringMod || !advancedModInput.trim() || !canManageMods}
+                  variant="secondary"
+                  className="w-full shrink-0 sm:w-auto"
+                >
+                  {discoveringMod ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Search className="me-1 h-4 w-4" />
+                      {t('addModDialog.discover')}
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('addModDialog.example')}
+              </p>
+            </div>
+
+            {/* Loading skeleton */}
+            {discoveringMod && (
+              <p className="text-xs text-muted-foreground" role="status">{t('addModDialog.discoveringHint')}</p>
+            )}
+            {discoveringMod && (
+              <div className="animate-pulse space-y-3 rounded-lg border bg-muted/30 p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-3/4 rounded bg-muted" />
+                    <div className="h-3 w-1/2 rounded bg-muted" />
+                  </div>
+                  <div className="h-5 w-16 rounded bg-muted" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="h-8 rounded bg-muted" />
+                  <div className="h-8 rounded bg-muted" />
+                </div>
+              </div>
+            )}
+
+            {/* Discovered mod info */}
+            {discoveredMod && !discoveringMod && (
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                {/* Mod header */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <h4 className="truncate text-sm font-medium" title={discoveredMod.name}>
+                      {discoveredMod.name}
+                    </h4>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <code className="font-mono text-xs text-muted-foreground">
+                        {discoveredMod.workshopId}
+                      </code>
+                      <button
+                        onClick={() => window.open(`https://steamcommunity.com/sharedfiles/filedetails/?id=${discoveredMod.workshopId}`, '_blank', 'noopener,noreferrer')}
+                        className="flex items-center gap-0.5 rounded-sm text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        {t('addModDialog.view')}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {discoveredMod.isMap && (
+                      <Badge variant="secondary" className="h-5 text-xs">
+                        <MapIcon className="me-1 h-3 w-3" />
+                        {t('addModDialog.mapBadge')}
+                      </Badge>
+                    )}
+                    {discoveredMod.isDownloaded ? (
+                      <Badge variant="success" className="h-5 text-xs">
+                        <CheckCircle className="me-1 h-3 w-3" />
+                        {t('addModDialog.downloadedBadge')}
+                      </Badge>
+                    ) : (
+                      <Badge variant="warning" className="h-5 text-xs">
+                        <Download className="me-1 h-3 w-3" />
+                        {t('addModDialog.notDownloadedBadge')}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                {/* Already added warning */}
+                {discoveredMod.isAlreadyAdded && (
+                  <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 p-2 text-xs text-foreground">
+                    <Info className="h-4 w-4 shrink-0 text-primary" />
+                    <span>{t('addModDialog.alreadyAdded')}</span>
+                  </div>
+                )}
+
+                {/* Mod IDs selection */}
+                {discoveredMod.modIds.length > 0 ? (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Label className="text-xs font-medium">
+                          {discoveredMod.hasMultipleModIds
+                            ? t('addModDialog.modIdsSelectedLabel', { selected: selectedModIds.size, total: discoveredMod.modIds.length })
+                            : t('addModDialog.modIdLabel')}
+                        </Label>
+                        <HelpTip
+                          label={
+                            discoveredMod.hasMultipleModIds
+                              ? t('addModDialog.modIdsSelectedLabel', { selected: selectedModIds.size, total: discoveredMod.modIds.length })
+                              : t('addModDialog.modIdLabel')
+                          }
+                        >
+                          {t('addModDialog.modIdsHelp')}
+                        </HelpTip>
+                      </div>
+                      {discoveredMod.hasMultipleModIds && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2.5 text-xs"
+                          onClick={() => setShowAdvancedIdSelection(!showAdvancedIdSelection)}
+                        >
+                          {showAdvancedIdSelection ? t('addModDialog.hide') : t('addModDialog.reviewIds')}
+                        </Button>
+                      )}
+                    </div>
+
+                    {discoveredMod.hasMultipleModIds && !showAdvancedIdSelection ? (
+                      <p className="text-xs text-muted-foreground">
+                        {t('addModDialog.preSelectedHint')}
+                      </p>
+                    ) : (
+                      <>
+                        {discoveredMod.hasMultipleModIds && (
+                          <div className="flex flex-wrap gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2.5 text-xs"
+                              onClick={() => {
+                                const newIds = discoveredMod.modIds.filter(
+                                  id => !discoveredMod.alreadyConfigured?.includes(id)
+                                )
+                                setSelectedModIds(new Set(newIds))
+                              }}
+                            >
+                              {t('addModDialog.selectNew')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2.5 text-xs"
+                              onClick={() => {
+                                if (selectedModIds.size === discoveredMod.modIds.length) {
+                                  setSelectedModIds(new Set())
+                                } else {
+                                  setSelectedModIds(new Set(discoveredMod.modIds))
+                                }
+                              }}
+                            >
+                              {selectedModIds.size === discoveredMod.modIds.length ? t('addModDialog.none') : t('addModDialog.all')}
+                            </Button>
+                          </div>
+                        )}
+                        <div className="space-y-1 rounded-lg border border-border/50 bg-background/50 p-1.5">
+                          {discoveredMod.modIds.map((modId) => {
+                            const isConfigured = discoveredMod.alreadyConfigured?.includes(modId)
+                            return (
+                              <div
+                                key={modId}
+                                role="button"
+                                tabIndex={0}
+                                aria-pressed={selectedModIds.has(modId)}
+                                className={cn(
+                                  'flex cursor-pointer items-center gap-2 rounded px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+                                  selectedModIds.has(modId)
+                                    ? 'bg-primary/10 ring-1 ring-inset ring-primary/40'
+                                    : isConfigured
+                                      ? 'bg-muted/30 opacity-70'
+                                      : 'hover:bg-muted/40',
+                                )}
+                                onClick={() => toggleModIdSelection(modId)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault()
+                                    toggleModIdSelection(modId)
+                                  }
+                                }}
+                              >
+                                <Checkbox
+                                  checked={selectedModIds.has(modId)}
+                                  onCheckedChange={() => toggleModIdSelection(modId)}
+                                  aria-label={t('addModDialog.selectModIdAria', { id: modId })}
+                                />
+                                <code className="flex-1 truncate font-mono text-xs" title={modId}>
+                                  {modId}
+                                </code>
+                                {isConfigured && (
+                                  <Badge variant="outline" className="h-5 shrink-0 text-xs text-muted-foreground">
+                                    {t('addModDialog.existsBadge')}
+                                  </Badge>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 p-2.5 text-xs">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+                    <div>
+                      <p className="font-medium text-warning">
+                        {discoveredMod.isDownloaded
+                          ? t('addModDialog.noModInfoTitle')
+                          : t('addModDialog.notDownloadedTitle')}
+                      </p>
+                      <p className="mt-0.5 text-muted-foreground">
+                        {discoveredMod.isDownloaded
+                          ? t('addModDialog.unconventionalStructure')
+                          : t('addModDialog.addAndSyncLater')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Map folders info */}
+                {discoveredMod.mapFolders.length > 0 && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <MapIcon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <div>
+                      <span className="font-medium">{t('addModDialog.mapFoldersWillBeAdded')}</span>
+                      <div className="mt-0.5 text-muted-foreground [overflow-wrap:anywhere]">
+                        {discoveredMod.mapFolders.join(', ')}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogBody>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => setAdvancedAddDialogOpen(false)}
+              className="w-full sm:order-1 sm:w-auto"
+            >
+              {t('addModDialog.cancel')}
+            </Button>
+            <Button
+              onClick={handleAddModAdvanced}
+              disabled={loading || !discoveredMod || discoveringMod || !canManageMods || pendingAddServerChanged}
+              className="w-full sm:order-2 sm:w-auto"
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="me-2 h-4 w-4 animate-spin" />
+                  {t('addModDialog.adding')}
+                </>
+              ) : discoveredMod?.modIds.length ? (
+                selectedModIds.size > 0
+                  ? t('addModDialog.addModIds', { count: selectedModIds.size })
+                  : t('addModDialog.addWorkshopIdOnly')
+              ) : discoveredMod ? (
+                t('addModDialog.addWorkshopId')
+              ) : (
+                t('addModDialog.discoverFirst')
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Auto-restart settings: the on/off switch (the status bar's chip
+          opens this dialog) and how the restart behaves. */}
+      <Dialog open={restartSettingsOpen} onOpenChange={setRestartSettingsOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('restartSettingsDialog.title')}</DialogTitle>
+            <DialogDescription>
+              {t('restartSettingsDialog.description')}
+            </DialogDescription>
+          </DialogHeader>
+          {/* DialogBody: with "Delay if players online" on, a landscape phone
+              scrolled Save Settings below the fold. */}
+          <DialogBody className="space-y-4">
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+              <div className="space-y-1">
+                <Label htmlFor="restart-auto-enabled">{t('statusBar.autoRestart')}</Label>
+                <p className="text-xs text-muted-foreground">{t('restartSettingsDialog.autoRestartHint')}</p>
+              </div>
+              <Switch
+                id="restart-auto-enabled"
+                checked={status?.autoRestartEnabled || false}
+                onCheckedChange={handleToggleAutoRestart}
+                disabled={loading || !canManageMods}
+                aria-label={t('statusBar.autoRestartAria')}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="restart-warning-minutes">{t('restartSettingsDialog.warningTimeLabel')}</Label>
+              <NumberInput
+                id="restart-warning-minutes"
+                min={0}
+                max={30}
+                value={restartWarningMinutes}
+                onChange={setRestartWarningMinutes}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('restartSettingsDialog.warningTimeHint')}
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/25 p-3">
+              <div className="space-y-1">
+                <Label htmlFor="restart-delay-players">{t('restartSettingsDialog.delayIfPlayersLabel')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('restartSettingsDialog.delayIfPlayersHint')}
+                </p>
+              </div>
+              <Switch
+                id="restart-delay-players"
+                checked={delayIfPlayersOnline}
+                onCheckedChange={setDelayIfPlayersOnline}
+              />
+            </div>
+
+            {delayIfPlayersOnline && (
+              <div>
+                <Label htmlFor="restart-max-delay">{t('restartSettingsDialog.maxDelayLabel')}</Label>
+                <NumberInput
+                  id="restart-max-delay"
+                  min={5}
+                  max={120}
+                  value={maxDelayMinutes}
+                  onChange={setMaxDelayMinutes}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('restartSettingsDialog.maxDelayHint')}
+                </p>
+              </div>
+            )}
+          </DialogBody>
+          <DialogFooter className="flex-col gap-2 sm:flex-row">
+            <Button variant="outline" onClick={() => setRestartSettingsOpen(false)} className="w-full sm:w-auto">
+              {t('restartSettingsDialog.cancel')}
+            </Button>
+            <Button onClick={handleSaveRestartSettings} disabled={loading || !canManageMods} className="w-full sm:w-auto">
+              {loading ? t('restartSettingsDialog.saving') : t('restartSettingsDialog.saveSettings')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Always mounted (it used to live inside the pending-restart banner, so
+          "Fix path" had nothing to open for anyone not in that state). */}
       <FolderBrowser
         open={workshopBrowserOpen}
         onOpenChange={setWorkshopBrowserOpen}
@@ -6751,17 +6860,12 @@ export default function Mods() {
         title={t('folderBrowser.title')}
       />
 
-      {/* Single mod remove confirmation */}
+      {/* Single mod remove confirmation. Several rows open it (Installed, the
+          "removed from Workshop" alert, Active's menu, Deactivated), so it
+          names the target. */}
       <AlertDialog open={!!confirmRemoveMod} onOpenChange={(open) => { if (!open) setConfirmRemoveMod(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            {/* Four different rows across this page (Installed tab, "removed
-                from Workshop" banner, Active-config kebab menu, Deactivated
-                tab) all open this same dialog. It used to say only "Remove
-                this mod from the server?" with no way to tell WHICH mod --
-                a real problem once more than one row is in play (e.g. a
-                second click before the first refetch lands). Name the
-                actual target instead. */}
             <AlertDialogTitle>{t('removeModDialog.title', { name: confirmRemoveMod?.label || confirmRemoveMod?.wsId || '' })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('removeModDialog.description')}
@@ -6784,7 +6888,7 @@ export default function Mods() {
       <AlertDialog open={confirmBulkRemove} onOpenChange={setConfirmBulkRemove}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t(selectedMods.size === 1 ? 'bulkRemoveDialog.title_one' : 'bulkRemoveDialog.title_other', { count: selectedMods.size })}</AlertDialogTitle>
+            <AlertDialogTitle>{t('bulkRemoveDialog.title', { count: selectedMods.size })}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('bulkRemoveDialog.description')}
             </AlertDialogDescription>
@@ -6796,11 +6900,74 @@ export default function Mods() {
               onClick={() => { handleBulkRemove(); setConfirmBulkRemove(false) }}
               disabled={!canManageMods}
             >
-              {t(selectedMods.size === 1 ? 'bulkRemoveDialog.remove_one' : 'bulkRemoveDialog.remove_other', { count: selectedMods.size })}
+              {t('bulkRemoveDialog.remove', { count: selectedMods.size })}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Workshop item remove confirmation (Active on server) */}
+      <AlertDialog open={!!confirmRemoveWorkshop} onOpenChange={(open) => { if (!open) setConfirmRemoveWorkshop(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('activeMods.removeWorkshopDialogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('activeMods.removeWorkshopDialogDesc')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('activeMods.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmedRemoveWorkshop}
+              disabled={!canManageMods}
+            >
+              {t('activeMods.remove')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Group dialog opened outside the Load order panel (Groups view, a
+          suggestion, "New group…" from a row's picker). */}
+      {groupEditor && (
+        <ModGroupDialog
+          group={groupEditor.group}
+          initialModIds={groupEditor.initialModIds}
+          initialName={groupEditor.initialName}
+          placement={groupEditor.group ? groupsStore.placements[groupEditor.group.id] ?? null : null}
+          serverModIds={orderedModIds}
+          modNames={modNamesRecord}
+          requires={requiresMap}
+          onClose={() => setGroupEditor(null)}
+          onSubmit={handleSaveGroup}
+        />
+      )}
+
+      {addToGroup && (
+        <AddToGroupDialog
+          modIds={addToGroup.modIds}
+          label={addToGroup.label}
+          groups={groupsStore.groups}
+          onAdd={handleAddToGroup}
+          onCreateNew={() => {
+            const modIds = orderedModIds.filter((id) => addToGroup.modIds.includes(id))
+            setGroupEditor({ group: null, initialModIds: modIds.length > 0 ? modIds : addToGroup.modIds })
+            setAddToGroup(null)
+          }}
+          onClose={() => setAddToGroup(null)}
+        />
+      )}
+
+      {noteEditor && (
+        <ModNoteDialog
+          name={noteEditor.name}
+          note={notesStore.notes[noteEditor.workshopId]}
+          canEdit={canManageMods}
+          onSave={handleSaveNote}
+          onClose={() => setNoteEditor(null)}
+        />
+      )}
     </TooltipProvider>
   )
 }

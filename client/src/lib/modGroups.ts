@@ -33,7 +33,7 @@ export function groupExportFileName(name: string): string {
 }
 
 /** The file Export writes and Import (here and in another panel) reads. */
-export function buildGroupDocument(group: Pick<ModGroup, 'name' | 'description' | 'modIds'>): ModGroupDocument {
+export function buildGroupDocument(group: Pick<ModGroup, 'name' | 'description' | 'modIds' | 'color' | 'keepTogether'>): ModGroupDocument {
   const description = group.description?.trim()
   return {
     schema: MOD_GROUP_SCHEMA,
@@ -41,8 +41,12 @@ export function buildGroupDocument(group: Pick<ModGroup, 'name' | 'description' 
     name: group.name,
     ...(description ? { description } : {}),
     modIds: [...group.modIds],
+    ...(group.color ? { color: group.color } : {}),
+    ...(group.keepTogether ? { keepTogether: true } : {}),
   }
 }
+
+const DOCUMENT_COLORS = new Set(['slate', 'red', 'orange', 'amber', 'lime', 'green', 'teal', 'sky', 'blue', 'violet', 'pink'])
 
 export type GroupDocumentProblem = 'tooLarge' | 'notJson' | 'wrongKind' | 'unsupportedSchema' | 'invalid'
 
@@ -73,6 +77,8 @@ export function parseGroupDocument(text: string): ParsedGroupDocument {
   if (!name || !Array.isArray(modIds) || modIds.length === 0) return { ok: false, problem: 'invalid' }
   if (!modIds.every((id) => typeof id === 'string' && id.trim() !== '')) return { ok: false, problem: 'invalid' }
   const description = typeof doc.description === 'string' ? doc.description.trim() : ''
+  // Older exports have neither; an unknown colour is dropped, not refused.
+  const color = typeof doc.color === 'string' && DOCUMENT_COLORS.has(doc.color) ? (doc.color as ModGroupDocument['color']) : undefined
   return {
     ok: true,
     document: {
@@ -81,6 +87,8 @@ export function parseGroupDocument(text: string): ParsedGroupDocument {
       name,
       ...(description ? { description } : {}),
       modIds: (modIds as string[]).map((id) => id.trim()),
+      ...(color ? { color } : {}),
+      ...(doc.keepTogether === true ? { keepTogether: true } : {}),
     },
   }
 }

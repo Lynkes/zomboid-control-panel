@@ -158,7 +158,8 @@ describe('Mods.tsx: activeServerChanged clears an open dependency-search panel b
     await waitForLoaded()
 
     fireEvent.click(await screen.findByRole('button', { name: /^conflicts/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /^missing dependencies/i }))
+    // The Conflicts sub-tabs are a segmented control (radios).
+    fireEvent.click(await screen.findByRole('radio', { name: /^missing dependencies/i }))
 
     fireEvent.click(await screen.findByRole('button', { name: /search workshop/i }))
     await waitFor(() => expect(searchWorkshopMods).toHaveBeenCalledTimes(1))

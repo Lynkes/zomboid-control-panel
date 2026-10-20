@@ -93,8 +93,7 @@ describe('Leaderboard days unit', () => {
     const table = await renderPage('de')
     expect(table).toBeInTheDocument()
     // Ranked by all-time kills by default: no days there, so pick the metric.
-    const tab = screen.getAllByRole('tab').find((el) => el.textContent === 'Überlebte Tage')!
-    fireEvent.click(tab)
+    fireEvent.click(screen.getByRole('radio', { name: 'Überlebte Tage' }))
     // The table cell, the podium place and the leader tile.
     await waitFor(() => expect(screen.getAllByText('61,7 T')).toHaveLength(3))
     expect(screen.queryByText('61,7 d')).not.toBeInTheDocument()

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Archive,
   Download,
@@ -10,13 +11,12 @@ import {
   HardDrive,
   FolderOpen,
   RefreshCw,
-  Settings,
+  CalendarClock,
   AlertTriangle,
   Check,
   Upload,
   FileText,
 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { NumberInput } from '@/components/NumberInput'
 import { Label } from '@/components/ui/label'
@@ -31,8 +31,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Skeleton } from '@/components/ui/skeleton'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatStrip, type StatStripItem } from '@/components/ui/stat-strip'
+import { StatusPill } from '@/components/ui/status-pill'
+import { Toolbar } from '@/components/ui/toolbar'
+import { RowActions } from '@/components/ui/row-actions'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { SaveBar } from '@/components/SaveBar'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -60,7 +67,6 @@ import { PageHeader } from '@/components/PageHeader'
 import { DisabledReason } from '@/components/DisabledReason'
 import { useAuth } from '@/contexts/AuthContext'
 import { EmptyState } from '@/components/EmptyState'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
 import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { isolateLtrForRtl } from '@/lib/paramTranslation'
@@ -89,6 +95,11 @@ const PRESET_CRONS = new Set<string>(SCHEDULE_PRESETS.map(([cron]) => cron))
 // Radix <Select> values must be non-empty strings and can't collide with a
 // real cron expression.
 const CUSTOM_SCHEDULE_VALUE = 'custom'
+
+// ?panel=schedule opens the "Schedule & retention" card (and scrolls to
+// it): the Scheduler's backup-health card and the Dashboard link here.
+const SCHEDULE_PANEL = 'schedule'
+const SCHEDULE_CARD_ID = 'backup-schedule'
 
 // The saved schedule GET /status sent, '' when it sent none. A partial
 // answer (the demo build's catch-all reply had no schedule at all) put
@@ -277,8 +288,20 @@ export default function Backups() {
   // Selection state
   const [selectedBackups, setSelectedBackups] = useState<Set<string>>(new Set())
 
-  // Settings state
-  const [showSettings, setShowSettings] = useState(false)
+  // Settings state. The "Schedule & retention" card is open while the URL
+  // says ?panel=schedule, so a link (Scheduler, Dashboard) or a reload
+  // lands on it; toggling it replaces the history entry and keeps every
+  // other parameter.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const showSettings = searchParams.get('panel') === SCHEDULE_PANEL
+  const setShowSettings = useCallback((open: boolean) => {
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      if (open) next.set('panel', SCHEDULE_PANEL)
+      else next.delete('panel')
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
   const [backupSchedule, setBackupSchedule] = useState('0 */6 * * *')
   // Custom cron option (2026-09-27 community request): the frequency menu
   // only offered presets, while Settings > Backups has always taken a raw
@@ -315,11 +338,14 @@ export default function Backups() {
   const fetchBackups = useCallback(async () => {
     try {
       const data = await backupApi.listBackups()
-      setBackups(data.backups || [])
+      // An answer without a list (the demo build's catch-all reply, a proxy
+      // page) reads as no backups, not as a crash further down.
+      const list = Array.isArray(data?.backups) ? data.backups : []
+      setBackups(list)
       setLoadError(null)
       // Clear selection for backups that no longer exist
       setSelectedBackups(prev => {
-        const backupNames = new Set((data.backups || []).map(b => b.name))
+        const backupNames = new Set(list.map(b => b.name))
         const newSelection = new Set<string>()
         prev.forEach(name => {
           if (backupNames.has(name)) {
@@ -448,7 +474,7 @@ export default function Backups() {
     }
     try {
       const data = await backupApi.getHistory(serverId)
-      setHistory(data.records || [])
+      setHistory(Array.isArray(data?.records) ? data.records : [])
     } catch {
       setHistory([])
     }
@@ -1213,29 +1239,187 @@ export default function Backups() {
   const isAnySelected = selectedBackups.size > 0
   const allSelected = backups.length > 0 && selectedBackups.size === backups.length
 
+  // Unsaved edits in "Schedule & retention": the form against the schedule
+  // and limit GET /status last sent. Only those two fields; the on/off
+  // switch saves the moment it's flipped. A role that can't save has its
+  // fields locked, so it never holds edits it couldn't keep.
+  const scheduleChanged = backupStatus !== null && scheduleToSave !== savedSchedule
+  // Object.is: an emptied field is NaN, and NaN !== NaN.
+  const maxBackupsChanged = backupStatus !== null && !Object.is(backupMaxCount, backupStatus.maxBackups)
+  const settingsDirty = canManageBackups && (scheduleChanged || maxBackupsChanged)
+  const maxBackupsInvalid = maxBackupsChanged
+    && !(Number.isInteger(backupMaxCount) && backupMaxCount >= 1 && backupMaxCount <= 100)
+  const saveSettingsBlockedReason = !canManageBackups
+    ? t('permissions.noManage')
+    : serverChangedSinceLoad
+      ? t('toasts.serverChangedSinceLoadDesc')
+      : maxBackupsInvalid
+        ? t('settingsPanel.maxBackupsInvalid')
+        : undefined
+
+  // Discard: the form back to what is saved.
+  const discardSettings = () => {
+    if (!backupStatus) return
+    const schedule = savedScheduleOf(backupStatus)
+    const isPreset = PRESET_CRONS.has(schedule)
+    setBackupSchedule(schedule)
+    setCustomSchedule(schedule !== '' && !isPreset)
+    setCustomCron(isPreset ? '' : schedule)
+    setBackupMaxCount(backupStatus.maxBackups)
+  }
+
+  // Opening the card (the header button, the Auto-backup cell, or a link
+  // with ?panel=schedule) brings it into view -- for a link, once the
+  // summary above it has loaded and stopped moving it down.
+  const scrolledToScheduleRef = useRef(false)
+  useEffect(() => {
+    if (!showSettings) {
+      scrolledToScheduleRef.current = false
+      return
+    }
+    if (scrolledToScheduleRef.current || !backupsLoaded) return
+    scrolledToScheduleRef.current = true
+    const reduceMotion = typeof window.matchMedia === 'function'
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    document.getElementById(SCHEDULE_CARD_ID)?.scrollIntoView?.({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [showSettings, backupsLoaded])
+
+  const createBlockedReason = !canManageBackups
+    ? t('permissions.noManage')
+    : activeServerRemote
+      ? t('pageHeader.remoteDisabledTitle')
+      : restoreInProgressElsewhere
+        ? t('permissions.restoreInProgress')
+        : null
+  const uploadBlockedReason = !canManageBackups
+    ? t('permissions.noManage')
+    : activeServerRemote
+      ? t('pageHeader.uploadTitleRemote')
+      : restoreInProgressElsewhere
+        ? t('permissions.restoreInProgress')
+        : serverChangedSinceLoad
+          ? t('toasts.serverChangedSinceLoadDesc')
+          : undefined
+  const uploadDisabled = uploadingBackup || restoringBackup !== null || restoreInProgressElsewhere || activeServerRemote || !canManageBackups || serverChangedSinceLoad
+
+  const pageAlerts: PageAlert[] = []
+  if (loadError) {
+    pageAlerts.push({
+      id: 'load-error',
+      tone: 'error',
+      title: t('alerts.loadErrorTitle'),
+      description: loadError,
+      action: { label: t('alerts.retry'), onClick: () => { void refreshAll() } },
+    })
+  }
+  if (activeServerRemote) {
+    pageAlerts.push({
+      id: 'remote',
+      tone: 'warning',
+      title: t('alerts.remoteTitle'),
+      description: t('alerts.remoteDesc'),
+      action: { label: t('alerts.remoteAction'), to: '/servers' },
+    })
+  }
+
+  // The Auto-backup cell's second line: why it's in the state it's in.
+  const autoBackupDetail = statusUnknown ? (
+    <span className="block truncate">{t('backups.statusLoadFailed', { ns: 'settings' })}</span>
+  ) : deferredForRestartLine ? (
+    // Checked first: whatever the last attempt said, a backup is due right
+    // now and only waiting for a restart to end. Two lines: the point is
+    // the tail ("waiting for the restart"), which a one-line truncate cuts.
+    <span className="block whitespace-normal line-clamp-2" title={deferredForRestartLine}>{deferredForRestartLine}</span>
+  ) : skippedForRestartLine ? (
+    <span className="block whitespace-normal text-warning line-clamp-2" title={skippedForRestartLine}>{skippedForRestartLine}</span>
+  ) : lastScheduledAttemptFailed ? (
+    <span className="block truncate text-warning" title={lastScheduledAttemptMessage}>
+      {t('statusCards.lastScheduledAttemptFailed', {
+        time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
+        message: lastScheduledAttemptMessage,
+      })}
+    </span>
+  ) : (
+    <span className="block truncate" title={savedSchedule}>
+      {backupStatus?.enabled
+        ? t('statusCards.runsSchedule', { schedule: describeSchedule(savedSchedule), count: backupStatus?.maxBackups ?? '?' })
+        : t('statusCards.noScheduled')}
+    </span>
+  )
+  const autoBackupNeedsAttention = lastScheduledAttemptFailed || lastScheduledSkippedForRestart
+
+  const summary: StatStripItem[] = [
+    { id: 'count', label: t('statusCards.totalBackups'), value: backups.length, icon: Archive },
+    { id: 'size', label: t('statusCards.totalSize'), value: formatBytes(totalSize), icon: HardDrive },
+    {
+      id: 'last',
+      label: t('statusCards.lastBackup'),
+      value: (
+        <span className="block truncate text-base">
+          {backupStatus?.lastBackup ? formatDate(backupStatus.lastBackup.created) : t('statusCards.never')}
+        </span>
+      ),
+      icon: Clock,
+    },
+    {
+      id: 'auto',
+      label: t('statusCards.autoBackup'),
+      // A bare "-" until the status is known -- not On or Off, since we
+      // don't know which (the same placeholder Diagnostics uses).
+      value: statusUnknown ? '-' : backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off'),
+      detail: autoBackupDetail,
+      icon: autoBackupNeedsAttention ? AlertTriangle : CalendarClock,
+      tone: autoBackupNeedsAttention ? 'warning' : backupStatus?.enabled ? 'success' : 'default',
+      // Opens "Schedule & retention", where the switch is.
+      onClick: () => openSchedule(),
+    },
+  ]
+
+  function openSchedule() {
+    if (showSettings) document.getElementById(SCHEDULE_CARD_ID)?.scrollIntoView?.({ block: 'nearest' })
+    else setShowSettings(true)
+  }
+
   return (
     <div className="space-y-6 page-transition">
-      {/* Header */}
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        icon={<Archive className="w-5 h-5 text-primary" />}
+        status={uploadingBackup ? (
+          <StatusPill tone="busy" size="sm" label={t('pageHeader.uploading', { percent: uploadPercent })} />
+        ) : undefined}
+        meta={activeServerId != null && history.length > 0 ? (
+          <>
+            <span className="font-medium text-foreground">{t('history.label')}</span>
+            <span>{t('history.recordedCount', { count: history.length })}</span>
+            <span>{t('history.latest', { date: formatDate(history[0].createdAt) })}</span>
+            <span className="min-w-0 truncate font-mono">{history[0].fileName}</span>
+          </>
+        ) : undefined}
         actions={
           <>
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.remoteDisabledTitle') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
-              <Button
-                onClick={handleCreateBackup}
-                disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
-                className="gap-2"
-              >
-                {creatingBackup ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Archive className="w-4 h-4" />
-                )}
-                {creatingBackup ? t('pageHeader.creating') : t('pageHeader.createBackup')}
-              </Button>
-            </DisabledReason>
+            <Button
+              variant="ghost"
+              size="iconDense"
+              onClick={refreshAll}
+              disabled={loading}
+              aria-label={t('pageHeader.refreshAria')}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; disables only transiently while a refresh is already in flight (the spinning icon is the self-evident "why"), not a permission gate needing DisabledReason. Triaged 2026-08-27.
+              title={t('pageHeader.refreshTitle')}
+            >
+              <RefreshCw className={cn(loading && 'animate-spin')} aria-hidden="true" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowSettings(!showSettings)}
+              aria-expanded={showSettings}
+              aria-controls={showSettings ? SCHEDULE_CARD_ID : undefined}
+              aria-label={t('pageHeader.settings')}
+            >
+              <CalendarClock aria-hidden="true" />
+              <span className="hidden sm:inline">{t('pageHeader.settings')}</span>
+            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -1246,324 +1430,44 @@ export default function Backups() {
                 if (file) handleUploadFile(file)
               }}
             />
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : activeServerRemote ? t('pageHeader.uploadTitleRemote') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
+            <RowActions
+              ariaLabel={t('pageHeader.moreAria')}
+              items={[
+                {
+                  label: uploadingBackup ? t('pageHeader.uploading', { percent: uploadPercent }) : t('pageHeader.uploadZip'),
+                  icon: Upload,
+                  onSelect: () => fileInputRef.current?.click(),
+                  disabled: uploadDisabled,
+                  reason: uploadBlockedReason,
+                },
+              ]}
+            />
+            <DisabledReason reason={createBlockedReason}>
               <Button
-                variant="outline"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploadingBackup || restoringBackup !== null || restoreInProgressElsewhere || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
-                className="gap-2"
-                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Upload an existing world_backup_*.zip from another machine"); the actual disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                title={t('pageHeader.uploadTitleLocal')}
+                variant="command"
+                size="sm"
+                onClick={handleCreateBackup}
+                disabled={creatingBackup || restoringBackup !== null || restoreInProgressElsewhere || !backupStatus?.savesExists || activeServerRemote || !canManageBackups || serverChangedSinceLoad}
               >
-                {uploadingBackup ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Upload className="w-4 h-4" />
-                )}
-                {uploadingBackup ? t('pageHeader.uploading', { percent: uploadPercent }) : t('pageHeader.uploadZip')}
+                {creatingBackup ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+                {creatingBackup ? t('pageHeader.creating') : t('pageHeader.createBackup')}
               </Button>
             </DisabledReason>
-            <Button
-              variant="outline"
-              onClick={() => setShowSettings(!showSettings)}
-              className="gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              {t('pageHeader.settings')}
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={refreshAll}
-              disabled={loading}
-              aria-label={t('pageHeader.refreshAria')}
-              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; disables only transiently while a refresh is already in flight (the spinning icon is the self-evident "why"), not a permission gate needing DisabledReason. Triaged 2026-08-27.
-              title={t('pageHeader.refreshTitle')}
-            >
-              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-            </Button>
           </>
         }
       />
 
-      {loadError && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>{t('alerts.loadErrorTitle')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>{loadError}</span>
-            <Button variant="outline" size="sm" onClick={refreshAll} className="self-start sm:self-auto">
-              <RefreshCw className="me-2 h-4 w-4" />
-              {t('alerts.retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {activeServerRemote && (
-        <Alert className="border-warning/40 bg-warning/10">
-          <AlertTriangle className="h-4 w-4 text-warning" />
-          <AlertTitle>{t('alerts.remoteTitle')}</AlertTitle>
-          <AlertDescription>
-            {t('alerts.remoteDesc')}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {activeServerId != null && history.length > 0 && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-y border-border/50 py-2 text-xs text-muted-foreground">
-          <span className="font-medium text-foreground">{t('history.label')}</span>
-          <span>{t('history.recordedCount', { count: history.length })}</span>
-          <span>{t('history.latest', { date: formatDate(history[0].createdAt) })}</span>
-          <span className="font-mono">{history[0].fileName}</span>
-        </div>
-      )}
-
-      {/* Status Cards -- gated on backupsLoaded (the fetch has settled, whether
-          it found zero backups or many), not on backups.length > 0. This card
-          row is the ONLY place the Auto-Backup on/off state, its schedule, and
-          a failing-scheduled-attempt warning are shown -- gating it on having
-          at least one backup meant a server whose scheduled backups have been
-          failing since before the first one ever succeeded (backups.length
-          stays 0 forever) looked IDENTICAL to "auto-backup just isn't
-          configured", and the Auto-Backup toggle itself -- the only control on
-          this page that turns scheduling on -- was unreachable until the
-          operator manually created a first backup. Both are exactly the
-          "can't tell what state it's in" / "don't know what to do next"
-          failures this page exists to avoid. */}
-      {backupsLoaded && (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 stagger-in">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="grid place-items-center w-10 h-10 rounded-md border border-primary/30 bg-primary/[0.06] text-primary shrink-0" aria-hidden="true">
-              <Archive className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.totalBackups')}</p>
-              <p className="text-xl font-semibold leading-tight mt-0.5 text-foreground">{backups.length}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="grid place-items-center w-10 h-10 rounded-md border border-border/55 bg-muted/30 text-muted-foreground shrink-0" aria-hidden="true">
-              <HardDrive className="w-4 h-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.totalSize')}</p>
-              <p className="text-xl font-semibold leading-tight mt-0.5 text-foreground tabular-nums">{formatBytes(totalSize)}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="grid place-items-center w-10 h-10 rounded-md border border-primary/30 bg-primary/[0.06] text-primary shrink-0" aria-hidden="true">
-              <Clock className="w-4 h-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.lastBackup')}</p>
-              <p className="text-sm font-semibold leading-tight mt-0.5 text-foreground truncate">
-                {backupStatus?.lastBackup ? formatDate(backupStatus.lastBackup.created) : t('statusCards.never')}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div
-              className={cn(
-                'grid place-items-center w-10 h-10 rounded-md border shrink-0',
-                lastScheduledAttemptFailed || lastScheduledSkippedForRestart
-                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                  : backupStatus?.enabled
-                  ? 'border-primary/30 bg-primary/[0.06] text-primary'
-                  : 'border-border/55 bg-muted/30 text-muted-foreground'
-              )}
-              aria-hidden="true"
-            >
-              {lastScheduledAttemptFailed || lastScheduledSkippedForRestart ? <AlertTriangle className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('statusCards.autoBackup')}</p>
-              <p className={cn('text-sm font-semibold leading-tight mt-0.5 truncate', backupStatus?.enabled ? 'text-foreground' : 'text-muted-foreground')}>
-                {/* Bare "-" placeholder, same convention Debug.tsx already
-                    uses for a value that hasn't resolved yet -- not On or
-                    Off, since we don't actually know which. */}
-                {statusUnknown ? '-' : backupStatus?.enabled ? t('statusCards.on') : t('statusCards.off')}
-              </p>
-              {statusUnknown ? (
-                <p className="text-[11px] text-muted-foreground/80 truncate">
-                  {t('backups.statusLoadFailed', { ns: 'settings' })}
-                </p>
-              ) : deferredForRestartLine ? (
-                // Checked first: whatever the last attempt said, a backup is
-                // due right now and only waiting for a restart to end.
-                <p className="text-[11px] text-muted-foreground/80 line-clamp-2" title={deferredForRestartLine}>
-                  {deferredForRestartLine}
-                </p>
-              ) : skippedForRestartLine ? (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 line-clamp-2" title={skippedForRestartLine}>
-                  {skippedForRestartLine}
-                </p>
-              ) : lastScheduledAttemptFailed ? (
-                <p
-                  className="text-[11px] text-amber-600 dark:text-amber-400 truncate"
-                  title={lastScheduledAttemptMessage}
-                >
-                  {t('statusCards.lastScheduledAttemptFailed', {
-                    time: formatDate(backupStatus!.lastScheduledBackupAttempt!.executedAt),
-                    message: lastScheduledAttemptMessage,
-                  })}
-                </p>
-              ) : (
-                <p className="text-[11px] text-muted-foreground/80 truncate" title={savedSchedule}>
-                  {backupStatus?.enabled
-                    ? t('statusCards.runsSchedule', { schedule: describeSchedule(savedSchedule), count: backupStatus?.maxBackups ?? '?' })
-                    : t('statusCards.noScheduled')}
-                </p>
-              )}
-            </div>
-            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : statusUnknown ? t('backups.statusLoadFailed', { ns: 'settings' }) : null}>
-              <Switch
-                checked={backupStatus?.enabled || false}
-                onCheckedChange={toggleBackupEnabled}
-                disabled={!canManageBackups || statusUnknown || serverChangedSinceLoad}
-                aria-label={t('statusCards.toggleAria')}
-              />
-            </DisabledReason>
-          </CardContent>
-        </Card>
-      </div>
-      )}
-
-      {/* The saved schedule's restart collisions. While the settings panel is
-          open it shows the same notice for the schedule being edited
-          instead (starting from this one -- see panelRestartOverlaps), so
-          the two never sit on screen together. Neutral here, a warning in
-          the panel -- see BackupRestartOverlapNotice's `tone`. */}
-      {!showSettings && backupStatus?.enabled && (
-        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} tone="neutral" />
-      )}
-
-      {/* Settings Panel (collapsible) */}
-      {showSettings && (
-        <Card className="border-primary/15">
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              {t('settingsPanel.title')}
-            </CardTitle>
-            <CardDescription>{t('settingsPanel.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="backup-schedule">{t('settingsPanel.frequencyLabel')}</Label>
-                <Select value={customSchedule ? CUSTOM_SCHEDULE_VALUE : backupSchedule} onValueChange={handleFrequencyChange}>
-                  <SelectTrigger id="backup-schedule" className="w-full">
-                    <SelectValue placeholder={t('settingsPanel.frequencyPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SCHEDULE_PRESETS.map(([cron, labelKey]) => (
-                      <SelectItem key={cron} value={cron}>{t(labelKey)}</SelectItem>
-                    ))}
-                    <SelectItem value={CUSTOM_SCHEDULE_VALUE}>{t('schedule.customOption')}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('settingsPanel.frequencyHelp')}
-                </p>
-                {/* In the frequency column, right under the menu that
-                    reveals it -- not after the whole grid, where a phone's
-                    single column put it below Maximum Backups and Tab
-                    reached that field first. */}
-                {customSchedule && (
-                  <div className="space-y-2 pt-1">
-                    <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
-                    <Input
-                      id="backup-schedule-cron"
-                      value={customCron}
-                      onChange={(e) => setCustomCron(e.target.value)}
-                      // The bare cron, as Settings > Backups has it: under
-                      // dir="ltr" a translated "e.g." prefix in an RTL
-                      // language reordered the example around it (Arabic
-                      // painted the minute and hour swapped). The hint below
-                      // already says it's an example.
-                      placeholder="30 3 * * *"
-                      // A cron is left-to-right in every language; in an RTL
-                      // page its neutral '*' and '/' would otherwise lay out
-                      // reversed as it's typed.
-                      dir="ltr"
-                      className="font-mono"
-                      maxLength={100}
-                      aria-describedby="backup-schedule-cron-hint"
-                    />
-                    <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
-                      {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
-                    </p>
-                    <BackupScheduleValidity check={shownScheduleCheck} pending={scheduleCheckPending} />
-                  </div>
-                )}
-                <BackupScheduleNextRun
-                  check={shownScheduleCheck}
-                  pending={scheduleCheckPending}
-                  backupsEnabled={backupStatus?.enabled}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
-                <NumberInput
-                  id="backup-max"
-                  min={1}
-                  max={100}
-                  value={backupMaxCount}
-                  onChange={setBackupMaxCount}
-                  onWheel={(e) => e.currentTarget.blur()}
-                  className="max-w-24"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settingsPanel.maxBackupsHelp')}
-                </p>
-              </div>
-            </div>
-            {/* The timezone line is already on screen, in the next-run
-                block above, whenever the panel has a verdict to show it. */}
-            <BackupRestartOverlapNotice
-              overlaps={panelRestartOverlaps}
-              live
-              stale={scheduleCheckPending}
-              hideTimeZone={Boolean(shownScheduleCheck?.valid)}
-            />
-            <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 text-xs text-muted-foreground">
-                {backupStatus?.savesPath && (
-                  <span className="flex flex-wrap items-center gap-1 break-all">
-                    <FolderOpen className="w-3 h-3" />
-                    {t('settingsPanel.savesLabel', { path: backupStatus.savesPath })}
-                  </span>
-                )}
-              </div>
-              <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                <Button onClick={handleSaveSettings} disabled={savingSettings || !canManageBackups || serverChangedSinceLoad} size="sm" className="h-10 gap-2 self-start sm:self-auto">
-                  {savingSettings && <Loader2 className="w-4 h-4 me-2 animate-spin" />}
-                  {t('settingsPanel.saveButton')}
-                </Button>
-              </DisabledReason>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <PageAlerts alerts={pageAlerts} />
 
       {/* One live region, always rendered, for the Restore card in both its
           states below: a screen reader announces a change inside a region
           that already exists, and often not one inserted with its content
           already there -- so the card appearing, moving to "the panel didn't
           answer", and turning into how the restore ended are all heard.
-          Empty, it takes no room (its margin collapses into the next card's).
-          At most one of the two cards shows at a time. */}
+          Empty, it takes no room (its margin collapses into the next
+          block's). At most one of the two cards shows at a time. Restore
+          and backup progress sit here, with the page's alerts and above the
+          summary, so the list moves down once, not twice. */}
       <div role="status" aria-live="polite">
         {/* Restore Progress — a static reassurance rather than a real progress
             readout: the longest step, the pre-restore safety backup, already
@@ -1576,348 +1480,463 @@ export default function Backups() {
             buttons and had to guess why. See restoreInProgressElsewhere's own
             comment above. */}
         {(restoringBackup || restoreInProgressElsewhere) && (
-          <Card className="border-warning/15 bg-warning/5">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3">
-                <Loader2 className="w-5 h-5 animate-spin text-warning shrink-0" />
-                <div className="min-w-0">
-                  <p className="font-medium truncate">
-                    {restoringBackup
-                      ? t('restoreProgress.title', { name: restoringBackup })
-                      : runningRestore?.backupName
-                        ? t('restoreProgress.title', { name: runningRestore.backupName })
-                        : t('restoreProgress.titleUnknown')}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {restoreResponseLost ? t('restoreProgress.responseLost') : t('restoreProgress.note')}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2.5">
+            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-warning" aria-hidden="true" />
+            <div className="min-w-0 space-y-0.5">
+              <p className="truncate text-sm font-medium text-foreground">
+                {restoringBackup
+                  ? t('restoreProgress.title', { name: restoringBackup })
+                  : runningRestore?.backupName
+                    ? t('restoreProgress.title', { name: runningRestore.backupName })
+                    : t('restoreProgress.titleUnknown')}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {restoreResponseLost ? t('restoreProgress.responseLost') : t('restoreProgress.note')}
+              </p>
+            </div>
+          </div>
         )}
 
         {/* The same card once the restore has ended (GH#166 -- it used to only
             ever spin): what happened, and what to do next. */}
         {!restoringBackup && !restoreInProgressElsewhere && restoreResult && (
-          <Card
+          <div
             className={cn(
-              restoreResult.status === 'success' && 'border-primary/15 bg-primary/5',
-              restoreResult.status === 'failed' && 'border-destructive/30 bg-destructive/5',
-              restoreResult.status === 'unknown' && 'border-warning/15 bg-warning/5',
+              'flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border px-3 py-2.5',
+              restoreResult.status === 'success' && 'border-success/30 bg-success/10',
+              restoreResult.status === 'failed' && 'border-destructive/40 bg-destructive/10',
+              restoreResult.status === 'unknown' && 'border-warning/40 bg-warning/10',
             )}
           >
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3">
-                {restoreResult.status === 'success' ? (
-                  <Check className="w-5 h-5 text-primary shrink-0" aria-hidden="true" />
-                ) : (
-                  <AlertTriangle
-                    className={cn('w-5 h-5 shrink-0', restoreResult.status === 'failed' ? 'text-destructive' : 'text-warning')}
-                    aria-hidden="true"
-                  />
+            <div className="flex min-w-[min(100%,16rem)] flex-1 items-start gap-3">
+              {restoreResult.status === 'success' ? (
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+              ) : (
+                <AlertTriangle
+                  className={cn('mt-0.5 h-4 w-4 shrink-0', restoreResult.status === 'failed' ? 'text-destructive' : 'text-warning')}
+                  aria-hidden="true"
+                />
+              )}
+              <div className="min-w-0 flex-1 space-y-1">
+                <p className="text-sm font-medium text-foreground">
+                  {restoreResult.status === 'success'
+                    ? t('restoreResult.successTitle')
+                    : restoreResult.status === 'failed'
+                      ? t('restoreResult.failedTitle')
+                      : t('restoreResult.unknownTitle')}
+                </p>
+                {restoreResult.backupName && (
+                  <p className="truncate font-mono text-xs text-muted-foreground">{restoreResult.backupName}</p>
                 )}
-                <div className="min-w-0 flex-1 space-y-1">
-                  <p className="font-medium">
-                    {restoreResult.status === 'success'
-                      ? t('restoreResult.successTitle')
-                      : restoreResult.status === 'failed'
-                        ? t('restoreResult.failedTitle')
-                        : t('restoreResult.unknownTitle')}
+                {restoreResult.status === 'success' && (
+                  <p className="text-sm text-muted-foreground">
+                    {restoreResult.safetyBackup
+                      ? t('restoreResult.successDetail', { seconds: (restoreResult.seconds || 0).toFixed(1) })
+                      : t('restoreResult.successDetailNoSafetyBackup', { seconds: (restoreResult.seconds || 0).toFixed(1) })}
                   </p>
-                  {restoreResult.backupName && (
-                    <p className="text-xs text-muted-foreground truncate">{restoreResult.backupName}</p>
-                  )}
-                  {restoreResult.status === 'success' && (
-                    <p className="text-xs text-muted-foreground">
-                      {restoreResult.safetyBackup
-                        ? t('restoreResult.successDetail', { seconds: (restoreResult.seconds || 0).toFixed(1) })
-                        : t('restoreResult.successDetailNoSafetyBackup', { seconds: (restoreResult.seconds || 0).toFixed(1) })}
-                    </p>
-                  )}
-                  {restoreResult.status === 'failed' && (
-                    <>
-                      <p className="text-sm break-words">{restoreResult.reason || t('toasts.restoreFailedFallback')}</p>
-                      <p className="text-xs text-muted-foreground">{t('restoreResult.failedNextStep')}</p>
-                    </>
-                  )}
-                  {restoreResult.status === 'unknown' && (
-                    <p className="text-xs text-muted-foreground">{t('restoreResult.unknownDetail')}</p>
-                  )}
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setRestoreResult(null)}
-                  aria-label={t('restoreResult.dismissAria')}
-                  className="shrink-0"
-                >
-                  {t('restoreResult.dismiss')}
-                </Button>
+                )}
+                {restoreResult.status === 'failed' && (
+                  <>
+                    <p className="text-sm break-words text-foreground">{restoreResult.reason || t('toasts.restoreFailedFallback')}</p>
+                    <p className="text-sm text-muted-foreground">{t('restoreResult.failedNextStep')}</p>
+                  </>
+                )}
+                {restoreResult.status === 'unknown' && (
+                  <p className="text-sm text-muted-foreground">{t('restoreResult.unknownDetail')}</p>
+                )}
               </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="ms-auto flex shrink-0 items-center gap-1">
+              {/* Where the answer is: the restore's entries in the activity log. */}
+              {restoreResult.status === 'unknown' && (
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/debug?tab=activity">{t('restoreResult.openActivity')}</Link>
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRestoreResult(null)}
+                aria-label={t('restoreResult.dismissAria')}
+              >
+                {t('restoreResult.dismiss')}
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Progress Bar */}
+      {/* Backup progress: this page's own backup, a scheduled or another
+          tab's one, and a restore's safety backup. */}
       {(creatingBackup || backupProgress) && (
-        <Card className="border-primary/15 bg-primary/5">
-          <CardContent className="pt-6">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {backupProgress?.phase === 'complete' ? (
-                    <Check className="w-5 h-5 text-primary" />
-                  ) : backupProgress?.phase === 'error' ? (
-                    <AlertTriangle className="w-5 h-5 text-destructive" />
-                  ) : (
-                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                  )}
-                  <span className="font-medium">
-                    {backupProgress?.message || t('progress.creatingFallback')}
-                  </span>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {backupProgress?.percent || 0}%
-                </span>
-              </div>
-              <Progress value={backupProgress?.percent || 0} className="h-2" />
-              {backupProgress?.currentFile && (
-                <p className="text-xs text-muted-foreground truncate">
-                  {backupProgress.currentFile}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <div
+          className={cn(
+            'space-y-2 rounded-lg border px-3 py-2.5',
+            backupProgress?.phase === 'error' ? 'border-destructive/40 bg-destructive/10' : 'border-primary/30 bg-primary/5',
+          )}
+        >
+          <div className="flex items-center gap-3">
+            {backupProgress?.phase === 'complete' ? (
+              <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+            ) : backupProgress?.phase === 'error' ? (
+              <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+            ) : (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden="true" />
+            )}
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+              {backupProgress?.message || t('progress.creatingFallback')}
+            </span>
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {backupProgress?.percent || 0}%
+            </span>
+          </div>
+          <Progress value={backupProgress?.percent || 0} className="h-1.5" />
+          {backupProgress?.currentFile && (
+            <p className="truncate font-mono text-xs text-muted-foreground">
+              {backupProgress.currentFile}
+            </p>
+          )}
+        </div>
       )}
 
-      {/* Main Backup Card */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <CardTitle className="text-lg">{t('mainCard.title')}</CardTitle>
-              {!backupStatus?.savesExists && (
-                <span className="flex items-center gap-1 text-xs text-warning">
-                  <AlertTriangle className="w-3 h-3" />
-                  {t('mainCard.savesNotFound')}
-                </span>
-              )}
+      {/* The summary -- gated on backupsLoaded (the fetch has settled, whether
+          it found zero backups or many), not on backups.length > 0. The
+          Auto-backup cell is where the on/off state, its schedule and a
+          failing-scheduled-attempt warning show, and it opens the card with
+          the switch -- gating it on having at least one backup meant a server
+          whose scheduled backups have been failing since before the first
+          one ever succeeded (backups.length stays 0 forever) looked
+          IDENTICAL to "auto-backup just isn't configured", and the switch --
+          the only control on this page that turns scheduling on -- was
+          unreachable until the operator manually created a first backup. */}
+      {backupsLoaded && <StatStrip items={summary} />}
+
+      {/* The saved schedule's restart collisions. While the schedule card is
+          open it shows the same notice for the schedule being edited
+          instead (starting from this one -- see panelRestartOverlaps), so
+          the two never sit on screen together. Neutral here, a warning in
+          the card -- see BackupRestartOverlapNotice's `tone`. */}
+      {!showSettings && backupStatus?.enabled && (
+        <BackupRestartOverlapNotice overlaps={backupStatus.restartOverlaps} tone="neutral" />
+      )}
+
+      {showSettings && (
+        <SectionCard
+          id={SCHEDULE_CARD_ID}
+          className="scroll-mt-4"
+          icon={CalendarClock}
+          title={t('settingsPanel.title')}
+          description={t('settingsPanel.description')}
+        >
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="backup-enabled" className="text-sm font-medium">{t('settingsPanel.enabledLabel')}</Label>
+              <p className="text-xs text-muted-foreground">{t('settingsPanel.enabledHelp')}</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {isAnySelected && (
-                <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => setDeleteDialog({ open: true, names: Array.from(selectedBackups) })}
-                    disabled={deletingBackups || !canManageBackups || serverChangedSinceLoad}
-                    className="h-10 gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    {t('mainCard.deleteSelected', { count: selectedBackups.size })}
-                  </Button>
-                </DisabledReason>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : statusUnknown ? t('backups.statusLoadFailed', { ns: 'settings' }) : null}>
+              <Switch
+                id="backup-enabled"
+                checked={backupStatus?.enabled || false}
+                onCheckedChange={toggleBackupEnabled}
+                disabled={!canManageBackups || statusUnknown || serverChangedSinceLoad}
+                aria-label={t('statusCards.toggleAria')}
+              />
+            </DisabledReason>
+          </div>
+          {!canManageBackups && (
+            <p className="text-xs text-muted-foreground">{t('permissions.noManage')}</p>
+          )}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="backup-schedule">{t('settingsPanel.frequencyLabel')}</Label>
+              <Select
+                value={customSchedule ? CUSTOM_SCHEDULE_VALUE : backupSchedule}
+                onValueChange={handleFrequencyChange}
+                disabled={!canManageBackups}
+              >
+                <SelectTrigger id="backup-schedule" className="w-full">
+                  <SelectValue placeholder={t('settingsPanel.frequencyPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCHEDULE_PRESETS.map(([cron, labelKey]) => (
+                    <SelectItem key={cron} value={cron}>{t(labelKey)}</SelectItem>
+                  ))}
+                  <SelectItem value={CUSTOM_SCHEDULE_VALUE}>{t('schedule.customOption')}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('settingsPanel.frequencyHelp')}
+              </p>
+              {/* In the frequency column, right under the menu that
+                  reveals it -- not after the whole grid, where a phone's
+                  single column put it below Maximum Backups and Tab
+                  reached that field first. */}
+              {customSchedule && (
+                <div className="space-y-2 pt-1">
+                  <Label htmlFor="backup-schedule-cron">{t('settingsPanel.customLabel')}</Label>
+                  <Input
+                    id="backup-schedule-cron"
+                    value={customCron}
+                    onChange={(e) => setCustomCron(e.target.value)}
+                    disabled={!canManageBackups}
+                    // The bare cron, as Settings > Backups has it: under
+                    // dir="ltr" a translated "e.g." prefix in an RTL
+                    // language reordered the example around it (Arabic
+                    // painted the minute and hour swapped). The hint below
+                    // already says it's an example.
+                    placeholder="30 3 * * *"
+                    // A cron is left-to-right in every language; in an RTL
+                    // page its neutral '*' and '/' would otherwise lay out
+                    // reversed as it's typed.
+                    dir="ltr"
+                    className="font-mono"
+                    maxLength={100}
+                    aria-describedby="backup-schedule-cron-hint"
+                  />
+                  <p id="backup-schedule-cron-hint" className="text-xs text-muted-foreground">
+                    {t('settingsPanel.customHint', { example: isolateLtrForRtl('30 3 * * *') })}
+                  </p>
+                  <BackupScheduleValidity check={shownScheduleCheck} pending={scheduleCheckPending} />
+                </div>
               )}
-              <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setDeleteOlderDialog(true)}
-                  disabled={deletingOlder || backups.length === 0 || !canManageBackups || serverChangedSinceLoad}
-                  className="h-10 gap-2"
-                >
-                  {deletingOlder ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Clock className="w-4 h-4" />
-                  )}
-                  {t('mainCard.deleteOlder')}
-                </Button>
-              </DisabledReason>
+              <BackupScheduleNextRun
+                check={shownScheduleCheck}
+                pending={scheduleCheckPending}
+                backupsEnabled={backupStatus?.enabled}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="backup-max">{t('settingsPanel.maxBackupsLabel')}</Label>
+              <NumberInput
+                id="backup-max"
+                min={1}
+                max={100}
+                value={backupMaxCount}
+                onChange={setBackupMaxCount}
+                onWheel={(e) => e.currentTarget.blur()}
+                disabled={!canManageBackups}
+                invalid={maxBackupsInvalid}
+                className="max-w-24"
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settingsPanel.maxBackupsHelp')}
+              </p>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          {backupStatus && !backupStatus.savesExists && backupsLoaded && backups.length === 0 ? (
-            // Known, actionable answer as soon as BOTH fetches it actually
-            // depends on have resolved -- doesn't wait on the unrelated,
-            // slower-or-not fetchHistory() call the generic `loading` flag
-            // below is also gated on. Matches the informative "what was
-            // tried, how to fix it, an action" pattern Chunks and Mods
-            // already use for this identical no-saves-folder condition,
-            // rather than inventing a fourth one (2026-08-30 visual sweep:
-            // this card used to show an infinite spinner here even after
-            // the header above had already resolved to the same fact).
+          {/* The timezone line is already on screen, in the next-run
+              block above, whenever the card has a verdict to show it. */}
+          <BackupRestartOverlapNotice
+            overlaps={panelRestartOverlaps}
+            live
+            stale={scheduleCheckPending}
+            hideTimeZone={Boolean(shownScheduleCheck?.valid)}
+          />
+          {backupStatus?.savesPath && (
+            <p className="flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-4 text-xs text-muted-foreground">
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="break-all">{t('settingsPanel.savesLabel', { path: backupStatus.savesPath })}</span>
+            </p>
+          )}
+        </SectionCard>
+      )}
+
+      <SectionCard
+        title={t('mainCard.title')}
+        status={backupStatus && !backupStatus.savesExists ? (
+          <StatusPill tone="warn" size="sm" label={t('mainCard.savesNotFound')} />
+        ) : undefined}
+        flush
+      >
+        {backupStatus && !backupStatus.savesExists && backupsLoaded && backups.length === 0 ? (
+          // Known, actionable answer as soon as BOTH fetches it actually
+          // depends on have resolved -- doesn't wait on the unrelated,
+          // slower-or-not fetchHistory() call the generic `loading` flag
+          // below is also gated on. Matches the informative "what was
+          // tried, how to fix it, an action" pattern Chunks and Mods
+          // already use for this identical no-saves-folder condition,
+          // rather than inventing a fourth one (2026-08-30 visual sweep:
+          // this card used to show an infinite spinner here even after
+          // the header above had already resolved to the same fact).
+          <div className="p-5">
             <EmptyState
               type="empty"
               title={t('mainCard.noSavesFolderTitle')}
               description={t('mainCard.noSavesFolderDesc')}
               action={{ label: t('mainCard.noSavesFolderAction'), to: '/server-setup' }}
             />
-          ) : loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : backups.length === 0 ? (
+          </div>
+        ) : !backupsLoaded ? (
+          // The first load only: a refresh (or a server switch) keeps the
+          // list on screen until the new one lands, instead of flashing it
+          // away -- the actions stay gated meanwhile.
+          <ul className="divide-y divide-border/60" aria-busy="true">
+            {[0, 1, 2].map((row) => (
+              <li key={row} className="flex items-center gap-3 px-4 py-3 sm:px-5">
+                <Skeleton className="h-4 w-4 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <Skeleton className="h-4 w-2/3 max-w-sm" />
+                  <Skeleton className="h-3 w-40" />
+                </div>
+                <Skeleton className="h-8 w-20 shrink-0" />
+              </li>
+            ))}
+          </ul>
+        ) : backups.length === 0 ? (
+          <div className="p-5">
             <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
-          ) : (
-            <div className="space-y-2">
-              {/* Select All Header */}
-              <div className="flex items-center gap-3 px-3 py-2.5 border border-border/50 bg-muted/20 rounded-lg">
+          </div>
+        ) : (
+          <>
+            <Toolbar
+              className="border-b border-border/60 px-4 py-2.5 sm:px-5"
+              end={
+                <>
+                  {isAnySelected && (
+                    <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => setDeleteDialog({ open: true, names: Array.from(selectedBackups) })}
+                        disabled={deletingBackups || !canManageBackups || serverChangedSinceLoad}
+                      >
+                        <Trash2 aria-hidden="true" />
+                        {t('mainCard.deleteSelected', { count: selectedBackups.size })}
+                      </Button>
+                    </DisabledReason>
+                  )}
+                  <RowActions
+                    ariaLabel={t('mainCard.moreAria')}
+                    items={[
+                      {
+                        label: t('mainCard.deleteOlder'),
+                        icon: deletingOlder ? Loader2 : Clock,
+                        destructive: true,
+                        onSelect: () => setDeleteOlderDialog(true),
+                        disabled: deletingOlder || backups.length === 0 || !canManageBackups || serverChangedSinceLoad,
+                        reason: !canManageBackups
+                          ? t('permissions.noManage')
+                          : serverChangedSinceLoad
+                            ? t('toasts.serverChangedSinceLoadDesc')
+                            : undefined,
+                      },
+                    ]}
+                  />
+                </>
+              }
+            >
+              <div className="flex min-w-0 items-center gap-3">
                 <Checkbox
                   checked={allSelected}
                   onCheckedChange={toggleSelectAll}
                   id="select-all"
                 />
-                <Label htmlFor="select-all" className="text-sm font-medium cursor-pointer flex-1">
+                <Label htmlFor="select-all" className="cursor-pointer text-sm font-medium">
                   {selectedBackups.size === 0
                     ? t('mainCard.selectAllLabel', { count: backups.length })
                     : allSelected
                       ? t('mainCard.allSelectedLabel', { count: backups.length })
                       : t('mainCard.partialSelectedLabel', { selected: selectedBackups.size, total: backups.length })}
                 </Label>
-                {selectedBackups.size > 0 && (
-                  <span className="inline-flex h-5 items-center rounded-full bg-primary/15 px-2 font-mono text-[11px] tabular-nums text-primary">
-                    {selectedBackups.size}
-                  </span>
-                )}
               </div>
+            </Toolbar>
 
-              {/* Backup List */}
-              <ScrollArea className="h-[300px] sm:h-[400px]">
-                <div className="space-y-2 pe-4">
-                  {backups.map((backup, idx) => {
-                    const isSelected = selectedBackups.has(backup.name)
-                    const isRestoring = restoringBackup === backup.name
-                    const isLatest = idx === 0
+            <ul className="divide-y divide-border/60">
+              {backups.map((backup, idx) => {
+                const isSelected = selectedBackups.has(backup.name)
+                const isRestoring = restoringBackup === backup.name
+                const isLatest = idx === 0
 
-                    return (
-                      <div
-                        key={backup.name}
-                        className={cn(
-                          'group/backup flex flex-col gap-3 p-3 rounded-lg border transition-colors sm:flex-row sm:items-center',
-                          isSelected
-                            ? 'border-primary/40 bg-primary/[0.08]'
-                            : 'bg-muted/20 border-border/40 hover:border-primary/30 hover:bg-muted/40'
-                        )}
-                      >
-                        <div className="flex flex-1 min-w-0 items-center gap-3">
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={() => toggleBackupSelection(backup.name)}
-                            disabled={isRestoring}
-                            aria-label={t('mainCard.selectBackupAria', { name: backup.name })}
-                          />
-
-                          {/* Leading archive tile — latest backup glows primary, others sit muted */}
-                          <div
-                            className={cn(
-                              'grid place-items-center w-9 h-9 rounded-md border shrink-0',
-                              isLatest
-                                ? 'border-primary/40 bg-primary/[0.08] text-primary'
-                                : 'border-border/55 bg-muted/30 text-muted-foreground'
-                            )}
-                            aria-hidden="true"
-                          >
-                            <Archive className="w-4 h-4" />
-                          </div>
-
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <p className="font-medium text-sm text-foreground truncate">{backup.name}</p>
-                              {isLatest && (
-                                <span className="shrink-0 inline-flex h-5 items-center rounded-full bg-primary/15 px-2 text-[10px] font-medium uppercase tracking-wide text-primary">
-                                  {t('mainCard.latestBadge')}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-1 tabular-nums">
-                                <HardDrive className="w-3 h-3" />
-                                {formatBytes(backup.size)}
-                              </span>
-                              <span className="inline-flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                {formatDate(backup.created)}
-                              </span>
-                            </div>
-                          </div>
+                return (
+                  <li
+                    key={backup.name}
+                    className={cn(
+                      'flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 transition-colors sm:px-5',
+                      isSelected ? 'bg-primary/5' : 'hover:bg-muted/20',
+                    )}
+                  >
+                    <div className="flex min-w-[min(100%,15rem)] flex-1 items-center gap-3">
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => toggleBackupSelection(backup.name)}
+                        disabled={isRestoring}
+                        aria-label={t('mainCard.selectBackupAria', { name: backup.name })}
+                      />
+                      <Archive className={cn('h-4 w-4 shrink-0', isLatest ? 'text-primary' : 'text-muted-foreground')} aria-hidden="true" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-sm font-medium text-foreground" title={backup.name}>{backup.name}</p>
+                          {isLatest && (
+                            <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-2 text-[10px] font-medium uppercase tracking-wide text-primary">
+                              {t('mainCard.latestBadge')}
+                            </span>
+                          )}
                         </div>
-
-                        <div className="flex items-center gap-1">
-                          <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleViewSnapshot(backup.name)}
-                              disabled={!canManageBackups}
-                              className="h-9 w-9"
-                              aria-label={t('mainCard.viewSnapshotAria', { name: backup.name })}
-                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                              title={t('mainCard.viewSnapshotTitle')}
-                            >
-                              <FileText className="w-4 h-4" />
-                            </Button>
-                          </DisabledReason>
-                          <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openRestoreDialog(backup.name)}
-                              disabled={isRestoring || restoringBackup !== null || restoreInProgressElsewhere || creatingBackup || !canRestoreBackups || serverChangedSinceLoad}
-                              className="h-9 w-9 text-warning hover:text-warning hover:bg-warning/10"
-                              aria-label={t('mainCard.restoreAria', { name: backup.name })}
-                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                              title={t('mainCard.restoreTitle')}
-                            >
-                              {isRestoring ? (
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                              ) : (
-                                <RotateCcw className="w-4 h-4" />
-                              )}
-                            </Button>
-                          </DisabledReason>
-                          <DisabledReason reason={!canDownloadBackups ? t('permissions.noDownload') : null}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => { if (canDownloadBackups) backupApi.downloadBackup(backup.name) }}
-                              disabled={!canDownloadBackups}
-                              className="h-9 w-9"
-                              aria-label={t('mainCard.downloadAria', { name: backup.name })}
-                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                              title={t('mainCard.downloadTitle')}
-                            >
-                              <Download className="w-4 h-4" />
-                            </Button>
-                          </DisabledReason>
-                          <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeleteDialog({ open: true, names: [backup.name] })}
-                              disabled={deletingBackups || !canManageBackups || serverChangedSinceLoad}
-                              className="h-9 w-9 text-destructive hover:text-destructive hover:bg-destructive/10"
-                              aria-label={t('mainCard.deleteAria', { name: backup.name })}
-                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                              title={t('mainCard.deleteTitle')}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </DisabledReason>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1 tabular-nums">
+                            <HardDrive className="h-3 w-3" aria-hidden="true" />
+                            {formatBytes(backup.size)}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="h-3 w-3" aria-hidden="true" />
+                            {formatDate(backup.created)}
+                          </span>
                         </div>
                       </div>
-                    )
-                  })}
-                </div>
-              </ScrollArea>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    </div>
+
+                    <RowActions
+                      className="ms-auto"
+                      ariaLabel={t('mainCard.actionsAria', { name: backup.name })}
+                      primary={
+                        <DisabledReason reason={!canRestoreBackups ? t('permissions.noRestore') : restoreInProgressElsewhere ? t('permissions.restoreInProgress') : null}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openRestoreDialog(backup.name)}
+                            disabled={isRestoring || restoringBackup !== null || restoreInProgressElsewhere || creatingBackup || !canRestoreBackups || serverChangedSinceLoad}
+                            aria-label={t('mainCard.restoreAria', { name: backup.name })}
+                          >
+                            {isRestoring ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+                            {t('mainCard.restore')}
+                          </Button>
+                        </DisabledReason>
+                      }
+                      items={[
+                        {
+                          label: t('mainCard.viewSnapshotTitle'),
+                          icon: FileText,
+                          onSelect: () => { void handleViewSnapshot(backup.name) },
+                          disabled: !canManageBackups,
+                          reason: !canManageBackups ? t('permissions.noManage') : undefined,
+                        },
+                        {
+                          label: t('mainCard.downloadTitle'),
+                          icon: Download,
+                          onSelect: () => { if (canDownloadBackups) backupApi.downloadBackup(backup.name) },
+                          disabled: !canDownloadBackups,
+                          reason: !canDownloadBackups ? t('permissions.noDownload') : undefined,
+                        },
+                        {
+                          label: t('mainCard.deleteTitle'),
+                          icon: Trash2,
+                          destructive: true,
+                          onSelect: () => setDeleteDialog({ open: true, names: [backup.name] }),
+                          disabled: deletingBackups || !canManageBackups || serverChangedSinceLoad,
+                          reason: !canManageBackups
+                            ? t('permissions.noManage')
+                            : serverChangedSinceLoad
+                              ? t('toasts.serverChangedSinceLoadDesc')
+                              : undefined,
+                        },
+                      ]}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+          </>
+        )}
+      </SectionCard>
 
       <AlertDialog open={snapshotDialog !== null} onOpenChange={(open) => !open && setSnapshotDialog(null)}>
         <AlertDialogContent>
@@ -2107,6 +2126,18 @@ export default function Backups() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* The schedule card's one Save: sticks to the bottom while the
+          frequency or the limit differ from what's saved, with Ctrl+S, and
+          asks before the page is left with them unsaved. */}
+      <SaveBar
+        dirty={settingsDirty}
+        saving={savingSettings}
+        onSave={() => { void handleSaveSettings() }}
+        onDiscard={discardSettings}
+        disabledReason={saveSettingsBlockedReason}
+        saveLabel={t('settingsPanel.saveButton')}
+      />
     </div>
   )
 }
