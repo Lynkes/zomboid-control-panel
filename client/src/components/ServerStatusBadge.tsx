@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { StatusPill, type StatusTone } from '@/components/ui/status-pill'
 
 type TFn = (key: string, opts?: Record<string, unknown>) => string
 
@@ -140,17 +141,28 @@ export function ServerStatusBadge({ host, server, bridge, compact, className }: 
   }
 
   return (
-    <div className={cn('flex flex-wrap items-center gap-3', className)}>
+    <div className={cn('flex flex-wrap items-center gap-2', className)}>
       {signals.map((signal) => {
         const state = toIndicatorState(signal.status)
         return (
-          <span key={signal.label} role="status" className={cn('inline-flex items-center gap-1.5 text-xs', TEXT_CLASS[state])}>
-            <span className={cn('h-1.5 w-1.5 rounded-full', DOT_CLASS[state])} aria-hidden="true" />
-            {signal.label}: {displayWord(signal.status, t)}
-            {signal.detail && <span className="text-muted-foreground"> — {signal.detail}</span>}
-          </span>
+          <StatusPill
+            key={signal.label}
+            role="status"
+            size="sm"
+            tone={PILL_TONE[state]}
+            pulse={state === 'connecting'}
+            label={`${signal.label}: ${displayWord(signal.status, t)}`}
+            detail={signal.detail ?? undefined}
+          />
         )
       })}
     </div>
   )
+}
+
+const PILL_TONE: Record<IndicatorState, StatusTone> = {
+  online: 'ok',
+  offline: 'error',
+  connecting: 'warn',
+  unknown: 'idle',
 }

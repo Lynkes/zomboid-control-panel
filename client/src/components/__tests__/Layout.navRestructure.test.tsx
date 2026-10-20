@@ -1,25 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SocketContext } from '@/contexts/SocketContext'
 import Layout from '../Layout'
 import { serversApi, serverApi, updateApi, modsApi, panelUpdateApi } from '@/lib/api'
 
-// pz-nav-menu-restructure (2026-09-18): the operator's navigation contract
-// (2026-08-19) asks the sidebar to group by OBJECT -- SERVER / WORLD / USERS
-// / PANEL -- instead of the old "how fresh is this" split (Live/Config/
-// Maintain/Servers/Settings & Tools), and to fold Panel Users/Roles &
-// Permissions/Single Sign-On (previously dropped from the sidebar entirely
-// when they became Settings tabs) back in under USERS, each gated on the
-// same capability that already hides its Settings tab. This file covers the
-// three things a silent regression here would most likely break: (1) the
-// new section grouping actually replaced the old one, (2) the three
-// capability-gated entries are hidden/shown correctly and never granted a
-// capability the underlying Settings tab wouldn't also grant, and (3) a nav
-// row that links into a Settings ?tab= sub-page highlights as active without
-// dragging the plain "Panel Settings" row along with it.
+// UX restructure (2026-10-20, plan §2.1): the sidebar is built from the
+// route registry (lib/navigation.ts) as SERVER (the active server's daily
+// work) / PLAYERS / WORLD / PANEL, with one short name per page. Add a
+// Server left the sidebar (Servers stays lit on it); Public Servers is the
+// last PANEL row; Panel Users, Roles & Permissions and Single Sign-On stay
+// Settings tabs. Capability, no-server and remote gates are unchanged.
 
-const mockCan = vi.hoisted(() => vi.fn(() => true))
+const mockCan = vi.hoisted(() => vi.fn((_capability: string) => true))
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -38,34 +31,16 @@ vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {
     ...actual,
-    serversApi: {
-      ...actual.serversApi,
-      getAll: vi.fn(),
-    },
-    serverApi: {
-      ...actual.serverApi,
-      getStatus: vi.fn(),
-    },
-    updateApi: {
-      ...actual.updateApi,
-      getStatus: vi.fn(),
-    },
-    modsApi: {
-      ...actual.modsApi,
-      getStatus: vi.fn(),
-    },
-    panelUpdateApi: {
-      ...actual.panelUpdateApi,
-      getStatus: vi.fn(),
-    },
+    serversApi: { ...actual.serversApi, getAll: vi.fn() },
+    serverApi: { ...actual.serverApi, getStatus: vi.fn() },
+    updateApi: { ...actual.updateApi, getStatus: vi.fn() },
+    modsApi: { ...actual.modsApi, getStatus: vi.fn() },
+    panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn() },
   }
 })
 
 const getAll = vi.mocked(serversApi.getAll)
 const getStatus = vi.mocked(serverApi.getStatus)
-const updateGetStatus = vi.mocked(updateApi.getStatus)
-const modsGetStatus = vi.mocked(modsApi.getStatus)
-const panelUpdateGetStatus = vi.mocked(panelUpdateApi.getStatus)
 
 const NATIVE_ACTIVE_SERVER = {
   id: 1,
@@ -101,170 +76,132 @@ function renderLayout(initialEntries: string[] = ['/']) {
   )
 }
 
-function mockCommonFetches() {
-  updateGetStatus.mockResolvedValue({} as never)
-  modsGetStatus.mockResolvedValue({ updatesAvailable: 0 } as never)
-  panelUpdateGetStatus.mockResolvedValue({ updateAvailable: false } as never)
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => ({ ok: true, json: async () => ({ version: '1.2.19' }) })),
-  )
+function mockCommonFetches(servers: unknown[] = [NATIVE_ACTIVE_SERVER]) {
+  getAll.mockResolvedValue({ servers } as never)
+  getStatus.mockResolvedValue({ running: true } as never)
+  vi.mocked(updateApi.getStatus).mockResolvedValue({} as never)
+  vi.mocked(modsApi.getStatus).mockResolvedValue({ updatesAvailable: 0 } as never)
+  vi.mocked(panelUpdateApi.getStatus).mockResolvedValue({ updateAvailable: false } as never)
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ version: '1.2.19' }) })))
 }
+
+const mainNav = () => screen.getByRole('navigation', { name: 'Main navigation' })
+const navLinks = () => within(mainNav()).getAllByRole('link')
 
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   vi.unstubAllGlobals()
-  mockCan.mockReturnValue(true)
+  mockCan.mockImplementation(() => true)
 })
 
-describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', () => {
-  it('renders the 4 new section labels and none of the old Live/Config/Maintain/Servers/Settings & Tools labels', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
+describe('Layout.tsx: sidebar from the route registry', () => {
+  it('groups rows under SERVER / PLAYERS / WORLD / PANEL ("Users" is gone)', async () => {
     mockCommonFetches()
-
     renderLayout()
-
     await screen.findByText('the-only-server')
-
-    expect(screen.getByText('Server')).toBeInTheDocument()
-    expect(screen.getByText('World')).toBeInTheDocument()
-    expect(screen.getByText('Users')).toBeInTheDocument()
-    expect(screen.getByText('Panel')).toBeInTheDocument()
-
-    expect(screen.queryByText('Live')).not.toBeInTheDocument()
-    expect(screen.queryByText('Config')).not.toBeInTheDocument()
-    expect(screen.queryByText('Maintain')).not.toBeInTheDocument()
-    expect(screen.queryByText('Servers')).not.toBeInTheDocument()
-    expect(screen.queryByText('Settings & Tools')).not.toBeInTheDocument()
+    const lanes = [...mainNav().querySelectorAll('.label-micro')].map((el) => el.textContent)
+    expect(lanes).toEqual(['Server', 'Players', 'World', 'Panel'])
   })
 
-  it('every route path stays the same as before the restructure -- items only moved sections, their `to` targets did not change', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
+  it('lists each page once, by its short name, in the new order, with unchanged routes', async () => {
     mockCommonFetches()
-
     renderLayout()
-
     await screen.findByText('the-only-server')
-
-    const expectedHrefs: Record<string, string> = {
-      'My Servers': '/servers',
-      'Server Console': '/console',
-      'Server Configuration': '/server-config',
-      'Server Files': '/files',
-      'Mod Manager': '/mods',
-      'Scheduled Tasks': '/scheduler',
-      'Server Setup': '/server-setup',
-      'World Map': '/world-map',
-      'Events & Weather': '/events',
-      'World Backups': '/backups',
-      'Map Cleanup': '/chunks',
-      'Templates': '/templates',
-      'Online Players': '/players',
-      'In-Game Chat': '/chat',
-      'Panel Settings': '/settings',
-      'Discord': '/discord',
-      'Debug Logs': '/debug',
-      'Browse Public Servers': '/server-finder',
-    }
-    for (const [label, href] of Object.entries(expectedHrefs)) {
-      expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', href)
-    }
+    const rows = navLinks().map((link) => [link.textContent?.trim(), link.getAttribute('href')])
+    expect(rows).toEqual([
+      ['Dashboard', '/'],
+      ['Console', '/console'],
+      ['Configuration', '/server-config'],
+      ['Mods', '/mods'],
+      ['Files', '/files'],
+      ['Templates', '/templates'],
+      ['Scheduler', '/scheduler'],
+      ['Players', '/players'],
+      ['Chat', '/chat'],
+      ['Leaderboard', '/leaderboard'],
+      ['World Map', '/world-map'],
+      ['Events & Weather', '/events'],
+      ['Backups', '/backups'],
+      ['Map Cleanup', '/chunks'],
+      ['Servers', '/servers'],
+      ['Discord', '/discord'],
+      ['Settings', '/settings'],
+      ['Diagnostics', '/debug'],
+      ['Public Servers', '/server-finder'],
+    ])
   })
 
-  it('r22: Browse Public Servers moved from PANEL into SERVER, right after Server Setup, route/gating unchanged', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
+  it('has no Add a Server row, and lights Servers while adding one', async () => {
     mockCommonFetches()
-
-    renderLayout()
-
+    renderLayout(['/server-setup'])
     await screen.findByText('the-only-server')
-
-    // Still the same route, still ungated (no capability/requiresServer).
-    expect(screen.getByRole('link', { name: 'Browse Public Servers' })).toHaveAttribute('href', '/server-finder')
-
-    // Section order is SERVER/WORLD/USERS/PANEL and each section's own items
-    // render in array order, so the full link list's document order is a
-    // structure-agnostic way to prove *which* section an item landed in --
-    // it must now sit directly after Server Setup (SERVER's last item),
-    // not after Debug Logs (PANEL's last item, where it used to be).
-    const linkNames = screen.getAllByRole('link').map((el) => el.textContent?.trim())
-    const setupIdx = linkNames.indexOf('Server Setup')
-    expect(setupIdx).toBeGreaterThan(-1)
-    expect(linkNames[setupIdx + 1]).toBe('Browse Public Servers')
-
-    const debugIdx = linkNames.indexOf('Debug Logs')
-    expect(linkNames[debugIdx + 1]).not.toBe('Browse Public Servers')
+    expect(within(mainNav()).queryByRole('link', { name: /Add a Server/ })).not.toBeInTheDocument()
+    expect(within(mainNav()).getByRole('link', { name: 'Servers' })).toHaveAttribute('aria-current', 'page')
   })
 
-  it('item-level requiresServer: My Servers/Server Setup stay usable at zero servers while Server Console/Mod Manager/Scheduled Tasks (same SERVER section) show the requires-a-server disabled state', async () => {
-    getAll.mockResolvedValue({ servers: [] } as never)
+  it('lights only the current page\'s row', async () => {
     mockCommonFetches()
+    renderLayout(['/server-finder'])
+    await screen.findByText('the-only-server')
+    const current = navLinks().filter((link) => link.getAttribute('aria-current') === 'page')
+    expect(current.map((link) => link.textContent)).toEqual(['Public Servers'])
+  })
 
+  it('at zero servers: panel rows stay usable, server rows are inert with the reason, and the banner offers "Add a server"', async () => {
+    mockCommonFetches([])
     renderLayout()
-
-    // "no server yet" banner is the confirmation the zero-servers path was reached
     await screen.findByText('No server yet')
 
-    expect(screen.getByRole('link', { name: 'My Servers' })).toHaveAttribute('href', '/servers')
-    expect(screen.getByRole('link', { name: 'Server Setup' })).toHaveAttribute('href', '/server-setup')
-
-    // Disabled rows render as a plain div (aria-disabled), not a navigable link
-    expect(screen.queryByRole('link', { name: 'Server Console' })).not.toBeInTheDocument()
-    const disabledConsole = screen.getByText('Server Console').closest('[aria-disabled="true"]')
-    expect(disabledConsole).not.toBeNull()
+    expect(within(mainNav()).getByRole('link', { name: 'Servers' })).toHaveAttribute('href', '/servers')
+    expect(within(mainNav()).getByRole('link', { name: 'Public Servers' })).toHaveAttribute('href', '/server-finder')
+    expect(within(mainNav()).queryByRole('link', { name: 'Console' })).not.toBeInTheDocument()
+    const disabledConsole = within(mainNav()).getByText('Console').closest('[aria-disabled="true"]')
     expect(disabledConsole).toHaveAttribute('aria-label', expect.stringContaining('Add a server first'))
+    expect(screen.getByRole('link', { name: 'Add a server' })).toHaveAttribute('href', '/server-setup')
   })
 
-  it('Panel Users, Roles & Permissions and Single Sign-On have no sidebar entry (they are Panel Settings tabs), and Panel Settings stays lit on those tabs', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
+  it('Panel Users, Roles & Permissions and Single Sign-On have no sidebar entry, and Settings stays lit on those tabs', async () => {
     mockCommonFetches()
-    mockCan.mockReturnValue(true) // every capability: nothing is hidden by a missing one
-
     renderLayout(['/settings?tab=users'])
     await screen.findByText('the-only-server')
-
-    for (const name of ['Panel Users', 'Roles & Permissions', 'Single Sign-On']) {
-      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+    for (const name of ['Panel Users', 'Users', 'Roles & Permissions', 'Single Sign-On']) {
+      expect(within(mainNav()).queryByRole('link', { name })).not.toBeInTheDocument()
     }
-    expect(screen.getByRole('link', { name: 'Panel Settings' }).className).toMatch(/font-medium/)
-    // Nothing in the sidebar points at one of those tabs.
-    const hrefs = screen.getAllByRole('link').map((el) => el.getAttribute('href') ?? '')
+    expect(within(mainNav()).getByRole('link', { name: 'Settings' })).toHaveAttribute('aria-current', 'page')
+    const hrefs = navLinks().map((el) => el.getAttribute('href') ?? '')
     expect(hrefs.filter((href) => /^\/settings\?tab=/.test(href))).toEqual([])
   })
 
-  it('v1.4.1: Server Files sits right after Server Configuration and is hidden without files.manage', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
+  it('hides Files without files.manage, and shows it with it', async () => {
     mockCommonFetches()
-
-    // Every other capability granted: only files.manage decides it.
     mockCan.mockImplementation((capability: string) => capability !== 'files.manage')
     const { unmount } = renderLayout()
     await screen.findByText('the-only-server')
-    expect(screen.queryByRole('link', { name: 'Server Files' })).not.toBeInTheDocument()
-    expect(screen.queryByText('Server Files')).not.toBeInTheDocument()
+    expect(within(mainNav()).queryByText('Files')).not.toBeInTheDocument()
     unmount()
 
     mockCan.mockImplementation((capability: string) => capability === 'files.manage')
     renderLayout()
     await screen.findByText('the-only-server')
-    expect(screen.getByRole('link', { name: 'Server Files' })).toHaveAttribute('href', '/files')
-    const linkNames = screen.getAllByRole('link').map((el) => el.textContent?.trim())
-    expect(linkNames[linkNames.indexOf('Server Configuration') + 1]).toBe('Server Files')
+    expect(within(mainNav()).getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files')
   })
 
-  it('v1.4.1: Server Files needs a server but stays available for a remote one (no requiresLocal)', async () => {
-    getAll.mockResolvedValue({ servers: [{ ...(NATIVE_ACTIVE_SERVER as object), isRemote: true }] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
-    mockCommonFetches()
+  it('on a remote server: Files stays (SFTP), local-only rows are inert with the reason, Configuration needs its mirror', async () => {
+    mockCommonFetches([{ ...(NATIVE_ACTIVE_SERVER as object), isRemote: true }])
+    const { unmount } = renderLayout()
+    await screen.findByText('the-only-server')
+    expect(within(mainNav()).getByRole('link', { name: 'Files' })).toHaveAttribute('href', '/files')
+    expect(within(mainNav()).queryByRole('link', { name: 'Mods' })).not.toBeInTheDocument()
+    expect(within(mainNav()).getByText('Mods').closest('[aria-disabled="true"]'))
+      .toHaveAttribute('aria-label', expect.stringContaining('Not available for remote'))
+    expect(within(mainNav()).queryByRole('link', { name: 'Configuration' })).not.toBeInTheDocument()
+    unmount()
 
+    mockCommonFetches([{ ...(NATIVE_ACTIVE_SERVER as object), isRemote: true, remoteConfigConfigured: true }])
     renderLayout()
     await screen.findByText('the-only-server')
-    expect(screen.getByRole('link', { name: 'Server Files' })).toHaveAttribute('href', '/files')
+    expect(within(mainNav()).getByRole('link', { name: 'Configuration' })).toHaveAttribute('href', '/server-config')
+    expect(within(mainNav()).queryByRole('link', { name: 'Backups' })).not.toBeInTheDocument()
   })
 })

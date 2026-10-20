@@ -46,16 +46,17 @@ describe('ConfirmProvider: defaults', () => {
 })
 
 describe('PageSkeleton: defaults', () => {
-  it('shows the stock header and labels in English', () => {
+  it('shows the stock header and labels in English, without the old kicker and metric chips', () => {
     render(<PageSkeleton />)
     expect(screen.getByRole('status')).toHaveAttribute('aria-label', 'Loading page')
     const heading = document.querySelector('h1')!
     expect(heading).toHaveTextContent('Loading page')
     expect(document.body).toHaveTextContent('Preparing panel data and controls.')
-    expect(document.body).toHaveTextContent('// PANEL · LOADING')
+    expect(document.body).not.toHaveTextContent('// PANEL · LOADING')
+    expect(document.body).not.toHaveTextContent('socket')
   })
 
-  it('translates the header, the metric chips and the label of every layout', () => {
+  it('translates the header and the label of every layout', () => {
     void i18n.changeLanguage('de')
     const labels = deShell.pageSkeleton.labels
     const expected = {
@@ -71,8 +72,6 @@ describe('PageSkeleton: defaults', () => {
       expect(screen.getByRole('status')).toHaveAttribute('aria-label', label)
       expect(document.body).toHaveTextContent(deShell.pageSkeleton.defaultTitle)
       expect(document.body).toHaveTextContent(deShell.pageSkeleton.defaultDescription)
-      expect(document.body).toHaveTextContent(deShell.pageSkeleton.defaultEyebrow)
-      expect(document.body).toHaveTextContent(deShell.pageSkeleton.metrics.socket)
       unmount()
     }
   })

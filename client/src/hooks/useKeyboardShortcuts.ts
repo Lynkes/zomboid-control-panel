@@ -1,6 +1,7 @@
-import { useEffect, useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useCallback, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { ROUTES } from '@/lib/navigation'
+import { useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
 
 export interface ShortcutDef {
   key: string
@@ -10,32 +11,13 @@ export interface ShortcutDef {
   group: string
 }
 
-type TFn = (key: string) => string
-
-function buildNavShortcuts(t: TFn): ShortcutDef[] {
-  const group = t('groups.navigation')
-  return [
-    { key: '1', label: t('nav.dashboard'), path: '/', group },
-    { key: '2', label: t('nav.console'), path: '/console', group },
-    { key: '3', label: t('nav.players'), path: '/players', group },
-    { key: '4', label: t('nav.chat'), path: '/chat', group },
-    { key: '5', label: t('nav.events'), path: '/events', group },
-    { key: '6', label: t('nav.mods'), path: '/mods', group },
-    { key: '7', label: t('nav.backups'), path: '/backups', group },
-    { key: '8', label: t('nav.serverConfig'), path: '/server-config', group },
-    { key: '9', label: t('nav.settings'), path: '/settings', group },
-  ]
-}
-
-function buildPageShortcuts(t: TFn): ShortcutDef[] {
-  const group = t('groups.pageActions')
-  return [
-    { key: 'Ctrl+S', label: t('page.save'), group },
-    { key: 'Ctrl+K', label: t('page.focusSearch'), group },
-    { key: 'R', label: t('page.refreshDashboard'), group },
-    { key: '`', label: t('page.switchConsoleTab'), group },
-    { key: 'A', label: t('page.toggleAutoScroll'), group },
-  ]
+/** "⌘" on Apple platforms, "Ctrl" elsewhere: how the palette and Save shortcuts are written. */
+export function modKeyLabel(): string {
+  if (typeof navigator === 'undefined') return 'Ctrl'
+  const platform = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform
+    || navigator.platform
+    || navigator.userAgent
+  return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘' : 'Ctrl'
 }
 
 function isInputFocused(): boolean {
@@ -59,18 +41,55 @@ function isDialogOpen(): boolean {
   return document.querySelector('[role="dialog"], [role="alertdialog"]') !== null
 }
 
+/**
+ * The shell's keyboard: digits 1-9 open the registry's pages (asking first
+ * when the page has unsaved edits), `?` toggles the shortcut list, and
+ * Ctrl/Cmd+K toggles the command palette -- even from inside a field, but
+ * never over another open dialog.
+ */
 export function useKeyboardShortcuts() {
-  const navigate = useNavigate()
+  const guardedNavigate = useGuardedNavigate()
   const { t } = useTranslation('keyboardShortcuts')
   const [helpOpen, setHelpOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const paletteOpenRef = useRef(paletteOpen)
+  useEffect(() => {
+    paletteOpenRef.current = paletteOpen
+  }, [paletteOpen])
 
-  const navShortcuts = buildNavShortcuts(t)
+  const navShortcuts = useMemo<ShortcutDef[]>(() => {
+    const group = t('groups.navigation')
+    return ROUTES.filter((route) => route.shortcut)
+      .sort((a, b) => Number(a.shortcut) - Number(b.shortcut))
+      .map((route) => ({ key: route.shortcut as string, label: t(route.labelKey), path: route.path, group }))
+  }, [t])
 
-  const allShortcuts: ShortcutDef[] = [
-    ...navShortcuts,
-    ...buildPageShortcuts(t),
-    { key: '?', label: t('showShortcuts'), action: () => setHelpOpen(true), group: t('groups.general') },
-  ]
+  const allShortcuts = useMemo<ShortcutDef[]>(() => {
+    const mod = modKeyLabel()
+    return [
+      ...navShortcuts,
+      { key: `${mod}+S`, label: t('page.save'), group: t('groups.pageActions') },
+      { key: '/', label: t('page.focusSearch'), group: t('groups.pageActions') },
+      { key: 'R', label: t('page.refreshDashboard'), group: t('groups.pageActions') },
+      { key: '`', label: t('page.switchConsoleTab'), group: t('groups.pageActions') },
+      { key: 'A', label: t('page.toggleAutoScroll'), group: t('groups.pageActions') },
+      { key: `${mod}+K`, label: t('openPalette'), action: () => setPaletteOpen(true), group: t('groups.general') },
+      { key: '?', label: t('showShortcuts'), action: () => setHelpOpen(true), group: t('groups.general') },
+    ]
+  }, [navShortcuts, t])
+
+  // Capture phase, so the palette wins over a page's own Ctrl+K handler.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return
+      if (e.key.toLowerCase() !== 'k') return
+      if (!paletteOpenRef.current && isDialogOpen()) return
+      e.preventDefault()
+      setPaletteOpen((open) => !open)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     // Don't intercept when typing in inputs, or while a modal dialog owns
@@ -95,16 +114,16 @@ export function useKeyboardShortcuts() {
     const shortcut = navShortcuts.find(s => s.key === key)
     if (shortcut?.path) {
       e.preventDefault()
-      navigate(shortcut.path)
+      void guardedNavigate(shortcut.path)
     }
-  }, [navigate, navShortcuts])
+  }, [guardedNavigate, navShortcuts])
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  return { helpOpen, setHelpOpen, shortcuts: allShortcuts }
+  return { helpOpen, setHelpOpen, paletteOpen, setPaletteOpen, shortcuts: allShortcuts }
 }
 
 /**

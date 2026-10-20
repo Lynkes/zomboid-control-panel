@@ -7,17 +7,6 @@
     "pageActions": "Ações da página",
     "general": "Geral"
   },
-  "nav": {
-    "dashboard": "Dashboard",
-    "console": "Console",
-    "players": "Jogadores",
-    "chat": "Chat",
-    "events": "Eventos",
-    "mods": "Mods",
-    "backups": "Backups",
-    "serverConfig": "Configuração do servidor",
-    "settings": "Configurações"
-  },
   "page": {
     "save": "Salvar",
     "focusSearch": "Ir para a pesquisa",
@@ -25,5 +14,6 @@
     "switchConsoleTab": "Trocar aba do console",
     "toggleAutoScroll": "Ativar/desativar rolagem automática (Console)"
   },
+  "openPalette": "Abrir a paleta de comandos",
   "showShortcuts": "Mostrar atalhos de teclado"
 }
