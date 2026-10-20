@@ -100,7 +100,16 @@ export function recalculateConflictWinners(result: ConflictScanResult, modLoadOr
         else thirdPartyWins++
         return { ...file, winner }
       })
-      return { ...pair, files, aWins, bWins, thirdPartyWins, unknownWins }
+      // A suggested winner "already wins" by the new order too, or the chip
+      // keeps saying "Suggested" for a pair a reorder settled (and back).
+      let suggestion = pair.suggestion
+      if (suggestion) {
+        const loser = suggestion.winner === pair.modA.modId ? pair.modB.modId : pair.modA.modId
+        const posWinner = order.get(suggestion.winner)
+        const posLoser = order.get(loser)
+        if (posWinner != null && posLoser != null) suggestion = { ...suggestion, alreadyWinning: posWinner > posLoser }
+      }
+      return { ...pair, files, aWins, bWins, thirdPartyWins, unknownWins, ...(suggestion ? { suggestion } : {}) }
     }),
   }
 }
