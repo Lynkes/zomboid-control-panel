@@ -96,6 +96,7 @@
     "addServer": "添加服务器",
     "stop": "停止",
     "forceStop": "强制停止",
+    "forceStopTooltip": "尝试快速保存，之后无论如何都会立即停止",
     "restart": "重启",
     "restartNow": "立即重启",
     "saveWorld": "保存世界",

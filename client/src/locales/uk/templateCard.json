@@ -12,6 +12,7 @@
   "modsCount_one": "Моди: {{count}}",
   "modsCount_other": "Моди: {{count}}",
   "preview": "Переглянути й застосувати",
+  "previewOnly": "Перегляд",
   "exportTitle": "Експортувати шаблон",
   "deleteTitle": "Видалити шаблон",
   "hideTitle": "Приховати шаблон",

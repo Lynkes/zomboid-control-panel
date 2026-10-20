@@ -6,6 +6,7 @@
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
   "preview": "Vista previa y aplicar",
+  "previewOnly": "Vista previa",
   "exportTitle": "Exportar plantilla",
   "deleteTitle": "Eliminar plantilla",
   "hideTitle": "Ocultar plantilla",

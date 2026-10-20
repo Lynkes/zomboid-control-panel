@@ -97,6 +97,7 @@
     "addServer": "Ajouter un serveur",
     "stop": "Arrêter",
     "forceStop": "Arrêt forcé",
+    "forceStopTooltip": "Tente une sauvegarde rapide, puis arrête immédiatement dans tous les cas",
     "restart": "Redémarrer",
     "restartNow": "Redémarrer maintenant",
     "saveWorld": "Sauvegarder le monde",

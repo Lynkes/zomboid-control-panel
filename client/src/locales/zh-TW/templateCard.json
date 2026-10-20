@@ -6,6 +6,7 @@
   "modsCount_one": "{{count}} 個模組",
   "modsCount_other": "{{count}} 個模組",
   "preview": "預覽並套用",
+  "previewOnly": "預覽",
   "exportTitle": "匯出模板",
   "deleteTitle": "刪除模板",
   "hideTitle": "隱藏模板",

@@ -154,11 +154,16 @@ describe("ServerSetup: leaving a wizard part-way asks first", () => {
     expect(beforeUnloadPrevented()).toBe(false);
   });
 
-  it("guards once the operator is past the first step or typed the admin password", async () => {
+  // Bug pass: moving past step 1 with only the detected defaults used to
+  // count as unsaved work; only something typed does now.
+  it("guards once something was typed, not for moving through the steps", async () => {
     renderAt("/server-setup?mode=existing&step=1");
     await screen.findByDisplayValue("/opt/pz-server");
     next();
     await screen.findByText(enServerSetup.quick.step2.title);
+    expect(beforeUnloadPrevented()).toBe(false);
+
+    fireEvent.change(screen.getAllByRole("textbox")[0], { target: { value: "typed-by-hand" } });
     await waitFor(() => expect(beforeUnloadPrevented()).toBe(true));
   });
 });

@@ -1423,8 +1423,8 @@ export default function Files() {
     }
   }
 
-  // A remote server that can't be reached says why (a wrong password, a
-  // firewalled host, a chrooted login) and offers to try again.
+  // A folder that can't be read says why (a wrong password, a firewalled
+  // host, a missing or unmounted folder) and offers to try again.
   const renderUnavailable = (reason: RootUnavailableReason | undefined, detail?: string) =>
     reason === 'sftpUnreachable' ? (
       <EmptyState
@@ -1436,12 +1436,15 @@ export default function Files() {
         secondaryAction={unavailableAction(reason)}
       />
     ) : (
+      // Retry re-reads the folder once it is fixed elsewhere (mounted, created,
+      // its server edited): the toolbar Refresh only shows for a readable one.
       <EmptyState
         type="noFile"
         compact
         title={rootLabel}
         description={reason ? unavailableText(reason, detail) : undefined}
-        action={unavailableAction(reason)}
+        action={unavailableAction(reason) ?? { label: t('actions.retry'), onClick: () => void loadProfile(profile.id, true) }}
+        secondaryAction={unavailableAction(reason) ? { label: t('actions.retry'), onClick: () => void loadProfile(profile.id, true) } : undefined}
       />
     )
 

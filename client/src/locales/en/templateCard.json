@@ -6,6 +6,7 @@
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
   "preview": "Preview & apply",
+  "previewOnly": "Preview",
   "exportTitle": "Export template",
   "deleteTitle": "Delete template",
   "hideTitle": "Hide template",

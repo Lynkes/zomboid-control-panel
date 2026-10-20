@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
 import {
@@ -708,5 +708,37 @@ describe('Dashboard.tsx: Connect RCON is offered only with rcon.execute', () => 
     expect(await screen.findByRole('button', { name: 'Connect RCON' })).toBeInTheDocument()
     const menu = await openMoreActionsMenu()
     expect(within(menu).getByRole('menuitem', { name: /^connect rcon/i })).toBeInTheDocument()
+  })
+})
+
+// Bug pass: the redesign's More menu lost v1.4.17's "Bridge settings" item and
+// the Force stop explanation (its tooltip).
+describe('Dashboard.tsx: More menu keeps Bridge settings and explains Force stop', () => {
+  it('shows what Force stop does and opens the bridge settings', async () => {
+    await setUpCommon()
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    function Where() {
+      const location = useLocation()
+      return <div data-testid="where">{location.pathname + location.search}</div>
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <TooltipProvider>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/settings" element={<Where />} />
+          </Routes>
+        </TooltipProvider>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('button', { name: 'Stop' })
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /^force stop/i })).toHaveTextContent('Tries a quick save, then stops immediately either way')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Bridge settings' }))
+    expect(await screen.findByTestId('where')).toHaveTextContent('/settings?tab=bridge')
   })
 })

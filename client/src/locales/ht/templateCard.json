@@ -8,6 +8,7 @@
   "modsCount_other": "{{count}} mod",
   "modsCount_many": "{{count}} mod",
   "preview": "Apèsi epi aplike",
+  "previewOnly": "Apèsi",
   "exportTitle": "Ekspòte modèl",
   "deleteTitle": "Efase modèl",
   "hideTitle": "Kache modèl",

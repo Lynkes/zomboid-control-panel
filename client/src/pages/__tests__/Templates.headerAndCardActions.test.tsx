@@ -109,4 +109,15 @@ describe('TemplateCard actions', () => {
     const menu = await screen.findByRole('menu')
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Export template'])
   })
+
+  // Bug pass: a role that can only look at a template was offered
+  // "Preview & apply", then found nothing to apply in the dialog.
+  it('labels the card button Preview for a role without templates.manage', async () => {
+    mockCan = () => false
+    listTemplates.mockResolvedValue({ templates: [makeCustom()] })
+    renderTemplates()
+
+    expect(await screen.findByRole('button', { name: 'Preview' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Preview & apply' })).not.toBeInTheDocument()
+  })
 })
