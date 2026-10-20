@@ -50,7 +50,15 @@ need `sudo` in front of the commands below).
 
 3. Run:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+   curl -fsSL https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh | sh
+   ```
+   That is the installer attached to the latest release, not whatever is on
+   `main` right now. To check it before it runs, download it and the
+   release's checksums first:
+   ```sh
+   curl -fsSLO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh
+   curl -fsSLO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/checksums.txt
+   sha256sum --ignore-missing -c checksums.txt && sh bootstrap.sh
    ```
    This resolves the latest release, creates its state under
    `~/.local/state/zomboid-panel/` (override with the `PANEL_HOME` or
@@ -61,7 +69,7 @@ need `sudo` in front of the commands below).
    To install a specific version instead of the latest release, pass it as
    an argument:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh -s -- 1.2.6
+   curl -fsSL https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh | sh -s -- 1.2.6
    ```
 
    For the panel and updater images, it pulls the exact release-tagged image
@@ -368,7 +376,7 @@ panel before committing to a full setup.
 ### Phase 2 — Start it
 
 2. ```sh
-   curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
+   curl -LO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/docker-compose.install.yml
    docker compose -f docker-compose.install.yml up -d
    ```
    `pull_policy: always` means every `up -d` you run later fetches the

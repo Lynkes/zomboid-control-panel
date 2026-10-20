@@ -226,6 +226,12 @@ jobs:
           cd browser-extension
           zip -r ../zomboid-panel-extension.zip . -x '*.DS_Store'
 
+      # The all-in-one installer is attached to each release, and the docs
+      # pipe .../releases/latest/download/bootstrap.sh into sh: users get the
+      # reviewed, released script (listed in checksums.txt), not main's.
+      - name: Stage the all-in-one installer
+        run: cp docker/all-in-one/bootstrap.sh bootstrap.sh
+
       - name: Generate checksums
         run: |
           sha256sum \
@@ -235,6 +241,7 @@ jobs:
             ZomboidControlPanel-linux.tar.gz \
             zomboid-panel-extension.zip \
             docker-compose.install.yml \
+            bootstrap.sh \
             Dockerfile > checksums.txt
 
       - name: Create or update GitHub release
@@ -290,6 +297,7 @@ jobs:
               ZomboidControlPanel-linux.tar.gz \
               zomboid-panel-extension.zip \
               docker-compose.install.yml \
+              bootstrap.sh \
               Dockerfile \
               checksums.txt; then
               exit 0
