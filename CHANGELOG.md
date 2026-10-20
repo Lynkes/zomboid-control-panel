@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
 - **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
 - **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
+- **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
 
 ## [1.4.17] - 2026-10-18
 

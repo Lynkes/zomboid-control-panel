@@ -185,6 +185,21 @@ describe("POST /quick-setup: host-vs-container path translation", () => {
     expect(setSetting).toHaveBeenCalledWith("rconHost", "projectzomboid");
     vi.unstubAllEnvs();
   });
+
+  // The wizard creates the server profile from this response and used to
+  // hardcode 127.0.0.1 there, whatever RCON_HOST said.
+  it("returns the resolved rconHost so the wizard's profile uses it", async () => {
+    vi.stubEnv("RCON_HOST", "projectzomboid");
+    try {
+      const response = createResponse();
+      await handler(fakeReq(baseBody({ rconPassword: "brand-new-secret" })), response);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, rconHost: "projectzomboid" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 // Quick Setup's UPnP switch used to reach only the unused global useUpnp

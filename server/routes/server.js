@@ -4368,6 +4368,10 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               zomboidDataPath: zomboidPath, // Send back the computed data path
               serverConfigPath,
               branch: selectedBranch,
+              // The wizard creates the server profile from this event: the
+              // same host the legacy rconHost setting got (RCON_HOST in the
+              // two-container Docker setup), not a hardcoded 127.0.0.1.
+              rconHost: resolveEnvRconHost(),
               rconPort: safeRconPort,
               hasRconPassword: !!rconPassword,
               serverPort: safeServerPort,
@@ -4849,6 +4853,8 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       zomboidDataPath: zomboidPath, // Send back the computed data path
       serverConfigPath,
       batchFile: startupScript,
+      // See /install's install:complete: the wizard's profile uses this.
+      rconHost: resolveEnvRconHost(),
       rconPort: safeRconPort,
       hasRconPassword: !!rconPassword,
       serverPort: safeServerPort,

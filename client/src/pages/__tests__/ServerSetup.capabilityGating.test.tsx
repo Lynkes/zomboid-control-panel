@@ -234,7 +234,7 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
   // same extracted handleStartServerNow (ServerSetup.tsx) -- reaching the
   // quick-setup completion screen (3 steps) is far less form-filling than
   // the full wizard's 4, and proves the shared handler's guard either way.
-  async function reachQuickPostCreate() {
+  async function reachQuickPostCreate(extraResponse: Record<string, unknown> = {}) {
     const { socket } = createFakeSocket();
     const { container } = renderServerSetup(socket);
 
@@ -273,6 +273,7 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
       minMemory: 4096,
       maxMemory: 8192,
       warnings: [],
+      ...extraResponse,
     } as unknown as Awaited<ReturnType<typeof serverApi.quickSetup>>);
     create.mockResolvedValue({ server: { id: 1 } } as Awaited<ReturnType<typeof serversApi.create>>);
     activate.mockResolvedValue({ success: true } as Awaited<ReturnType<typeof serversApi.activate>>);
@@ -298,5 +299,14 @@ describe("ServerSetup.tsx: Start Server Now (shared by both post-install complet
     expect(startButton).not.toBeDisabled();
     fireEvent.click(startButton);
     await waitFor(() => expect(start).toHaveBeenCalled());
+  });
+
+  // Not a gating case, but the same flow: the profile Quick Setup creates used
+  // a hardcoded 127.0.0.1 even when the server saved RCON_HOST (two-container
+  // Docker setup) as the RCON host.
+  it("creates the profile with the RCON host Quick Setup reported", async () => {
+    mockCan = () => true;
+    await reachQuickPostCreate({ rconHost: "projectzomboid" });
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: "projectzomboid" }));
   });
 });
