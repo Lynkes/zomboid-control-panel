@@ -6,6 +6,7 @@
   "modsCount_one": "{{count}} Mod",
   "modsCount_other": "{{count}} Mods",
   "preview": "Vorschau & anwenden",
+  "previewOnly": "Vorschau",
   "exportTitle": "Vorlage exportieren",
   "deleteTitle": "Vorlage löschen",
   "hideTitle": "Vorlage ausblenden",

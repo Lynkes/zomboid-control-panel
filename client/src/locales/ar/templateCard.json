@@ -16,6 +16,7 @@
   "modsCount_one": "{{count}} مود",
   "modsCount_other": "{{count}} مودات",
   "preview": "معاينة وتطبيق",
+  "previewOnly": "معاينة",
   "exportTitle": "تصدير القالب",
   "deleteTitle": "حذف القالب",
   "hideTitle": "إخفاء القالب",

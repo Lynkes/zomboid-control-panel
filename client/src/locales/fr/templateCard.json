@@ -6,6 +6,7 @@
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
   "preview": "Aperçu et application",
+  "previewOnly": "Aperçu",
   "exportTitle": "Exporter le modèle",
   "deleteTitle": "Supprimer le modèle",
   "hideTitle": "Masquer le modèle",

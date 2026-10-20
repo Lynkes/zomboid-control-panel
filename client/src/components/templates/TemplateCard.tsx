@@ -68,7 +68,7 @@ export function TemplateCard({ template, onPreview, onExport, onDelete, canManag
           primary={
             <Button size="sm" variant="outline" onClick={() => onPreview(template)} className="flex-1">
               <Eye className="h-4 w-4" aria-hidden="true" />
-              {t('preview')}
+              {t(canManage ? 'preview' : 'previewOnly')}
             </Button>
           }
           items={actions}
