@@ -83,9 +83,12 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
   const { t } = useTranslation(['users', 'errors'])
   const { formatDateTime } = useDateFormat()
   const { toast } = useToast()
-  const { user: currentUser, authEnabled } = useAuth()
+  const { user: currentUser, authEnabled, can } = useAuth()
   const confirm = useConfirm()
   const canLinkSso = currentUser?.role === 'admin'
+  // Settings hides its Roles & Permissions tab without roles.manage, and
+  // ?tab=roles then opens General: no link to it for such a role.
+  const canManageRoles = can('roles.manage')
 
   const [users, setUsers] = useState<ManagedUserAccount[] | null>(null)
   const [roles, setRoles] = useState<RoleInfo[]>([])
@@ -571,13 +574,15 @@ export default function Users({ embedded = false }: { embedded?: boolean }) {
           status={<Badge variant="outline" className="tabular-nums">{(users || []).length}</Badge>}
           actions={addUserButton}
           footer={
-            <Link
-              to="/settings?tab=roles"
-              className="me-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-            >
-              {t('manageRolesLink')}
-              <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
-            </Link>
+            canManageRoles ? (
+              <Link
+                to="/settings?tab=roles"
+                className="me-auto inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                {t('manageRolesLink')}
+                <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+              </Link>
+            ) : undefined
           }
         >
           <div className="overflow-x-auto">
