@@ -15,26 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Character import:** a skill level outside 0 to 10 is refused, and PanelBridge clamps levels and item numbers, so an import file can no longer freeze the game server.
 - **Docker memory reading:** the dashboard reads memory only from a container labelled for panel management, like the Docker page, its logs and its actions.
 - **Support bundle:** the recent panel log lines in in-memory-log-buffer.json are redacted like combined.log.
-- **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
-- **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
-- **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.
-- **PanelBridge newer than the panel's:** a PanelBridge.lua in the game folder newer than the one the panel ships now reads "Newer than this panel's" instead of an "Update now" that never did anything.
-- **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
-- **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
-- **PanelBridge dialogs after a server switch:** an open delivery-switch or Lua-checksum dialog now closes (with a short notice) when the active server changes, instead of reopening by itself for the new server.
-- **Character import recovery copy in Saved Exports:** the Import/Export dialog now reloads Saved Exports when it opens and after an import, so the pre-import copy it promises (and recent login exports) show up.
-- **Update / Verify on an inactive server:** the branch picker now starts on that server's own branch (or public), not on the active server's.
-- **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
-- **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
-- **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
-- **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
-- **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
-- **Failed panel update download:** the Updates card no longer stays on "Downloading".
-- **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
-- **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
-- **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
-- **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
-- **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
 - **Demo site deploy:** the client build that publishes the demo runs without a write token; a separate job with no npm code publishes it.
 - **Docker `:latest` is the newest release:** main-branch builds now publish `:main`/`:edge` only; dependency updates wait 7 days, only npm patch/minor updates auto-merge, and release builds and images install exactly what the lockfiles pin.
 - **Steam Sync extension:** sends the panel password and Steam cookies over plain HTTP only to a panel on your own network (or one address you explicitly allow); anything else needs HTTPS, and a URL typed without a scheme defaults to HTTPS.
@@ -42,9 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **All-in-one installer:** the install command now fetches `bootstrap.sh` from the latest release (attached to it and listed in `checksums.txt`) instead of `main`, and the `.env` holding the updater token is created owner-only.
 - **PanelBridge ignores client commands:** the server-side bridge no longer stores the unused teleport acknowledgement any connected player could send.
 - **PanelBridge Workshop download check:** Settings › PanelBridge warns when the Workshop item a server downloaded holds server Lua other than the published file for its version.
-- **Restoring a zip made by Windows PowerShell on a Linux panel:** backslash-separated archives (Compress-Archive) now restore into their world folder instead of failing with "no world save folder".
-- **Restore of an archive without world files:** a backup whose server-named folder holds no world (only a readme, say) is refused instead of replacing the live world; a real world elsewhere in the archive is used instead.
-- **Leftover upload temp files:** a backup upload cut off by a panel crash or restart no longer leaves its temporary file in the backups folder forever; the next backup removes it.
 - **Character import recovery copies:** the panel keeps the newest ones per player (as many as the auto-export keeps, else 5) instead of one more on every import, forever.
 - **Diagnostics log downloads:** only the listed .log files can be downloaded, and the logs folder can no longer be set to the data or program folder (it exposed the panel's secrets to diagnostics roles).
 - **Backup "View snapshot":** a snapshot larger than 1 MB is refused instead of being inflated into memory (a small uploaded zip could take hundreds of MB).
@@ -65,6 +42,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
+- **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
+- **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.
+- **PanelBridge newer than the panel's:** a PanelBridge.lua in the game folder newer than the one the panel ships now reads "Newer than this panel's" instead of an "Update now" that never did anything.
+- **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
+- **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
+- **PanelBridge dialogs after a server switch:** an open delivery-switch or Lua-checksum dialog now closes (with a short notice) when the active server changes, instead of reopening by itself for the new server.
+- **Character import recovery copy in Saved Exports:** the Import/Export dialog now reloads Saved Exports when it opens and after an import, so the pre-import copy it promises (and recent login exports) show up.
+- **Update / Verify on an inactive server:** the branch picker now starts on that server's own branch (or public), not on the active server's.
+- **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
+- **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
+- **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
+- **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
+- **Failed panel update download:** the Updates card no longer stays on "Downloading".
+- **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
+- **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
+- **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
+- **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
+- **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
+- **Restoring a zip made by Windows PowerShell on a Linux panel:** backslash-separated archives (Compress-Archive) now restore into their world folder instead of failing with "no world save folder".
+- **Restore of an archive without world files:** a backup whose server-named folder holds no world (only a readme, say) is refused instead of replacing the live world; a real world elsewhere in the archive is used instead.
+- **Leftover upload temp files:** a backup upload cut off by a panel crash or restart no longer leaves its temporary file in the backups folder forever; the next backup removes it.
 - **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
 - **Servers sharing a game folder:** Delete files, Clear Folder, Update and Quick Setup now refuse while any server using the same game folder runs, and deleting a shared folder lists the other servers first; before, deleting a stopped server's files could wipe a running one's.
