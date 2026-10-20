@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **SFTP password bound to its host:** the saved PanelBridge SFTP password is only used with the saved host, port and username; testing or saving another target asks for its password.
 - **Server .ini RCON and port keys:** a control character in front of RCONPassword, RCONPort, DefaultPort, UDPPort or UPnP no longer gets past the server.configure check in the raw editor, backup restore or template apply.
+- **Workshop map folder names:** a map folder whose name holds a line break, ";", "=" or a control character is no longer written to Map=, where it could add other server .ini lines.
 
 ## [1.4.17] - 2026-10-18
 

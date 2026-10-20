@@ -117,6 +117,17 @@ function isValidMapFolder(mapFolderPath) {
   }
 }
 
+// SECURITY (2026-10-20): a map folder's name goes into the server .ini's
+// Map= line as it is on disk. A Workshop item is someone else's content, and
+// on Linux a folder name may hold a line break (a new ini line, such as
+// "DiscordToken=..."), a ";" (two map entries), an "=" (the game cuts the
+// value there) or another control char. No such name can be a map the game
+// loads from Map=, so it is not offered at all.
+const UNWRITABLE_MAP_FOLDER_CHARS = /[\u0000-\u001f\u007f;=]/;
+export function isWritableMapFolderName(name) {
+  return typeof name === "string" && name.trim() !== "" && !UNWRITABLE_MAP_FOLDER_CHARS.test(name);
+}
+
 // Helper function to find map folders from a workshop mod
 // Map mods have a media/maps folder with their map folder inside
 // Only returns folders that contain actual map tile data
@@ -131,6 +142,12 @@ export function findMapFoldersFromWorkshop(workshopId, serverPath) {
     // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
     const mapEntries = fs.readdirSync(mapsPath, { withFileTypes: true });
     for (const mapEntry of mapEntries) {
+      if (mapEntry.isDirectory() && !isWritableMapFolderName(mapEntry.name)) {
+        log.warn(
+          `Workshop item ${workshopId}: skipped map folder ${JSON.stringify(mapEntry.name)}; its name cannot be written to Map=`,
+        );
+        continue;
+      }
       if (
         mapEntry.isDirectory() &&
         !mapFolders.includes(mapEntry.name) &&
