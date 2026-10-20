@@ -133,7 +133,7 @@ function renderEvents() {
 }
 
 async function openBridgeToolsWithEventSequence() {
-  const nav = await screen.findByText('Bridge tools')
+  const nav = await screen.findByRole('button', { name: 'Bridge tools' })
   fireEvent.click(nav)
   const combo = await screen.findByRole('combobox', { name: 'Select operation' })
   fireEvent.change(combo, { target: { value: 'runEventSequence' } })

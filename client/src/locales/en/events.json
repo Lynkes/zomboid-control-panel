@@ -1,9 +1,8 @@
 {
   "pageHeader": {
-    "title": "Event Console",
-    "description": "Weather, time, sounds, player actions, and bridge tools",
-    "eyebrow": "world control",
-    "refreshPlayers": "refresh players"
+    "title": "Events & Weather",
+    "description": "Change weather and time, play sounds, spawn hordes and vehicles, or run bridge tools.",
+    "refreshPlayers": "Refresh players"
   },
   "common": {
     "playersUnavailable": "player list unavailable",
@@ -11,10 +10,6 @@
     "noPermissionEndangerOrImpersonate": "This action requires the players.endanger_or_impersonate permission, which this role doesn't have."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "online",
-    "offline": "offline",
-    "configureLink": "configure →",
     "eventTarget": "Event target",
     "allOnline": "all online",
     "specific": "specific",
@@ -35,7 +30,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge is offline",
-    "description": "These controls need the Lua bridge. Connect it in <1>Settings</1>, then start the PZ server."
+    "description": "These controls need the Lua bridge. Connect it in Settings, then start the PZ server.",
+    "action": "Open PanelBridge settings"
   },
   "groups": {
     "weather": "Weather",
@@ -235,7 +231,7 @@
   "utilities": {
     "sublabel": "power & water grid",
     "refresh": "refresh",
-    "b42Warning": "b42 multiplayer · sandbox changes do not propagate to connected clients yet",
+    "b42Warning": "Build 42 multiplayer: sandbox changes don't reach connected clients yet.",
     "power": "power",
     "water": "water",
     "statusOnline": "online",
@@ -298,7 +294,10 @@
     "clearNear": "clear near {{target}}",
     "clearNearConfirmTitle": "Clear zombies near this player?",
     "clearNearConfirmDescTargeted": "This instantly removes every zombie within the chosen radius of {{player}} -- including any they're currently fighting. Zombies respawn over time, but this ends that encounter right now for them.",
-    "clearNearConfirmDescRandom": "This instantly removes every zombie within the chosen radius of a random online player -- including any they're currently fighting. Zombies respawn over time, but this ends that encounter right now for them."
+    "clearNearConfirmDescRandom": "This instantly removes every zombie within the chosen radius of a random online player -- including any they're currently fighting. Zombies respawn over time, but this ends that encounter right now for them.",
+    "spawnConfirmTitle": "Spawn {{size}} zombies?",
+    "spawnConfirmDescTargeted": "A horde of {{size}} zombies appears close to {{player}} right away. It stays in the world until it is killed or cleared.",
+    "spawnConfirmDescRandom": "A horde of {{size}} zombies appears close to a random online player right away. It stays in the world until it is killed or cleared."
   },
   "vehicles": {
     "sublabel": "RCON · spawns next to a player",
@@ -399,8 +398,6 @@
     "lastRun": "Last run: {{time}}",
     "notRunYet": "Not run yet",
     "bridgeFileLink": "Bridge file link: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Bridge connection required",
-    "bridgeConnectionRequiredDesc": "These operations require a live PanelBridge connection. Configure it in Settings first.",
     "moderationConfirmTitle": "Run {{operation}}?",
     "moderationConfirmDescription": "This sends a real moderation command through the live bridge{{target}}{{reason}}. Double-check the values above before continuing.",
     "moderationConfirmTarget": " targeting {{target}}",

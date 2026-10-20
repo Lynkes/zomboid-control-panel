@@ -22,9 +22,8 @@
     "resultDisplay.vehiclesLoaded_zero"
   ],
   "pageHeader": {
-    "title": "وحدة تحكم الأحداث",
-    "description": "الطقس والوقت والأصوات وإجراءات اللاعبين وأدوات الجسر",
-    "eyebrow": "التحكم بالعالم",
+    "title": "الأحداث والطقس",
+    "description": "غيّر الطقس والوقت، وشغّل الأصوات، واستدعِ الحشود والمركبات، أو استخدم أدوات الجسر.",
     "refreshPlayers": "تحديث اللاعبين"
   },
   "common": {
@@ -33,10 +32,6 @@
     "noPermissionEndangerOrImpersonate": "يتطلب هذا الإجراء صلاحية players.endanger_or_impersonate، وهذا الدور لا يملكها."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "متصل",
-    "offline": "غير متصل",
-    "configureLink": "تهيئة ←",
     "eventTarget": "هدف الحدث",
     "allOnline": "كل المتصلين",
     "specific": "محدد",
@@ -57,7 +52,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge غير متصل",
-    "description": "تحتاج أدوات التحكم هذه إلى جسر Lua. صِلْه من <1>الإعدادات</1>، ثم شغّل خادم PZ."
+    "description": "تحتاج أدوات التحكم هذه إلى جسر Lua. صِلْه من الإعدادات، ثم شغّل خادم PZ.",
+    "action": "فتح إعدادات PanelBridge"
   },
   "groups": {
     "weather": "الطقس",
@@ -257,7 +253,7 @@
   "utilities": {
     "sublabel": "شبكة الكهرباء والماء",
     "refresh": "تحديث",
-    "b42Warning": "اللعب الجماعي b42 · تغييرات Sandbox لا تنتقل بعد إلى العملاء المتصلين",
+    "b42Warning": "اللعب الجماعي في Build 42: تغييرات Sandbox لا تنتقل بعد إلى العملاء المتصلين.",
     "power": "الكهرباء",
     "water": "الماء",
     "statusOnline": "متصل",
@@ -320,7 +316,10 @@
     "clearNear": "إزالة قرب {{target}}",
     "clearNearConfirmTitle": "إزالة الزومبي القريبين من هذا اللاعب؟",
     "clearNearConfirmDescTargeted": "يزيل هذا فورًا كل زومبي داخل نصف القطر المختار حول {{player}} -- بما في ذلك من يقاتلهم الآن. يعود الزومبي بمرور الوقت، لكن هذا ينهي تلك المواجهة فورًا بالنسبة له.",
-    "clearNearConfirmDescRandom": "يزيل هذا فورًا كل زومبي داخل نصف القطر المختار حول لاعب متصل عشوائي -- بما في ذلك من يقاتلهم الآن. يعود الزومبي بمرور الوقت، لكن هذا ينهي تلك المواجهة فورًا بالنسبة له."
+    "clearNearConfirmDescRandom": "يزيل هذا فورًا كل زومبي داخل نصف القطر المختار حول لاعب متصل عشوائي -- بما في ذلك من يقاتلهم الآن. يعود الزومبي بمرور الوقت، لكن هذا ينهي تلك المواجهة فورًا بالنسبة له.",
+    "spawnConfirmTitle": "استدعاء {{size}} من الزومبي؟",
+    "spawnConfirmDescTargeted": "سيظهر حشد من {{size}} زومبي فورًا قرب {{player}}، ويبقى في العالم حتى يُقتل أو يُزال.",
+    "spawnConfirmDescRandom": "سيظهر حشد من {{size}} زومبي فورًا قرب لاعب متصل يُختار عشوائيًا، ويبقى في العالم حتى يُقتل أو يُزال."
   },
   "vehicles": {
     "sublabel": "RCON · تظهر بجانب لاعب",
@@ -421,8 +420,6 @@
     "lastRun": "آخر تنفيذ: {{time}}",
     "notRunYet": "لم تُنفَّذ بعد",
     "bridgeFileLink": "رابط ملف الجسر: {{summary}}",
-    "bridgeConnectionRequiredTitle": "الاتصال بالجسر مطلوب",
-    "bridgeConnectionRequiredDesc": "تتطلب هذه العمليات اتصال PanelBridge نشطًا. هيّئه في الإعدادات أولًا.",
     "moderationConfirmTitle": "تنفيذ {{operation}}؟",
     "moderationConfirmDescription": "يرسل هذا أمر إشراف حقيقيًا عبر الجسر النشط{{target}}{{reason}}. تحقّق من القيم أعلاه قبل المتابعة.",
     "moderationConfirmTarget": " يستهدف {{target}}",

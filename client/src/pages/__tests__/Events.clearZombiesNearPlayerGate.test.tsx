@@ -85,7 +85,7 @@ function renderEvents() {
 async function openHordeSection() {
   // Sidebar label is "Spawn horde" (matches the `horde` section's nav
   // entry); the section itself covers both spawning and clearing.
-  const nav = await screen.findByText('Spawn horde')
+  const nav = await screen.findByRole('button', { name: 'Spawn horde' })
   nav.click()
   await screen.findByRole('button', { name: /^clear near\b/ })
 }

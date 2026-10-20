@@ -1,9 +1,8 @@
 {
   "pageHeader": {
-    "title": "Console de eventos",
-    "description": "Clima, horário, sons, ações de jogadores e ferramentas da ponte",
-    "eyebrow": "controle do mundo",
-    "refreshPlayers": "recarregar jogadores"
+    "title": "Eventos e clima",
+    "description": "Mude o clima e o horário, toque sons, gere hordas e veículos ou use as ferramentas da ponte.",
+    "refreshPlayers": "Recarregar jogadores"
   },
   "common": {
     "playersUnavailable": "lista de jogadores indisponível",
@@ -11,10 +10,6 @@
     "noPermissionEndangerOrImpersonate": "Esta ação requer a permissão players.endanger_or_impersonate, que este cargo não tem."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "online",
-    "offline": "offline",
-    "configureLink": "configurar →",
     "eventTarget": "Alvo do evento",
     "allOnline": "todos online",
     "specific": "específico",
@@ -35,7 +30,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "O PanelBridge está offline",
-    "description": "Estes controles precisam da ponte Lua. Conecte-a em <1>Configurações</1> e depois inicie o servidor do PZ."
+    "description": "Estes controles precisam da ponte Lua. Conecte-a em Configurações e depois inicie o servidor do PZ.",
+    "action": "Abrir configurações do PanelBridge"
   },
   "groups": {
     "weather": "Clima",
@@ -235,7 +231,7 @@
   "utilities": {
     "sublabel": "rede de energia e água",
     "refresh": "recarregar",
-    "b42Warning": "B42 multijogador · alterações do sandbox ainda não chegam aos clientes conectados",
+    "b42Warning": "Multijogador da Build 42: alterações do sandbox ainda não chegam aos clientes conectados.",
     "power": "energia",
     "water": "água",
     "statusOnline": "online",
@@ -298,7 +294,10 @@
     "clearNear": "remover perto de {{target}}",
     "clearNearConfirmTitle": "Remover os zumbis perto deste jogador?",
     "clearNearConfirmDescTargeted": "Isso remove instantaneamente todos os zumbis dentro do raio escolhido ao redor de {{player}} -- inclusive os que esse jogador estiver enfrentando agora. Os zumbis reaparecem com o tempo, mas o confronto desse jogador termina na hora.",
-    "clearNearConfirmDescRandom": "Isso remove instantaneamente todos os zumbis dentro do raio escolhido ao redor de um jogador online aleatório -- inclusive os que esse jogador estiver enfrentando agora. Os zumbis reaparecem com o tempo, mas o confronto desse jogador termina na hora."
+    "clearNearConfirmDescRandom": "Isso remove instantaneamente todos os zumbis dentro do raio escolhido ao redor de um jogador online aleatório -- inclusive os que esse jogador estiver enfrentando agora. Os zumbis reaparecem com o tempo, mas o confronto desse jogador termina na hora.",
+    "spawnConfirmTitle": "Gerar {{size}} zumbis?",
+    "spawnConfirmDescTargeted": "Uma horda de {{size}} zumbis aparece imediatamente perto de {{player}}. Ela fica no mundo até ser morta ou removida.",
+    "spawnConfirmDescRandom": "Uma horda de {{size}} zumbis aparece imediatamente perto de um jogador online aleatório. Ela fica no mundo até ser morta ou removida."
   },
   "vehicles": {
     "sublabel": "RCON · gera ao lado de um jogador",
@@ -399,8 +398,6 @@
     "lastRun": "Última execução: {{time}}",
     "notRunYet": "Ainda não executado",
     "bridgeFileLink": "Conexão por arquivos da ponte: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Conexão com a ponte necessária",
-    "bridgeConnectionRequiredDesc": "Estas operações exigem uma conexão ativa com o PanelBridge. Configure-a primeiro em Configurações.",
     "moderationConfirmTitle": "Executar {{operation}}?",
     "moderationConfirmDescription": "Isso envia um comando de moderação real pela ponte ativa{{target}}{{reason}}. Confira os valores acima antes de continuar.",
     "moderationConfirmTarget": " contra {{target}}",

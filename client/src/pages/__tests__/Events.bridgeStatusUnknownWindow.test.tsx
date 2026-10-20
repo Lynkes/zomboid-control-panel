@@ -81,8 +81,10 @@ describe('Events.tsx: bridge status badge during the unknown window before the f
   it('does not render a confident "offline" state while the first check is still in flight', async () => {
     renderEvents()
 
-    expect(screen.queryByText('offline')).not.toBeInTheDocument()
-    expect(screen.queryByText('configure →')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bridge offline')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /open panelbridge settings/i })).not.toBeInTheDocument()
+    // Nor mark the rail's bridge-only sections as blocked before it knows.
+    expect(screen.queryByTitle('Needs PanelBridge')).not.toBeInTheDocument()
     expect(await screen.findByText('Checking…')).toBeInTheDocument()
   })
 })

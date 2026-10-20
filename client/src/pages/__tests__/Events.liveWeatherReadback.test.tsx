@@ -80,7 +80,7 @@ function renderEvents() {
 }
 
 async function openClimateSection() {
-  const nav = await screen.findByText('Climate trim')
+  const nav = await screen.findByRole('button', { name: 'Climate trim' })
   nav.click()
 }
 

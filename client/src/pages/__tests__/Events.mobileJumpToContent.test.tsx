@@ -99,7 +99,7 @@ describe('Events -- narrow-viewport nav selection scrolls the content panel into
     stubMatchMedia(true)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     fireEvent.click(nav)
 
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
@@ -109,7 +109,7 @@ describe('Events -- narrow-viewport nav selection scrolls the content panel into
     stubMatchMedia(false)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     fireEvent.click(nav)
 
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
@@ -119,7 +119,7 @@ describe('Events -- narrow-viewport nav selection scrolls the content panel into
     vi.stubGlobal('matchMedia', undefined)
     renderEvents()
 
-    const nav = await screen.findByText('Severe weather')
+    const nav = await screen.findByRole('button', { name: 'Severe weather' })
     expect(() => fireEvent.click(nav)).not.toThrow()
   })
 })
