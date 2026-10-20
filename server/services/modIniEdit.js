@@ -94,11 +94,34 @@ export function addWorkshopItemToIni(
     }
   }
 
+  const maps = addMapFoldersToIni(text, mapFolders);
+  text = maps.content;
+  const addedMapFolders = maps.addedMapFolders;
+
+  return {
+    content: text,
+    changed: text !== content,
+    workshopAlreadyExisted,
+    addedModIds,
+    addedMapFolders,
+    workshopCount: workshopIds.length,
+    modCount,
+  };
+}
+
+/**
+ * Map=: each of `folders` not already listed goes in front (the map the
+ * server loads first wins its cells; a missing Map= line starts from the
+ * vanilla map), the rule every add-mod flow follows. Returns { content,
+ * addedMapFolders }.
+ */
+export function addMapFoldersToIni(content, folders = []) {
+  let text = content;
   const addedMapFolders = [];
-  if (mapFolders.length > 0) {
+  if (folders.length > 0) {
     const mapMatch = text.match(MAP_RE);
     const currentMaps = mapMatch ? splitIniList(mapMatch[1]) : [...DEFAULT_MAPS];
-    for (const folder of mapFolders) {
+    for (const folder of folders) {
       // SECURITY (2026-10-20): a folder name is Workshop content; one with a
       // line break, ";" or "=" would add ini lines or entries, and the
       // sanitizer below would write it as another name.
@@ -112,14 +135,109 @@ export function addWorkshopItemToIni(
       text = setIniLine(text, MAP_LINE_RE, "Map", sanitizeIniList(currentMaps));
     }
   }
+  return { content: text, addedMapFolders };
+}
 
-  return {
-    content: text,
-    changed: text !== content,
-    workshopAlreadyExisted,
-    addedModIds,
-    addedMapFolders,
-    workshopCount: workshopIds.length,
-    modCount,
+// A mod id the fixes below may write: what Mods= can hold as one entry.
+function writableModId(id) {
+  return typeof id === "string" && id.trim() === id && id !== "" && id.length <= 200 && !/[\u0000-\u001f\u007f-\u009f;=\\]/.test(id);
+}
+
+/**
+ * Applies one mod-list fix of the health check (utils/modHealth.js) to the
+ * ini text. Entries that stay keep the text they were written with. `order`
+ * is the planned Mods= order for applyPlan. Returns { content, changed }.
+ *
+ *   removeMods          { modIds }                    leave Mods=
+ *   addMods             { modIds, before? }           into Mods=, before
+ *                                                     `before` (else at the end)
+ *   addWorkshopItems    { workshopIds, modIds?, before? }  WorkshopItems=, and
+ *                                                     those mods as addMods
+ *   removeWorkshopItems { workshopIds }               leave WorkshopItems=
+ *   addMapFolders       { folders }                   in front of Map=
+ *   removeMapFolders    { folders }                   leave Map= (the vanilla
+ *                                                     map stays when nothing else is left)
+ *   applyPlan           {} with `order`               Mods= in that order
+ */
+export function applyModListFix(content, { action, params = {} }, { order = null } = {}) {
+  let text = content;
+  const modTokens = () => splitModIdTokens(text.match(MODS_RE)?.[1]);
+  const writeMods = (tokens) => {
+    text = setIniLine(text, MODS_LINE_RE, "Mods", tokens.map((t) => sanitizeIniValue(t.raw)).filter(Boolean).join(";"));
   };
+  const addMods = (ids, before) => {
+    const tokens = modTokens();
+    const present = new Set(tokens.map((t) => t.id));
+    const adding = [];
+    for (const id of ids || []) {
+      if (writableModId(id) && !present.has(id) && !adding.includes(id)) adding.push(id);
+    }
+    if (adding.length === 0) return;
+    const at = before ? tokens.findIndex((t) => t.id === before) : -1;
+    const entries = adding.map((id) => ({ raw: id, id }));
+    if (at === -1) tokens.push(...entries);
+    else tokens.splice(at, 0, ...entries);
+    writeMods(tokens);
+  };
+  switch (action) {
+    case "removeMods": {
+      const off = new Set(params.modIds || []);
+      const tokens = modTokens();
+      const kept = tokens.filter((t) => !off.has(t.id));
+      if (kept.length !== tokens.length) writeMods(kept);
+      break;
+    }
+    case "addMods":
+      addMods(params.modIds, params.before);
+      break;
+    case "addWorkshopItems": {
+      const items = splitIniList(text.match(WORKSHOP_ITEMS_RE)?.[1]);
+      const adding = (params.workshopIds || []).filter((id) => /^\d{1,15}$/.test(id) && !items.includes(id));
+      if (adding.length > 0) text = setIniLine(text, WORKSHOP_ITEMS_LINE_RE, "WorkshopItems", sanitizeIniList([...items, ...new Set(adding)]));
+      addMods(params.modIds, params.before);
+      break;
+    }
+    case "removeWorkshopItems": {
+      const off = new Set(params.workshopIds || []);
+      const items = splitIniList(text.match(WORKSHOP_ITEMS_RE)?.[1]);
+      const kept = items.filter((id) => !off.has(id));
+      if (kept.length !== items.length) text = setIniLine(text, WORKSHOP_ITEMS_LINE_RE, "WorkshopItems", sanitizeIniList(kept));
+      break;
+    }
+    case "addMapFolders":
+      text = addMapFoldersToIni(text, params.folders || []).content;
+      break;
+    case "removeMapFolders": {
+      const mapMatch = text.match(MAP_RE);
+      if (!mapMatch) break;
+      const off = new Set((params.folders || []).map((f) => String(f).toLowerCase()));
+      const current = splitIniList(mapMatch[1]);
+      let kept = current.filter((f) => !off.has(f.toLowerCase()));
+      if (kept.length === current.length) break;
+      if (kept.length === 0) kept = [...DEFAULT_MAPS];
+      text = setIniLine(text, MAP_LINE_RE, "Map", sanitizeIniList(kept));
+      break;
+    }
+    case "applyPlan": {
+      if (!Array.isArray(order)) break;
+      const tokens = modTokens();
+      const unused = new Map();
+      for (const token of tokens) {
+        if (!unused.has(token.id)) unused.set(token.id, []);
+        unused.get(token.id).push(token);
+      }
+      const next = [];
+      for (const id of order) {
+        const token = unused.get(id)?.shift();
+        if (token) next.push(token);
+      }
+      // Anything the plan did not place (it never drops a mod) stays at the end.
+      for (const list of unused.values()) next.push(...list);
+      if (next.some((t, i) => t !== tokens[i])) writeMods(next);
+      break;
+    }
+    default:
+      break;
+  }
+  return { content: text, changed: text !== content };
 }

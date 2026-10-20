@@ -358,6 +358,7 @@ import rconRoutes from "./routes/rcon.js";
 import configRoutes from "./routes/config.js";
 import schedulerRoutes from "./routes/scheduler.js";
 import modsRoutes, { pruneModThumbnailCache } from "./routes/mods.js";
+import modsSmartRoutes from "./routes/modsSmart.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
@@ -1841,6 +1842,9 @@ app.use("/api/rcon", rconRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/scheduler", schedulerRoutes);
 app.use("/api/mods", modsRoutes);
+// Smart load order, health check and insights (same /api/mods prefix; after
+// routes/mods.js so its /thumbnail carve-out answers first).
+app.use("/api/mods", modsSmartRoutes);
 app.use("/api/chunks", chunksRoutes);
 app.use("/api/discord", discordRoutes);
 app.use("/api/debug", debugRoutes);
