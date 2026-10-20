@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Scheduler from '../Scheduler'
 import { schedulerApi, serverApi, serversApi } from '@/lib/api'
@@ -11,6 +11,10 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 // aria-label -- Delete had aria-label only. Inconsistent tooltip coverage
 // across three visually-identical icon buttons in the same row reads as
 // unfinished (irritant #3 in the brief), not intentional.
+//
+// Scheduler redesign: Run now, Duplicate and Delete moved into the row's
+// RowActions menu, whose "..." button carries the same title as its label;
+// Delete still asks first and names the task.
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -68,8 +72,8 @@ function renderScheduler() {
   )
 }
 
-describe('Scheduler.tsx: the Delete task button has a hover title, matching Run Now/Edit', () => {
-  it('sets title="Delete task" on the delete button, alongside its per-task aria-label', async () => {
+describe('Scheduler.tsx: a task row keeps Delete in its labelled actions menu', () => {
+  it('names the menu button after the task, lists Delete task last, and confirms naming the task', async () => {
     getTasks.mockResolvedValue({
       tasks: [
         {
@@ -92,7 +96,15 @@ describe('Scheduler.tsx: the Delete task button has a hover title, matching Run 
 
     renderScheduler()
 
-    const deleteButton = await screen.findByRole('button', { name: 'Delete task Broadcast Reminder' })
-    expect(deleteButton).toHaveAttribute('title', 'Delete task')
+    const menuButton = await screen.findByRole('button', { name: 'More actions for Broadcast Reminder' })
+    expect(menuButton).toHaveAttribute('title', 'More actions for Broadcast Reminder')
+    expect(screen.getByRole('button', { name: 'Edit Broadcast Reminder' })).toHaveAttribute('title', 'Edit task')
+
+    fireEvent.pointerDown(menuButton, { button: 0, ctrlKey: false })
+    const items = within(await screen.findByRole('menu')).getAllByRole('menuitem')
+    expect(items.map((item) => item.textContent)).toEqual(['Run task now', 'Duplicate', 'Delete task'])
+
+    fireEvent.click(items[2])
+    expect(await screen.findByRole('alertdialog')).toHaveTextContent('"Broadcast Reminder"')
   })
 })

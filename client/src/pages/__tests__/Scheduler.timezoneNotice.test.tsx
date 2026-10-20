@@ -201,6 +201,8 @@ describe('Scheduler.tsx: the create/edit-task dialog also discloses the effectiv
 
     fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
     const dialog = await screen.findByRole('dialog')
+    // The schedule (and its zone) shows once the task type is chosen.
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Restart' }))
 
     expect(await within(dialog).findByText(/America\/New_York/)).toBeInTheDocument()
   })
@@ -217,7 +219,9 @@ describe('Scheduler.tsx: the create/edit-task dialog also discloses the effectiv
 
     fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
     const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Restart' }))
 
+    expect(within(dialog).getByText(/^Every day at 0?6:00/)).toBeInTheDocument()
     expect(within(dialog).queryByText(/undefined/)).not.toBeInTheDocument()
   })
 })

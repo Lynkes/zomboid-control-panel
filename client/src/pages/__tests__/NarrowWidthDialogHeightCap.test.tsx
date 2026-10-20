@@ -205,6 +205,8 @@ describe('Scheduler -- New Task dialog fits a short mobile viewport', () => {
     fireEvent.click(newTaskButton)
 
     const dialog = await screen.findByRole('dialog')
+    // The form below the task type appears once a type is picked.
+    fireEvent.click(within(dialog).getByRole('radio', { name: 'Restart' }))
     const body = assertPinnedBody(dialog, [/create task/i])
     expect(body.contains(within(dialog).getByText(/task name/i))).toBe(true)
   })

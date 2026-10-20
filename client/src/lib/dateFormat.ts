@@ -143,6 +143,57 @@ function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.Da
   return cached
 }
 
+export interface ZonedDateParts {
+  year: number
+  /** 1-12 */
+  month: number
+  day: number
+  hour: number
+  minute: number
+  /** 0 = Sunday, as in cron */
+  weekday: number
+}
+
+const zonedPartsCache = new Map<string, Intl.DateTimeFormat | null>()
+const WEEKDAY_INDEX: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+
+/**
+ * The wall-clock fields of an instant in an IANA zone (the scheduler's own
+ * zone, which can differ from the browser's). Formats nothing for display:
+ * the numbers feed schedule maths. null for a zone this browser doesn't know.
+ */
+export function zonedDateParts(value: Date | number, timeZone: string): ZonedDateParts | null {
+  let parts = zonedPartsCache.get(timeZone)
+  if (parts === undefined) {
+    try {
+      parts = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        weekday: 'short',
+        hourCycle: 'h23',
+      })
+    } catch {
+      parts = null
+    }
+    zonedPartsCache.set(timeZone, parts)
+  }
+  if (!parts) return null
+  const fields: Record<string, string> = {}
+  for (const part of parts.formatToParts(value)) fields[part.type] = part.value
+  return {
+    year: Number(fields.year),
+    month: Number(fields.month),
+    day: Number(fields.day),
+    hour: Number(fields.hour) % 24,
+    minute: Number(fields.minute),
+    weekday: WEEKDAY_INDEX[fields.weekday] ?? 0,
+  }
+}
+
 function toDate(value: DateInput): Date | null {
   if (value === null || value === undefined || value === '') return null
   const date = value instanceof Date ? value : new Date(value)
