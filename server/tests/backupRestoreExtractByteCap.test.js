@@ -145,6 +145,16 @@ describe("restore extraction counts the bytes it writes", () => {
     expect(bytes).toBe(4 + 3 * MiB + MiB);
   });
 
+  it("does not cap the total when the central directory leaves a size out (0xFFFFFFFF, no zip64 field)", async () => {
+    const file = writeZip("odd-writer.zip", [
+      { path: "servertest/map_meta.bin", data: "meta" },
+      { path: "servertest/map_t.bin", data: zeros(3 * MiB), cdDeclaredSize: 0xffffffff },
+    ]);
+    const { error, bytes } = await extractWithRealLimits(file);
+    expect(error).toBeNull();
+    expect(bytes).toBe(4 + 3 * MiB);
+  });
+
   it("refuses the whole restore with the code and leaves the live world alone", async () => {
     writeZip("uploaded-liar.zip", [
       { path: "servertest/map_meta.bin", data: "meta" },

@@ -2445,14 +2445,21 @@ export class BackupService {
       const archive = await unzip.Open.file(backupPath);
       const sizes = new Map();
       let total = 0;
+      let totalKnown = true;
       for (const file of archive.files) {
-        if (file.type !== "File" || !Number.isFinite(file.uncompressedSize)) continue;
+        if (file.type !== "File") continue;
+        // A size the directory does not give (0xFFFFFFFF with no zip64
+        // field): that entry has no cap of its own, and the total is unknown.
+        if (!Number.isFinite(file.uncompressedSize)) {
+          totalKnown = false;
+          continue;
+        }
         const key = normalizeZipEntryPath(file.path);
         sizes.set(key, Math.max(sizes.get(key) ?? 0, file.uncompressedSize));
         total += file.uncompressedSize;
       }
       declaredSizes = sizes;
-      declaredTotal = total;
+      declaredTotal = totalKnown ? total : null;
     } catch (error) {
       // An unreadable directory is reported by the extraction itself.
       log.debug(`Restore size limits: could not read the archive directory: ${error.message}`);
