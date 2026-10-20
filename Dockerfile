@@ -18,7 +18,11 @@
 # target platform (e.g. arm64 on GitHub's amd64 runners) — Rolldown/lightningcss's
 # native binaries under emulation are dramatically slower and can hang for
 # a very long time instead of the ~30s this takes natively.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+#
+# Base images are pinned by digest (the tag stays for readers and for
+# Dependabot, which proposes digest updates): a re-pushed tag can't change
+# what this builds.
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS builder
 
 WORKDIR /app
 
@@ -44,7 +48,7 @@ ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 RUN cd client && npm run build
 
 # --- Runtime stage ---
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 # The panel supports arm64 for remote-server administration. SteamCMD itself
 # is only usable on amd64, where its 32-bit runtime libraries are installed.

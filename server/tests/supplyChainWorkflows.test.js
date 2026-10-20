@@ -125,6 +125,36 @@ describe("Docker image tags", () => {
   });
 });
 
+describe("Docker base images", () => {
+  const dockerfiles = ["Dockerfile", "docker/all-in-one/Dockerfile", "docker/all-in-one/updater/Dockerfile"];
+
+  it.each(dockerfiles)("%s pins every base image by digest", (file) => {
+    const lines = readRepoFile(file).split("\n").filter((line) => /^FROM\s/i.test(line));
+    expect(lines.length).toBeGreaterThan(0);
+    const stages = new Set();
+    for (const line of lines) {
+      const words = line.split(/\s+/).filter((word) => !word.startsWith("--"));
+      const image = words[1];
+      if (!stages.has(image)) expect(image, line).toMatch(/^[a-z0-9./_-]+:[\w.-]+@sha256:[0-9a-f]{64}$/);
+      const alias = /\bAS\s+(\S+)/i.exec(line)?.[1];
+      if (alias) stages.add(alias);
+    }
+  });
+
+  it.each(dockerfiles)("%s pipes nothing from the network into a shell", (file) => {
+    const text = readRepoFile(file);
+    expect(text).not.toMatch(/\|\s*(ba|da)?sh\b/);
+    expect(text).not.toContain("deb.nodesource.com");
+  });
+
+  it("the all-in-one image takes Node.js from the official image", () => {
+    const text = readRepoFile("docker/all-in-one/Dockerfile");
+    expect(text).toMatch(/^FROM node:22-bookworm-slim@sha256:[0-9a-f]{64} AS node-image$/m);
+    expect(text).toContain("COPY --from=node-image /usr/local/bin/node /usr/local/bin/node");
+    expect(text).toMatch(/node --version/);
+  });
+});
+
 describe("release builds install exactly what the lockfiles pin", () => {
   it.each([
     "Dockerfile",
