@@ -169,6 +169,7 @@ export default function Backups() {
   const canManageBackups = can('backups.manage')
   const canRestoreBackups = can('backups.restore')
   const canDownloadBackups = can('backups.download')
+  const canOpenDiagnostics = can('diagnostics.manage')
 
   // Refs for cleanup
   const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -704,6 +705,11 @@ export default function Backups() {
     // assert the action is unreachable, don't just make the control look
     // disabled (Angela's Console.tsx Enter-key bypass finding).
     if (!canManageBackups) return
+    // One backup at a time: the empty state's Create Backup has no disabled
+    // state, and a double click sent a second POST /create whose refusal
+    // put an error card over the first backup's live progress and ended
+    // its "creating" state while it was still running.
+    if (ownBackupInFlightRef.current || creatingBackup) return
     if (serverChangedSinceLoad) {
       toast({
         title: t('toasts.serverChangedSinceLoadTitle'),
@@ -757,6 +763,20 @@ export default function Backups() {
     } finally {
       setCreatingBackup(false)
       ownBackupInFlightRef.current = false
+    }
+  }
+
+  // downloadBackup() throws on a refused or failed download (403, a backup
+  // gone from disk, another server's backup): say so instead of nothing.
+  const handleDownload = async (name: string) => {
+    try {
+      await backupApi.downloadBackup(name)
+    } catch (error) {
+      toast({
+        title: t('toasts.downloadFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.downloadFailedFallback')),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -1401,6 +1421,9 @@ export default function Backups() {
         description={t('pageHeader.description')}
         status={uploadingBackup ? (
           <StatusPill tone="busy" size="sm" label={t('pageHeader.uploading', { percent: uploadPercent })} />
+        ) : deletingOlder ? (
+          // "Delete older…" runs from the More menu, which is closed by then.
+          <StatusPill tone="busy" size="sm" label={t('pageHeader.deletingOlder')} />
         ) : undefined}
         meta={activeServerId != null && history.length > 0 ? (
           <>
@@ -1561,8 +1584,10 @@ export default function Backups() {
               </div>
             </div>
             <div className="ms-auto flex shrink-0 items-center gap-1">
-              {/* Where the answer is: the restore's entries in the activity log. */}
-              {restoreResult.status === 'unknown' && (
+              {/* Where the answer is: the restore's entries in the activity log.
+                  Diagnostics reads need diagnostics.manage; without it the
+                  text above already says to ask an administrator. */}
+              {restoreResult.status === 'unknown' && canOpenDiagnostics && (
                 <Button variant="outline" size="sm" asChild>
                   <Link to="/debug?tab=activity">{t('restoreResult.openActivity')}</Link>
                 </Button>
@@ -1814,7 +1839,16 @@ export default function Backups() {
           </ul>
         ) : backups.length === 0 ? (
           <div className="p-5">
-            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
+            {/* "Turn on scheduled backups above": that switch is in the
+                Schedule & retention card, closed unless ?panel=schedule, so
+                the second button opens it. */}
+            <EmptyState
+              type="noData"
+              title={t('mainCard.emptyTitle')}
+              description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')}
+              action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined}
+              secondaryAction={canManageBackups && !backupStatus?.enabled && !showSettings ? { label: t('settingsPanel.enabledLabel'), onClick: openSchedule } : undefined}
+            />
           </div>
         ) : (
           <>
@@ -1943,7 +1977,7 @@ export default function Backups() {
                         {
                           label: t('mainCard.downloadTitle'),
                           icon: Download,
-                          onSelect: () => { if (canDownloadBackups) backupApi.downloadBackup(backup.name) },
+                          onSelect: () => { if (canDownloadBackups) void handleDownload(backup.name) },
                           disabled: !canDownloadBackups,
                           reason: !canDownloadBackups ? t('permissions.noDownload') : undefined,
                         },
