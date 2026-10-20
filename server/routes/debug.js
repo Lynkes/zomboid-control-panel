@@ -70,7 +70,8 @@ import {
   getB42TopFormat,
   getB42ResolutionStatus,
 } from "./mapProxy.js";
-import { getThumbnailResolutionStatus } from "./mods.js";
+import { getActiveServerPaths, getSanitizedIniPath, getThumbnailResolutionStatus } from "./mods.js";
+import { scanServerProblems } from "../services/serverProblems.js";
 import {
   getCandidateZomboidPaths,
   inspectZomboidPath,
@@ -6750,6 +6751,45 @@ router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async
       .json({ success: false, error: sanitizeError(error.message) });
   } finally {
     lifecycleLock.release();
+  }
+});
+
+// GET /problems -- "Problems found": the active server's latest game log and
+// the panel's own recent errors, read into deduplicated findings with the
+// fixes the panel can apply (utils/serverErrorFinder.js). Read-only; every
+// fix runs through the route that already does it (mods, servers, server
+// power), under that route's own capability. Sample lines are redacted like
+// a support bundle's logs, plus IP addresses and Steam IDs.
+router.get("/problems", requirePermission("diagnostics.manage"), async (req, res) => {
+  try {
+    const serverManager = req.app.get("serverManager");
+    const [activeServer, paths, knownSecrets, processState] = await Promise.all([
+      getActiveServer().catch(() => null),
+      getActiveServerPaths().catch(() => null),
+      collectBundleKnownSecrets().catch(() => []),
+      getServerProcessState(serverManager).catch(() => ({ running: null })),
+    ]);
+    let iniPath = null;
+    if (paths?.serverConfigPath && paths?.serverName) {
+      try {
+        iniPath = getSanitizedIniPath(paths.serverConfigPath, paths.serverName);
+      } catch {
+        iniPath = null;
+      }
+    }
+    const result = await scanServerProblems({
+      activeServer,
+      zomboidDataPath: paths?.zomboidDataPath ?? null,
+      serverPath: paths?.serverPath ?? null,
+      iniPath,
+      running: typeof processState?.running === "boolean" ? processState.running : null,
+      panelLog: logBuffer,
+      redact: (text) => redactRawLogText(text, knownSecrets),
+    });
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to scan for problems: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
 
