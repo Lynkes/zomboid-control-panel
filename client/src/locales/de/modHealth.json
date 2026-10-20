@@ -1,0 +1,184 @@
+{
+  "title": "Zustandsprüfung",
+  "description": "Was einen Mod am Laden hindert, und die Korrekturen, die das Panel für dich vornehmen kann.",
+  "checkedAt": "Geprüft {{time}}",
+  "recheck": "Erneut prüfen",
+  "loading": "Mod-Liste wird geprüft…",
+  "loadFailed": "Die Zustandsprüfung konnte nicht ausgeführt werden.",
+  "reloadFailed": "Die erneute Prüfung ist fehlgeschlagen; dies ist das letzte Ergebnis.",
+  "retry": "Erneut versuchen",
+  "emptyTitle": "Keine Probleme gefunden",
+  "emptyDesc": "Jeder aktivierte Mod ist installiert, seine Abhängigkeiten sind erfüllt und die Ladereihenfolge hält sich an ihre Regeln.",
+  "noPermission": "Deine Rolle hat keine Berechtigung, Mods zu verwalten.",
+  "showMod": "{{name}} anzeigen",
+  "showItem": "Workshop-Objekt {{name}} anzeigen",
+  "andMore_one": "{{count}} weiterer",
+  "andMore_other": "{{count}} weitere",
+  "issueCount_one": "{{count}} Problem",
+  "issueCount_other": "{{count}} Probleme",
+  "stats": {
+    "critical": "Kritisch",
+    "warning": "Warnungen",
+    "info": "Gut zu wissen"
+  },
+  "severity": {
+    "critical": "Verhindert das Laden von Mods",
+    "warning": "Braucht Aufmerksamkeit",
+    "info": "Gut zu wissen"
+  },
+  "entryIssue": {
+    "emptyEntry": "leer (zwei Kommas hintereinander oder nichts nach require=)",
+    "blankEntry": "nur Leerzeichen",
+    "whitespace": "von Leerzeichen umgeben, die das Spiel nicht entfernt",
+    "semicolon": "mit „;“ statt mit einem Komma getrennt",
+    "unknown": "für das Spiel nicht lesbar"
+  },
+  "reason": {
+    "require": "benötigt",
+    "rule": "feste Reihenfolge",
+    "groupOrder": "Gruppenreihenfolge",
+    "keepTogether": "zusammengehalten",
+    "groupPlacement": "Gruppenplatzierung",
+    "loadAfter": "Ladereihenfolge aus mod.info",
+    "loadBefore": "Ladereihenfolge aus mod.info",
+    "steamRequired": "auf Steam benötigt",
+    "patch": "Patch",
+    "conflictWinner": "Konfliktgewinner",
+    "tier": "Mod-Art",
+    "displaced": "Platz gemacht"
+  },
+  "kind": {
+    "requireLoop": {
+      "title": "Benötigte Mods bilden eine Schleife",
+      "body": "{{mods}} benötigen einander im Kreis. Der Server stürzt beim Laden ab. Entferne einen davon oder bitte den Autor, die mod.info zu korrigieren."
+    },
+    "modInfoBroken": {
+      "title": "Eine fehlerhafte require=-Zeile in der mod.info",
+      "body": "In der mod.info von {{mod}} ist der require=-Eintrag „{{entry}}“ {{problem}}. Das Spiel kann ihn nicht lesen und überspringt {{mod}}.",
+      "affected": "Ebenfalls übersprungen, weil sie ihn benötigen: {{mods}}.",
+      "hint": "Nur der Autor des Mods kann seine mod.info korrigieren. Lass den Mod bis dahin deaktiviert oder entferne ihn."
+    },
+    "requiredNotInstalled": {
+      "title": "Ein benötigter Mod ist nicht installiert",
+      "body": "{{missing}} wird von {{requiredBy}} benötigt, aber kein installiertes Workshop-Objekt liefert ihn. Das Spiel überspringt {{affected}}.",
+      "caseMatch": "Ein installierter Mod heißt {{match}}: Die ID unterscheidet sich nur in Groß- und Kleinschreibung, und das Spiel braucht eine exakte Übereinstimmung.",
+      "b41Only": "{{missing}} gibt es nur als Build-41-Mod (Workshop-Objekt {{item}}), daher lädt er unter Build 42 nie."
+    },
+    "requiredWorkshopItemMissing": {
+      "title": "Ein benötigtes Workshop-Objekt fehlt",
+      "body": "{{target}} steht auf Steam bei {{items}} unter „Benötigte Objekte“, ist aber nicht in WorkshopItems=.",
+      "downloaded": "Es ist auf diesem Server bereits heruntergeladen.",
+      "notDownloaded": "Sobald es hinzugefügt ist, lädt der Server es beim nächsten Start herunter."
+    },
+    "notInstalled": {
+      "title": "Ein Mod in der Liste ist nicht installiert",
+      "body": "{{mod}} steht in Mods=, aber kein Workshop-Objekt in WorkshopItems= liefert ihn, daher überspringt ihn das Spiel.",
+      "foundIn": "Das Workshop-Objekt {{item}}, bereits auf der Festplatte, liefert ihn: Füge dieses Objekt hinzu.",
+      "notDownloaded_one": "{{count}} Workshop-Objekt ist noch nicht heruntergeladen und könnte ihn liefern: Starte den Server einmal, um es herunterzuladen.",
+      "notDownloaded_other": "{{count}} Workshop-Objekte sind noch nicht heruntergeladen und könnten ihn liefern: Starte den Server einmal, um sie herunterzuladen."
+    },
+    "b41Only": {
+      "title": "Ein Build-41-Mod ist in der Liste",
+      "body": "{{mod}} (Workshop-Objekt {{item}}) hat keine Build-42-Version, daher lädt das Spiel ihn auf diesem Server nie."
+    },
+    "incompatibleEnabled": {
+      "title": "Zwei inkompatible Mods sind beide aktiviert",
+      "body": "{{a}} und {{b}} laden beide, aber laut der mod.info von {{declaredBy}} funktionieren sie nicht zusammen. Behalte nur einen davon."
+    },
+    "duplicateModId": {
+      "title": "Zwei Workshop-Objekte liefern dieselbe Mod-ID",
+      "body": "{{mod}} steckt in {{items}}. Welche Kopie das Spiel lädt, ist nicht festgelegt: Entferne das Objekt, das du nicht willst."
+    },
+    "mapNotInMapLine": {
+      "title": "Eine Karte fehlt in Map=",
+      "body": "{{mod}} liefert die Karte {{folders}}, aber Map= führt sie nicht auf, daher erscheint sie nie in der Welt."
+    },
+    "mapFolderWithoutMod": {
+      "title": "Map= nennt eine Karte, die kein aktivierter Mod liefert",
+      "body": "Map= führt {{folder}} auf, aber kein geladener Mod stellt sie bereit.",
+      "shippedBy": "{{items}} enthält sie: Aktiviere den Mod oder nimm den Ordner aus Map= heraus.",
+      "nobody": "Auch kein installiertes Workshop-Objekt enthält sie."
+    },
+    "orderProblems": {
+      "title": "Die Ladereihenfolge verletzt einige ihrer Regeln",
+      "changesLoading_one": "Die intelligente Sortierung würde {{count}} Mod wegen einer Abhängigkeit, einer festen Regel oder einer Gruppe verschieben. Das Spiel lädt ihn nicht so, wie seine Regeln es verlangen.",
+      "changesLoading_other": "Die intelligente Sortierung würde {{count}} Mods wegen einer Abhängigkeit, einer festen Regel oder einer Gruppe verschieben. Das Spiel lädt sie nicht so, wie ihre Regeln es verlangen.",
+      "tidyOnly_one": "Die intelligente Sortierung würde {{count}} Mod wegen seiner Regeln verschieben. Das Spiel lädt ihn bereits richtig, das räumt die Liste also nur auf.",
+      "tidyOnly_other": "Die intelligente Sortierung würde {{count}} Mods wegen ihrer Regeln verschieben. Das Spiel lädt sie bereits richtig, das räumt die Liste also nur auf.",
+      "move": "{{mod}}: von #{{from}} nach #{{to}} ({{reasons}})"
+    },
+    "requiredLoadedImplicitly": {
+      "title": "Ein benötigter Mod fehlt in der Liste",
+      "body": "{{mod}} wird von {{requiredBy}} benötigt, steht aber nicht in Mods=. Das Spiel lädt ihn trotzdem zuerst; wenn du ihn hinzufügst, wird die Reihenfolge sichtbar und bearbeitbar."
+    },
+    "unusedWorkshopItem": {
+      "title": "Ein Workshop-Objekt wird nicht genutzt",
+      "body": "{{item}} steht in WorkshopItems=, aber keiner seiner Mods ({{mods}}) ist aktiviert und keine seiner Karten steht in Map=. Der Server lädt und aktualisiert es trotzdem."
+    },
+    "updatesAvailable": {
+      "title": "Mod-Updates sind verfügbar",
+      "body_one": "{{count}} Workshop-Objekt hat ein Update. Starte den Server neu, um es zu installieren; Spieler erhalten es beim Beitreten.",
+      "body_other": "{{count}} Workshop-Objekte haben Updates. Starte den Server neu, um sie zu installieren; Spieler erhalten sie beim Beitreten."
+    }
+  },
+  "fix": {
+    "removeMods": "{{mods}} aus der Mod-Liste entfernen",
+    "addMods": "{{mods}} zur Mod-Liste hinzufügen",
+    "addWorkshopItems_one": "Workshop-Objekt {{items}} hinzufügen",
+    "addWorkshopItems_other": "Workshop-Objekte {{items}} hinzufügen",
+    "addWorkshopItemsAndMods_one": "Workshop-Objekt {{items}} hinzufügen und {{mods}} aktivieren",
+    "addWorkshopItemsAndMods_other": "Workshop-Objekte {{items}} hinzufügen und {{mods}} aktivieren",
+    "removeWorkshopItems_one": "Workshop-Objekt {{items}} entfernen",
+    "removeWorkshopItems_other": "Workshop-Objekte {{items}} entfernen",
+    "addMapFolders": "{{folders}} zu Map= hinzufügen",
+    "removeMapFolders": "{{folders}} aus Map= entfernen",
+    "applyPlan": "Vorgeschlagene Ladereihenfolge übernehmen"
+  },
+  "confirm": {
+    "title": "Bist du dir absolut sicher?",
+    "removeMods": "Diese Mods werden in der Server-INI aus Mods= genommen. Ihre Workshop-Objekte bleiben installiert, und vorher wird eine Sicherung der INI angelegt.",
+    "removeWorkshopItems": "Diese Workshop-Objekte werden aus WorkshopItems= genommen: Der Server lädt und aktualisiert sie nicht mehr. Vorher wird eine Sicherung der INI angelegt.",
+    "removeMapFolders": "Diese Kartenordner werden in der Server-INI aus Map= genommen. Vorher wird eine Sicherung der INI angelegt.",
+    "remove": "Entfernen"
+  },
+  "fixAll": {
+    "button": "Alle sicheren Probleme beheben",
+    "noneReason": "Keines dieser Probleme hat eine Korrektur, die nur etwas zur Mod-Liste hinzufügt.",
+    "confirmTitle_one": "{{count}} sichere Korrektur anwenden?",
+    "confirmTitle_other": "{{count}} sichere Korrekturen anwenden?",
+    "confirmDesc": "Diese Korrekturen fügen der Server-INI nur etwas hinzu oder übernehmen die vorgeschlagene Ladereihenfolge: Nichts wird entfernt. Sie laufen nacheinander und halten beim ersten Fehler an.",
+    "confirmLabel": "Korrekturen anwenden",
+    "progress": "Korrektur {{current}} von {{total}}: {{label}}",
+    "doneTitle": "Sichere Korrekturen angewendet",
+    "doneDesc_one": "{{count}} Korrektur angewendet.",
+    "doneDesc_other": "{{count}} Korrekturen angewendet.",
+    "skipped_one": "{{count}} Problem war bereits behoben.",
+    "skipped_other": "{{count}} Probleme waren bereits behoben.",
+    "stoppedTitle": "Bei einer fehlgeschlagenen Korrektur angehalten",
+    "stoppedDesc": "„{{label}}“: {{message}}"
+  },
+  "toast": {
+    "fixedTitle": "Mod-Liste aktualisiert",
+    "unchangedTitle": "Nichts musste geändert werden",
+    "unchangedDesc": "Die Server-INI entsprach dieser Korrektur bereits.",
+    "failedTitle": "Die Korrektur konnte nicht angewendet werden",
+    "failedFallback": "Der Server hat die Korrektur nicht angewendet.",
+    "goneTitle": "Dieses Problem hat sich geändert",
+    "goneDesc": "Die Mod-Liste wurde erneut geprüft."
+  },
+  "summary": {
+    "critical_one": "{{count}} Problem verhindert das Laden von Mods",
+    "critical_other": "{{count}} Probleme verhindern das Laden von Mods",
+    "warning_one": "{{count}} Warnung",
+    "warning_other": "{{count}} Warnungen",
+    "warningOnly_one": "{{count}} Problem braucht Aufmerksamkeit",
+    "warningOnly_other": "{{count}} Probleme brauchen Aufmerksamkeit",
+    "review": "Ansehen",
+    "reviewAria": "Ansehen: Zustandsprüfung der Mods"
+  },
+  "dashboard": {
+    "label": "Mod-Zustand",
+    "critical_one": "{{count}} kritisches Problem",
+    "critical_other": "{{count}} kritische Probleme"
+  }
+}
