@@ -2,9 +2,31 @@ import fs from "fs";
 import path from "path";
 import { createReadStream, createWriteStream } from "fs";
 import { randomUUID } from "crypto";
+import { Transform } from "stream";
 import { createLogger } from "../utils/logger.js";
+import { ErrorCode } from "../utils/errorCodes.js";
+import { insufficientSpaceError } from "./backupDiskSpace.js";
 
 const log = createLogger("Backup");
+
+// How far past its recorded size an entry, and past the central directory's
+// sum the whole extraction, may grow before the archive counts as damaged or
+// forged (a real archive inflates to exactly what it records).
+const ENTRY_SIZE_SLACK_BYTES = 64 * 1024;
+const TOTAL_SIZE_SLACK_BYTES = 1024 * 1024;
+// What the extraction leaves free on the staging volume: 128 MB, or a tenth
+// of the free space on a nearly full disk (where the pre-restore space check
+// already approved the restore; it stays close to that figure).
+const FREE_SPACE_MARGIN_BYTES = 128 * 1024 * 1024;
+const FREE_SPACE_MARGIN_FRACTION = 10;
+
+function sizeMismatchError() {
+  const error = new Error(
+    "The backup archive holds more data than it records (damaged or forged) -- extraction stopped. Live save left untouched.",
+  );
+  error.errorCode = ErrorCode.BACKUP_ARCHIVE_SIZE_MISMATCH;
+  return error;
+}
 
 // What a restore extracts into before it swaps the world in: a sibling of the
 // world folders in Saves/Multiplayer, named .restore-staging-<uuid> (<ms>-<pid>
@@ -129,10 +151,43 @@ export function normalizeZipEntryPath(entryPath) {
  * caller removed the staging folder, then the rest of the archive re-created it
  * and was written out, 243 MB in one probe, with nothing to sweep it.)
  *
+ * The bytes written are counted, per entry and in total, because the sizes an
+ * archive records are whatever it says (a few KB of upload can inflate to
+ * GBs): an entry that grows past the size its local header or the central
+ * directory records (plus a little slack) stops the extraction as a damaged
+ * archive, and so does a total past the central directory's sum; the total
+ * also stops short of the free space measured before the extraction, minus a
+ * margin, so the extraction never fills the disk.
+ *
  * @param {object} unzip the `unzipper` module
+ * @param {{ declaredSizes?: Map<string, number>|null, declaredTotal?: number|null, freeBytes?: number|null }} [limits]
+ *   declaredSizes: the central directory's uncompressed size per entry
+ *   (keyed by normalizeZipEntryPath()), declaredTotal its sum over files,
+ *   freeBytes the free space on the staging volume; null/absent = unknown.
  */
-export function extractArchiveToStaging(unzip, backupPath, stagingPath) {
+export function extractArchiveToStaging(unzip, backupPath, stagingPath, limits = {}) {
   const resolvedParent = path.resolve(stagingPath) + path.sep;
+  const declaredSizes = limits.declaredSizes instanceof Map ? limits.declaredSizes : null;
+  const declaredTotal = Number.isFinite(limits.declaredTotal) ? limits.declaredTotal : null;
+  const freeBytes = Number.isFinite(limits.freeBytes) ? limits.freeBytes : null;
+  const declaredCap = declaredTotal !== null ? declaredTotal + TOTAL_SIZE_SLACK_BYTES : null;
+  const freeMargin =
+    freeBytes !== null ? Math.min(FREE_SPACE_MARGIN_BYTES, Math.floor(freeBytes / FREE_SPACE_MARGIN_FRACTION)) : 0;
+  const freeCap = freeBytes !== null ? Math.max(0, freeBytes - freeMargin) : null;
+  let written = 0;
+
+  // The size this entry may reach: the smaller of the local header's figure
+  // (when the header has one: not with a data descriptor) and the central
+  // directory's, plus slack. null when neither records one.
+  const entryCapOf = (entry, entryName) => {
+    const recorded = [];
+    const vars = entry.vars;
+    if (vars && (!(vars.flags & 0x08) || vars.compressedSize > 0) && Number.isFinite(vars.uncompressedSize)) {
+      recorded.push(vars.uncompressedSize);
+    }
+    if (declaredSizes?.has(entryName)) recorded.push(declaredSizes.get(entryName));
+    return recorded.length ? Math.min(...recorded) + ENTRY_SIZE_SLACK_BYTES : null;
+  };
 
   return new Promise((resolve, reject) => {
     let failure = null;
@@ -195,7 +250,8 @@ export function extractArchiveToStaging(unzip, backupPath, stagingPath) {
           return;
         }
         try {
-          const entryPath = path.join(stagingPath, normalizeZipEntryPath(entry.path));
+          const entryName = normalizeZipEntryPath(entry.path);
+          const entryPath = path.join(stagingPath, entryName);
           const resolvedEntry = path.resolve(entryPath);
 
           // Block zip-slip: entry must resolve inside the target directory
@@ -224,7 +280,7 @@ export function extractArchiveToStaging(unzip, backupPath, stagingPath) {
             // reports 'close', which is what the count below waits for.
             writeStream.on("error", (err) => {
               try {
-                entry.unpipe(writeStream);
+                entry.unpipe();
               } catch {
                 /* ignore */
               }
@@ -236,8 +292,34 @@ export function extractArchiveToStaging(unzip, backupPath, stagingPath) {
               pendingWrites--;
               settleIfComplete();
             });
+            const entryCap = entryCapOf(entry, entryName);
+            let entryBytes = 0;
+            const counter = new Transform({
+              transform(chunk, _encoding, callback) {
+                entryBytes += chunk.length;
+                written += chunk.length;
+                if ((entryCap !== null && entryBytes > entryCap) || (declaredCap !== null && written > declaredCap)) {
+                  log.error(`Restore stopped: ${JSON.stringify(entry.path)} holds more data than the archive records`);
+                  callback(sizeMismatchError());
+                } else if (freeCap !== null && written > freeCap) {
+                  log.error(`Restore stopped: the extraction would leave less than ${freeMargin} bytes free`);
+                  callback(insufficientSpaceError(Math.max(declaredTotal ?? 0, written), freeBytes));
+                } else {
+                  callback(null, chunk);
+                }
+              },
+            });
+            counter.on("error", (err) => {
+              try {
+                entry.unpipe();
+              } catch {
+                /* ignore */
+              }
+              drain(entry);
+              abort(err);
+            });
             entry.on("error", abort);
-            entry.pipe(writeStream);
+            entry.pipe(counter).pipe(writeStream);
           }
         } catch (err) {
           drain(entry);

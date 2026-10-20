@@ -2283,7 +2283,9 @@ export class BackupService {
       log.info("Extracting backup to staging area...");
       emitProgress("extracting", 45, "Extracting backup...");
       const unzip = await getUnzipper();
-      await extractArchiveToStaging(unzip, backupPath, stagingPath);
+      // Measured now, after the safety backup took its share of the disk.
+      const limits = await this._restoreExtractionLimits(unzip, backupPath, savesParentPath);
+      await extractArchiveToStaging(unzip, backupPath, stagingPath, limits);
 
       // Extraction succeeding only proves the archive was PARSEABLE -- the
       // unzipper streaming Parse() this whole block uses reads and discards
@@ -2427,6 +2429,37 @@ export class BackupService {
         }
       }
     }
+  }
+
+  // What the extraction may write (extractArchiveToStaging()'s `limits`): the
+  // central directory's size per entry and in total, and the free space on
+  // the saves volume. Unknown parts are null and only lift that one cap.
+  async _restoreExtractionLimits(unzip, backupPath, savesParentPath) {
+    let declaredSizes = null;
+    let declaredTotal = null;
+    try {
+      const archive = await unzip.Open.file(backupPath);
+      const sizes = new Map();
+      let total = 0;
+      for (const file of archive.files) {
+        if (file.type !== "File" || !Number.isFinite(file.uncompressedSize)) continue;
+        const key = normalizeZipEntryPath(file.path);
+        sizes.set(key, Math.max(sizes.get(key) ?? 0, file.uncompressedSize));
+        total += file.uncompressedSize;
+      }
+      declaredSizes = sizes;
+      declaredTotal = total;
+    } catch (error) {
+      // An unreadable directory is reported by the extraction itself.
+      log.debug(`Restore size limits: could not read the archive directory: ${error.message}`);
+    }
+    let freeBytes = null;
+    try {
+      freeBytes = await freeBytesAt(savesParentPath);
+    } catch (error) {
+      log.debug(`Restore size limits: could not read free space: ${error.message}`);
+    }
+    return { declaredSizes, declaredTotal, freeBytes };
   }
 
   // Recomputes each extracted file's CRC32 and compares it against the value

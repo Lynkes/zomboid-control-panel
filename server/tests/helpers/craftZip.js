@@ -10,6 +10,8 @@ import zlib from "zlib";
 //     central directory (default: the real size)
 //   - cdDeclaredSize: overrides the central directory's figure only
 //   - inCentralDirectory: false leaves the entry out of the central directory
+//   - dataDescriptor: true writes the local header without sizes (flag bit 3)
+//     and a data descriptor after the data, as streaming zip writers do
 export function craftZip(entries) {
   const locals = [];
   const centrals = [];
@@ -25,26 +27,35 @@ export function craftZip(entries) {
     const declared = entry.declaredSize ?? data.length;
     const cdDeclared = entry.cdDeclaredSize ?? declared;
 
+    const descriptor = Boolean(entry.dataDescriptor) && !isDir;
+    const flags = 0x0800 | (descriptor ? 0x08 : 0); // UTF-8 names
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(0x0800, 6); // UTF-8 names
+    local.writeUInt16LE(flags, 6);
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(0, 10);
     local.writeUInt16LE(0x21, 12); // 1980-01-01
-    local.writeUInt32LE(crc, 14);
-    local.writeUInt32LE(body.length, 18);
-    local.writeUInt32LE(declared, 22);
+    local.writeUInt32LE(descriptor ? 0 : crc, 14);
+    local.writeUInt32LE(descriptor ? 0 : body.length, 18);
+    local.writeUInt32LE(descriptor ? 0 : declared, 22);
     local.writeUInt16LE(name.length, 26);
     local.writeUInt16LE(0, 28);
-    locals.push(local, name, body);
+    const trailer = Buffer.alloc(descriptor ? 16 : 0);
+    if (descriptor) {
+      trailer.writeUInt32LE(0x08074b50, 0);
+      trailer.writeUInt32LE(crc, 4);
+      trailer.writeUInt32LE(body.length, 8);
+      trailer.writeUInt32LE(declared, 12);
+    }
+    locals.push(local, name, body, trailer);
 
     if (entry.inCentralDirectory !== false) {
       const central = Buffer.alloc(46);
       central.writeUInt32LE(0x02014b50, 0);
       central.writeUInt16LE(20, 4);
       central.writeUInt16LE(20, 6);
-      central.writeUInt16LE(0x0800, 8);
+      central.writeUInt16LE(flags, 8);
       central.writeUInt16LE(method, 10);
       central.writeUInt16LE(0, 12);
       central.writeUInt16LE(0x21, 14);
@@ -61,7 +72,7 @@ export function craftZip(entries) {
       centrals.push(central, name);
       count++;
     }
-    offset += local.length + name.length + body.length;
+    offset += local.length + name.length + body.length + trailer.length;
   }
   const cd = Buffer.concat(centrals);
   const end = Buffer.alloc(22);

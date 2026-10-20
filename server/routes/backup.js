@@ -32,6 +32,8 @@ import {
   UPLOAD_TOO_LARGE_CODE,
   UPLOAD_BAD_SIGNATURE_CODE,
 } from "../utils/uploadStream.js";
+import { freeBytesAt, insufficientSpaceError } from "../services/backupDiskSpace.js";
+import { FM_LIMITS } from "../services/fileManagerContract.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
@@ -795,6 +797,17 @@ router.post(
     // receiving the body -- see its own comment for why the signature
     // check can't just look at the first `data` event.
     let tmpPath = null;
+    // What the free space allows the body to reach; Infinity when unknown.
+    let spaceCap = Infinity;
+    let freeAtStart = null;
+    const insufficientSpace = (needed) => {
+      const error = insufficientSpaceError(needed, freeAtStart);
+      return res.status(507).json({
+        error: error.message,
+        code: error.errorCode,
+        params: sanitizeErrorParams(error.errorParams),
+      });
+    };
     try {
       const activeServer = await getActiveServer();
       if (activeServer?.isRemote) {
@@ -875,8 +888,23 @@ router.post(
       // world backup, which is a much larger collision window than the
       // millisecond one this codebase already knows to guard timestamped
       // filenames against.
+      // The backups folder sits on the volume the live world saves to: keep
+      // the File Manager's free-space floor, refusing up front when the
+      // announced size would cut into it and stopping the stream when a body
+      // without (or with a wrong) Content-Length gets there.
+      freeAtStart = await freeBytesAt(backupsPath).catch(() => null);
+      if (freeAtStart !== null) {
+        const announced = Number(req.headers["content-length"]);
+        const incoming = Number.isFinite(announced) && announced > 0 ? announced : 0;
+        if (freeAtStart - incoming < FM_LIMITS.DISK_FREE_FLOOR_BYTES) {
+          log.warn(`POST /upload refused: ${incoming} bytes announced, ${freeAtStart} bytes free`);
+          return insufficientSpace(incoming + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
+        }
+        spaceCap = freeAtStart - FM_LIMITS.DISK_FREE_FLOOR_BYTES;
+      }
+
       tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-      const totalBytes = await streamUploadToFile(req, tmpPath, MAX_UPLOAD_BYTES);
+      const totalBytes = await streamUploadToFile(req, tmpPath, Math.min(MAX_UPLOAD_BYTES, spaceCap));
 
       if (totalBytes === 0) {
         // An empty body isn't a signature or size violation to
@@ -945,6 +973,10 @@ router.post(
             error: "File does not look like a valid .zip archive.",
             code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE,
           });
+      }
+      if (error.code === UPLOAD_TOO_LARGE_CODE && spaceCap < MAX_UPLOAD_BYTES) {
+        log.warn("POST /upload stopped: the body reached the disk's free-space floor");
+        return insufficientSpace(spaceCap + 1 + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
       }
       if (error.code === UPLOAD_TOO_LARGE_CODE) {
         return res

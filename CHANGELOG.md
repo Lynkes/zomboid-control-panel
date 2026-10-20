@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Diagnostics log downloads:** only the listed .log files can be downloaded, and the logs folder can no longer be set to the data or program folder (it exposed the panel's secrets to diagnostics roles).
 - **Backup "View snapshot":** a snapshot larger than 1 MB is refused instead of being inflated into memory (a small uploaded zip could take hundreds of MB).
+- **Backup restore and upload disk use:** a restore stops when an archive inflates past the sizes it records or would nearly fill the disk, and an upload is refused when it would leave less than 1 GB free.
 
 ## [1.4.17] - 2026-10-18
 

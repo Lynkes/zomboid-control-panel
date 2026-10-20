@@ -528,6 +528,11 @@ export const ErrorCode = Object.freeze({
    * archive's panel-server-snapshot.json inflates past the 1 MiB read cap
    * (counted on the real bytes, not the size the zip records). */
   BACKUP_SNAPSHOT_TOO_LARGE: "BACKUP_SNAPSHOT_TOO_LARGE",
+  /** server/services/backupRestoreExtract.js -- POST /api/backup/restore/:name
+   * (and the restore's result/status): an entry, or the whole archive,
+   * inflated past the size the archive records, so the extraction stopped
+   * and the live world was left alone. */
+  BACKUP_ARCHIVE_SIZE_MISMATCH: "BACKUP_ARCHIVE_SIZE_MISMATCH",
   /** server/services/backupService.js -- POST /api/backup/create (and the
    * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
    * missing and no other folder can safely be taken for it. */
