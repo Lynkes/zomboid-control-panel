@@ -86,7 +86,10 @@ describe('Map Cleanup header and alerts', () => {
     expect(header.querySelector('.lucide-map')).toBeNull()
 
     const caution = screen.getByText(/Deleting chunks resets those areas/)
-    expect(caution.closest('[role="status"]')).not.toBeNull()
+    const alert = caution.closest('[role="status"]')
+    expect(alert).not.toBeNull()
+    // A short title states the stakes; the long sentence is the description.
+    expect(within(alert as HTMLElement).getByText("Deleting chunks can't be undone")).toBeInTheDocument()
 
     const help = within(header).getByRole('button', { name: 'Show help' })
     expect(help).toHaveAttribute('aria-expanded', 'false')

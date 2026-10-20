@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "區塊重設",
     "description": "重設受損或過度搜刮的地圖區域，使世界能夠重新乾淨地生成",
+    "warningTitle": "刪除區塊無法復原",
     "warning": "刪除區塊會重設這些區域——建築、戰利品和殭屍都將遺失。請先停止伺服器，並保持備份功能啟用。"
   },
   "activePathDefaultLabel": "當前伺服器資料路徑",

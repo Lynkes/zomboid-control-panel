@@ -86,6 +86,11 @@ describe('Leaderboard column sorting', () => {
 
     fireEvent.click(within(table).getByRole('button', { name: /survivor/i }))
     expect(bodyNames(table)).toEqual(['Alice', 'Bob', 'Cara'])
+
+    // Text columns head their left-aligned cells from the start, not centred
+    // (a <th> centres by default); the sort labels never break in two.
+    expect(within(table).getByRole('columnheader', { name: /survivor/i })).toHaveClass('text-start')
+    expect(within(table).getByRole('button', { name: /survivor/i })).toHaveClass('whitespace-nowrap')
   })
 
   it('keeps rows without a favourite weapon last in both directions', async () => {

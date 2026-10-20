@@ -1712,7 +1712,9 @@ export default function Players() {
 
       <StatStrip items={statItems} />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      {/* From xl the lists get a fixed 25rem, wide enough for the five
+          list tabs on one row; between lg and xl a third of the width. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 xl:grid-cols-[25rem_minmax(0,1fr)]">
         {/* The lists: who is online, who has been seen before, the SteamID
             bans, the whitelist and the server's activity log. */}
         <SectionCard title={t('roster.headerLabel')} density="compact" className="lg:col-span-1">
@@ -2184,12 +2186,15 @@ export default function Players() {
 
         {/* The selected player: who they are, Kick and Ban next to the name,
             then their tools. Nothing selected: one prompt, no empty tabs. */}
-        <div ref={playerCardRef} className="scroll-mt-20 lg:col-span-2">
+        <div ref={playerCardRef} className="scroll-mt-20 lg:col-span-2 xl:col-span-1">
           {!selectedPlayer ? (
             <div className="rounded-xl border border-dashed border-border/60 bg-card">
+              {/* Not type="noPlayers": its "No players online" label would
+                  contradict the roster right beside it. */}
               <EmptyState
                 compact
-                type="noPlayers"
+                type="noData"
+                icon={<Users className="h-10 w-10 text-muted-foreground/40" />}
                 title={t('dossier.noTargetTitle')}
                 description={t('dossier.noTargetDesc')}
               />

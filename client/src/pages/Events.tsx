@@ -1031,6 +1031,24 @@ const TARGETED_SECTIONS: EventSectionKey[] = ['quickSounds', 'targetedSounds', '
 // 10 s bridge poll after the last edit.
 const CLOCK_EDIT_HOLD_MS = 120_000
 
+const LG_QUERY = '(min-width: 1024px)'
+
+/** True at Tailwind's `lg` and up, where the section rail shows. jsdom (no matchMedia) counts as lg. */
+function useIsLg(): boolean {
+  const [isLg, setIsLg] = useState(() =>
+    typeof window === 'undefined' || typeof window.matchMedia !== 'function' ? true : window.matchMedia(LG_QUERY).matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia(LG_QUERY)
+    const update = () => setIsLg(mq.matches)
+    update()
+    mq.addEventListener?.('change', update)
+    return () => mq.removeEventListener?.('change', update)
+  }, [])
+  return isLg
+}
+
 // getClimateFloats() reports the real, server-authoritative min/max for each
 // ClimateFloat (PanelBridge.lua handlers.getClimateFloats -> cf:getMin()/cf:getMax()).
 // Binding the sliders to a hardcoded 0-100 (or -30..45 for temperature) instead of this
@@ -1297,10 +1315,13 @@ export default function Events() {
   const [announcementDirty, setAnnouncementDirty] = useState(false)
   const [bridgeFormDirty, setBridgeFormDirty] = useState(false)
   useUnsavedChangesGuard(clockPending || announcementDirty || bridgeFormDirty)
-  // Below `lg` the rail becomes a select with Recent actions under it, so
-  // the section you just picked sits below them. Jumping the content into
-  // view on selection is scoped to exactly that narrow case (2026-08-31
-  // quality pass, operator-approved).
+  // Recent actions sit under the rail from `lg` up and after the section
+  // below it, so on a phone the select leads straight into the controls.
+  const isLg = useIsLg()
+  // Below `lg` the rail becomes a select, so the section you just picked can
+  // sit below the fold. Jumping the content into view on selection is
+  // scoped to exactly that narrow case (2026-08-31 quality pass,
+  // operator-approved).
   const contentRef = useRef<HTMLDivElement>(null)
   const jumpToContentOnMobile = () => {
     // jsdom (every existing test on this page) has no matchMedia at all,
@@ -2410,6 +2431,27 @@ export default function Events() {
       }]
     : []
 
+  const recentActions = (
+    <div>
+      <p className="label-micro px-2.5 pb-1.5">{t('sidebar.recentActions')}</p>
+      {activity.length > 0 ? (
+        <ul className="space-y-px">
+          {activity.map((entry) => (
+            <li key={entry.key} className="flex items-start gap-2 px-2.5 py-1.5">
+              {entry.ok
+                ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
+                : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />}
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">{entry.label}</span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDateTime(entry.at, { style: 'medium', seconds: true })}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-2.5 text-xs text-muted-foreground">{t('sidebar.noRecentActions')}</p>
+      )}
+    </div>
+  )
+
   // Who the player-targeted sections (sounds, horde, teleport) act on.
   const targetPicker = TARGETED_SECTIONS.includes(activeSection) ? (
     <div className="flex flex-wrap items-center gap-2">
@@ -2518,26 +2560,7 @@ export default function Events() {
                 jumpToContentOnMobile()
               }}
               ariaLabel={t('sidebar.sectionsAria')}
-              footer={
-                <div>
-                  <p className="label-micro px-2.5 pb-1.5">{t('sidebar.recentActions')}</p>
-                  {activity.length > 0 ? (
-                    <ul className="space-y-px">
-                      {activity.map((entry) => (
-                        <li key={entry.key} className="flex items-start gap-2 px-2.5 py-1.5">
-                          {entry.ok
-                            ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
-                            : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />}
-                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{entry.label}</span>
-                          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDateTime(entry.at, { style: 'medium', seconds: true })}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="px-2.5 text-xs text-muted-foreground">{t('sidebar.noRecentActions')}</p>
-                  )}
-                </div>
-              }
+              footer={isLg ? recentActions : undefined}
             />
           </div>
         }
@@ -3976,6 +3999,7 @@ export default function Events() {
           </EventPanel>
         )}
         </div>
+        {!isLg && <div className="border-t border-border/50 pt-3">{recentActions}</div>}
       </SubNavLayout>
     </div>
   )

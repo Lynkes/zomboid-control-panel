@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Netwayaj Kat la",
     "description": "Reyinisyalize zòn kat domaje oswa twò piyaje pou mond lan ka regenere san pwoblèm",
+    "warningTitle": "Ou pa ka defèt efase chunk yo",
     "warning": "Efase chunk yo reyinisyalize zòn sa yo — konstriksyon, piyaj, ak zonbi ap pèdi. Sispann sèvè a anvan, epi kenbe kopi sovgad yo aktive."
   },
   "activePathDefaultLabel": "Chemen done sèvè aktif la",

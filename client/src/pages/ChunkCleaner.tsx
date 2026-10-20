@@ -2384,7 +2384,9 @@ export default function ChunkCleaner() {
         />
 
         {!permissionDenied && (
-          <PageAlerts alerts={[{ id: "chunk-delete-warning", tone: "warning", title: t("pageHeader.warning") }]} />
+          <PageAlerts
+            alerts={[{ id: "chunk-delete-warning", tone: "warning", title: t("pageHeader.warningTitle"), description: t("pageHeader.warning") }]}
+          />
         )}
 
         <div

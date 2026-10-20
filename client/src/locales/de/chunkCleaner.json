@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Kartenbereinigung",
     "description": "Beschädigte oder übermäßig geplünderte Kartenbereiche unwiderruflich löschen, damit sich die Welt sauber neu generieren kann.",
+    "warningTitle": "Das Löschen von Chunks lässt sich nicht rückgängig machen",
     "warning": "Das Löschen von Chunks entfernt diese Bereiche unwiderruflich — Bauten, Loot und Zombies gehen dabei verloren. Stoppe zuerst den Server und lass Backups aktiviert."
   },
   "activePathDefaultLabel": "Aktiver Datenpfad des Servers",

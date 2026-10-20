@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Nettoyage de la carte",
     "description": "Réinitialisez les zones de la carte endommagées ou trop pillées pour que le monde puisse se régénérer proprement",
+    "warningTitle": "La suppression de chunks est irréversible",
     "warning": "Supprimer des chunks réinitialise ces zones — constructions, butin et zombies seront perdus. Arrêtez d'abord le serveur et gardez les sauvegardes activées."
   },
   "activePathDefaultLabel": "Chemin de données du serveur actif",

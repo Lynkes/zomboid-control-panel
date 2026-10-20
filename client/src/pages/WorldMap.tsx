@@ -3355,8 +3355,11 @@ export default function WorldMap() {
   // Fills the viewport under the shell: 6rem below lg (the 4rem top bar plus
   // the container's p-4), 4rem from lg (its p-8). A banner above the page
   // just scrolls it a little; min-h keeps the map usable on short windows.
+  // Below lg the page may grow past the screen instead: on a phone the
+  // header and an alert would otherwise leave the map shorter than its own
+  // control column.
   return (
-    <div className="page-transition flex h-[calc(100dvh-6rem)] min-h-[34rem] flex-col gap-4 lg:h-[calc(100dvh-4rem)]">
+    <div className="page-transition flex min-h-[calc(100dvh-6rem)] flex-col gap-4 lg:h-[calc(100dvh-4rem)] lg:min-h-[34rem]">
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
@@ -3381,7 +3384,7 @@ export default function WorldMap() {
       <PageAlerts alerts={pageAlerts} />
 
       {/* The map takes whatever height the header and alerts leave. */}
-      <div ref={mapWrapperRef} className="relative min-h-[22rem] flex-1 overflow-hidden rounded-xl border border-border/60 bg-background">
+      <div ref={mapWrapperRef} className="relative min-h-[30rem] flex-1 overflow-hidden rounded-xl border border-border/60 bg-background lg:min-h-[22rem]">
         {/* Below md: one button each for place search and the roster, top end. */}
         <div className="absolute top-3 end-3 z-20 flex items-center gap-2 md:hidden">
           <Button

@@ -345,7 +345,7 @@ export default function Leaderboard() {
           type="button"
           onClick={() => toggleSort(column)}
           className={cn(
-            'inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
+            'inline-flex items-center gap-1 whitespace-nowrap rounded-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
             active && 'text-foreground',
           )}
         >
@@ -512,12 +512,12 @@ export default function Leaderboard() {
                   <thead>
                     <tr className="border-b border-border/40 text-start text-xs font-medium text-muted-foreground">
                       {sortHeader('rank', <><span aria-hidden="true">#</span><span className="sr-only">{t('table.rank')}</span></>, 'w-16 px-3 py-3 text-center sm:px-4')}
-                      {sortHeader('player', t('table.player'), 'px-3 py-3 sm:px-5')}
+                      {sortHeader('player', t('table.player'), 'px-3 py-3 text-start sm:px-5')}
                       {sortHeader('bestDays', t('table.days'), 'px-3 py-3 text-end sm:px-4')}
                       {sortHeader('currentKills', t('table.currentKills'), 'px-3 py-3 text-end sm:px-4')}
                       {sortHeader('allTimeKills', t('table.allTimeKills'), 'px-3 py-3 text-end sm:px-4')}
                       {sortHeader('deaths', t('table.deaths'), 'px-3 py-3 text-end sm:px-4')}
-                      {sortHeader('favoriteWeapon', t('table.weapon'), 'px-3 py-3 sm:px-5')}
+                      {sortHeader('favoriteWeapon', t('table.weapon'), 'px-3 py-3 text-start sm:px-5')}
                     </tr>
                   </thead>
                   <tbody>

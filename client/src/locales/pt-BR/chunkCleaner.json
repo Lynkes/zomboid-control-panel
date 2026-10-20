@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Limpeza do mapa",
     "description": "Redefina áreas do mapa danificadas ou saqueadas demais para que o mundo se regenere do zero",
+    "warningTitle": "Excluir chunks não pode ser desfeito",
     "warning": "Excluir chunks redefine essas áreas — construções, saque e zumbis serão perdidos. Pare o servidor primeiro e mantenha os backups ativados."
   },
   "activePathDefaultLabel": "Caminho de dados do servidor ativo",

@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "地图清理",
     "description": "重置受损或过度搜刮的地图区域，使世界能够重新干净地生成",
+    "warningTitle": "删除区块无法撤销",
     "warning": "删除区块会重置这些区域——建筑、战利品和丧尸都将丢失。请先停止服务器，并保持备份功能启用。"
   },
   "activePathDefaultLabel": "当前服务器数据路径",

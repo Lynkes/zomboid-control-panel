@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Map Cleanup",
     "description": "Reset damaged or over-looted map areas so the world can regenerate cleanly",
+    "warningTitle": "Deleting chunks can't be undone",
     "warning": "Deleting chunks resets those areas — constructions, loot, and zombies will be lost. Stop the server first and keep backups enabled."
   },
   "activePathDefaultLabel": "Active server data path",

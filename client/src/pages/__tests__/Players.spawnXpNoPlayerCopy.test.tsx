@@ -118,6 +118,8 @@ describe('Players.tsx: no player selected shows one prompt, not empty tool tabs'
     expect(screen.queryByRole('tab', { name: 'Character' })).not.toBeInTheDocument()
 
     await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument(), { timeout: 3000 })
+    // The prompt isn't labelled "No players online" while the roster beside it lists one.
+    expect(screen.queryByText('No Players Online')).not.toBeInTheDocument()
     fireEvent.click(screen.getByText('TestPlayer'))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'TestPlayer' })).toBeInTheDocument(), { timeout: 3000 })
     expect(screen.queryByText(en.dossier.noTargetTitle)).not.toBeInTheDocument()
