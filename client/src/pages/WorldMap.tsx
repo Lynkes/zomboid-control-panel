@@ -78,6 +78,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 import { cn, copyText } from '@/lib/utils'
@@ -688,6 +689,7 @@ export default function WorldMap() {
   const canGmTools = can('players.gm_tools')
   // GET /map/vehicles (vehicles parked in the save) is players.view's.
   const canViewPlayers = can('players.view')
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
@@ -1612,10 +1614,12 @@ export default function WorldMap() {
     const requestId = bridgeStatusGuard.next()
     setBridgeLoading(true)
     try {
-      const res = await panelBridgeApi.getStatus()
+      // A Moderator can't read GET /panel-bridge/status; readBridgeLiveness()
+      // then asks the status every role may read (no mod version in it).
+      const live = await readBridgeLiveness(canReadBridgeStatus)
       if (bridgeStatusGuard.isStale(requestId)) return
-      setBridgeConnected(res.modConnected === true)
-      setBridgeVersion(res.modStatus?.version || null)
+      setBridgeConnected(live.modConnected)
+      setBridgeVersion(live.full?.modStatus?.version || null)
     } catch {
       if (!bridgeStatusGuard.isStale(requestId)) {
         setBridgeConnected(false)
@@ -1624,7 +1628,7 @@ export default function WorldMap() {
     } finally {
       setBridgeLoading(false)
     }
-  }, [hasActiveServer, bridgeStatusGuard])
+  }, [hasActiveServer, bridgeStatusGuard, canReadBridgeStatus])
   useEffect(() => { checkBridgeStatusRef.current = checkBridgeStatus }, [checkBridgeStatus])
 
   // Fetch vehicles + safehouses from PanelBridge

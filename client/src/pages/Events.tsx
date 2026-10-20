@@ -68,6 +68,7 @@ import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError, BRIDGE_SLOW_E
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { bridgeDiagnosticParams } from '@/lib/bridgeDiagnostics'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { buildTeleportPlayerCommand, buildTeleportToCommand } from '@/lib/teleportCommands'
 import { PageHeader } from '@/components/PageHeader'
 import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
@@ -1401,19 +1402,24 @@ export default function Events() {
   // newer call has already started -- same mechanism, separate instance
   // (per useRequestGuard's own doc comment: one guard per fetch flow).
   const bridgeStatusGuard = useRequestGuard()
+  // A Moderator can't read GET /panel-bridge/status (bridge.setup or
+  // bridge.diagnostics only); readBridgeLiveness() then asks the status every
+  // role may read, so the bridge controls aren't all disabled for them.
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const checkBridgeStatus = useCallback(async () => {
     const requestId = bridgeStatusGuard.next()
     try {
-      const status = await panelBridgeApi.getStatus()
+      const live = await readBridgeLiveness(canReadBridgeStatus)
       if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
-      setBridgeConnected(status.modConnected)
+      const status = live.full
+      setBridgeConnected(live.modConnected)
       setBridgeStatusLoading(false)
       // status.connection.summary is {key, params, text} -- resolve through
       // i18next the same way Settings.tsx's resolveBridgeDiagText() does,
       // reaching into settings.json's bridge.diagnostics tree (same
       // cross-namespace {ns: 'settings'} pattern Backups.tsx already uses).
       setBridgeConnectionSummary(
-        status.connection?.summary
+        status?.connection?.summary
           ? t(`bridge.diagnostics.${status.connection.summary.key}`, {
               ns: 'settings',
               // Ages worded in the UI language's units, as Settings does.
@@ -1424,7 +1430,7 @@ export default function Events() {
       )
 
       // If connected, fetch secondary data in parallel
-      if (status.modConnected) {
+      if (live.modConnected) {
         // getWeather is deliberately NOT in this Promise.allSettled batch: it
         // only feeds the small live-conditions strip below, and awaiting it
         // alongside floatsRes/timeRes/utilitiesRes would let a slow or
@@ -1529,7 +1535,7 @@ export default function Events() {
         setUtilitiesStatus(null)
       }
     }
-  }, [bridgeStatusGuard])
+  }, [bridgeStatusGuard, canReadBridgeStatus])
 
   // Same getWeather() read as checkBridgeStatus's own poll tick above, split
   // out so a toggle that just changed weather state can reconcile with the

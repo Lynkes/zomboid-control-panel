@@ -104,6 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
 - **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
+- **PanelBridge read as offline for Moderators:** Players, Events & Weather, World Map and Leaderboard now see a running bridge for roles without a PanelBridge permission, so God mode, weather, the clock and the other bridge controls are no longer greyed out for them.
 
 ## [1.4.17] - 2026-10-18
 

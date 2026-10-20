@@ -98,6 +98,7 @@ import { SpawnBrowser } from '@/components/SpawnBrowser'
 import { NumberInput } from '@/components/NumberInput'
 import { playersApi, panelBridgeApi, configApi, ApiError } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { PageHeader } from '@/components/PageHeader'
 import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { DisabledReason } from '@/components/DisabledReason'
@@ -637,16 +638,20 @@ export default function Players() {
   // read until the user navigated away and back. Extracted so the 15s
   // roster interval and the activeServerChanged handler can both call it,
   // matching the siblings.
+  // A Moderator can't read GET /panel-bridge/status (bridge.setup or
+  // bridge.diagnostics only); readBridgeLiveness() then asks the status every
+  // role may read, so God mode and the other powers aren't greyed out.
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const checkBridgeStatus = useCallback(async () => {
     try {
-      const status = await panelBridgeApi.getStatus()
-      if (mountedRef.current) setBridgeConnected(Boolean(status.modConnected && status.isRunning))
+      const live = await readBridgeLiveness(canReadBridgeStatus)
+      if (mountedRef.current) setBridgeConnected(live.modConnected && live.isRunning)
     } catch {
       if (mountedRef.current) setBridgeConnected(false)
     } finally {
       if (mountedRef.current) setBridgeStatusLoading(false)
     }
-  }, [])
+  }, [canReadBridgeStatus])
 
   // 2026-09-08 (retry-stacking sweep): `manual` covers the Retry button,
   // the Enter-key filter search, and the filter button's own RefreshCw icon
