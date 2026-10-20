@@ -83,7 +83,10 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       const href = anchor.getAttribute('href') ?? ''
       const url = new URL(anchor.href, window.location.href)
       if (url.origin !== window.location.origin) return
-      // HashRouter (demo mode) keeps the route in the hash.
+      // HashRouter (demo mode) keeps the route in the hash ("#/players").
+      // Any other fragment ("#main-content", the skip link) is a jump
+      // within the page, not another page.
+      if (href.startsWith('#') && !href.startsWith('#/')) return
       const targetPath = href.startsWith('#') ? pathOf(href.slice(1)) : url.pathname
       if (!targetPath || targetPath === pathnameRef.current) return
       if (!isDirty()) return
