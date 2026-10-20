@@ -176,7 +176,7 @@
     "fileAriaServerFile": "Region {{index}} server file",
     "fileAriaMapPath": "Region {{index}} map file path",
     "deleteAria": "Delete spawn region {{name}}",
-    "addRegion": "add region"
+    "addRegion": "Add region"
   },
   "modSettingsTab": {
     "sectionLabel": "Mod sandbox options",
@@ -257,9 +257,9 @@
     "description": "Save the current settings as a snapshot, or apply one you saved earlier.",
     "savedCount_one": "{{count}} config saved",
     "savedCount_other": "{{count}} configs saved",
-    "saveCurrentAsTemplate": "Save Current Config",
+    "saveCurrentAsTemplate": "Save current config",
     "emptyTitle": "No saved configs yet",
-    "emptyDesc": "Click 'Save Current Config' to create your first one",
+    "emptyDesc": "Click 'Save current config' to create your first one",
     "typeBoth": "INI + Sandbox",
     "createdLabel": "Created: {{date}}",
     "apply": "Apply",
@@ -269,7 +269,7 @@
     "close": "Close"
   },
   "saveTemplateDialog": {
-    "title": "Save Current Config",
+    "title": "Save current config",
     "description": "Save your current INI and/or Sandbox settings so you can load them again later.",
     "nameLabel": "Name *",
     "namePlaceholder": "e.g., PvE Casual, Hardcore Survival...",

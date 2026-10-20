@@ -1509,7 +1509,10 @@ export default function Console() {
                 className="h-[18rem] min-h-[220px] overflow-auto bg-background/60 p-3 terminal-output sm:h-[22rem] lg:h-[26rem]"
               >
                 {liveLog.length === 0 ? (
-                  <EmptyState compact type="noMessages" title={t('rcon.noCommandsTitle')} description={t('rcon.noCommandsDesc')} />
+                  // The terminal sets the mono face; the empty state is a message, not output.
+                  <div className="font-sans">
+                    <EmptyState compact type="noMessages" title={t('rcon.noCommandsTitle')} description={t('rcon.noCommandsDesc')} />
+                  </div>
                 ) : (
                   liveLog.map((entry, idx) => (
                     <div key={(entry as RconResponse & { _id?: number })._id ?? `${entry.timestamp}-${idx}`} className="mb-3 font-mono text-sm">

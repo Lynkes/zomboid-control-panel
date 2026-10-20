@@ -190,6 +190,16 @@ describe('SectionCard', () => {
     render(<SectionCard title="Advanced" collapsible storageKey="card:advanced">secret body</SectionCard>)
     expect(screen.getByRole('button', { name: 'Advanced' })).toHaveAttribute('aria-expanded', 'false')
   })
+
+  // jsdom has no layout, so this pins the class that does the work: on a
+  // phone, the title column of a card with actions (Server Configuration's
+  // Form/Raw switch) shrank to a word per line instead of the actions
+  // wrapping below it, because flex-1's 0 basis never forced a wrap.
+  it('keeps a minimum width on the title column so the actions wrap below it on a phone', () => {
+    render(<SectionCard title="Server settings" description="INI · behavior, network, players" actions={<button type="button">Raw</button>}>body</SectionCard>)
+    const titleColumn = screen.getByRole('heading', { name: 'Server settings' }).closest('.flex-1')
+    expect(titleColumn?.className).toContain('min-w-[min(100%,14rem)]')
+  })
 })
 
 describe('ServerHeader', () => {

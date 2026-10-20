@@ -2,9 +2,9 @@
   "pageHeader": {
     "title": "Public Servers",
     "description": "Search the public Project Zomboid server list and copy a server address to join quickly",
-    "refreshList": "Refresh List",
+    "refreshList": "Refresh list",
     "reloadFromSteam": "Reload from Steam",
-    "reloadFromSteamTip": "Refresh List re-shows results from the panel's own cache, which can be up to a minute old. Reload from Steam always asks Steam directly — use it if you just changed something on your own server and don't see it reflected yet.",
+    "reloadFromSteamTip": "Refresh list re-shows results from the panel's own cache, which can be up to a minute old. Reload from Steam always asks Steam directly — use it if you just changed something on your own server and don't see it reflected yet.",
     "refreshMenuAria": "More ways to refresh"
   },
   "apiKeyWarning": {
@@ -29,8 +29,8 @@
     "matchingFilters": "matching filters"
   },
   "searchFilters": {
-    "hideFilters": "Hide Filters",
-    "showFilters": "Show Filters",
+    "hideFilters": "Hide filters",
+    "showFilters": "Show filters",
     "searchPlaceholder": "Search by name, IP, map, or keywords...",
     "searchAria": "Search public servers",
     "hideEmpty": "Hide empty servers",
@@ -57,7 +57,7 @@
     "apiKeyMissing": "Steam API key missing"
   },
   "serverList": {
-    "title": "Server List",
+    "title": "Server list",
     "description": "Copy an address to join, or ping a server to check that it answers.",
     "loading": "Loading servers...",
     "sortAria": "Sort by {{label}}",

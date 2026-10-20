@@ -1827,7 +1827,7 @@ export default function Scheduler() {
                   block of empty card beside the settings. */}
               <ScrollArea className="max-h-[300px] sm:max-h-[400px]">
                 {history.length === 0 ? (
-                  <EmptyState compact type="noSchedule" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
+                  <EmptyState compact type="noData" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
                 ) : (
                   <ul className="divide-y divide-border/60">
                     {history.map((entry) => (

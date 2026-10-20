@@ -81,7 +81,7 @@ describe('Templates header', () => {
     listHidden.mockResolvedValue({ templates: [] })
     renderTemplates()
     expect(screen.getByRole('heading', { level: 1, name: 'Templates' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save Current Config' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save current config' })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: 'Loading templates' })).toHaveAttribute('aria-busy', 'true')
   })
 })

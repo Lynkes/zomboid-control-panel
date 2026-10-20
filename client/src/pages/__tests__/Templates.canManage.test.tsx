@@ -59,7 +59,7 @@ describe('Templates.tsx canManage: gates on the templates.manage capability, not
 
     renderTemplates()
 
-    expect(await screen.findByRole('button', { name: 'Save Current Config' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Save current config' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import' })).toBeInTheDocument()
   })
 
@@ -70,7 +70,7 @@ describe('Templates.tsx canManage: gates on the templates.manage capability, not
     renderTemplates()
 
     await screen.findByRole('heading', { level: 1, name: 'Templates' })
-    expect(screen.queryByRole('button', { name: 'Save Current Config' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save current config' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument()
   })
 
