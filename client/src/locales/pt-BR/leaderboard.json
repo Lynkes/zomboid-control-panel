@@ -1,8 +1,7 @@
 {
   "page": {
     "title": "Placar",
-    "description": "Um placar simples do servidor para sobrevivência, abates, mortes e domínio de armas.",
-    "eyebrow": "// AO VIVO · RANKING DE SOBREVIVÊNCIA"
+    "description": "Um placar simples do servidor para sobrevivência, abates, mortes e domínio de armas."
   },
   "bridge": {
     "summary": "Lê o placar do PanelBridge mantido no servidor."
@@ -10,6 +9,7 @@
   "actions": {
     "refresh": "Recarregar",
     "retry": "Tentar novamente",
+    "openBridgeSettings": "Configurações do PanelBridge",
     "copyDiagnostics": "Copiar diagnóstico",
     "copyDiagnosticsTitle": "Copia um resumo para um pedido de suporte: nomes de usuário, horários de leitura, abates, dias e mortes. Sem SteamIDs.",
     "copied": "Copiado",
@@ -41,6 +41,7 @@
   "daysShort": "{{value}} d",
   "table": {
     "title": "Todos os sobreviventes",
+    "rank": "Posição",
     "updated": "Atualizado em {{date}}",
     "waitingForUpdate": "Aguardando a primeira leitura ao vivo",
     "search": "Pesquisar sobreviventes...",
@@ -58,7 +59,8 @@
     "noMatchesDescription": "Tente outro nome ou arma.",
     "notReadYet": "Ainda não lido",
     "notReadYetTitle": "O PanelBridge ainda não leu os abates e os dias deste jogador. Ele lê todos os jogadores online uma vez por minuto.",
-    "lastRead": "Última leitura: {{date}}"
+    "lastRead": "Última leitura: {{date}}",
+    "openPlayer": "Abrir {{name}} em Jogadores"
   },
   "stale": {
     "title": "Mostrando o último placar conhecido"
