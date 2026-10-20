@@ -191,3 +191,28 @@ describe('Files: list failures', () => {
     expect(await screen.findByRole('button', { name: 'console.txt' })).toBeInTheDocument()
   })
 })
+
+// Bug pass: the redesign dropped the header Refresh, and the toolbar Refresh
+// only shows for a readable folder, so a folder fixed elsewhere (mounted,
+// created) could only be re-checked by reloading the browser.
+describe('Files: re-checking a folder that could not be opened', () => {
+  it('Try again asks the server for a fresh look at the folder', async () => {
+    const profile = makeProfile({
+      roots: [makeRoot('data', { available: false, unavailableReason: 'notMounted', writable: null, displayPath: null })],
+    })
+    server.profiles = [profile]
+    renderFiles()
+
+    const message = (enFiles.roots.unavailable as Record<string, string>).notMounted
+    const main = await screen.findByText(message, { selector: 'p' })
+    const emptyState = main.closest('div.flex.flex-col') as HTMLElement
+    const before = server.callsTo('GET', `/profiles/${profile.id}`).length
+
+    fireEvent.click(within(emptyState).getByRole('button', { name: enFiles.actions.retry }))
+    await waitFor(() => {
+      const calls = server.callsTo('GET', `/profiles/${profile.id}`)
+      expect(calls.length).toBe(before + 1)
+      expect(calls.at(-1)!.url.searchParams.get('fresh')).toBeTruthy()
+    })
+  })
+})
