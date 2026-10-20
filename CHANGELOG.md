@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
 - **Unsaved load order kept:** Load order moves are no longer thrown away when the Mods page reloads (an update check, a restart, a mod removed) or by "Make X win", and Save no longer undoes mods enabled or disabled elsewhere meanwhile.
 - **Mods page after a server switch:** an open Auto-sort proposal and the previous server's conflict scan are cleared, so the old server's mod list can no longer be applied and saved into the new one.
+- **Mod conflict list:** added and removed lines in a file comparison are tinted again, and screen readers hear each conflict's severity in your language.
 - **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
 - **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
 - **Failed panel update download:** the Updates card no longer stays on "Downloading".
