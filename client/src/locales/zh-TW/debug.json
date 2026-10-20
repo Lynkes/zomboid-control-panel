@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "除錯與日誌",
+    "title": "診斷",
     "description": "本面板的即時診斷、近期歷史記錄及環境詳情"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "日誌",
     "crashes": "當機記錄",
     "health": "即時狀態",
-    "system": "環境"
+    "system": "環境",
+    "ariaLabel": "診斷分區",
+    "groups": {
+      "now": "目前",
+      "history": "歷史",
+      "system": "系統"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "選擇或設定一個具有有效安裝路徑的活動伺服器。"
     },
     "serverZomboidData": {
-      "label": "開啟設定",
-      "note": "在設定中設定 Zomboid 資料路徑。"
+      "label": "開啟伺服器列表",
+      "note": "在「伺服器列表」頁面編輯此伺服器時設定 Zomboid 資料資料夾。"
     },
     "serverStartScriptOrJre": {
       "label": "開啟伺服器查詢器",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "開啟伺服器設定",
-      "note": "在伺服器設定中設定 RCON 密碼（並在設定中填入相同的值）。"
+      "note": "在伺服器設定中設定 RCON 密碼，並在「伺服器列表」頁面編輯此伺服器時填入相同的值。"
     },
     "serverBridgeMod": {
       "label": "開啟「設定 › PanelBridge」",

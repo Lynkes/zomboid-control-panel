@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Debug & Protokolle",
+    "title": "Diagnose",
     "description": "Live-Diagnose, aktueller Verlauf und Umgebungsdetails für dieses Panel"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Protokolle",
     "crashes": "Abstürze",
     "health": "Live-Status",
-    "system": "Umgebung"
+    "system": "Umgebung",
+    "ariaLabel": "Bereiche der Diagnose",
+    "groups": {
+      "now": "Jetzt",
+      "history": "Verlauf",
+      "system": "System"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "Wähle einen aktiven Server mit gültigem Installationspfad aus oder konfiguriere ihn."
     },
     "serverZomboidData": {
-      "label": "Einstellungen öffnen",
-      "note": "Lege den Zomboid-Datenpfad in den Einstellungen fest."
+      "label": "Server öffnen",
+      "note": "Lege den Zomboid-Datenordner beim Bearbeiten dieses Servers unter „Alle Server“ fest."
     },
     "serverStartScriptOrJre": {
       "label": "Serversuche öffnen",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "Serverkonfiguration öffnen",
-      "note": "Lege das RCON-Passwort in der Serverkonfiguration fest (und den passenden Wert in den Einstellungen)."
+      "note": "Lege das RCON-Passwort in der Serverkonfiguration fest und trage denselben Wert beim Bearbeiten dieses Servers unter „Alle Server“ ein."
     },
     "serverBridgeMod": {
       "label": "Einstellungen › PanelBridge öffnen",
