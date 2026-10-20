@@ -35,9 +35,6 @@
       "discord": "Discord",
       "panelSettings": "Paramètres du panneau",
       "debugLogs": "Journaux de débogage",
-      "panelUsers": "Utilisateurs du panneau",
-      "rolesPermissions": "Rôles et permissions",
-      "singleSignOn": "Authentification unique",
       "leaderboard": "Classement"
     },
     "notAvailableRemote": "Non disponible pour les serveurs distants (RCON uniquement)",

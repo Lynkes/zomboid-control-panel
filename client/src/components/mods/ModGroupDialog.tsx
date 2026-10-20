@@ -34,6 +34,8 @@ type MemberAction = 'up' | 'down' | 'remove'
 export interface ModGroupDialogProps {
   /** The group being edited, or null to create one. */
   group: ModGroup | null
+  /** Creating only: the members to start with (the mods picked on the Load order tab), in load order. */
+  initialModIds?: readonly string[]
   /** The mods enabled on the active server: what "Add mods" offers. */
   serverModIds: readonly string[]
   /** Mod ID to display name. */
@@ -49,11 +51,11 @@ export interface ModGroupDialogProps {
  * Mount it only while it is open (the Mod groups panel does): its fields start
  * from `group` each time.
  */
-export function ModGroupDialog({ group, serverModIds, modNames, onClose, onSubmit }: ModGroupDialogProps) {
+export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, onClose, onSubmit }: ModGroupDialogProps) {
   const { t } = useTranslation('modGroups')
   const [name, setName] = useState(group?.name ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
-  const [members, setMembers] = useState<string[]>(() => group?.modIds ?? [])
+  const [members, setMembers] = useState<string[]>(() => group?.modIds ?? [...(initialModIds ?? [])])
   const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)

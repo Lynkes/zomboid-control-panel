@@ -35,9 +35,6 @@
       "discord": "Discord",
       "panelSettings": "Paneleinstellungen",
       "debugLogs": "Debug-Protokolle",
-      "panelUsers": "Panelbenutzer",
-      "rolesPermissions": "Rollen und Berechtigungen",
-      "singleSignOn": "Einmalanmeldung",
       "leaderboard": "Rangliste"
     },
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",

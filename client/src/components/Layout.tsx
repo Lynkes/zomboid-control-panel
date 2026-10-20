@@ -33,9 +33,6 @@ import {
   PanelLeftClose,
   PanelLeft,
   LogOut,
-  UserCog,
-  ShieldCheck,
-  KeyRound
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ConnectionStatus, ConnectionAnnouncer } from './ConnectionStatus'
@@ -153,14 +150,9 @@ const navSections: NavSection[] = [
       { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers', requiresServer: true },
       { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', labelKey: 'nav.items.leaderboard', requiresServer: true },
       { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat', requiresServer: true },
-      // Panel Users/Roles & Permissions/Single Sign-On: no dedicated route
-      // (route paths must stay stable) -- these point straight at the same
-      // Settings tabs /users, /roles and /sso already redirect to
-      // (App.tsx), and are gated on the exact capability that hides the
-      // matching Settings tab (Settings.tsx's settingsSections filter).
-      { to: '/settings?tab=users', icon: UserCog, label: 'Panel Users', labelKey: 'nav.items.panelUsers', capability: 'users.manage' },
-      { to: '/settings?tab=roles', icon: ShieldCheck, label: 'Roles & Permissions', labelKey: 'nav.items.rolesPermissions', capability: 'roles.manage' },
-      { to: '/settings?tab=sso', icon: KeyRound, label: 'Single Sign-On', labelKey: 'nav.items.singleSignOn', capability: 'panel.settings' },
+      // Panel Users, Roles & Permissions and Single Sign-On are Panel Settings
+      // tabs (Access control); they have no sidebar entry of their own, so there is
+      // one way to each. /users, /roles and /sso still redirect there (App.tsx).
     ]
   },
   {
@@ -485,27 +477,9 @@ export default function Layout({ children }: LayoutProps) {
   const shownPlayerCount = serverRunState === 'running' ? playerCount : 0
   const playerCountLabel = shownPlayerCount > 99 ? '99+' : String(shownPlayerCount)
 
-  // Panel Users/Roles & Permissions/Single Sign-On (USERS section) link
-  // straight into Settings' own tabs via ?tab=, so a plain pathname-only
-  // active match (react-router's NavLink default) would light up every
-  // /settings-linked row -- including the plain Panel Settings entry --
-  // together whenever any one of them is open. Resolve the real tab from
-  // location.search and match on that for any item whose `to` carries one;
-  // the plain /settings entry is active only when the open tab isn't one of
-  // those three (otherwise it'd stay lit alongside them).
-  const settingsSubTabIds = ['users', 'roles', 'sso']
-  const currentSettingsTab = location.pathname === '/settings'
-    ? new URLSearchParams(location.search).get('tab')
-    : null
-  const isItemActive = (item: NavItem) => {
-    const [itemPath, itemQuery] = item.to.split('?')
-    if (location.pathname !== itemPath) return false
-    if (!itemQuery) {
-      return itemPath !== '/settings' || !currentSettingsTab || !settingsSubTabIds.includes(currentSettingsTab)
-    }
-    const itemTab = new URLSearchParams(itemQuery).get('tab')
-    return itemTab != null && itemTab === currentSettingsTab
-  }
+  // A row is active on its own page. (No row links into a Settings tab any
+  // more, so Panel Settings stays lit on every tab of it.)
+  const isItemActive = (item: NavItem) => location.pathname === item.to.split('?')[0]
 
   // Toggle sidebar collapse
   const toggleSidebar = () => {

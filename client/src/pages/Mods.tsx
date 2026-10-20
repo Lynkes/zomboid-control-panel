@@ -50,7 +50,7 @@ import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
 import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
 import { BridgeManagedBadge } from '@/components/mods/BridgeManagedBadge'
-import { ModGroupsPanel } from '@/components/mods/ModGroupsPanel'
+import { ModGroupsPanel, type CreateGroupRequest } from '@/components/mods/ModGroupsPanel'
 import { useGroupOrderNotice } from '@/components/mods/useGroupOrderNotice'
 import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
 import type { BridgeManaged } from '@/lib/bridgeDeliveryTypes'
@@ -339,6 +339,17 @@ export default function Mods() {
   const [iniConfig, setIniConfig] = useState<IniConfig | null>(null)
   const [modsToInstall, setModsToInstall] = useState<CollectionMod[]>([])
   const [orderedModIds, setOrderedModIds] = useState<string[]>([])
+  // Mods ticked on the Load order tab, for "Create group from selection".
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(() => new Set())
+  const [createGroupRequest, setCreateGroupRequest] = useState<CreateGroupRequest | null>(null)
+  useEffect(() => {
+    setSelectedOrderIds((prev) => {
+      if (prev.size === 0) return prev
+      const present = new Set(orderedModIds)
+      const next = new Set([...prev].filter((id) => present.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [orderedModIds])
   const [selectedActiveWsId, setSelectedActiveWsId] = useState<string | null>(null)
   const [savingModOrder, setSavingModOrder] = useState(false)
   // bug-hunt-2026-09-04/05: modsApi.saveModOrder(orderedModIds) takes no
@@ -5780,6 +5791,8 @@ export default function Mods() {
                       orderDirty={hasModOrderChanged}
                       orderSaving={savingModOrder}
                       onOrderApplied={fetchData}
+                      createRequest={createGroupRequest}
+                      onCreatedFromRequest={() => setSelectedOrderIds(new Set())}
                     />
                     {orderedModIds.length === 0 ? (
                       <div className="flex items-center justify-center py-10 text-muted-foreground">
@@ -5810,6 +5823,30 @@ export default function Mods() {
                               ? t('loadOrder.filteredHint', { query: modManagerSearch.trim() })
                               : t('loadOrder.dragHint')}
                       </p>
+                      {canManageMods && selectedOrderIds.size > 0 && (
+                        <div className="flex items-center gap-1.5" role="group" aria-label={t('loadOrder.selectionAria')}>
+                          <span className="text-xs tabular-nums text-muted-foreground">{t('loadOrder.selectedCount', { n: selectedOrderIds.size })}</span>
+                          <DisabledReason reason={selectedOrderIds.size < 2 ? t('loadOrder.groupNeedsTwo') : null}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-8 text-xs"
+                              onClick={() => {
+                                // In load order, not in the order they were ticked: that is the order the group starts with.
+                                const picked = orderedModIds.filter((id, i) => selectedOrderIds.has(id) && orderedModIds.indexOf(id) === i)
+                                setCreateGroupRequest({ modIds: picked, nonce: Date.now() })
+                              }}
+                              disabled={selectedOrderIds.size < 2}
+                            >
+                              <Layers className="w-3 h-3 me-1" />
+                              {t('loadOrder.createGroupFromSelection')}
+                            </Button>
+                          </DisabledReason>
+                          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setSelectedOrderIds(new Set())}>
+                            {t('loadOrder.clearSelection')}
+                          </Button>
+                        </div>
+                      )}
                       <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                         <Button
                           variant="outline"
@@ -5938,6 +5975,19 @@ export default function Mods() {
                                       `invisible` keeps its column so rows don't
                                       shift sideways while the list is locked. */}
                                   <GripVertical className={`w-3 h-3 text-muted-foreground/30 shrink-0 ${canDrag ? '' : 'invisible'}`} aria-hidden="true" />
+                                  {canManageMods && (
+                                    <Checkbox
+                                      checked={selectedOrderIds.has(modId)}
+                                      onCheckedChange={(checked) => setSelectedOrderIds((prev) => {
+                                        const next = new Set(prev)
+                                        if (checked === true) next.add(modId)
+                                        else next.delete(modId)
+                                        return next
+                                      })}
+                                      aria-label={t('loadOrder.selectRowAria', { name: displayName ? `${modId} (${displayName})` : modId })}
+                                      className="shrink-0"
+                                    />
+                                  )}
                                   <span className="text-[11px] tabular-nums text-muted-foreground w-5 text-end shrink-0">{idx + 1}</span>
                                   {/* Shrinkable (truncates) so the four move
                                       controls stay on-screen at phone width
