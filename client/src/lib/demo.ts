@@ -1,4 +1,5 @@
 import type { ServerSetupPlan } from './api'
+import { demoConflictSuggestion, demoSmartResponse } from './demoSmart'
 import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryPlanResponse, type DeliveryStatus } from './bridgeDeliveryTypes'
 
 const DEMO_FLAGS = new Set(['1', 'true', 'yes', 'on'])
@@ -121,6 +122,7 @@ const demoWorkshopItems: DemoWorkshopItem[] = [
   { workshopId: '2169435927', name: 'Skill Recovery Journal', mods: [{ id: 'SkillRecoveryJournal' }], updated: '2026-06-02T12:00:00.000Z' },
   { workshopId: '2169435928', name: 'Autotsar Trailers', mods: [{ id: 'autotsartrailers', require: ['TchernoLib'] }], updated: '2026-05-09T12:00:00.000Z' },
   { workshopId: '2169435929', name: 'Ladders', mods: [{ id: 'Ladders' }], updated: '2026-01-29T12:00:00.000Z' },
+  { workshopId: '2169435930', name: 'Authentic Z - Spanish Translation', mods: [{ id: 'AuthenticZ_ES', require: ['AuthenticZLite'] }], updated: '2026-06-09T12:00:00.000Z' },
   { workshopId: '3000000003', name: 'Expanded Helicopter Events', mods: [{ id: 'ExpandedHelicopterEvents' }], updated: '2026-06-12T08:10:00.000Z', active: false },
   { workshopId: '3000000004', name: 'Workshop Mod 3000000004', mods: [{ id: 'OldLootTables' }], updated: '2025-10-01T08:10:00.000Z', active: false },
 ]
@@ -171,7 +173,7 @@ function demoModsStatus() {
 // a little messy: a KI5 car above its library, a True Music add-on above True
 // Music, the KI5 group spread out, so Auto-sort has real work to show.
 const DEMO_INITIAL_LOAD_ORDER = [
-  'ModOptions', 'TchernoLib', 'Brita', 'Brita_2', 'RavenCreek', 'AuthenticZLite', 'KI5_93Blazer', 'KI5Library',
+  'ModOptions', 'AuthenticZ_ES', 'TchernoLib', 'Brita', 'Brita_2', 'RavenCreek', 'AuthenticZLite', 'KI5_93Blazer', 'KI5Library',
   'BetterSorting', 'BetterContainers', 'KI5_87Suburban', 'MapLegendUI', 'CommonSense', 'MinimalDisplayBars', 'ErisMinimap',
   'KI5_M35A2', 'FancyHandwork', 'truemusic_retro', 'truemusic', 'truemusic_jukebox', 'ClothingFixPatch', 'BedfordFalls',
   'FortRockRidge', 'Pitstop', 'SuperbSurvivors', 'WaterDispenser', 'grapeseed', 'Lifestyle', 'LifestyleDJ', 'LifestyleDance',
@@ -189,6 +191,13 @@ interface DemoModGroup {
   updatedAt: string
   color: string | null
   keepTogether: boolean
+  // Smart sort's first/last place for the group (null: anywhere).
+  placement?: 'first' | 'last' | null
+}
+
+function demoPlacement(value: unknown, fallback: 'first' | 'last' | null): 'first' | 'last' | null {
+  if (value === null) return null
+  return value === 'first' || value === 'last' ? value : fallback
 }
 
 // Mod groups, in memory: create / edit / delete / import behave until reload.
@@ -255,9 +264,18 @@ let demoModGroups: DemoModGroup[] = [
     updatedAt: '2026-06-17T11:00:00.000Z',
     color: 'pink',
     keepTogether: false,
+    placement: 'last',
   },
 ]
 let demoModGroupSeq = demoModGroups.length
+
+// Smart sort v2's routes (lib/demoSmart.ts) read the demo's live state.
+const demoSmartContext = {
+  getOrder: () => demoModLoadOrder,
+  setOrder: (order: string[]) => { demoModLoadOrder = order },
+  items: demoWorkshopItems,
+  getGroups: () => demoModGroups,
+}
 let demoModGroupsEnforce = false
 
 const DEMO_GROUP_COLORS = new Set(['slate', 'red', 'orange', 'amber', 'lime', 'green', 'teal', 'sky', 'blue', 'violet', 'pink'])
@@ -387,7 +405,7 @@ function demoDisableGroup(group: DemoModGroup, keepShared: boolean) {
 
 function demoConflictScan() {
   return {
-    totalConflicts: 4,
+    totalConflicts: 5,
     identicalSkipped: 14,
     additiveSkipped: 6,
     pzAdditiveSkipped: 4,
@@ -398,7 +416,7 @@ function demoConflictScan() {
       fileguidtable: 0,
       translate: 0,
     },
-    totalPairs: 3,
+    totalPairs: 4,
     modsScanned: DEMO_INITIAL_LOAD_ORDER.length,
     modsNotFound: 0,
     modsSkippedInactive: 2,
@@ -507,7 +525,31 @@ function demoConflictScan() {
           },
         ],
       },
-    ],
+      {
+        modA: { workshopId: '2169435911', modId: 'truemusic', modName: 'True Music' },
+        modB: { workshopId: '2169435912', modId: 'truemusic_retro', modName: 'True Music Addon - Retro Pack' },
+        highCount: 0,
+        mediumCount: 1,
+        lowCount: 0,
+        aWins: 1,
+        bWins: 0,
+        thirdPartyWins: 0,
+        unknownWins: 0,
+        files: [
+          {
+            file: 'media/lua/shared/TCMusicDefenitions.lua',
+            category: 'lua',
+            categoryLabel: 'Lua scripts',
+            severity: 'medium',
+            winner: { workshopId: '2169435911', modId: 'truemusic', modName: 'True Music' },
+            overlap: { kind: 'lua-symbols', items: ['GlobalMusic'], total: 1 },
+          },
+        ],
+      },
+    ].map((pair) => {
+      const suggestion = demoConflictSuggestion(pair.modA.modId, pair.modB.modId)
+      return suggestion ? { ...pair, suggestion } : pair
+    }),
     stale: false,
     _workshopIdsSnapshot: demoCurrentConfig().workshopIds,
     _modIdsSnapshot: [...DEMO_INITIAL_LOAD_ORDER],
@@ -1634,6 +1676,7 @@ export function installDemoFetchShim(): void {
         updatedAt: now,
         color: demoGroupColor(body.color, null),
         keepTogether: body.keepTogether === true,
+        placement: demoPlacement(body.placement, null),
       }
       demoModGroups = [...demoModGroups, group]
       return jsonResponse({ group }, 201)
@@ -1705,6 +1748,7 @@ export function installDemoFetchShim(): void {
         updatedAt: now,
         color: demoGroupColor(doc.color, null),
         keepTogether: doc.keepTogether === true,
+        placement: demoPlacement(doc.placement, null),
       }
       demoModGroups = [...demoModGroups, group]
       return jsonResponse({ group }, 201)
@@ -1730,6 +1774,7 @@ export function installDemoFetchShim(): void {
         modIds,
         color: body.color === undefined ? existing.color : demoGroupColor(body.color, existing.color),
         keepTogether: typeof body.keepTogether === 'boolean' ? body.keepTogether : existing.keepTogether,
+        placement: body.placement === undefined ? existing.placement ?? null : demoPlacement(body.placement, existing.placement ?? null),
         updatedAt: new Date().toISOString(),
       }
       demoModGroups = demoModGroups.map(entry => (entry.id === id ? group : entry))
@@ -1942,6 +1987,10 @@ export function installDemoFetchShim(): void {
           detectionSource: 'local-files',
         })),
       })
+    }
+    if (path.startsWith('/api/mods/')) {
+      const smart = demoSmartResponse(demoSmartContext, path, method, method === 'GET' || method === 'DELETE' ? {} : await readJsonBody(init))
+      if (smart) return jsonResponse(smart.payload, smart.status)
     }
     if (path.startsWith('/api/mods/') && method !== 'GET') {
       return jsonResponse({ success: true, message: 'Demo mode: mod action acknowledged (no backend connected).' })

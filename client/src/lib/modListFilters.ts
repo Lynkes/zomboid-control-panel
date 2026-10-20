@@ -92,12 +92,16 @@ export interface ActiveFilters {
   missingDep: boolean
   hasNote: boolean
   group: GroupFilter
+  /** Only items with an enabled mod of this kind (smart sort's classification). */
+  kind?: string | null
 }
 
 export interface ActiveLookups extends ModLookups {
   needsAttention: (item: WsGroup) => boolean
   hasUpdate: (workshopId: string) => boolean
   hasMissingDep: (item: WsGroup) => boolean
+  /** The kinds of an item's enabled mods (needed with the kind filter). */
+  kindsOf?: (item: WsGroup) => readonly string[]
 }
 
 export type ActiveSort = 'config' | 'loadOrder' | 'name' | 'updated'
@@ -120,6 +124,7 @@ export function filterActiveItems(items: readonly WsGroup[], filters: ActiveFilt
     if (filters.updates && !lookups.hasUpdate(item.wsId)) return false
     if (filters.missingDep && !lookups.hasMissingDep(item)) return false
     if (filters.hasNote && !lookups.noteText(item.wsId)) return false
+    if (filters.kind && !(lookups.kindsOf?.(item) ?? []).includes(filters.kind)) return false
     return matchesGroup(item.wsId, filters.group, lookups)
   })
 }

@@ -3,29 +3,7 @@ import { Loader2, RefreshCw } from 'lucide-react'
 import type { SteamKnowledgeStatus } from '@/lib/api'
 import { useDateFormat } from '@/lib/dateFormat'
 import { cn } from '@/lib/utils'
-
-const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
-  ['day', 86_400_000],
-  ['hour', 3_600_000],
-  ['minute', 60_000],
-]
-
-/** "3 hr. ago" in the formatting locale; null for a missing or invalid time. */
-export function formatAge(iso: string | null | undefined, locale: string, now = Date.now()): string | null {
-  const time = iso ? Date.parse(iso) : NaN
-  if (!Number.isFinite(time)) return null
-  const elapsed = Math.max(0, now - time)
-  let format: Intl.RelativeTimeFormat
-  try {
-    format = new Intl.RelativeTimeFormat(locale, { numeric: 'auto', style: 'short' })
-  } catch {
-    format = new Intl.RelativeTimeFormat('en', { numeric: 'auto', style: 'short' })
-  }
-  for (const [unit, ms] of UNITS) {
-    if (elapsed >= ms) return format.format(-Math.floor(elapsed / ms), unit)
-  }
-  return format.format(0, 'minute')
-}
+import { formatAge } from './smartText'
 
 /**
  * Where the panel's Steam knowledge (Workshop tags, "Required items",

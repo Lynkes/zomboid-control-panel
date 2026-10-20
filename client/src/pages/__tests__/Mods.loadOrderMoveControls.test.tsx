@@ -49,6 +49,7 @@ vi.mock('@/lib/api', async () => {
       getCachedConflicts: vi.fn(),
       listDiskOnly: vi.fn(),
       saveModOrder: vi.fn(),
+      planLoadOrder: vi.fn(),
     },
     serversApi: { ...actual.serversApi, getActive: vi.fn() },
   }
@@ -69,6 +70,19 @@ const getPresets = vi.mocked(modsApi.getPresets)
 const getCachedConflicts = vi.mocked(modsApi.getCachedConflicts)
 const listDiskOnly = vi.mocked(modsApi.listDiskOnly)
 const saveModOrder = vi.mocked(modsApi.saveModOrder)
+const planLoadOrder = vi.mocked(modsApi.planLoadOrder)
+
+// Smart sort answers with a plan that moves NewMod first (modA requires it).
+function primePlan(input: string[]) {
+  planLoadOrder.mockResolvedValue({
+    order: ['NewMod', ...input.filter((id) => id !== 'NewMod')],
+    changed: true,
+    moves: [{ modId: 'NewMod', from: input.indexOf('NewMod'), to: 0, confidence: 'high', reasons: [{ code: 'require', params: { relation: 'before', other: 'modA' } }] }],
+    explanations: {}, satisfied: 1, unsatisfied: [], cycles: [], winnersChanged: [], implicit: [], warnings: [],
+    stats: { constraints: 1, hard: 1, strong: 0, soft: 0, ms: 2 },
+    steamStatus: { source: 'none', fetchedAt: null, stale: false, failed: false, pending: false, known: 0, total: 0 },
+  } as never)
+}
 const getActive = vi.mocked(serversApi.getActive)
 
 const MOD_IDS = ['modA', 'modB', 'modC', 'NewMod']
@@ -99,7 +113,7 @@ afterEach(() => {
   // clearAllMocks keeps queued mockReturnValueOnce values: a test that fails
   // before its held reload is consumed would hand that never-settling
   // promise to the next test. primeReadMocks re-primes all of these.
-  for (const mock of [getTrackedMods, getStatus, getCurrentConfig, getIgnoredMods, getIgnoredModPairs, collectionDiff, getPresets, getCachedConflicts, listDiskOnly, saveModOrder, getActive]) {
+  for (const mock of [getTrackedMods, getStatus, getCurrentConfig, getIgnoredMods, getIgnoredModPairs, collectionDiff, getPresets, getCachedConflicts, listDiskOnly, saveModOrder, getActive, planLoadOrder]) {
     mock.mockReset()
   }
   mockCan = () => true
@@ -388,6 +402,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     await openLoadOrder()
     expect(screen.getByText('Drag or use the arrow buttons to reorder. Changes are not saved until you click Save Order.')).toBeInTheDocument()
 
+    primePlan(MOD_IDS)
     fireEvent.click(screen.getByRole('button', { name: /^auto-sort$/i }))
     await screen.findByRole('button', { name: /^apply$/i })
 
@@ -421,6 +436,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     fireEvent.dragOver(rowOf(screen.getByText('modC')))
     expect(shownOrder()).toEqual(['modA', 'modB', 'NewMod', 'modC'])
 
+    primePlan(['modA', 'modB', 'NewMod', 'modC'])
     fireEvent.click(screen.getByRole('button', { name: /^auto-sort$/i }))
     await screen.findByRole('button', { name: /^apply$/i })
     expect(fadedRows()).toEqual([])

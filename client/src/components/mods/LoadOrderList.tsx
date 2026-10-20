@@ -1,10 +1,11 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { AlertTriangle, ArrowDownToLine, ArrowUpToLine, ChevronDown, ChevronRight, ChevronUp, GripVertical, Merge, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, ArrowUpToLine, ChevronDown, ChevronRight, ChevronUp, GripVertical, Info, Merge, ShieldAlert } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
+import { RowActions, type RowActionItem } from '@/components/ui/row-actions'
 import { DisabledReason } from '@/components/DisabledReason'
-import type { ModGroup, ModNote } from '@/lib/api'
+import type { ModGroup, ModInsight, ModNote } from '@/lib/api'
 import { loadOrderMoveTarget, moveLoadOrderEntry, type LoadOrderMove } from '@/lib/modLoadOrder'
 import {
   gatherGroup,
@@ -19,6 +20,7 @@ import {
 import { useLocalStorageState } from '@/lib/modsShared'
 import { cn } from '@/lib/utils'
 import { GroupDot, GroupDots, NoteIndicator } from './GroupDots'
+import { KindChip } from './KindChip'
 import { LoadOrderMoveControls, type LoadOrderMoveSource } from './LoadOrderMoveControls'
 
 /** Above this many rows the list renders only what is on screen. */
@@ -49,6 +51,14 @@ export interface LoadOrderListProps {
   selected: ReadonlySet<string>
   onSelectedChange: (modId: string, checked: boolean) => void
   onOpenNote?: (workshopId: string, label: string) => void
+  /** Smart sort: what the panel makes of a mod (its kind chip). */
+  insightOf?: (modId: string) => ModInsight | undefined
+  /** Mods the plan of the order on screen would move (their info button is tinted). */
+  movingIds?: ReadonlySet<string>
+  /** "Why is it here?" for a row; `button` is what was pressed (focus returns to it). */
+  onExplain?: (modId: string, button: HTMLElement) => void
+  /** The row's "…" menu items (Why is it here?, Always load after/before…). */
+  rowMenu?: (modId: string) => RowActionItem[]
 }
 
 type Row =
@@ -85,6 +95,10 @@ export function LoadOrderList({
   selected,
   onSelectedChange,
   onOpenNote,
+  insightOf,
+  movingIds,
+  onExplain,
+  rowMenu,
 }: LoadOrderListProps) {
   const { t } = useTranslation('mods')
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -427,6 +441,10 @@ export function LoadOrderList({
         groups={groupsOfMod}
         note={note}
         onOpenNote={workshopId && onOpenNote ? () => onOpenNote(workshopId, displayName ?? modId) : undefined}
+        insight={insightOf?.(modId)}
+        moving={movingIds?.has(modId) ?? false}
+        onExplain={onExplain}
+        rowMenu={rowMenu}
         onSelectedChange={onSelectedChange}
         onMove={moveRow}
         onDragStart={() => {
@@ -496,6 +514,10 @@ interface LoadOrderRowProps {
   groups: readonly ModGroup[]
   note: ModNote | undefined
   onOpenNote?: () => void
+  insight: ModInsight | undefined
+  moving: boolean
+  onExplain?: (modId: string, button: HTMLElement) => void
+  rowMenu?: (modId: string) => RowActionItem[]
   onSelectedChange: (modId: string, checked: boolean) => void
   onMove: (index: number, move: LoadOrderMove, source: LoadOrderMoveSource) => void
   onDragStart: () => void
@@ -519,6 +541,10 @@ const LoadOrderRow = memo(function LoadOrderRow({
   groups,
   note,
   onOpenNote,
+  insight,
+  moving,
+  onExplain,
+  rowMenu,
   onSelectedChange,
   onMove,
   onDragStart,
@@ -526,6 +552,8 @@ const LoadOrderRow = memo(function LoadOrderRow({
   onDragEnd,
 }: LoadOrderRowProps) {
   const { t } = useTranslation('mods')
+  const { t: tSmart } = useTranslation('modsSmart')
+  const label = displayName ?? modId
   return (
     <div
       data-load-order-index={idx}
@@ -562,8 +590,25 @@ const LoadOrderRow = memo(function LoadOrderRow({
           a line of their own, so the mod ID stays readable at phone width. */}
       <span className="min-w-0 truncate font-mono text-[11px]">{modId}</span>
       {displayName ? <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{displayName}</span> : <span className="flex-1" />}
+      <KindChip insight={insight} />
       <GroupDots groups={groups} />
       <NoteIndicator note={note} onOpen={onOpenNote} />
+      {onExplain && (
+        <button
+          type="button"
+          data-why-here={modId}
+          onClick={(event) => onExplain(modId, event.currentTarget)}
+          aria-label={moving ? tSmart('why.buttonAriaMoves', { mod: label }) : tSmart('why.buttonAria', { mod: label })}
+          title={moving ? tSmart('why.buttonTitleMoves') : tSmart('why.buttonTitle')}
+          className={cn(
+            'grid h-8 w-8 shrink-0 place-items-center rounded transition-colors duration-150 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50',
+            moving ? 'text-warning hover:text-warning' : 'text-muted-foreground/70 hover:text-foreground',
+          )}
+        >
+          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      )}
+      {rowMenu && <RowActions ariaLabel={tSmart('why.rowMenuAria', { mod: label })} items={rowMenu(modId)} />}
       {canManage && (
         <div className="flex w-full justify-end sm:w-auto">
           <LoadOrderMoveControls index={idx} total={total} modId={modId} onMove={onMove} disabled={locked} />
