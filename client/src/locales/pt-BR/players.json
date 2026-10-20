@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "Jogadores",
-    "description": "Gerencie os jogadores conectados e suas permissões",
+    "description": "Modere jogadores, edite os personagens e gerencie banimentos e a lista de permissões.",
     "updated": "Recarregado às {{time}}",
+    "moreActions": "Mais ações",
     "refresh": "Recarregar"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Adicionar usuário à lista de permissões…",
+    "unban": "Desbanir jogador…",
+    "unbanSteamId": "Desbanir SteamID…",
+    "voiceBan": "Banimento de voz…",
+    "banSteamId": "Banir SteamID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "O PanelBridge não está conectado",
+    "bridgeOfflineDesc": "Os poderes, a importação e exportação de personagens e a saúde na lista dependem dele. Expulsar, banir e a lista de permissões continuam funcionando.",
+    "bridgeOfflineAction": "Configurar o PanelBridge"
   },
   "permissions": {
     "noModerate": "Esta ação requer a permissão players.moderate, que este cargo não tem.",
@@ -27,6 +40,7 @@
     "online": "Online",
     "onlineCaption_one": "jogador",
     "onlineCaption_other": "jogadores",
+    "rosterDetail": "Já vistos, agora offline",
     "peakToday": "Pico de hoje",
     "roster": "Histórico",
     "rosterCaption": "vistos",
@@ -37,11 +51,15 @@
     "onlineCaption_many": "jogadores"
   },
   "roster": {
-    "headerLabel": "lista",
+    "headerLabel": "Jogadores",
     "subheaderLive": "ao vivo",
     "subheaderHistory": "histórico",
     "subheaderBans": "banimentos",
     "subheaderAccounts": "contas",
+    "listsAria": "Listas de jogadores",
+    "tabActivity": "Atividade",
+    "activityReload": "Recarregar",
+    "activitySearchAll": "Buscar no log inteiro",
     "tabOnline": "Online",
     "tabRoster": "Histórico",
     "tabBanned": "Banidos",
@@ -104,8 +122,8 @@
     "subheaderLabel": "ficha",
     "targetAcquired": "alvo.adquirido",
     "standby": "em espera",
-    "online": "online",
-    "offline": "offline",
+    "online": "Online",
+    "offline": "Offline",
     "connected": "conectado",
     "lastSeen": "visto por último",
     "played": "de jogo",
@@ -120,6 +138,9 @@
     "kickButton": "Expulsar",
     "banTitle": "Banir jogador",
     "banButton": "Banir",
+    "teleport": "Teleportar…",
+    "showOnMap": "Mostrar no mapa",
+    "showOnMapOffline": "{{player}} está offline, então não aparece no mapa.",
     "moreActionsAria": "Mais ações do jogador",
     "enableGodMode": "Ativar modo Deus",
     "disableGodMode": "Desativar modo Deus",
@@ -131,10 +152,12 @@
     "removeFromWhitelist": "Remover da lista de permissões",
     "notOnWhitelistReason": "{{player}} não está na lista de permissões — não há nada para remover.",
     "importExportCharacter": "Importar/exportar personagem",
-    "noTargetTitle": "nenhum alvo selecionado",
-    "noTargetDesc": "Escolha um jogador na lista para ver a ficha dele ou digite um nome de usuário em <1>› Alvo manual</1>."
+    "noTargetTitle": "Selecione um jogador",
+    "noTargetDesc": "Escolha alguém na lista ou digite um nome de usuário em Alvo manual para agir sobre um jogador offline."
   },
   "tabs": {
+    "notes": "Notas",
+    "listAria": "Ferramentas para {{player}}",
     "character": "Personagem",
     "moderation": "Moderação",
     "spawn": "Gerar",
@@ -366,6 +389,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Cria a conta em um servidor com lista de permissões",
+    "removeFromWhitelistDesc": "Não poderá mais entrar em um servidor com lista de permissões",
     "kickDesc": "Expulsar jogador com motivo",
     "banDesc": "Permanente · duas etapas",
     "accessLevelLabel": "Nível de acesso",
@@ -564,7 +589,7 @@
     "tableAction": "Ação",
     "tableDetails": "Detalhes",
     "loadingRow": "Carregando...",
-    "noLogsRow": "Nenhum log de atividade ainda — as ações de moderação feitas neste jogador (banimentos, expulsões, alterações na lista de permissões) aparecerão aqui.",
+    "noLogsRow": "Nenhuma atividade ainda. Conexões, mortes e ações de moderação (expulsões, banimentos, mudanças na lista de permissões) aparecem aqui.",
     "detailsFallback": "-"
   },
   "importExport": {

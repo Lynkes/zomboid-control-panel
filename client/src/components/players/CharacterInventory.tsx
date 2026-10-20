@@ -45,7 +45,7 @@ function RowBadges({
   annotation?: InventoryAnnotation
 }) {
   const { t, i18n } = useTranslation('players')
-  const badge = 'px-1.5 py-0 text-[10px] font-mono uppercase tracking-wider'
+  const badge = 'px-1.5 py-0 text-[10px]'
   return (
     <>
       {row.equipped && (
@@ -65,7 +65,7 @@ function RowBadges({
       {row.hidden && !row.worn && <Badge variant="outline" className={cn(badge, 'text-muted-foreground')}>{t('character.inventory.hiddenItem')}</Badge>}
       {row.obsolete && <Badge variant="outline" className={cn(badge, 'text-muted-foreground')}>{t('character.inventory.obsoleteItem')}</Badge>}
       {annotation?.givenAt && (
-        <span className="text-[11px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {givenCopy(t, { given: annotation.given, qty: annotation.qty, givenAt: annotation.givenAt }, i18n.language)}
         </span>
       )}
@@ -134,7 +134,7 @@ function TreeRows({
                   </span>
                 )}
                 {typeof row.itemCount === 'number' && (
-                  <span className="text-[11px] text-muted-foreground">{t('character.inventory.inside', { number: row.itemCount })}</span>
+                  <span className="text-xs text-muted-foreground">{t('character.inventory.inside', { number: row.itemCount })}</span>
                 )}
                 <RowBadges row={row} annotation={annotation} />
               </div>
@@ -152,7 +152,7 @@ function TreeRows({
               <span className="font-mono text-xs tabular-nums text-foreground/85">{t('character.inventory.qty', { qty: formatNumber(row.qty, language) })}</span>
             )}
             {typeof row.condition === 'number' && typeof row.conditionMax === 'number' && row.conditionMax > 0 && (
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {t('character.inventory.condition', { condition: row.condition, max: row.conditionMax })}
               </span>
             )}
@@ -176,7 +176,7 @@ function TypeRows({ items, annotations }: { items: InventoryTypeAggregate[]; ann
           <FullType value={item.fullType} />
           <span className="font-mono text-xs tabular-nums text-foreground/85">{t('character.inventory.qty', { qty: formatNumber(item.qty, language) })}</span>
           {item.modId && item.modId !== 'pz-vanilla' && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {t('character.inventory.mod', { mod: item.modId })}
             </span>
           )}
@@ -288,7 +288,7 @@ export function CharacterInventory({
           {t('character.inventory.title')}
         </h3>
         {inventory && (
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {savedAt
               ? t('character.inventory.lastKnown', { when: formatWhen(savedAt, language) })
               : loadedAt
@@ -348,7 +348,7 @@ export function CharacterInventory({
 
           {wornEquipped.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('character.inventory.wornEquipped')}</p>
+              <p className="label-micro">{t('character.inventory.wornEquipped')}</p>
               <ul className="flex flex-wrap gap-1.5">
                 {wornEquipped.map(({ key, row }) => (
                   <li key={key} className="flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/25 px-2 py-1">

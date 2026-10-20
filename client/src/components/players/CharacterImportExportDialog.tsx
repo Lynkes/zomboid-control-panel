@@ -203,7 +203,7 @@ export function CharacterImportExportDialog({
                 <Trans
                   i18nKey="importExport.bridgeOfflineDesc"
                   t={t}
-                  components={{ 1: <Link to="/settings" className="text-primary underline hover:text-foreground" /> }}
+                  components={{ 1: <Link to="/settings?tab=bridge" className="text-primary underline hover:text-foreground" /> }}
                 />
               </AlertDescription>
             </Alert>

@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "Players",
-    "description": "Manage connected players and their permissions",
+    "description": "Moderate players, edit their characters, and manage bans and the whitelist.",
     "updated": "Updated {{time}}",
+    "moreActions": "More actions",
     "refresh": "Refresh"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Add whitelist user…",
+    "unban": "Unban player…",
+    "unbanSteamId": "Unban SteamID…",
+    "voiceBan": "Voice ban…",
+    "banSteamId": "Ban SteamID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge is not connected",
+    "bridgeOfflineDesc": "Powers, character import and export, and roster health need it. Kick, ban and the whitelist still work.",
+    "bridgeOfflineAction": "Set up PanelBridge"
   },
   "permissions": {
     "noModerate": "This action requires the players.moderate permission, which this role doesn't have.",
@@ -27,6 +40,7 @@
     "online": "Online",
     "onlineCaption_one": "player",
     "onlineCaption_other": "players",
+    "rosterDetail": "Seen before, now offline",
     "peakToday": "Peak Today",
     "roster": "Roster",
     "rosterCaption": "seen",
@@ -36,11 +50,15 @@
     "bannedAria": "View {{count}} banned SteamIDs"
   },
   "roster": {
-    "headerLabel": "roster",
+    "headerLabel": "Players",
     "subheaderLive": "live",
     "subheaderHistory": "history",
     "subheaderBans": "bans",
     "subheaderAccounts": "accounts",
+    "listsAria": "Player lists",
+    "tabActivity": "Activity",
+    "activityReload": "Reload",
+    "activitySearchAll": "Search the full log",
     "tabOnline": "Online",
     "tabRoster": "Roster",
     "tabBanned": "Banned",
@@ -101,8 +119,8 @@
     "subheaderLabel": "dossier",
     "targetAcquired": "target.acquired",
     "standby": "standby",
-    "online": "online",
-    "offline": "offline",
+    "online": "Online",
+    "offline": "Offline",
     "connected": "connected",
     "lastSeen": "last seen",
     "played": "played",
@@ -117,6 +135,9 @@
     "kickButton": "Kick",
     "banTitle": "Ban player",
     "banButton": "Ban",
+    "teleport": "Teleport…",
+    "showOnMap": "Show on map",
+    "showOnMapOffline": "{{player}} is offline, so they aren't on the map.",
     "moreActionsAria": "More player actions",
     "enableGodMode": "Enable God Mode",
     "disableGodMode": "Disable God Mode",
@@ -128,10 +149,12 @@
     "removeFromWhitelist": "Remove from Whitelist",
     "notOnWhitelistReason": "{{player}} isn't on the whitelist — nothing to remove.",
     "importExportCharacter": "Import/Export Character",
-    "noTargetTitle": "no target selected",
-    "noTargetDesc": "Pick a player from the roster to view their dossier, or type a username under <1>› Manual target</1>."
+    "noTargetTitle": "Select a player",
+    "noTargetDesc": "Pick someone from the list, or type a username under Manual target to act on a player who is offline."
   },
   "tabs": {
+    "notes": "Notes",
+    "listAria": "Tools for {{player}}",
     "character": "Character",
     "moderation": "Moderation",
     "spawn": "Spawn",
@@ -362,6 +385,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Create their account on a whitelist-only server",
+    "removeFromWhitelistDesc": "They can no longer join a whitelist-only server",
     "kickDesc": "Boot player with reason",
     "banDesc": "Permanent · two-step",
     "accessLevelLabel": "Access Level",
@@ -560,7 +585,7 @@
     "tableAction": "Action",
     "tableDetails": "Details",
     "loadingRow": "Loading...",
-    "noLogsRow": "No activity logs yet — moderation actions taken on this player (bans, kicks, whitelist changes) will appear here.",
+    "noLogsRow": "No activity yet. Connections, deaths and moderation actions (kicks, bans, whitelist changes) appear here.",
     "detailsFallback": "-"
   },
   "importExport": {

@@ -220,7 +220,7 @@ describe('Players.tsx: the activity log is per server', () => {
     getActivityLogs.mockImplementationOnce(() => oldServerLog.promise)
     getActivityLogs.mockResolvedValue({ logs: [log(2, 'ZedFromNewServer', 'ban')] })
 
-    renderPlayers('/?tab=notes')
+    renderPlayers('/?list=activity')
     await waitFor(() => expect(getActivityLogs).toHaveBeenCalledTimes(1))
 
     await emitActiveServerChanged()
@@ -237,16 +237,16 @@ describe('Players.tsx: the activity log is per server', () => {
   it('empties the old server\'s log at once, and loads the new one when the tab is opened', async () => {
     setUpCommon()
     getActivityLogs.mockResolvedValueOnce({ logs: [log(1, 'AliceFromOldServer', 'kick')] })
-    renderPlayers('/?tab=notes')
+    renderPlayers('/?list=activity')
     await waitFor(() => expect(screen.getByText('AliceFromOldServer')).toBeInTheDocument())
 
-    // Another tab is open when the switch happens: nothing to refetch yet, but
-    // the old rows must not be waiting there when the tab is opened.
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Moderation' }), { button: 0 })
+    // Another list is open when the switch happens: nothing to refetch yet,
+    // but the old rows must not be waiting there when the list is opened.
+    fireEvent.mouseDown(screen.getByRole('tab', { name: /^Online/ }), { button: 0 })
     await emitActiveServerChanged()
     const newServerLog = deferred<Awaited<ReturnType<typeof playersApi.getActivityLogs>>>()
     getActivityLogs.mockImplementation(() => newServerLog.promise)
-    fireEvent.mouseDown(screen.getByRole('tab', { name: /Notes/ }), { button: 0 })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Activity' }), { button: 0 })
 
     // The new server's log is still loading: the old rows must not show meanwhile.
     await waitFor(() => expect(getActivityLogs).toHaveBeenCalledTimes(2))
@@ -271,7 +271,8 @@ describe('Players.tsx: an older answer for the previous server must not overwrit
     await act(async () => { oldBans.resolve({ bans: [{ steamId: '76561198000000001', banned_at: '2026-10-01T10:00:00.000Z' }] }) })
     await act(async () => { await Promise.resolve() })
 
-    expect(screen.queryByRole('button', { name: /banned SteamID/ })).not.toBeInTheDocument()
+    // The summary's banned count stays at the new server's 0.
+    expect(screen.getByRole('button', { name: 'View 0 banned SteamIDs' })).toBeInTheDocument()
   })
 
   it('keeps the new server\'s notes and playtime when the old server\'s answer arrives last', async () => {

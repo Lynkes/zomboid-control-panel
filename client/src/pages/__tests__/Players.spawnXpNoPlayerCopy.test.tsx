@@ -83,10 +83,7 @@ function renderPlayers() {
 }
 
 async function setUpFixtures() {
-  // No players online at all -- the Spawn tab (and its Give XP card) is
-  // reachable, and its no-player copy is what's on screen, regardless of
-  // roster state.
-  getPlayers.mockResolvedValue({ players: [] })
+  getPlayers.mockResolvedValue({ players: [{ name: 'TestPlayer', online: true }] })
   getWhitelist.mockResolvedValue({ success: true, available: true, accounts: [], allowedSteamIds: [] })
   getPerks.mockResolvedValue({ catalog: [] })
   getAccessLevels.mockResolvedValue({ levels: ['admin', 'moderator', 'gm', 'observer', 'priority', 'user', 'none'], available: true })
@@ -105,22 +102,29 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe('Players.tsx: Spawn tab "Give XP" no-player copy matches its sibling cards', () => {
-  it('tells the operator to pick a player first, the same way Give Items already does, instead of describing the feature as if one were already selected', async () => {
+// Since the 2026-10-20 restructure the player's tool tabs only render once a
+// player is selected: before that the card is one "Select a player" prompt,
+// not five tabs with nothing to act on. So the no-player state can't reach
+// the Spawn tab any more; what's left to prove is that the prompt replaces
+// the tabs, and that Give XP names the player once one is picked.
+describe('Players.tsx: no player selected shows one prompt, not empty tool tabs', () => {
+  it('shows "Select a player" and no tool tabs until a player is picked; then Give XP names them', async () => {
     await setUpFixtures()
     renderPlayers()
 
-    // Tabs render regardless of whether a player is selected (defaultValue
-    // is "moderation"); switch to Spawn the same way the existing Powers-tab
-    // tests do -- Radix's TabsTrigger switches on mousedown, not click.
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Spawn' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(en.dossier.noTargetTitle)).toBeInTheDocument())
+    expect(screen.getByText(en.dossier.noTargetDesc)).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Spawn' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Character' })).not.toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument(), { timeout: 3000 })
+    fireEvent.click(screen.getByText('TestPlayer'))
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'TestPlayer' })).toBeInTheDocument(), { timeout: 3000 })
+    expect(screen.queryByText(en.dossier.noTargetTitle)).not.toBeInTheDocument()
+
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Spawn' }), { button: 0 })
-
-    // "Give XP" appears twice once the tab is open (the card heading and the
-    // submit button) -- wait on the description text itself, which is unique.
-    await waitFor(() => expect(screen.getByText(en.spawn.giveXpDescNoPlayer)).toBeInTheDocument())
-
-    expect(screen.getAllByText(en.spawn.giveXpTitle).length).toBeGreaterThan(0)
-    expect(screen.queryByText('Grant experience to the selected player')).not.toBeInTheDocument()
+    const giveXpCopy = await screen.findByText((_, el) => el?.tagName === 'P' && el.textContent === 'Grant experience to TestPlayer')
+    expect(giveXpCopy).toBeInTheDocument()
+    expect(screen.queryByText(en.spawn.giveXpDescNoPlayer)).not.toBeInTheDocument()
   })
 })
