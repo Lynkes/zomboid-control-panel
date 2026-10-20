@@ -91,7 +91,7 @@ describe('Discord -- gateway-issue banner', () => {
 
     renderDiscord()
 
-    expect(await screen.findByText('Discord Bot')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Bot Status' })).toBeInTheDocument()
     expect(screen.queryByText(BANNER_TEXT)).not.toBeInTheDocument()
   })
 
@@ -107,7 +107,7 @@ describe('Discord -- gateway-issue banner', () => {
 
     expect(await screen.findByText(BANNER_TEXT)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /dismiss connection warning/i }))
+    fireEvent.click(screen.getByRole('button', { name: /dismiss/i }))
 
     expect(screen.queryByText(BANNER_TEXT)).not.toBeInTheDocument()
     expect(localStorage.getItem('pz-discord-gateway-issue-dismissed')).toBe(
@@ -129,7 +129,7 @@ describe('Discord -- gateway-issue banner', () => {
 
     renderDiscord()
 
-    expect(await screen.findByText('Discord Bot')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Bot Status' })).toBeInTheDocument()
     expect(screen.queryByText(BANNER_TEXT)).not.toBeInTheDocument()
   })
 

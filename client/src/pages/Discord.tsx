@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { copyText } from "@/lib/utils";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { SectionCard } from "@/components/ui/section-card";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { Stepper, type StepStatus } from "@/components/ui/stepper";
+import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
+import { PageSkeleton } from "@/components/PageSkeleton";
+import { SaveBar } from "@/components/SaveBar";
+import { useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,6 +35,7 @@ import {
   Play,
   Square,
   RefreshCw,
+  Loader2,
   CheckCircle2,
   AlertCircle,
   AlertTriangle,
@@ -60,8 +61,7 @@ import {
   Lock,
   Trash2,
   Info,
-  WifiOff,
-  X,
+  BookOpen,
 } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -246,14 +246,71 @@ function getEventLabels(t: TFunction): Record<
 
 function getSetupSteps(t: TFunction) {
   return [
-    { label: t("setupSteps.createApp"), icon: Zap },
-    { label: t("setupSteps.botToken"), icon: Bot },
-    { label: t("setupSteps.intents"), icon: ToggleLeft },
-    { label: t("setupSteps.inviteBot"), icon: UserPlus },
-    { label: t("setupSteps.serverIds"), icon: Hash },
-    { label: t("setupSteps.launch"), icon: Play },
+    t("setupSteps.createApp"),
+    t("setupSteps.botToken"),
+    t("setupSteps.intents"),
+    t("setupSteps.inviteBot"),
+    t("setupSteps.serverIds"),
+    t("setupSteps.launch"),
   ];
 }
+
+type ChatRelayScope = "public" | "no-yell" | "general";
+
+// What the Bot Configuration form shows for a saved config: the same
+// defaults loadData() applies, so the form and its dirty check agree.
+function configFormValues(config: DiscordConfig | null) {
+  return {
+    guildId: config?.guildId || "",
+    adminRoleId: config?.adminRoleId || "",
+    modRoleId: config?.modRoleId || "",
+    channelId: config?.channelId || "",
+    chatRelayEnabled: config?.chatRelayEnabled !== false,
+    chatRelayChannelId: config?.chatRelayChannelId || "",
+    chatRelayScope: (config?.chatRelayScope === "general" ||
+    config?.chatRelayScope === "no-yell"
+      ? config.chatRelayScope
+      : "public") as ChatRelayScope,
+    autoStart: config?.autoStart !== false,
+  };
+}
+
+const DISCORD_COMMANDS = [
+  "status",
+  "players",
+  "save",
+  "broadcast",
+  "kick",
+  "start",
+  "stop",
+  "restart",
+  "leaderboard",
+  "rcon",
+] as const;
+
+// A command with no saved tier runs at "admin" (the table below and the
+// server both default to it), so an absent entry and "admin" are the same.
+function samePermissions(a: Record<string, string>, b: Record<string, string>) {
+  return DISCORD_COMMANDS.every(
+    (command) => (a[command] || "admin") === (b[command] || "admin"),
+  );
+}
+
+// Events the page never loaded read as off with no template, the same
+// fallback the event list renders.
+function sameWebhookEvents(a: WebhookEvents, b: WebhookEvents) {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    const left = a[key] || { enabled: false, template: "" };
+    const right = b[key] || { enabled: false, template: "" };
+    if (Boolean(left.enabled) !== Boolean(right.enabled)) return false;
+    if ((left.template || "") !== (right.template || "")) return false;
+  }
+  return true;
+}
+
+type LoadParts = { config?: boolean; events?: boolean; permissions?: boolean };
+const LOAD_ALL: LoadParts = { config: true, events: true, permissions: true };
 
 const GATEWAY_ISSUE_DISMISSED_KEY = "pz-discord-gateway-issue-dismissed";
 
@@ -305,19 +362,29 @@ export default function Discord() {
     }
   });
   const [config, setConfig] = useState<DiscordConfig | null>(null);
+  // Only the first load shows the skeleton; a refresh after a save or a
+  // click on Refresh keeps the page (and its messages) on screen.
   const [loading, setLoading] = useState(true);
+  const [loadedOnce, setLoadedOnce] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [botInfo, setBotInfo] = useState<BotInfo | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [webhookEvents, setWebhookEvents] = useState<WebhookEvents>({});
+  // What the server last returned, for the dirty check and Discard.
+  const [savedWebhookEvents, setSavedWebhookEvents] = useState<WebhookEvents>({});
   const [savingEvents, setSavingEvents] = useState(false);
   const [autoStart, setAutoStart] = useState(true);
   const [commandPermissions, setCommandPermissions] = useState<
     Record<string, string>
   >({});
+  const [savedCommandPermissions, setSavedCommandPermissions] = useState<
+    Record<string, string>
+  >({});
   const [savingPermissions, setSavingPermissions] = useState(false);
+  // The setup guide reopened from the header on a bot that is already set up.
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Form state
   const [token, setToken] = useState("");
@@ -327,9 +394,19 @@ export default function Discord() {
   const [channelId, setChannelId] = useState("");
   const [chatRelayEnabled, setChatRelayEnabled] = useState(true);
   const [chatRelayChannelId, setChatRelayChannelId] = useState("");
-  const [chatRelayScope, setChatRelayScope] = useState<
-    "public" | "no-yell" | "general"
-  >("public");
+  const [chatRelayScope, setChatRelayScope] = useState<ChatRelayScope>("public");
+
+  const applyConfigToForm = useCallback((saved: DiscordConfig | null) => {
+    const values = configFormValues(saved);
+    setGuildId(values.guildId);
+    setAdminRoleId(values.adminRoleId);
+    setModRoleId(values.modRoleId);
+    setChannelId(values.channelId);
+    setChatRelayEnabled(values.chatRelayEnabled);
+    setChatRelayChannelId(values.chatRelayChannelId);
+    setChatRelayScope(values.chatRelayScope);
+    setAutoStart(values.autoStart);
+  }, []);
 
   // Setup wizard state
   const [configMessage, setConfigMessage] = useState<FlashMessage | null>(null);
@@ -342,7 +419,10 @@ export default function Discord() {
 
   const [setupStep, setSetupStep] = useState(0);
 
-  const loadData = useCallback(async () => {
+  // `parts` says which forms take the server's values: after a save, only
+  // the forms that saved are reset, so a failed save keeps what was typed
+  // in it. Status always refreshes.
+  const loadData = useCallback(async (parts: LoadParts = LOAD_ALL) => {
     try {
       setLoading(true);
       let configFailed = false;
@@ -369,15 +449,21 @@ export default function Discord() {
       );
 
       setStatus(statusData);
-      setWebhookEvents(eventsData.events || {});
-      setCommandPermissions(permsData.permissions || {});
-      if (eventsFailed) {
+      if (parts.events) {
+        setWebhookEvents(eventsData.events || {});
+        setSavedWebhookEvents(eventsData.events || {});
+      }
+      if (parts.permissions) {
+        setCommandPermissions(permsData.permissions || {});
+        setSavedCommandPermissions(permsData.permissions || {});
+      }
+      if (eventsFailed && parts.events) {
         setEventsMessage({
           type: "error",
           text: t("toasts.eventsReadFailedInline"),
         });
       }
-      if (permsFailed) {
+      if (permsFailed && parts.permissions) {
         setPermissionsMessage({
           type: "error",
           text: t("toasts.permissionsReadFailedInline"),
@@ -400,20 +486,8 @@ export default function Discord() {
 
       setConfig(configData);
 
-      if (configData) {
-        setGuildId(configData.guildId || "");
-        setAdminRoleId(configData.adminRoleId || "");
-        setModRoleId(configData.modRoleId || "");
-        setChannelId(configData.channelId || "");
-        setChatRelayEnabled(configData.chatRelayEnabled !== false);
-        setChatRelayChannelId(configData.chatRelayChannelId || "");
-        setChatRelayScope(
-          configData.chatRelayScope === "general" ||
-            configData.chatRelayScope === "no-yell"
-            ? configData.chatRelayScope
-            : "public",
-        );
-        setAutoStart(configData.autoStart !== false);
+      if (configData && parts.config) {
+        applyConfigToForm(configData);
       }
     } catch {
       setConfigLoadFailed(true);
@@ -423,8 +497,9 @@ export default function Discord() {
       });
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
-  }, [t]);
+  }, [t, applyConfigToForm]);
 
   useEffect(() => {
     loadData();
@@ -493,11 +568,64 @@ export default function Discord() {
       ? t("capabilityGate.modRole")
       : null;
 
-  const handleSaveConfig = async (andStart = false) => {
+  // Unsaved edits per form. The page has one SaveBar for all three
+  // (configuration, event notifications, command permissions), and leaving
+  // the page with any of them dirty asks first.
+  const savedConfigValues = configFormValues(config);
+  const configDirty =
+    Boolean(token) ||
+    guildId !== savedConfigValues.guildId ||
+    adminRoleId !== savedConfigValues.adminRoleId ||
+    modRoleId !== savedConfigValues.modRoleId ||
+    channelId !== savedConfigValues.channelId ||
+    chatRelayEnabled !== savedConfigValues.chatRelayEnabled ||
+    chatRelayChannelId !== savedConfigValues.chatRelayChannelId ||
+    chatRelayScope !== savedConfigValues.chatRelayScope ||
+    autoStart !== savedConfigValues.autoStart;
+  const eventsDirty = !sameWebhookEvents(webhookEvents, savedWebhookEvents);
+  const permissionsDirty = !samePermissions(
+    commandPermissions,
+    savedCommandPermissions,
+  );
+  const anyDirty = configDirty || eventsDirty || permissionsDirty;
+  const savingAny = saving || savingEvents || savingPermissions;
+  // The SaveBar guards the dashboard; the setup wizard has no SaveBar (it
+  // saves with Save Draft / Save & Start), so it guards what was typed into
+  // it here. Same condition as showSetupWizard below.
+  const wizardShown =
+    guideOpen ||
+    (!configLoadFailed && !(config?.hasToken && config?.guildId) && !status?.running);
+  useUnsavedChangesGuard(wizardShown && anyDirty);
+  // Why Save can't run: the same checks handleSaveConfig makes, said
+  // before the click instead of after it.
+  const saveBlockedReason = !canManageIntegrations
+    ? t("shared.noPermission")
+    : !configDirty
+      ? undefined
+      : !token && !config?.hasToken
+        ? t("toasts.tokenRequired")
+        : !guildId
+          ? t("toasts.guildIdRequired")
+          : hasGuildIdError
+            ? t("toasts.invalidGuildIdFormat")
+            : hasChannelIdError
+              ? t("toasts.invalidChannelIdFormat")
+              : hasAdminRoleIdError
+                ? t("toasts.invalidAdminRoleIdFormat")
+                : hasModRoleIdError
+                  ? t("toasts.invalidModRoleIdFormat")
+                  : hasChatRelayChannelIdError
+                    ? t("management.configuration.relayChannelError")
+                    : undefined;
+
+  // Saves the Bot Configuration form. True when the server stored it (even
+  // if the bot then failed to reconnect or start, which it reports), so the
+  // caller reloads; false when nothing was stored.
+  const saveConfig = async (andStart = false): Promise<boolean> => {
     // The disabled attribute on the buttons below is only the affordance --
     // this early return is the real gate, in case another path ever calls
     // this handler directly (bug-hunt-2026-08-27 floor rule).
-    if (!canManageIntegrations) return;
+    if (!canManageIntegrations) return false;
     // Same floor for the locked connection and role fields.
     const changesBotConnection =
       Boolean(token) ||
@@ -508,7 +636,7 @@ export default function Discord() {
       (changesBotConnection && !canChangeBotConnection) ||
       (changesModRole && !canChangeModRole)
     ) {
-      return;
+      return false;
     }
     try {
       setSaving(true);
@@ -516,12 +644,12 @@ export default function Discord() {
 
       if (!token && !config?.hasToken) {
         setConfigMessage({ type: "error", text: t("toasts.tokenRequired") });
-        return;
+        return false;
       }
 
       if (!guildId) {
         setConfigMessage({ type: "error", text: t("toasts.guildIdRequired") });
-        return;
+        return false;
       }
 
       if (!isValidDiscordId(guildId)) {
@@ -529,7 +657,7 @@ export default function Discord() {
           type: "error",
           text: t("toasts.invalidGuildIdFormat"),
         });
-        return;
+        return false;
       }
 
       if (channelId && !isValidDiscordId(channelId)) {
@@ -537,7 +665,7 @@ export default function Discord() {
           type: "error",
           text: t("toasts.invalidChannelIdFormat"),
         });
-        return;
+        return false;
       }
 
       if (adminRoleId && !isValidDiscordId(adminRoleId)) {
@@ -545,7 +673,7 @@ export default function Discord() {
           type: "error",
           text: t("toasts.invalidAdminRoleIdFormat"),
         });
-        return;
+        return false;
       }
 
       if (modRoleId && !isValidDiscordId(modRoleId)) {
@@ -553,7 +681,7 @@ export default function Discord() {
           type: "error",
           text: t("toasts.invalidModRoleIdFormat"),
         });
-        return;
+        return false;
       }
 
       const tokenToSave = token || "KEEP_EXISTING";
@@ -585,8 +713,7 @@ export default function Discord() {
           }),
         });
         setToken("");
-        await loadData();
-        return;
+        return true;
       }
 
       if (andStart) {
@@ -600,8 +727,7 @@ export default function Discord() {
             type: "error",
             text: t("toasts.configSavedBotStartFailed", { reason: why }),
           });
-          await loadData();
-          return;
+          return true;
         }
         setConfigMessage({
           type: "success",
@@ -614,13 +740,22 @@ export default function Discord() {
         });
       }
       setToken("");
-      await loadData();
+      return true;
     } catch (error: unknown) {
       const msg =
         getUserErrorMessage(error, t("toasts.saveConfigFailedFallback"));
       setConfigMessage({ type: "error", text: msg });
+      return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  // The setup wizard's Save draft / Save & Start: save, then reload all.
+  const handleSaveConfig = async (andStart = false) => {
+    if (await saveConfig(andStart)) {
+      setGuideOpen(false);
+      await loadData();
     }
   };
 
@@ -780,26 +915,82 @@ export default function Discord() {
     }));
   };
 
-  const handleSaveWebhookEvents = async () => {
-    if (!canManageIntegrations) return;
+  const saveWebhookEvents = async (): Promise<boolean> => {
+    if (!canManageIntegrations) return false;
     try {
       setSavingEvents(true);
       await discordApi.updateWebhookEvents(webhookEvents);
       setEventsMessage({ type: "success", text: t("management.webhookEvents.savedMessage") });
-      await loadData();
+      return true;
     } catch (error: unknown) {
       const msg = getUserErrorMessage(error, t("management.webhookEvents.saveFailedFallback"));
       setEventsMessage({ type: "error", text: msg });
+      return false;
     } finally {
       setSavingEvents(false);
     }
   };
 
-  if (loading) {
+  const savePermissions = async (): Promise<boolean> => {
+    if (!canManageIntegrations) return false;
+    try {
+      setSavingPermissions(true);
+      const saved = await discordApi.updatePermissions(commandPermissions);
+      // The tiers are saved either way; this only says whether
+      // Discord took the slash command update that goes with them.
+      setPermissionsMessage(
+        saved?.commandsRegistered === false
+          ? {
+              type: "warning",
+              text: t("management.commandPermissions.savedNotRegistered"),
+            }
+          : {
+              type: "success",
+              text: t("management.commandPermissions.savedMessage"),
+            },
+      );
+      return true;
+    } catch (error: unknown) {
+      const msg = getUserErrorMessage(error, t("management.commandPermissions.saveFailedFallback"));
+      setPermissionsMessage({ type: "error", text: msg });
+      return false;
+    } finally {
+      setSavingPermissions(false);
+    }
+  };
+
+  // The SaveBar: saves each form that has unsaved edits, then reloads only
+  // the forms that saved, so one that failed keeps what was typed in it.
+  const handleSaveAll = async () => {
+    if (!canManageIntegrations || savingAny || saveBlockedReason) return;
+    const saved = { config: false, events: false, permissions: false };
+    if (permissionsDirty) saved.permissions = await savePermissions();
+    if (eventsDirty) saved.events = await saveWebhookEvents();
+    if (configDirty) saved.config = await saveConfig(false);
+    if (saved.config || saved.events || saved.permissions) {
+      await loadData(saved);
+    }
+  };
+
+  // Puts every form back to what the server last returned.
+  const handleDiscard = () => {
+    setToken("");
+    setBotInfo(null);
+    setInviteUrl(null);
+    applyConfigToForm(config);
+    setWebhookEvents(savedWebhookEvents);
+    setCommandPermissions(savedCommandPermissions);
+  };
+
+  if (loading && !loadedOnce) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
+      <PageSkeleton
+        variant="form"
+        title={t("management.pageHeaderTitle")}
+        description={t("management.pageHeaderDescription")}
+        icon={<MessageSquare />}
+        section="panel"
+      />
     );
   }
 
@@ -818,13 +1009,18 @@ export default function Discord() {
   // is a brand-new, never-configured bot briefly shows the dashboard
   // instead of the wizard until the next successful refresh, not an
   // already-running production bot getting told to set up from scratch.
-  const showSetupWizard = !configLoadFailed && !isConfigured && !status?.running;
+  const showSetupWizard =
+    guideOpen || (!configLoadFailed && !isConfigured && !status?.running);
 
   // How far into the wizard the operator has actually unlocked, mirroring each
   // step's own "Next" gate. Without this, the stepper let you click straight to
   // Launch with an unverified or mistyped token — the "Save & Start" button only
   // checks that a token string is present, not that Verify ever confirmed it.
-  const maxReachableStep = !botInfo
+  // A bot already set up has a saved token: reopened from the header, the
+  // guide doesn't ask to verify it again unless a new one is typed.
+  const tokenStepPassed =
+    Boolean(botInfo) || (guideOpen && Boolean(config?.hasToken) && !token);
+  const maxReachableStep = !tokenStepPassed
     ? 1
     : !guildId || hasGuildIdError || hasChannelIdError || hasAdminRoleIdError
       ? 4
@@ -834,78 +1030,57 @@ export default function Discord() {
   // SETUP WIZARD — shown when bot is not yet configured
   // ═════════════════════════════════════════════════
   if (showSetupWizard) {
+    const wizardSteps = SETUP_STEPS.map((label, i) => {
+      const stepStatus: StepStatus =
+        i === setupStep
+          ? "current"
+          : i < setupStep
+            ? "done"
+            : i > maxReachableStep
+              ? "locked"
+              : "upcoming";
+      return {
+        id: String(i),
+        label,
+        status: stepStatus,
+        lockedReason: t("wizard.stepLocked"),
+      };
+    });
     return (
       <div className="space-y-6 page-transition">
         <PageHeader
-          title={t("wizard.pageHeaderTitle")}
+          title={t("management.pageHeaderTitle")}
           description={t("wizard.pageHeaderDescription")}
-          icon={<MessageSquare className="w-5 h-5" />}
+          actions={
+            guideOpen ? (
+              <Button variant="outline" size="sm" onClick={() => setGuideOpen(false)}>
+                <ChevronLeft className="rtl:-scale-x-100" aria-hidden="true" />
+                {t("management.closeGuide")}
+              </Button>
+            ) : undefined
+          }
         />
 
         {/* Status Message */}
         <InlineFeedback message={configMessage} />
 
-        {/* Stepper */}
-        <div className="flex items-center justify-between overflow-x-auto gap-1">
-          {SETUP_STEPS.map((step, i) => {
-            const Icon = step.icon;
-            const isActive = i === setupStep;
-            const isDone = i < setupStep;
-            const isLocked = i > maxReachableStep;
-            return (
-              <div key={i} className="flex items-center flex-1 last:flex-none">
-                <DisabledReason reason={isLocked ? t("wizard.stepLocked") : null}>
-                  <button
-                    onClick={() => !isLocked && setSetupStep(i)}
-                    disabled={isLocked}
-                    aria-disabled={isLocked}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-sm font-medium shrink-0 ${
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : isDone
-                          ? "bg-primary/10 text-primary hover:bg-primary/15"
-                          : isLocked
-                            ? "bg-muted/50 text-muted-foreground/50 cursor-not-allowed"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    }`}
-                  >
-                    {isDone ? (
-                      <Check className="w-4 h-4 shrink-0" />
-                    ) : (
-                      <Icon className="w-4 h-4 shrink-0" />
-                    )}
-                    {/* Used to be hidden below `md`, leaving 6 bare icon
-                        buttons on mobile (lightning/briefcase/eye/person+/
-                        hash/play) with no text anywhere to say what step
-                        each one is -- "Intents" and "Server IDs" aren't
-                        guessable from their icons alone. The row already
-                        scrolls (overflow-x-auto on the parent, shrink-0
-                        here) rather than wrapping or truncating, so keeping
-                        the label uses the scroll behavior this stepper was
-                        already built with instead of fighting it (2026-08-31
-                        quality pass). */}
-                    <span className="whitespace-nowrap">{step.label}</span>
-                  </button>
-                </DisabledReason>
-                {i < SETUP_STEPS.length - 1 && (
-                  <div
-                    className={`flex-1 h-px mx-2 ${isDone ? "bg-primary/30" : "bg-border"}`}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-
         {/* Step Content */}
-        <Card>
-          <CardContent className="pt-6">
+        <SectionCard title={t("wizard.pageHeaderTitle")} icon={Bot}>
+          <Stepper
+            steps={wizardSteps}
+            onStepClick={(id) => {
+              const step = Number(id);
+              if (step <= maxReachableStep) setSetupStep(step);
+            }}
+            className="border-b border-border/60 pb-4"
+          />
+          <div>
             {/* ── Step 0: Create Application ── */}
             {setupStep === 0 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <Zap className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <Zap className="h-4 w-4 text-primary" />
                     {t("wizard.step0.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -984,8 +1159,8 @@ export default function Discord() {
             {setupStep === 1 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <Bot className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <Bot className="h-4 w-4 text-primary" />
                     {t("wizard.step1.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -1042,7 +1217,7 @@ export default function Discord() {
                       className="min-w-[100px]"
                     >
                       {testing ? (
-                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <>
                           <Zap className="w-4 h-4 me-1.5" /> {t("wizard.step1.verify")}
@@ -1085,7 +1260,7 @@ export default function Discord() {
                   <Button variant="outline" onClick={() => setSetupStep(0)}>
                     <ChevronLeft className="w-4 h-4 me-1" /> {t("wizard.step1.back")}
                   </Button>
-                  <Button onClick={() => setSetupStep(2)} disabled={!botInfo}>
+                  <Button onClick={() => setSetupStep(2)} disabled={!tokenStepPassed}>
                     {t("wizard.step1.next")}{" "}
                     <ChevronRight className="w-4 h-4 ms-1" />
                   </Button>
@@ -1097,8 +1272,8 @@ export default function Discord() {
             {setupStep === 2 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <ToggleLeft className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <ToggleLeft className="h-4 w-4 text-primary" />
                     {t("wizard.step2.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -1166,8 +1341,8 @@ export default function Discord() {
             {setupStep === 3 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <UserPlus className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <UserPlus className="h-4 w-4 text-primary" />
                     {t("wizard.step3.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -1182,13 +1357,13 @@ export default function Discord() {
                     {/* One-click invite */}
                     <div className="p-5 rounded-lg border-2 border-primary/30 bg-primary/5 text-center space-y-3">
                       <p className="font-medium">{t("wizard.step3.inviteReady")}</p>
-                      <Button size="lg" asChild>
+                      <Button asChild>
                         <a
                           href={inviteUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          <UserPlus className="w-5 h-5 me-2" /> {t("wizard.step3.inviteButton")}{" "}
+                          <UserPlus className="w-4 h-4 me-2" /> {t("wizard.step3.inviteButton")}{" "}
                           <span className="sr-only">{t("wizard.step3.opensInNewTab")}</span>
                         </a>
                       </Button>
@@ -1262,8 +1437,8 @@ export default function Discord() {
             {setupStep === 4 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <Hash className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <Hash className="h-4 w-4 text-primary" />
                     {t("wizard.step4.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -1410,8 +1585,8 @@ export default function Discord() {
             {setupStep === 5 && (
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold flex items-center gap-2">
-                    <Play className="w-5 h-5 text-primary" />
+                  <h3 className="flex items-center gap-2 text-base font-semibold">
+                    <Play className="h-4 w-4 text-primary" />
                     {t("wizard.step5.heading")}
                   </h3>
                   <p className="text-muted-foreground">
@@ -1498,7 +1673,7 @@ export default function Discord() {
                       disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
-                        <RefreshCw className="w-4 h-4 me-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
                       ) : (
                         <Settings className="w-4 h-4 me-2" />
                       )}
@@ -1511,7 +1686,7 @@ export default function Discord() {
                       disabled={saving || !canSaveConfig || !!botConnectionLockedReason}
                     >
                       {saving ? (
-                        <RefreshCw className="w-4 h-4 me-2 animate-spin" />
+                        <Loader2 className="w-4 h-4 me-2 animate-spin" />
                       ) : (
                         <Play className="w-4 h-4 me-2" />
                       )}
@@ -1522,15 +1697,11 @@ export default function Discord() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </SectionCard>
 
         {/* What you get */}
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("wizard.whatItDoes.title")}</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <SectionCard title={t("wizard.whatItDoes.title")}>
             <div className="divide-y divide-border/60 text-sm">
               <div className="flex gap-3 py-3 first:pt-0">
                 <ArrowRight className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -1560,10 +1731,83 @@ export default function Discord() {
                 </div>
               </div>
             </div>
-          </CardContent>
-        </Card>
+        </SectionCard>
       </div>
     );
+  }
+
+  const noPermissionReason = !canManageIntegrations ? t("shared.noPermission") : null;
+  const hasBotError = Boolean(status?.error || status?.lastStartError);
+  const botTone: StatusTone =
+    starting || stopping
+      ? "busy"
+      : status?.running
+        ? status.gatewayIssue
+          ? "warn"
+          : "ok"
+        : hasBotError
+          ? "error"
+          : "idle";
+  const botLabel = starting
+    ? t("management.botStatus.starting")
+    : stopping
+      ? t("management.botStatus.stopping")
+      : status?.running
+        ? t("management.statusRunning")
+        : hasBotError
+          ? t("management.botStatus.botErrorLabel")
+          : t("management.statusStopped");
+
+  const pageAlerts: PageAlert[] = [];
+  // status.error is a live runtime/init failure; lastStartError is the
+  // reason the last start() attempt failed, and unlike the one-time message
+  // POST /start shows, it survives a page refresh or coming back later --
+  // cleared server-side the moment a start actually succeeds.
+  if (hasBotError) {
+    pageAlerts.push({
+      id: "bot-error",
+      tone: "error",
+      title: t("management.botStatus.botErrorLabel"),
+      description: status?.error || status?.lastStartError?.message,
+    });
+  }
+  // The bot posts only in the guild set as the Guild ID; 1.4.5 also posted
+  // to channels in other guilds, so an operator who updates needs to see
+  // why those notifications stopped.
+  if (status?.channelsOutsideGuild && status.channelsOutsideGuild.length > 0) {
+    pageAlerts.push({
+      id: "channels-outside-guild",
+      tone: "warning",
+      title: t("management.channelOutsideGuild.title"),
+      description: t("management.channelOutsideGuild.body", {
+        channels: status.channelsOutsideGuild.join(", "),
+      }),
+    });
+  }
+  // Gateway connectivity degraded: the bot is still running, it just hasn't
+  // been able to confirm its connection is healthy for a while. The server
+  // already ruled out a routine, self-healing reconnect (a few seconds)
+  // before this appears, so it is information worth a look, not an alarm:
+  // the quiet (info) treatment, dismissable per degraded episode.
+  if (
+    status?.gatewayIssue &&
+    status.gatewayDegradedSince &&
+    gatewayIssueDismissed !== status.gatewayDegradedSince
+  ) {
+    const since = status.gatewayDegradedSince;
+    pageAlerts.push({
+      id: "gateway-issue",
+      tone: "info",
+      title: t("management.gatewayIssue.label"),
+      onDismiss: () => {
+        try {
+          localStorage.setItem(GATEWAY_ISSUE_DISMISSED_KEY, since);
+        } catch {
+          /* ignore storage failures */
+        }
+        setGatewayIssueDismissed(since);
+      },
+    });
   }
 
   // ═════════════════════════════════════════════════
@@ -1571,275 +1815,140 @@ export default function Discord() {
   // ═════════════════════════════════════════════════
   return (
     <div className="space-y-6 page-transition">
-      {/* Header */}
       <PageHeader
         title={t("management.pageHeaderTitle")}
         description={t("management.pageHeaderDescription")}
-        icon={<MessageSquare className="w-5 h-5" />}
+        status={<StatusPill tone={botTone} label={botLabel} pulse={botTone === "warn"} />}
         actions={
-          <div className="flex items-center gap-2">
-            <div
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide ${
-                status?.running
-                  ? "border-primary/40 bg-primary/[0.08] text-primary"
-                  : "border-border/55 bg-muted/40 text-muted-foreground"
-              }`}
+          <>
+            <Button
+              variant="ghost"
+              size="iconDense"
+              onClick={() => loadData()}
+              aria-label={t("management.refreshAria")}
+              title={t("management.refreshAria")}
             >
-              {status?.running ? (
-                <span
-                  className="relative inline-flex w-2 h-2"
-                  aria-hidden="true"
-                >
-                  <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
-                  <span className="relative w-2 h-2 rounded-full bg-primary" />
-                </span>
+              {loading ? (
+                <Loader2 className="animate-spin" aria-hidden="true" />
               ) : (
-                <span
-                  className="w-2 h-2 rounded-full border border-muted-foreground/50"
-                  aria-hidden="true"
-                />
+                <RefreshCw aria-hidden="true" />
               )}
-              {status?.running ? t("management.statusRunning") : t("management.statusStopped")}
-            </div>
+            </Button>
             <Button
               variant="outline"
-              size="icon"
-              onClick={loadData}
-              aria-label={t("management.refreshAria")}
-              className="h-10 w-10"
+              size="sm"
+              onClick={() => {
+                setSetupStep(0);
+                setGuideOpen(true);
+              }}
+              aria-label={t("management.setupGuide")}
             >
-              <RefreshCw className="w-4 h-4" />
+              <BookOpen aria-hidden="true" />
+              <span className="hidden sm:inline">{t("management.setupGuide")}</span>
             </Button>
-          </div>
+            {/* Start or Stop, whichever applies: the page's one primary.
+                Stopping is reversible (the bot restarts on demand), so it
+                takes no confirmation, same as Servers.tsx's Stop. */}
+            <DisabledReason reason={noPermissionReason}>
+              {status?.running ? (
+                <Button
+                  variant="command"
+                  size="sm"
+                  onClick={handleStop}
+                  disabled={stopping || !canManageIntegrations}
+                >
+                  {stopping ? (
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Square aria-hidden="true" />
+                  )}
+                  {stopping ? t("management.botStatus.stopping") : t("management.botStatus.stop")}
+                </Button>
+              ) : (
+                <Button
+                  variant="command"
+                  size="sm"
+                  onClick={handleStart}
+                  disabled={starting || !canManageIntegrations}
+                >
+                  {starting ? (
+                    <Loader2 className="animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Play aria-hidden="true" />
+                  )}
+                  {starting ? t("management.botStatus.starting") : t("management.botStatus.start")}
+                </Button>
+              )}
+            </DisabledReason>
+          </>
         }
       />
+
+      <PageAlerts alerts={pageAlerts} />
 
       {/* Status Message */}
       <InlineFeedback message={configMessage} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Bot Status */}
-        <Card className="relative overflow-hidden">
-          <div
-            className={`absolute top-0 inset-x-0 h-[2px] ${
-              status?.running
-                ? "bg-gradient-to-r from-primary via-primary/80 to-primary/30"
-                : status?.error
-                  ? "bg-gradient-to-r from-destructive via-destructive/80 to-destructive/30"
-                  : "bg-gradient-to-r from-muted-foreground/40 via-muted-foreground/20 to-transparent"
-            }`}
-            aria-hidden="true"
-          />
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="w-5 h-5" />
-              {t("management.botStatus.title")}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div
-                className={`rounded-lg border px-4 py-3 ${status?.running ? "border-primary/30 bg-primary/5" : "border-border/60 bg-muted/40"}`}
-              >
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  {t("management.botStatus.runtimeLabel")}
-                </p>
-                <p
-                  className={`mt-1 flex items-center gap-2 text-lg font-semibold ${status?.running ? "text-primary" : ""}`}
-                >
-                  {status?.running && (
-                    <span
-                      className="relative inline-flex w-2 h-2"
-                      aria-hidden="true"
-                    >
-                      <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
-                      <span className="relative w-2 h-2 rounded-full bg-primary" />
-                    </span>
-                  )}
-                  {status?.running ? t("management.botStatus.online") : t("management.botStatus.offline")}
-                </p>
-              </div>
-              <div className="min-w-0 rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  {t("management.botStatus.botUserLabel")}
-                </p>
-                <p className="mt-1 truncate text-lg font-semibold">
-                  {/* "Waiting for login" is only literally true for the few
-                      seconds a start() call is actually in flight -- once it
-                      fails (or was never attempted), status.running stays
-                      false and this text sits there indefinitely implying
-                      something is still in progress when nothing is. "Not
-                      signed in" is honest in both cases. */}
-                  {status?.username || t("management.botStatus.notSignedIn")}
-                </p>
-              </div>
-              <div
-                className={`min-w-0 rounded-lg border px-4 py-3 ${config?.channelId ? "border-border/60 bg-muted/30" : "border-warning/30 bg-warning/[0.06]"}`}
-              >
-                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">
-                  {t("management.botStatus.channelLabel")}
-                </p>
-                <p
-                  className={`mt-1 truncate text-lg font-semibold ${config?.channelId ? "" : "text-warning"}`}
-                >
-                  {/* This only checks config.channelId -- a saved settings
-                      value, unrelated to status (the live runtime) or to
-                      whether the bot has ever connected. "Linked" reads as a
-                      verified, active relationship it doesn't represent;
-                      "Configured" (matching the Bot Token field's own
-                      "Configured" badge below) says only what's actually
-                      true: a channel ID has been saved. */}
-                  {config?.channelId ? t("management.botStatus.configured") : t("management.botStatus.notSet")}
-                </p>
-              </div>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t("management.botStatus.dependencyNote")}
-            </p>
-
-            {/* status.error is a live runtime/init failure; lastStartError is
-                the reason the last start() attempt failed, and unlike the
-                one-time toast POST /start shows, it survives a page refresh
-                or coming back later -- cleared server-side the moment a
-                start actually succeeds. */}
-            {(status?.error || status?.lastStartError) && (
-              <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-                <p className="text-sm text-destructive font-medium">
-                  {t("management.botStatus.botErrorLabel")}
-                </p>
-                <p className="text-sm text-destructive/80">
-                  {status?.error || status?.lastStartError?.message}
-                </p>
-              </div>
-            )}
-
-            {/* Gateway connectivity degraded (quiet) -- deliberately NOT the
-                accented-destructive treatment above: the bot is still
-                running, it just hasn't been able to confirm its connection
-                is healthy for a while. Server-side debounce already ruled
-                out a routine, self-healing reconnect (a few seconds) before
-                this ever appears, so unlike status.error this is real
-                information worth a look, not an alarm -- muted icon + text
-                + a dismiss X, same quiet treatment as Dashboard.tsx's
-                update-check-error indicator. */}
-            {status?.gatewayIssue &&
-              status.gatewayDegradedSince &&
-              gatewayIssueDismissed !== status.gatewayDegradedSince && (
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                  <WifiOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-                  <span className="min-w-0">
-                    {t("management.gatewayIssue.label")}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const since = status.gatewayDegradedSince;
-                      if (!since) return;
-                      try {
-                        localStorage.setItem(GATEWAY_ISSUE_DISMISSED_KEY, since);
-                      } catch {
-                        /* ignore storage failures */
-                      }
-                      setGatewayIssueDismissed(since);
-                    }}
-                    aria-label={t("management.gatewayIssue.dismissAria")}
-                    title={t("management.gatewayIssue.dismissTooltip")}
-                    className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              )}
-
-            {/* The bot posts only in the guild set as the Guild ID; 1.4.5
-                also posted to channels in other guilds, so an operator who
-                updates needs to see why those notifications stopped. */}
-            {status?.channelsOutsideGuild && status.channelsOutsideGuild.length > 0 && (
-              <div
-                role="status"
-                className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg"
-              >
-                <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                  {t("management.channelOutsideGuild.title")}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {t("management.channelOutsideGuild.body", {
-                    channels: status.channelsOutsideGuild.join(", "),
-                  })}
-                </p>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              {status?.running ? (
-                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null} className="flex-1">
-                <Button
-                  // Reversible -- the bot restarts on demand, same as
-                  // Servers.tsx's own Stop button (variant="outline" there
-                  // too) -- red/destructive overstated this action's actual
-                  // severity, and it had zero confirmation either way.
-                  variant="outline"
-                  onClick={handleStop}
-                  className="flex-1"
-                  disabled={stopping || !canManageIntegrations}
-                >
-                  {stopping ? (
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
-                  ) : (
-                    <Square className="w-4 h-4 me-2" />
-                  )}
-                  {stopping ? t("management.botStatus.stopping") : t("management.botStatus.stop")}
-                </Button>
-                </DisabledReason>
-              ) : (
-                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null} className="flex-1">
-                <Button
-                  onClick={handleStart}
-                  className="flex-1"
-                  disabled={starting || !canManageIntegrations}
-                >
-                  {starting ? (
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 me-2" />
-                  )}
-                  {starting ? t("management.botStatus.starting") : t("management.botStatus.start")}
-                </Button>
-                </DisabledReason>
-              )}
-
-              {status?.running && config?.channelId && (
-                <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+        <SectionCard
+          title={t("management.botStatus.title")}
+          icon={Bot}
+          actions={
+            status?.running && config?.channelId ? (
+              <DisabledReason reason={noPermissionReason}>
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={handleSendTestMessage}
                   disabled={sendingTest || !canManageIntegrations}
                 >
                   {sendingTest ? (
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />
+                    <Loader2 className="animate-spin" aria-hidden="true" />
                   ) : (
-                    <Send className="w-4 h-4 me-2" />
+                    <Send aria-hidden="true" />
                   )}
                   {sendingTest ? t("management.botStatus.sendingTest") : t("management.botStatus.sendTest")}
                 </Button>
-                </DisabledReason>
-              )}
+              </DisabledReason>
+            ) : undefined
+          }
+        >
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="min-w-0 rounded-lg border border-border/60 bg-muted/25 p-3">
+              <dt className="label-micro">{t("management.botStatus.botUserLabel")}</dt>
+              <dd className="mt-1 truncate text-base font-semibold">
+                {/* "Waiting for login" was only literally true for the few
+                    seconds a start() call is in flight; "Not signed in" is
+                    honest whether a start failed or was never tried. */}
+                {status?.username || t("management.botStatus.notSignedIn")}
+              </dd>
             </div>
-          </CardContent>
-        </Card>
+            <div
+              className={`min-w-0 rounded-lg border p-3 ${config?.channelId ? "border-border/60 bg-muted/25" : "border-warning/30 bg-warning/5"}`}
+            >
+              <dt className="label-micro">{t("management.botStatus.channelLabel")}</dt>
+              <dd
+                className={`mt-1 truncate text-base font-semibold ${config?.channelId ? "" : "text-warning"}`}
+              >
+                {/* Only says a channel ID is saved (config.channelId), not
+                    that the bot has ever posted there: "Configured", like
+                    the Bot Token field's own badge, not "Linked". */}
+                {config?.channelId ? t("management.botStatus.configured") : t("management.botStatus.notSet")}
+              </dd>
+            </div>
+          </dl>
+          <p className="text-sm text-muted-foreground">
+            {t("management.botStatus.dependencyNote")}
+          </p>
+        </SectionCard>
 
         {/* Command Permissions */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="w-5 h-5" />
-              {t("management.commandPermissions.title")}
-            </CardTitle>
-            <CardDescription>
-              {t("management.commandPermissions.description")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <SectionCard
+          title={t("management.commandPermissions.title")}
+          description={t("management.commandPermissions.description")}
+          icon={Shield}
+        >
             <Alert className="border-border/60 bg-muted/40 text-sm">
               <Info className="h-4 w-4 text-primary" />
               <AlertTitle>{t("management.commandPermissions.independenceTitle")}</AlertTitle>
@@ -1961,63 +2070,16 @@ export default function Discord() {
                 );
               })}
             </div>
-
-            <div className="flex justify-end pt-2">
-              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
-              <Button
-                onClick={async () => {
-                  if (!canManageIntegrations) return;
-                  try {
-                    setSavingPermissions(true);
-                    const saved = await discordApi.updatePermissions(commandPermissions);
-                    // The tiers are saved either way; this only says whether
-                    // Discord took the slash command update that goes with them.
-                    setPermissionsMessage(
-                      saved?.commandsRegistered === false
-                        ? {
-                            type: "warning",
-                            text: t("management.commandPermissions.savedNotRegistered"),
-                          }
-                        : {
-                            type: "success",
-                            text: t("management.commandPermissions.savedMessage"),
-                          },
-                    );
-                  } catch (error: unknown) {
-                    const msg = getUserErrorMessage(error, t("management.commandPermissions.saveFailedFallback"));
-                    setPermissionsMessage({ type: "error", text: msg });
-                  } finally {
-                    setSavingPermissions(false);
-                  }
-                }}
-                disabled={savingPermissions || !canManageIntegrations}
-              >
-                {savingPermissions ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
-                    {t("management.commandPermissions.saving")}
-                  </>
-                ) : (
-                  t("management.commandPermissions.save")
-                )}
-              </Button>
-              </DisabledReason>
-            </div>
-            <InlineFeedback message={permissionsMessage} className="mt-3" />
-          </CardContent>
-        </Card>
+            <InlineFeedback message={permissionsMessage} />
+        </SectionCard>
       </div>
 
       {/* Configuration */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            {t("management.configuration.title")}
-          </CardTitle>
-          <CardDescription>{t("management.configuration.description")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <SectionCard
+        title={t("management.configuration.title")}
+        description={t("management.configuration.description")}
+        icon={Settings}
+      >
           {/* Bot Token */}
           <div className="space-y-2">
             <Label htmlFor="token" className="flex items-center gap-2">
@@ -2073,7 +2135,7 @@ export default function Discord() {
                 disabled={testing || !token || !canManageIntegrations}
               >
                 {testing ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Zap className="w-4 h-4 me-1.5" /> {t("management.configuration.verifyToken")}
@@ -2208,26 +2270,31 @@ export default function Discord() {
           </div>
 
           {/* Auto-Start */}
-          <div className="flex items-center justify-between p-4 rounded-lg border">
-            <div>
-              <Label className="font-medium">{t("management.configuration.autoStartLabel")}</Label>
-              <p className="text-sm text-muted-foreground">
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="discord-auto-start" className="font-medium">
+                {t("management.configuration.autoStartLabel")}
+              </Label>
+              <p className="text-xs text-muted-foreground">
                 {t("management.configuration.autoStartDesc")}
               </p>
             </div>
-            <Switch checked={autoStart} onCheckedChange={setAutoStart} />
+            <Switch id="discord-auto-start" checked={autoStart} onCheckedChange={setAutoStart} />
           </div>
 
           {/* Chat Relay */}
-          <div className="space-y-4 p-4 rounded-lg border">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="font-medium">{t("management.configuration.chatRelayLabel")}</Label>
-                <p className="text-sm text-muted-foreground">
+          <div className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="discord-chat-relay" className="font-medium">
+                  {t("management.configuration.chatRelayLabel")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
                   {t("management.configuration.chatRelayDesc")}
                 </p>
               </div>
               <Switch
+                id="discord-chat-relay"
                 checked={chatRelayEnabled}
                 onCheckedChange={setChatRelayEnabled}
               />
@@ -2239,9 +2306,7 @@ export default function Discord() {
                 </Label>
                 <Select
                   value={chatRelayScope}
-                  onValueChange={(v) =>
-                    setChatRelayScope(v as "public" | "no-yell" | "general")
-                  }
+                  onValueChange={(v) => setChatRelayScope(v as ChatRelayScope)}
                 >
                   <SelectTrigger id="chatRelayScope">
                     <SelectValue />
@@ -2291,64 +2356,37 @@ export default function Discord() {
             )}
           </div>
 
+          {/* Saving lives in the SaveBar at the bottom of the page; the
+              one action left here is the destructive wipe. */}
           <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="rounded-lg border border-destructive/25 bg-destructive/[0.05] px-4 py-3 text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t("management.configuration.wipeNote")}
-            </div>
-            <div className="flex justify-end gap-2">
-              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
+            </p>
+            <DisabledReason reason={noPermissionReason}>
               <Button
                 variant="destructive"
+                size="sm"
+                className="shrink-0 self-start sm:self-auto"
                 onClick={handleResetConfig}
                 disabled={resetting || !canManageIntegrations}
               >
                 {resetting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
-                    {t("management.configuration.wiping")}
-                  </>
+                  <Loader2 className="animate-spin" aria-hidden="true" />
                 ) : (
-                  <>
-                    <Trash2 className="w-4 h-4 me-2" /> {t("management.configuration.wipe")}
-                  </>
+                  <Trash2 aria-hidden="true" />
                 )}
+                {resetting ? t("management.configuration.wiping") : t("management.configuration.wipe")}
               </Button>
-              </DisabledReason>
-              <Button variant="outline" onClick={loadData}>
-                {t("management.configuration.cancel")}
-              </Button>
-              <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
-              <Button
-                onClick={() => handleSaveConfig(false)}
-                disabled={saving || !canSaveConfig || !canManageIntegrations}
-              >
-                {saving ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 me-2 animate-spin" />{" "}
-                    {t("management.configuration.saving")}
-                  </>
-                ) : (
-                  t("management.configuration.saveChanges")
-                )}
-              </Button>
-              </DisabledReason>
-            </div>
+            </DisabledReason>
           </div>
-        </CardContent>
-      </Card>
+      </SectionCard>
 
       {/* Webhook Events */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="w-5 h-5" />
-            {t("management.webhookEvents.title")}
-          </CardTitle>
-          <CardDescription>
-            {t("management.webhookEvents.description")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <SectionCard
+        title={t("management.webhookEvents.title")}
+        description={t("management.webhookEvents.description")}
+        icon={Bell}
+      >
           {Object.entries(eventLabels).map(
             ([eventKey, { label, description, variables }]) => {
               const event = webhookEvents[eventKey] || {
@@ -2356,15 +2394,18 @@ export default function Discord() {
                 template: "",
               };
               return (
-                <div key={eventKey} className="space-y-3 p-4 border rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-base font-medium">{label}</Label>
-                      <p className="text-sm text-muted-foreground">
+                <div key={eventKey} className="space-y-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label htmlFor={`event-${eventKey}`} className="font-medium">
+                        {label}
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
                         {description}
                       </p>
                     </div>
                     <Switch
+                      id={`event-${eventKey}`}
                       checked={event.enabled}
                       onCheckedChange={(checked) =>
                         handleToggleEvent(eventKey, checked)
@@ -2401,22 +2442,20 @@ export default function Discord() {
               );
             },
           )}
-          <div className="flex justify-end">
-            <DisabledReason reason={!canManageIntegrations ? t("shared.noPermission") : null}>
-            <Button onClick={handleSaveWebhookEvents} disabled={savingEvents || !canManageIntegrations}>
-              {savingEvents ? (
-                <>
-                  <RefreshCw className="w-4 h-4 me-2 animate-spin" /> {t("management.webhookEvents.saving")}
-                </>
-              ) : (
-                t("management.webhookEvents.save")
-              )}
-            </Button>
-            </DisabledReason>
-          </div>
-          <InlineFeedback message={eventsMessage} className="mt-3" />
-        </CardContent>
-      </Card>
+          <InlineFeedback message={eventsMessage} />
+      </SectionCard>
+
+      {/* One save for the three forms above (configuration, event
+          notifications, command permissions); it appears once any of them
+          has unsaved edits and asks before leaving the page with them. */}
+      <SaveBar
+        dirty={anyDirty}
+        saving={savingAny}
+        onSave={handleSaveAll}
+        onDiscard={handleDiscard}
+        disabledReason={saveBlockedReason}
+        saveLabel={t("management.configuration.saveChanges")}
+      />
     </div>
   );
 }

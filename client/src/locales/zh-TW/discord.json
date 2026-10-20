@@ -182,11 +182,13 @@
     "stepLocked": "請先完成當前步驟"
   },
   "management": {
-    "pageHeaderTitle": "Discord 機器人",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "管理 Discord 機器人、斜槓命令和事件通知",
     "statusRunning": "執行中",
     "statusStopped": "已停止",
     "refreshAria": "重新整理狀態",
+    "setupGuide": "設定指南",
+    "closeGuide": "返回機器人設定",
     "botStatus": {
       "title": "機器人狀態",
       "runtimeLabel": "執行時間",

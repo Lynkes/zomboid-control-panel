@@ -182,11 +182,13 @@
     "stepLocked": "Primero completa el paso actual"
   },
   "management": {
-    "pageHeaderTitle": "Bot de Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Gestionar el bot de Discord, los comandos de barra y las notificaciones de eventos",
     "statusRunning": "En ejecución",
     "statusStopped": "Detenido",
     "refreshAria": "Actualizar estado",
+    "setupGuide": "Guía de configuración",
+    "closeGuide": "Volver a los ajustes del bot",
     "botStatus": {
       "title": "Estado del bot",
       "runtimeLabel": "Tiempo de ejecución",
