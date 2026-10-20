@@ -2378,8 +2378,12 @@ export interface ServerInstance {
   dockerContainerName?: string | null;
   dockerContainerId?: string | null;
   branch?: string;
-  rconHost: string;
-  rconPort: number;
+  // Left out of every server read for a role holding none of servers.manage,
+  // rcon.execute and server.configure (server/utils/rconTargetView.js):
+  // absent means hidden, not unset -- rconPassword's mask still says whether
+  // RCON is set up.
+  rconHost?: string;
+  rconPort?: number;
   rconPassword: string;
   serverPort: number;
   minMemory: number;

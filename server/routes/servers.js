@@ -58,6 +58,7 @@ import {
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
+import { canSeeRconTarget, withoutRconTarget } from "../utils/rconTargetView.js";
 import { serverConfigDirOf, serverConfigPathIsConfined, serverFolderProblem } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import { adminPasswordStartScriptRefusal } from "../services/startScriptValues.js";
@@ -749,8 +750,11 @@ router.get("/", async (req, res) => {
   try {
     const servers = await getServers();
     const settings = await getAllSettings();
-    // Host folders only for a role that sets them up (utils/hostPathView.js).
+    // Host folders only for a role that sets them up (utils/hostPathView.js),
+    // the RCON host and port only for one that works with RCON
+    // (utils/rconTargetView.js).
     const showPaths = await canSeeHostPaths(req.user);
+    const showRconTarget = await canSeeRconTarget(req.user);
     const withRemoteConfig = servers.map((server) => {
       const view = {
         ...server,
@@ -762,7 +766,8 @@ router.get("/", async (req, res) => {
         // sees what to set where it is set. A code and text, no folder.
         folderProblem: serverFolderProblem(server),
       };
-      return showPaths ? view : hideHostPaths(view);
+      const pathView = showPaths ? view : hideHostPaths(view);
+      return showRconTarget ? pathView : withoutRconTarget(pathView);
     });
     res.json({
       servers: sanitizeServerResponseList(withRemoteConfig),
@@ -1060,9 +1065,10 @@ router.get("/active", async (req, res) => {
     );
     // PT3: as GET / above, so the two stay the same shape.
     const view = { ...server, remoteConfigConfigured, folderProblem: serverFolderProblem(server) };
+    const pathView = (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view);
     res.json({
       server: sanitizeServerResponse(
-        (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view),
+        (await canSeeRconTarget(req.user)) ? pathView : withoutRconTarget(pathView),
       ),
     });
   } catch (error) {
@@ -1088,9 +1094,11 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
+    // As GET / above: host folders and the RCON target per role.
+    const pathView = (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server);
     res.json({
       server: sanitizeServerResponse(
-        (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server),
+        (await canSeeRconTarget(req.user)) ? pathView : withoutRconTarget(pathView),
       ),
     });
   } catch (error) {
