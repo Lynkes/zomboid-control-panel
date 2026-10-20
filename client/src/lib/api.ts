@@ -1371,6 +1371,68 @@ export interface AddToIniBulkResult {
   backupWarning?: string;
 }
 
+// Mod Groups (server/routes/mods.js, /mods/groups...). `modIds` is ordered:
+// the list order is the load order those mods must keep.
+export interface ModGroup {
+  id: string;
+  name: string;
+  description: string;
+  modIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ModGroupInput {
+  name: string;
+  description?: string;
+  modIds: string[];
+}
+
+// The export / import file: a group without its id and dates, so it can be
+// imported into another panel.
+export interface ModGroupDocument {
+  schema: 1;
+  kind: "zcp-mod-group";
+  name: string;
+  description?: string;
+  modIds: string[];
+}
+
+export interface ModGroupStatusEntry {
+  id: string;
+  inOrder: boolean;
+  // Members that are in the active server's Mods= list, of `total` members.
+  present: number;
+  total: number;
+  missing: string[];
+}
+
+export interface ModGroupsStatus {
+  groups: ModGroupStatusEntry[];
+  // Every group is in order in the server's saved Mods= list.
+  inOrder: boolean;
+  // Groups (or mods) whose orders contradict each other, so no load order can
+  // satisfy all of them.
+  conflicts: string[];
+}
+
+export interface ModGroupsApplyResult {
+  changed: boolean;
+  moved: string[];
+  order: string[];
+  written: boolean;
+  conflicts: string[];
+}
+
+// POST /mods/save-order. With "keep group order" on, the server moves group
+// members back into their group order and says which mods it moved.
+export interface SaveModOrderResult {
+  message?: string;
+  modCount?: number;
+  groupsAdjusted?: string[];
+  groupConflicts?: string[];
+}
+
 export const modsApi = {
   getStatus: (options?: { retries?: number }) =>
     apiGet("/mods/status", undefined, options?.retries),
@@ -1840,8 +1902,31 @@ export const modsApi = {
   deletePreset: (id: number) => apiDelete(`/mods/presets/${id}`),
   applyPreset: (id: number) => apiPost(`/mods/presets/${id}/apply`),
 
+  // Mod Groups: named, ordered lists of mod IDs whose list order is the load
+  // order those mods must keep relative to each other. Stored panel-wide (every
+  // admin sees the same groups); shared with another panel as a small JSON
+  // document (ModGroupDocument).
+  getGroups: () =>
+    apiGet<{ groups: ModGroup[]; enforce: boolean }>("/mods/groups"),
+  createGroup: (group: ModGroupInput) =>
+    apiPost<{ group: ModGroup }>("/mods/groups", group),
+  updateGroup: (id: string, patch: Partial<ModGroupInput>) =>
+    apiPut<{ group: ModGroup }>(`/mods/groups/${encodeURIComponent(id)}`, patch),
+  deleteGroup: (id: string) =>
+    apiDelete<{ success: boolean }>(`/mods/groups/${encodeURIComponent(id)}`),
+  importGroup: (document: ModGroupDocument) =>
+    apiPost<{ group: ModGroup }>("/mods/groups/import", { document }),
+  getGroupsStatus: () =>
+    apiGet<ModGroupsStatus>("/mods/groups/status"),
+  // preview: true computes what would move and writes nothing.
+  applyGroups: (preview: boolean) =>
+    apiPost<ModGroupsApplyResult>("/mods/groups/apply", { preview }),
+  setGroupsEnforce: (enforce: boolean) =>
+    apiPut<{ enforce: boolean }>("/mods/groups/enforce", { enforce }),
+
   // Mod Load Order
-  saveModOrder: (modIds: string[]) => apiPost("/mods/save-order", { modIds }),
+  saveModOrder: (modIds: string[]) =>
+    apiPost<SaveModOrderResult>("/mods/save-order", { modIds }),
 
   // Mod Conflict Scanner
   getConflicts: (options?: RequestInit) =>
