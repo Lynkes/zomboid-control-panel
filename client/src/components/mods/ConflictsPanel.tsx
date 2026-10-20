@@ -16,6 +16,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { DisabledReason } from '@/components/DisabledReason'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { CONFLICT_FILE_LIMIT, useLocalStorageState, type DepSearchState } from '@/lib/modsShared'
+import { ConflictSuggestion, ConflictSuggestionChip } from './ConflictSuggestion'
+import type { ConflictsSmart } from './conflictSuggestions'
+import { ConflictSuggestionsBar } from './ConflictSuggestionsBar'
 
 /** The pairs list narrowed to some mods (a mod group's conflict badge). */
 export interface ConflictsFocus {
@@ -60,6 +63,9 @@ export interface ConflictsPanelProps {
   setDepAdding: Dispatch<SetStateAction<string[]>>
   depAddResults: Record<string, 'added' | 'error'>
   setDepAddResults: Dispatch<SetStateAction<Record<string, 'added' | 'error'>>>
+
+  /** Smart sort: each pair's suggested winner, one click to pin it (ConflictSuggestion.tsx). */
+  smart?: ConflictsSmart
 }
 
 export function ConflictsPanel({
@@ -68,7 +74,7 @@ export function ConflictsPanel({
   fetchData, busyRef, savingModOrder, promoteModOverOpponent, toast,
   depSearchOpen, setDepSearchOpen, depSearchData, setDepSearchData,
   depAdding, setDepAdding, depAddResults, setDepAddResults,
-  focus, onClearFocus,
+  focus, onClearFocus, smart,
 }: ConflictsPanelProps) {
   const { t, i18n } = useTranslation('conflictsPanel')
   // A group's badge narrows every pair count, list and ranking below to the
@@ -900,6 +906,8 @@ export function ConflictsPanel({
                           </details>
                           </div>
 
+                          {smart && <ConflictSuggestionsBar pairs={conflicts?.pairs ?? []} smart={smart} />}
+
                           {/* Pairs list */}
                           {filteredPairs.length > 0 ? (
                             <div className="max-h-[min(calc(100vh-420px),70vh)] min-h-[200px] overflow-y-auto rounded-lg border border-border/20 pe-1">
@@ -981,6 +989,7 @@ export function ConflictsPanel({
 
                                                 {/* Verdict pill on the right */}
                                                 <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto sm:flex-nowrap">
+                                                  {smart && <ConflictSuggestionChip pair={pair} />}
                                                   {/* File count + severity dots */}
                                                   <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/30 border border-border/30">
                                                     <span className="text-[11px] tabular-nums font-medium text-foreground/80">
@@ -1064,6 +1073,7 @@ export function ConflictsPanel({
                                       </AccordionTrigger>
                                       <AccordionContent>
                                         <div className="px-4 pb-3 pt-1 space-y-1">
+                                          {smart && pair.suggestion && <div className="mb-2"><ConflictSuggestion pair={pair} smart={smart} /></div>}
                                           {/* Severity breakdown — shown in expanded detail */}
                                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                                             {pair.highCount > 0 && (

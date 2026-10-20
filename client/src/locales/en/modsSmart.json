@@ -1,0 +1,18 @@
+{
+  "confidence": {
+    "high": "High confidence",
+    "medium": "Medium confidence",
+    "low": "Low confidence"
+  },
+  "steam": {
+    "from": "Steam data from {{age}}",
+    "pending": "Fetching Steam data in the background…",
+    "none": "No Steam data yet",
+    "failed": "Steam could not be reached",
+    "rateLimited": "Steam asked to wait a minute before the next refresh",
+    "stale": "(out of date)",
+    "coverage": "{{known}} of {{total}} items known",
+    "updating": "updating",
+    "refresh": "Refresh"
+  }
+}
