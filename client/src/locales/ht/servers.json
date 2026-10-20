@@ -10,6 +10,23 @@
     "addExisting": "Ajoute Sèvè ki Egziste",
     "installNew": "Enstale Nouvo Sèvè"
   },
+  "addServer": {
+    "menu": "Ajoute sèvè",
+    "listLabel": "Fason pou ajoute yon sèvè",
+    "recommended": "Rekòmande",
+    "fresh": {
+      "label": "Enstale yon nouvo sèvè",
+      "description": "Telechaje sèvè dedye a ak SteamCMD, epi mete pò yo, modpas yo ak memwa a."
+    },
+    "existing": {
+      "label": "Itilize fichye sèvè ki egziste deja",
+      "description": "Montre panèl la yon sèvè ki deja enstale sou machin sa a."
+    },
+    "remote": {
+      "label": "Konekte yon sèvè aleka",
+      "description": "Jere yon sèvè k ap fonksyone sou yon lòt machin, atravè RCON."
+    }
+  },
   "fetchError": {
     "title": "Sèvè yo pa t kapab chaje",
     "fallback": "Echwe pou chaje sèvè yo. Backend la ka pa aksesib.",

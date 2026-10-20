@@ -10,6 +10,23 @@
     "addExisting": "Bestehenden Server hinzufügen",
     "installNew": "Neuen Server installieren"
   },
+  "addServer": {
+    "menu": "Server hinzufügen",
+    "listLabel": "Möglichkeiten, einen Server hinzuzufügen",
+    "recommended": "Empfohlen",
+    "fresh": {
+      "label": "Neuen Server installieren",
+      "description": "Den dedizierten Server mit SteamCMD herunterladen, dann Ports, Passwörter und Arbeitsspeicher festlegen."
+    },
+    "existing": {
+      "label": "Vorhandene Serverdateien verwenden",
+      "description": "Das Panel auf einen Server richten, der bereits auf diesem Rechner installiert ist."
+    },
+    "remote": {
+      "label": "Remote-Server verbinden",
+      "description": "Einen Server, der auf einem anderen Rechner läuft, über RCON verwalten."
+    }
+  },
   "fetchError": {
     "title": "Server konnten nicht geladen werden",
     "fallback": "Server konnten nicht geladen werden. Das Backend ist möglicherweise nicht erreichbar.",

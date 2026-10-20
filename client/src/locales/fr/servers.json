@@ -10,6 +10,23 @@
     "addExisting": "Ajouter un serveur existant",
     "installNew": "Installer un nouveau serveur"
   },
+  "addServer": {
+    "menu": "Ajouter un serveur",
+    "listLabel": "Façons d'ajouter un serveur",
+    "recommended": "Recommandé",
+    "fresh": {
+      "label": "Installer un nouveau serveur",
+      "description": "Téléchargez le serveur dédié avec SteamCMD, puis réglez les ports, les mots de passe et la mémoire."
+    },
+    "existing": {
+      "label": "Utiliser des fichiers de serveur existants",
+      "description": "Indiquez au panneau un serveur déjà installé sur cette machine."
+    },
+    "remote": {
+      "label": "Connecter un serveur distant",
+      "description": "Gérez un serveur qui tourne sur une autre machine, via RCON."
+    }
+  },
   "fetchError": {
     "title": "Impossible de charger les serveurs",
     "fallback": "Échec du chargement des serveurs. Le backend est peut-être injoignable.",

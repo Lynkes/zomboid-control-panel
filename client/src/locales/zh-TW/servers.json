@@ -10,6 +10,23 @@
     "addExisting": "新增現有伺服器",
     "installNew": "安裝新伺服器"
   },
+  "addServer": {
+    "menu": "新增伺服器",
+    "listLabel": "新增伺服器的方式",
+    "recommended": "推薦",
+    "fresh": {
+      "label": "安裝新伺服器",
+      "description": "使用 SteamCMD 下載專用伺服器，然後設定連接埠、密碼和記憶體。"
+    },
+    "existing": {
+      "label": "使用現有伺服器檔案",
+      "description": "讓面板指向本機上已安裝的伺服器。"
+    },
+    "remote": {
+      "label": "連線遠端伺服器",
+      "description": "透過 RCON 管理在另一台機器上執行的伺服器。"
+    }
+  },
   "fetchError": {
     "title": "伺服器列表載入失敗",
     "fallback": "伺服器列表載入失敗，後端可能無法訪問。",

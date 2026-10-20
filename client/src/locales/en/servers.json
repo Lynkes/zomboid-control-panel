@@ -10,6 +10,23 @@
     "addExisting": "Add Existing Server",
     "installNew": "Install New Server"
   },
+  "addServer": {
+    "menu": "Add server",
+    "listLabel": "Ways to add a server",
+    "recommended": "Recommended",
+    "fresh": {
+      "label": "Install a new server",
+      "description": "Download the dedicated server with SteamCMD, then set ports, passwords and memory."
+    },
+    "existing": {
+      "label": "Use existing server files",
+      "description": "Point the panel at a server that is already installed on this machine."
+    },
+    "remote": {
+      "label": "Connect a remote server",
+      "description": "Manage a server that runs on another machine, over RCON."
+    }
+  },
   "fetchError": {
     "title": "Servers could not be loaded",
     "fallback": "Failed to load your servers. The backend may be unreachable.",

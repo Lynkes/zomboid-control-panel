@@ -10,6 +10,23 @@
     "addExisting": "添加现有服务器",
     "installNew": "安装新服务器"
   },
+  "addServer": {
+    "menu": "添加服务器",
+    "listLabel": "添加服务器的方式",
+    "recommended": "推荐",
+    "fresh": {
+      "label": "安装新服务器",
+      "description": "使用 SteamCMD 下载专用服务器，然后设置端口、密码和内存。"
+    },
+    "existing": {
+      "label": "使用现有服务器文件",
+      "description": "让面板指向本机上已安装的服务器。"
+    },
+    "remote": {
+      "label": "连接远程服务器",
+      "description": "通过 RCON 管理在另一台机器上运行的服务器。"
+    }
+  },
   "fetchError": {
     "title": "服务器列表加载失败",
     "fallback": "服务器列表加载失败，后端可能无法访问。",
