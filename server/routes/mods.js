@@ -6111,6 +6111,57 @@ router.post("/save-order", async (req, res) => {
   }
 });
 
+// POST /discover-mod-ids's SteamCMD downloads (below). Each request gets a
+// folder of its own under <dataDir>/workshop-download-cache/ and removes it
+// whole when it is done, appworkshop_108600.acf included: with one shared
+// folder the .acf kept saying an item was installed after its files were
+// dropped, so adding the same mod again could "succeed" without downloading
+// anything, and two adds at once could delete each other's files. Folders a
+// crashed or killed panel left behind go once they are an hour old; one this
+// process is still downloading into is never swept, however long it takes.
+const WORKSHOP_DOWNLOAD_CACHE_DIR = "workshop-download-cache";
+const WORKSHOP_DOWNLOAD_STALE_MS = 60 * 60 * 1000;
+const activeWorkshopDownloadDirs = new Set();
+
+export function sweepStaleWorkshopDownloadDirs(cacheRoot, now = Date.now()) {
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const entryPath = path.join(cacheRoot, entry.name);
+    if (activeWorkshopDownloadDirs.has(entryPath)) continue;
+    try {
+      if (now - fs.lstatSync(entryPath).mtimeMs < WORKSHOP_DOWNLOAD_STALE_MS) continue;
+      fs.rmSync(entryPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch (error) {
+      log.debug(`Workshop download cache: could not remove ${entry.name}: ${error.message}`);
+    }
+  }
+}
+
+function workshopDownloadDirFor(dataDir) {
+  const cacheRoot = path.join(dataDir, WORKSHOP_DOWNLOAD_CACHE_DIR);
+  sweepStaleWorkshopDownloadDirs(cacheRoot);
+  const dir = path.join(cacheRoot, crypto.randomUUID());
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  activeWorkshopDownloadDirs.add(dir);
+  return dir;
+}
+
+function releaseWorkshopDownloadDir(dir) {
+  activeWorkshopDownloadDirs.delete(dir);
+  try {
+    // Retries: on Windows a SteamCMD just stopped (the dialog closed) can
+    // hold its files for a moment. A folder still left is swept later.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (error) {
+    log.warn(`Workshop download cache: could not remove ${path.basename(dir)}: ${error.message}`);
+  }
+}
+
 router.post("/discover-mod-ids", async (req, res) => {
   try {
     const { workshopId, workshopUrl } = req.body;
@@ -6180,30 +6231,31 @@ router.post("/discover-mod-ids", async (req, res) => {
           process.platform === "win32"
             ? null
             : (await import("./server.js")).buildLinuxSteamCmdEnv;
-        const cacheRoot = path.join(getDataPaths().dataDir, "workshop-download-cache");
-        fs.mkdirSync(cacheRoot, { recursive: true });
-        const download = await downloadWorkshopItem(String(wsId), {
-          serverPath: cacheRoot,
-          signal: abort.signal,
-          buildEnv,
-        });
-        if (download.success) {
-          downloadedFromSteam = true;
-          for (const modId of findAllModIdsFromWorkshop(String(wsId), cacheRoot)) {
-            if (!discoveredModIds.includes(modId)) {
-              discoveredModIds.push(modId);
-              sources.push({ modId, source: "steamcmd-download" });
+        // A folder of its own per request (see workshopDownloadDirFor()),
+        // removed whole -- appworkshop_108600.acf included -- once the IDs
+        // are read.
+        const downloadDir = workshopDownloadDirFor(getDataPaths().dataDir);
+        try {
+          const download = await downloadWorkshopItem(String(wsId), {
+            serverPath: downloadDir,
+            signal: abort.signal,
+            buildEnv,
+          });
+          if (download.success) {
+            downloadedFromSteam = true;
+            for (const modId of findAllModIdsFromWorkshop(String(wsId), downloadDir)) {
+              if (!discoveredModIds.includes(modId)) {
+                discoveredModIds.push(modId);
+                sources.push({ modId, source: "steamcmd-download" });
+              }
             }
+            downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), downloadDir);
+          } else {
+            downloadSkippedReason = download.reason;
+            log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
           }
-          downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), cacheRoot);
-          // Only the IDs and map folder names were needed: drop the copy.
-          fs.rmSync(
-            path.join(cacheRoot, "steamapps", "workshop", "content", "108600", String(wsId)),
-            { recursive: true, force: true },
-          );
-        } else {
-          downloadSkippedReason = download.reason;
-          log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
+        } finally {
+          releaseWorkshopDownloadDir(downloadDir);
         }
       }
     }

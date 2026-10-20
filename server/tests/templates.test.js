@@ -364,14 +364,20 @@ describe("import/export round trip", () => {
     expect(userTemplates).toHaveLength(1);
   });
 
-  it("rejects importing a template with excluded ini keys leaked in", async () => {
+  // Left out rather than refused since bp5 (2026-10-20): a v1.4.17 export
+  // carries several keys a template may no longer hold (see
+  // templatesCapabilityBoundary.test.js); the stored template never has one.
+  it("leaves excluded ini keys out of an imported template", async () => {
     const badTemplate = {
       ...createTemplate({ name: "Bad Import" }),
-      serverIni: { RCONPassword: "leak" },
+      serverIni: { RCONPassword: "leak", PVP: false },
     };
     const result = await templateService.importTemplate(badTemplate);
-    expect(result.success).toBe(false);
-    expect(userTemplates).toHaveLength(0);
+    expect(result.success).toBe(true);
+    expect(result.droppedIniKeys).toEqual(["RCONPassword"]);
+    expect(userTemplates).toHaveLength(1);
+    expect(userTemplates[0].serverIni).toEqual({ PVP: false });
+    expect(JSON.stringify(userTemplates)).not.toContain("leak");
   });
 
   it("exporting an unknown template fails", async () => {

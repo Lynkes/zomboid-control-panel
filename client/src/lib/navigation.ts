@@ -448,6 +448,13 @@ export interface AvailabilityContext {
   can: (capability: string) => boolean
   /** Only a confirmed empty server list blocks; unknown (still loading, failed) never does. */
   serversConfirmedEmpty: boolean
+  /**
+   * The active server from GET /servers (Layout's server list), never the
+   * answer of GET /servers/:id, POST /servers, PUT /servers/:id or POST
+   * /servers/:id/activate: only GET /servers and /servers/active carry
+   * remoteConfigConfigured (server/tests/crossProducerShapeGate.test.js
+   * checks the callers), and an absent one would read as "no SFTP mirror".
+   */
   activeServer?: { isRemote?: boolean; remoteConfigConfigured?: boolean } | null
 }
 

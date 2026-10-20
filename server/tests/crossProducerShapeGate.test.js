@@ -45,8 +45,18 @@ vi.mock("../database/init.js", () => ({
   setActiveServer,
   getAllSettings,
   setSetting,
-  getRoleByName: vi.fn(async () => null),
+  // The GET reads below run as a servers.manage role: POST / (create), PUT
+  // /:id and POST /:id/activate need that capability, so it is the one
+  // caller that reads every producer compared here. (A role without an RCON
+  // capability gets the GET shapes minus rconHost/rconPort -- see the last
+  // test of the Server block.)
+  getRoleByName: vi.fn(async (name) =>
+    name === "fleet-manager" ? { name, capabilities: ["servers.manage"] } : null,
+  ),
 }));
+
+const FLEET_MANAGER = { id: "u-fleet", username: "fleet", role: "fleet-manager" };
+const NO_RCON_ROLE = { id: "u-mod", username: "mod", role: "moderator" };
 
 vi.mock("../services/rcon.js", () => ({
   normalizeRconHost: (host) => host.trim(),
@@ -135,8 +145,8 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
   // drift, via a helper (computeRemoteConfigConfigured) shared by both --
   // this test makes that comment machine-checked instead of comment-only.
   it("GET / (per-item) and GET /active return identical key sets for the same server", async () => {
-    const list = await invokeJson(serversRouter, "/", "get", { app: fakeApp() });
-    const active = await invokeJson(serversRouter, "/active", "get", { app: fakeApp() });
+    const list = await invokeJson(serversRouter, "/", "get", { app: fakeApp(), user: FLEET_MANAGER });
+    const active = await invokeJson(serversRouter, "/active", "get", { app: fakeApp(), user: FLEET_MANAGER });
 
     const listKeys = Object.keys(list.servers[0]).sort();
     const activeKeys = Object.keys(active.server).sort();
@@ -205,7 +215,7 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
     {
       label: "GET /:id",
       invoke: () =>
-        invokeJson(serversRouter, "/:id", "get", { app: fakeApp(), params: { id: "1" } }).then(
+        invokeJson(serversRouter, "/:id", "get", { app: fakeApp(), user: FLEET_MANAGER, params: { id: "1" } }).then(
           (p) => p.server,
         ),
     },
@@ -213,7 +223,7 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
       label: "POST / (create)",
       invoke: () =>
         invokeJson(serversRouter, "/", "post", {
-          app: fakeApp(),
+          app: fakeApp(), user: FLEET_MANAGER,
           body: {
             name: "Test Server",
             isRemote: true,
@@ -227,7 +237,7 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
       label: "PUT /:id (update)",
       invoke: () =>
         invokeJson(serversRouter, "/:id", "put", {
-          app: fakeApp(),
+          app: fakeApp(), user: FLEET_MANAGER,
           params: { id: "1" },
           body: { name: "Test Server" },
         }).then((p) => p.server),
@@ -236,7 +246,7 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
       label: "POST /:id/activate",
       invoke: () =>
         invokeJson(serversRouter, "/:id/activate", "post", {
-          app: fakeApp(),
+          app: fakeApp(), user: FLEET_MANAGER,
           params: { id: "1" },
         }).then((p) => p.server),
     },
@@ -245,7 +255,7 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
   it.each(OTHER_SERVER_PRODUCERS)(
     "$label returns the GET / shape minus only the documented, cited exception",
     async ({ label, invoke }) => {
-      const list = await invokeJson(serversRouter, "/", "get", { app: fakeApp() });
+      const list = await invokeJson(serversRouter, "/", "get", { app: fakeApp(), user: FLEET_MANAGER });
       const baselineKeys = new Set(Object.keys(list.servers[0]));
 
       const payload = await invoke();
@@ -273,6 +283,23 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
       }
     },
   );
+
+  // SECURITY (2026-10-20, bp5): the GET reads leave rconHost and rconPort
+  // out for a role holding none of servers.manage, rcon.execute and
+  // server.configure (utils/rconTargetView.js). Documented here so the
+  // shapes compared above (the servers.manage view) can't drift from it:
+  // that role's GET / and GET /active are the same shapes minus exactly
+  // those two keys, and the client reads them as hidden (ServerInstance).
+  it("GET / and GET /active for a role without an RCON capability lack exactly rconHost and rconPort", async () => {
+    for (const routePath of ["/", "/active"]) {
+      const full = await invokeJson(serversRouter, routePath, "get", { app: fakeApp(), user: FLEET_MANAGER });
+      const redacted = await invokeJson(serversRouter, routePath, "get", { app: fakeApp(), user: NO_RCON_ROLE });
+      const fullKeys = Object.keys(full.servers?.[0] ?? full.server);
+      const redactedKeys = new Set(Object.keys(redacted.servers?.[0] ?? redacted.server));
+      expect(fullKeys.filter((key) => !redactedKeys.has(key)).sort()).toEqual(["rconHost", "rconPort"]);
+      expect([...redactedKeys].filter((key) => !fullKeys.includes(key))).toEqual([]);
+    }
+  });
 });
 
 // Self-cleaning guard on the exception above, not just the exception
@@ -293,9 +320,21 @@ describe("cross-producer shape gate: Server (server/routes/servers.js)", () => {
 // without reading it), that is a five-minute look, not a real incident --
 // cheap enough to be worth the loud failure on the day a second REAL
 // reader shows up sourced from one of the four excepted routes above.
+//
+// 2026-10-20 (UX redesign, bp5): the read moved out of Layout.tsx into the
+// route registry, client/src/lib/navigation.ts's routeAvailability(), which
+// reads ctx.activeServer.remoteConfigConfigured. It fetches nothing itself,
+// so the premise is now about what its callers hand it: Layout.tsx (the
+// sidebar) and CommandPalette.tsx (Ctrl+K), both with Layout's activeServer,
+// which Layout sets only from GET / (serversApi.getAll()). The guard checks
+// that whole chain, still by grep. Test files are left out of the count:
+// their fixtures name the field without fetching anything.
 describe("remoteConfigConfigured reader-count guard (justifies the exception above)", () => {
   const CLIENT_SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../client/src");
   const API_TS = path.join(CLIENT_SRC, "lib", "api.ts");
+  const isTestFile = (file) =>
+    /[\\/]__tests__[\\/]/.test(file) || /\.test\.(ts|tsx|js|jsx)$/.test(file);
+  const read = (relative) => fs.readFileSync(path.join(CLIENT_SRC, relative), "utf8");
 
   function listSourceFiles(dir) {
     const out = [];
@@ -311,19 +350,58 @@ describe("remoteConfigConfigured reader-count guard (justifies the exception abo
     return out;
   }
 
-  it("has exactly one client-side reader of remoteConfigConfigured, and it's Layout.tsx", () => {
+  it("has exactly one client-side reader of remoteConfigConfigured, and it's the route registry (lib/navigation.ts)", () => {
     const files = listSourceFiles(CLIENT_SRC);
     expect(files.length, "found zero source files under client/src -- the path resolution above is wrong, this check would otherwise pass vacuously").toBeGreaterThan(0);
 
     const readers = files
       .filter((f) => f !== API_TS) // the interface's own declaration is not a read
+      .filter((f) => !isTestFile(f))
       .filter((f) => /remoteConfigConfigured/.test(fs.readFileSync(f, "utf8")))
       .map((f) => path.relative(CLIENT_SRC, f).replace(/\\/g, "/"));
 
     expect(
       readers,
       "the set of client-side readers of remoteConfigConfigured changed -- this is the exact premise the four-route exception above relies on. For each new file listed here: does it source its server data from GET /servers (safe, already carries the field), or from GET /servers/:id, POST /servers, PUT /servers/:id, or POST /servers/:id/activate (all four are missing the field today -- this new reader will silently see undefined)? If any of the latter, either fix the route to attach remoteConfigConfigured or fix the reader to source from GET / instead, then update this list and the exception above together.",
-    ).toEqual(["components/Layout.tsx"]);
+    ).toEqual(["lib/navigation.ts"]);
+  });
+
+  it("feeds lib/navigation.ts only Layout's activeServer, which comes from GET / alone", () => {
+    // The registry reads the field off routeAvailability()'s ctx.activeServer
+    // and fetches nothing itself.
+    const navigation = read("lib/navigation.ts");
+    expect(navigation).toMatch(/ctx\.activeServer\?\.remoteConfigConfigured/);
+    expect(navigation).not.toMatch(/serversApi|apiGet|fetch\(/);
+
+    // Its callers: the sidebar and the command palette, nothing else.
+    const callers = listSourceFiles(CLIENT_SRC)
+      .filter((f) => !isTestFile(f) && !f.endsWith(path.join("lib", "navigation.ts")))
+      .filter((f) => /\brouteAvailability\(/.test(fs.readFileSync(f, "utf8")))
+      .map((f) => path.relative(CLIENT_SRC, f).replace(/\\/g, "/"))
+      .sort();
+    expect(callers, "a new caller of routeAvailability(): check where its activeServer comes from (GET /servers carries remoteConfigConfigured; GET /servers/:id, POST /servers, PUT /servers/:id and POST /servers/:id/activate don't), then update this list").toEqual([
+      "components/CommandPalette.tsx",
+      "components/Layout.tsx",
+    ]);
+
+    // The palette gets Layout's activeServer as a prop and fetches no server.
+    expect(read("components/CommandPalette.tsx")).not.toMatch(/serversApi/);
+    const layout = read("components/Layout.tsx");
+    expect(layout).toMatch(/<CommandPalette[\s\S]*?activeServer=\{activeServer\}/);
+
+    // Layout sets activeServer only from the GET / list it just fetched.
+    const lines = layout.split(/\r?\n/);
+    const setCalls = lines
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => /\bsetActiveServer\(/.test(line));
+    expect(setCalls.length, "Layout.tsx no longer sets activeServer -- re-read where the registry's activeServer comes from").toBeGreaterThan(0);
+    for (const { line, index } of setCalls) {
+      expect(line.trim(), `Layout.tsx:${index + 1} sets activeServer from something other than the GET / list`).toBe("setActiveServer(active)");
+      const before = lines.slice(Math.max(0, index - 4), index).join("\n");
+      expect(before, `Layout.tsx:${index + 1}: activeServer must come from serversApi.getAll() (GET /servers)`).toMatch(
+        /const data = await serversApi\.getAll\(\)[\s\S]*const active = data\.servers\?\.find\(/,
+      );
+    }
   });
 });
 

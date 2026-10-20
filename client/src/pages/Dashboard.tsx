@@ -89,7 +89,9 @@ interface ServerStatus {
   publicIp?: string
   localIp?: string
   port?: number
-  rcon: { host: string; port: number; connected: boolean }
+  // host/port are left out for a role holding none of servers.manage,
+  // rcon.execute and server.configure (server/utils/rconTargetView.js).
+  rcon: { host?: string; port?: number; connected: boolean }
 }
 interface Player { name: string; online: boolean }
 interface PerformancePoint {
@@ -1991,8 +1993,8 @@ export default function Dashboard() {
               <ConnLine
                 label={t('connLine.rcon')}
                 state={status?.rcon?.connected ? 'on' : 'off'}
-                value={status?.rcon ? `${status.rcon.host}:${status.rcon.port}` : undefined}
-                mono={!!status?.rcon}
+                value={status?.rcon?.host && status.rcon.port ? `${status.rcon.host}:${status.rcon.port}` : undefined}
+                mono={!!(status?.rcon?.host && status.rcon.port)}
               />
               <ConnLine
                 label={t('connLine.bridge')}

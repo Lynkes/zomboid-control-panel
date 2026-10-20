@@ -99,6 +99,23 @@ export async function getTemplate(id) {
   return userTemplate ? withoutExcludedIniKeys({ ...userTemplate, isBuiltin: false }) : null;
 }
 
+// A template captured or exported by v1.4.17 or older carries every server
+// .ini key but eight: Mods=, WorkshopItems=, Map=, UPnP=, DoLuaChecksum=, the
+// Discord token's mask... A template may no longer carry those
+// (templateSchema.js's DEFAULT_INI_EXCLUSIONS, SECURITY 2026-10-20), and every
+// read of a stored one leaves them out (withoutExcludedIniKeys()). Saving or
+// importing such a file leaves them out the same way, and says which went,
+// instead of refusing the whole template: they never reach the stored
+// template, so applying it can't write them.
+function leaveOutExcludedIniKeys(template) {
+  const kept = withoutExcludedIniKeys(template);
+  if (kept === template) return { template, droppedIniKeys: [] };
+  const droppedIniKeys = Object.keys(template.serverIni).filter(
+    (key) => !Object.prototype.hasOwnProperty.call(kept.serverIni, key),
+  );
+  return { template: kept, droppedIniKeys };
+}
+
 export async function saveTemplate(input) {
   const hasId = typeof input?.meta?.id === "string" && input.meta.id;
   if (hasId && loadBuiltinTemplates().some((t) => t.meta.id === input.meta.id)) {
@@ -133,9 +150,11 @@ export async function saveTemplate(input) {
   // never trusted from the caller. The built-in-id rejection above is
   // unaffected (and still tested independently) -- it still runs first,
   // against the ORIGINAL submitted id, before this ever mints a new one.
-  const template = hasId && input.schemaVersion
-    ? { ...input, meta: { ...input.meta, id: randomUUID() } }
-    : createTemplate(input || {});
+  const { template, droppedIniKeys } = leaveOutExcludedIniKeys(
+    hasId && input.schemaVersion
+      ? { ...input, meta: { ...input.meta, id: randomUUID() } }
+      : createTemplate(input || {}),
+  );
   const { valid, errors } = validateTemplate(template);
   if (!valid) {
     const joined = errors.join("; ");
@@ -148,7 +167,7 @@ export async function saveTemplate(input) {
   }
 
   const saved = await saveUserTemplate(template);
-  return { success: true, template: saved };
+  return { success: true, template: saved, ...(droppedIniKeys.length > 0 ? { droppedIniKeys } : {}) };
 }
 
 export async function deleteTemplate(id) {
@@ -200,7 +219,9 @@ export async function exportTemplate(id) {
 }
 
 export async function importTemplate(json) {
-  const { valid, errors } = validateTemplate(json);
+  // An export from v1.4.17 or older: see leaveOutExcludedIniKeys().
+  const { template: incoming, droppedIniKeys } = leaveOutExcludedIniKeys(json);
+  const { valid, errors } = validateTemplate(incoming);
   if (!valid) {
     const joined = errors.join("; ");
     return {
@@ -213,9 +234,9 @@ export async function importTemplate(json) {
 
   // Always mint a fresh id so an imported file can never silently collide
   // with (or overwrite) an existing built-in or user template.
-  const template = { ...json, meta: { ...json.meta, id: randomUUID() } };
+  const template = { ...incoming, meta: { ...incoming.meta, id: randomUUID() } };
   const saved = await saveUserTemplate(template);
-  return { success: true, template: saved };
+  return { success: true, template: saved, ...(droppedIniKeys.length > 0 ? { droppedIniKeys } : {}) };
 }
 
 // SECURITY (2026-10-05, PATHS-2): applying a template writes the .ini and
