@@ -590,8 +590,8 @@ describe("POST /api/server/delete-files safety guards", () => {
 
       expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
       expect(fs.existsSync(installDir)).toBe(false);
-      // One scan per profile using the folder.
-      expect(scanHostForServerProcesses).toHaveBeenCalledTimes(2);
+      // One host scan, shared by every profile using the folder.
+      expect(scanHostForServerProcesses).toHaveBeenCalledTimes(1);
     });
 
     it("refuses when the other profile's world save is inside the folder, even with confirmShared", async () => {

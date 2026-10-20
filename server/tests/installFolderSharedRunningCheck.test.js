@@ -129,7 +129,8 @@ describe("routes that write into a game folder check every profile using it", ()
 
     expect(response.status).not.toHaveBeenCalledWith(409);
     expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
-    expect(scanHostForServerProcesses).toHaveBeenCalledTimes(2);
+    // One host scan for both profiles on the folder (each scan starts PowerShell on Windows).
+    expect(scanHostForServerProcesses).toHaveBeenCalledTimes(1);
   });
 
   // Adversary pass: the running profile writes the folder differently.

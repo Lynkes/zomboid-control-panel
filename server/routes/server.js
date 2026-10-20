@@ -5998,7 +5998,9 @@ router.get("/steamcmd/check", requirePermission("server.install"), async (req, r
 // this one" must refuse exactly like a failed scan does, not read as "safe
 // to delete." Only zero owned AND zero unattributable candidates counts as
 // confirmed stopped.
-export async function checkSpecificServerStopped(targetServer, actionLabel) {
+// `options.scan`: a host process scan to reuse (see checkGameFolderServersStopped),
+// a promise or a result; a fresh scan is made when it is absent.
+export async function checkSpecificServerStopped(targetServer, actionLabel, options = {}) {
   if (isManagedLifecycleProvider(targetServer.lifecycleProvider)) {
     try {
       const status = await createLinuxServiceLifecycle(
@@ -6037,7 +6039,7 @@ export async function checkSpecificServerStopped(targetServer, actionLabel) {
 
   let scan;
   try {
-    scan = await new ServerManager().scanHostForServerProcesses();
+    scan = await (options.scan ?? new ServerManager().scanHostForServerProcesses());
   } catch (error) {
     return {
       status: 503,
@@ -6178,8 +6180,17 @@ async function serversUsingGameFolder(installPath) {
 // server to stop: the one they acted on may well be stopped.
 async function checkGameFolderServersStopped(target, sharing, actionLabel) {
   const others = sharing.filter((server) => server !== target);
+  // One host process scan for all of them (on Windows each scan starts
+  // PowerShell, about 0.5-2 s), made only if a profile needs it; profiles run
+  // by a lifecycle provider (systemd/OpenRC) ask that provider instead.
+  let sharedScan = null;
+  const scanOnce = () => {
+    if (!sharedScan) sharedScan = new ServerManager().scanHostForServerProcesses();
+    return sharedScan;
+  };
   for (const server of [target, ...others]) {
-    const notStoppedError = await checkSpecificServerStopped(server, actionLabel);
+    const scan = isManagedLifecycleProvider(server.lifecycleProvider) ? undefined : scanOnce();
+    const notStoppedError = await checkSpecificServerStopped(server, actionLabel, { scan });
     if (!notStoppedError) continue;
     if (server !== target && notStoppedError.body?.code === ErrorCode.WIPE_SERVER_RUNNING) {
       const name = String(server.name || server.serverName || "another server");
