@@ -94,7 +94,20 @@ void _assertFieldKeysCoversOidcSettingsFields
 
 // `embedded`: rendered inside a Settings tab panel instead of as its own
 // route -- see the matching note on Users.tsx.
-export default function OidcSettings({ embedded = false }: { embedded?: boolean }) {
+// `onDirtyChange`: tells the embedding page whether the form holds unsaved
+// edits; Settings then keeps this tab mounted (hidden, `active` false) while
+// another tab is open, so switching tabs doesn't throw the edits away.
+// `active`: false while hidden that way -- no save bar, so no Ctrl+S that
+// would save edits the operator can't see (Settings guards leaving instead).
+export default function OidcSettings({
+  embedded = false,
+  active = true,
+  onDirtyChange,
+}: {
+  embedded?: boolean
+  active?: boolean
+  onDirtyChange?: (dirty: boolean) => void
+}) {
   const { t } = useTranslation('oidcSettings')
   const { toast } = useToast()
 
@@ -268,6 +281,11 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
   // save bar shows while there is any, and the leave-page guard with it.
   const changedFieldCount = settings ? Object.keys(buildUpdatePayload()).length : 0
   const dirty = changedFieldCount > 0
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   return (
     <div className={embedded ? 'space-y-6' : 'space-y-6 page-transition'}>
@@ -549,7 +567,7 @@ export default function OidcSettings({ embedded = false }: { embedded?: boolean 
       {/* One save for the sign-in settings: it shows while any field differs
           from what was loaded, saves on Ctrl+S and asks before the page is
           left with the edits unsaved. */}
-      {settings && (
+      {settings && active && (
         <SaveBar
           dirty={dirty}
           saving={saving}

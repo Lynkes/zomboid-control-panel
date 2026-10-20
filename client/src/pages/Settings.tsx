@@ -680,6 +680,12 @@ export default function Settings() {
       )
     : [];
   const dirtyTabs = new Set(changedSettingKeys.map((key) => SETTING_TAB[key]));
+  // Single Sign-On saves on its own (OidcSettings' save bar). While it holds
+  // edits, its tab stays mounted (hidden) when another tab opens: an
+  // unmounted tab would reload from the server and drop them, and a tab
+  // switch doesn't ask.
+  const [ssoDirty, setSsoDirty] = useState(false);
+  if (ssoDirty) dirtyTabs.add("sso");
 
   // Section navigation via tabs, in the rail's groups. Each tab's
   // description becomes the page header's description when it is open.
@@ -758,7 +764,7 @@ export default function Settings() {
   // shortcuts, reload). The save bar registers the same guard on the tabs
   // that show it; this covers the embedded tabs too, where an edit made on
   // General would otherwise be dropped silently.
-  useUnsavedChangesGuard(isDirty);
+  useUnsavedChangesGuard(isDirty || ssoDirty);
 
   // Clean up restart redirect timer/poll on unmount
   useEffect(
@@ -5962,8 +5968,16 @@ export default function Settings() {
             <RolesPermissions embedded />
           </TabsContent>
 
-          <TabsContent value="sso" className="mt-0">
-            <OidcSettings embedded />
+          <TabsContent
+            value="sso"
+            forceMount={ssoDirty || undefined}
+            className="mt-0 data-[state=inactive]:hidden"
+          >
+            <OidcSettings
+              embedded
+              active={activeSection === "sso"}
+              onDirtyChange={setSsoDirty}
+            />
           </TabsContent>
 
           <TabsContent value="about" className="mt-0 space-y-6">
