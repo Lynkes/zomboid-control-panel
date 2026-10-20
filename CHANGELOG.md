@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Server Finder address check:** only plain dotted-decimal IPv4 addresses are queried, so octal or other legacy spellings can no longer reach private addresses on Linux.
 - **Less work for signed-out requests:** the Server Files save's large body is read only after sign-in, Socket.IO connection attempts are rate limited per address, and map tiles the map host doesn't have are remembered for 10 minutes instead of fetched again on every request.
 - **In-game admin password hidden from logs:** the line where the game prints it on a world's first start is now redacted on the Console page for every role and in support bundles.
+- **RCON connection changes:** a server's RCON host, port and password now need the Edit server configuration permission, a new host or port needs the password typed again, and the per-server RCON status is limited to roles that manage servers or run RCON.
+- **Backups and the panel database:** only the backup setting decides whether a backup includes the panel database (a request can no longer add it), and the copy it includes leaves out password hashes, sessions and other secrets.
+- **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
+- **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
+- **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
+- **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
+- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port are shown only to roles that run RCON or manage servers.
 
 ### Added
 
@@ -86,16 +93,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
 - **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
-
-### Security
-
-- **RCON connection changes:** a server's RCON host, port and password now need the Edit server configuration permission, a new host or port needs the password typed again, and the per-server RCON status is limited to roles that manage servers or run RCON.
-- **Backups and the panel database:** only the backup setting decides whether a backup includes the panel database (a request can no longer add it), and the copy it includes leaves out password hashes, sessions and other secrets.
-- **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
-- **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
-- **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
-- **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
-- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port are shown only to roles that run RCON or manage servers.
 
 ## [1.4.17] - 2026-10-18
 
