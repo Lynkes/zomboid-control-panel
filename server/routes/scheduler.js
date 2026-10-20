@@ -507,7 +507,30 @@ router.put('/tasks/:id', async (req, res) => {
     // Skipped when `command` is ALSO in this request: already checked above
     // against the fresh value, and re-checking against previousTask's STALE
     // command here would check the wrong string.
-    if (command === undefined && normalizedEnabled === 1) {
+    //
+    // SECURITY (2026-10-20, access-control audit): retiming or retargeting a
+    // task that stays armed is the same act -- it decides when, and against
+    // which server, a stored command fires with nobody's session behind it.
+    // automation.manage alone could move an admin's nightly restart to every
+    // five minutes, or onto another server. So a cron or server change on a
+    // task that is (or stays, or becomes) enabled needs the stored command's
+    // capability too; a disabled task can still be edited freely, which is
+    // how a task saved before this check gets fixed.
+    const effectiveEnabledAfterEdit =
+      normalizedEnabled !== undefined
+        ? normalizedEnabled === 1
+        : Boolean(previousTaskRecord?.enabled);
+    const cronChanges =
+      typeof cronExpression === 'string' &&
+      cronExpression.trim() !== '' &&
+      cronExpression.trim() !== String(previousTaskRecord?.cron_expression ?? '').trim();
+    const serverChanges =
+      serverId !== undefined &&
+      String(serverId ?? '') !== String(previousTaskRecord?.server_id ?? '');
+    if (
+      command === undefined &&
+      (normalizedEnabled === 1 || (effectiveEnabledAfterEdit && (cronChanges || serverChanges)))
+    ) {
       const allowed = await requireCapabilityInline(
         requiredCapabilityForScheduledCommand(previousTaskRecord?.command),
         req,
