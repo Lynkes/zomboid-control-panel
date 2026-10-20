@@ -49,6 +49,7 @@ vi.mock('@/lib/api', async () => {
       getCachedConflicts: vi.fn(),
       listDiskOnly: vi.fn(),
       saveModOrder: vi.fn(),
+      planLoadOrder: vi.fn(),
       getGroups: vi.fn(),
       getGroupsStatus: vi.fn(),
       createGroup: vi.fn(),
@@ -412,18 +413,28 @@ describe('Groups and notes from a row', () => {
 })
 
 describe('Load order: Auto-sort with groups', () => {
-  it('proposes the group order with its reason, and Apply leaves an unsaved change', async () => {
+  it('proposes the server plan with its reason in words, and Apply leaves an unsaved change', async () => {
     // The group says ModD loads before ModA; the list has it the other way round.
     prime({ groups: [{ ...VEHICLES, modIds: ['ModD', 'ModA'] }], order: ['ModA', 'ModC', 'ModD'] })
     renderMods('/mods?view=order')
     await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
     await screen.findByRole('button', { name: 'Move ModD to the top' })
 
+    m.planLoadOrder.mockResolvedValue({
+      order: ['ModD', 'ModA', 'ModC'],
+      changed: true,
+      moves: [{ modId: 'ModD', from: 2, to: 0, confidence: 'high', reasons: [{ code: 'groupOrder', params: { relation: 'before', other: 'ModA', group: VEHICLES.id, groupName: VEHICLES.name } }] }],
+      explanations: {}, satisfied: 1, unsatisfied: [], cycles: [], winnersChanged: [], implicit: [], warnings: [],
+      stats: { constraints: 1, hard: 1, strong: 0, soft: 0, ms: 3 },
+      steamStatus: { source: 'none', fetchedAt: null, stale: false, failed: false, pending: false, known: 0, total: 0 },
+    } as never)
     fireEvent.click(screen.getByRole('button', { name: /^Auto-sort$/ }))
 
-    const preview = await screen.findByRole('region', { name: /Proposed order/ })
+    // The server plans the order on screen (unsaved moves included).
+    const preview = await screen.findByRole('region', { name: '1 mod moves' })
+    expect(m.planLoadOrder).toHaveBeenCalledWith(expect.objectContaining({ order: ['ModA', 'ModC', 'ModD'], mode: 'minimal', groups: true }))
     expect(preview).toHaveTextContent('Vehicles')
-    expect(preview).toHaveTextContent('keeps the order of Vehicles')
+    expect(preview).toHaveTextContent('Comes before Alpha Mod in the group Vehicles')
     fireEvent.click(within(preview).getByRole('button', { name: 'Apply' }))
 
     const order = Array.from(document.querySelectorAll('[data-load-order-index]')).map((row) => row.querySelector('.font-mono')?.textContent)

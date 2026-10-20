@@ -7,7 +7,7 @@ import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
 import {
   Play, Square, RotateCcw, Save, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle,
   LogIn, LogOut, Activity, Archive, Skull, Sword, ShieldAlert, Copy, Gamepad2, Globe, FolderOpen,
-  X, Zap, Trash2, CalendarClock, Monitor, ScrollText, FileCog, Plus, Cpu, ListChecks, Wrench,
+  X, Zap, Trash2, CalendarClock, Monitor, ScrollText, FileCog, Plus, Cpu, ListChecks, Wrench, HeartPulse,
   Map as MapIcon,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -258,6 +258,7 @@ function ConnLine({
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation('dashboard')
+  const { t: tHealth } = useTranslation('modHealth')
   const runtimeInfo = useRuntimeInfo()
   /* ---------------------------- state ------------------------------------- */
   // docker-unraid-add-server-experience, Q1 routing fix (2026-09-09, god):
@@ -295,6 +296,9 @@ export default function Dashboard() {
   const [autoStartServer, setAutoStartServer] = useState<boolean>(false)
   const [panelInfo, setPanelInfo] = useState<{ localIp: string; port: number; url: string } | null>(null)
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
+  // Critical problems in the active server's mod list (GET /mods/health),
+  // for one Work list row; null until known or when it could not be read.
+  const [modHealthCritical, setModHealthCritical] = useState<number | null>(null)
   const [showPerformanceCharts, setShowPerformanceCharts] = useState(false)
   const [showQuickStart, setShowQuickStart] = useState<boolean>(() => {
     try { return localStorage.getItem(DASHBOARD_ONBOARDING_DISMISSED_KEY) !== 'true' } catch { return true }
@@ -723,6 +727,37 @@ export default function Dashboard() {
     }
   }, [fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchPlayerActivity,
       fetchAutoStartSetting, fetchActiveServer, fetchMaintenance, t])
+
+  // The mod health check (mods.manage, like the route): read when the active
+  // server is known or changes, then every 5 minutes while visible. A failure
+  // only hides the row; a reply for a server no longer active is dropped.
+  const canManageMods = can('mods.manage')
+  const activeServerId = activeServer?.id ?? null
+  const modHealthGuard = useRequestGuard()
+  useEffect(() => {
+    if (activeServerId === null || !canManageMods) {
+      modHealthGuard.next()
+      setModHealthCritical(null)
+      return
+    }
+    const load = async () => {
+      const requestId = modHealthGuard.next()
+      try {
+        const health = await modsApi.getModHealth()
+        if (!modHealthGuard.isStale(requestId)) setModHealthCritical(health?.counts?.critical ?? 0)
+      } catch {
+        if (!modHealthGuard.isStale(requestId)) setModHealthCritical(null)
+      }
+    }
+    void load()
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void load()
+    }, 5 * 60_000)
+    return () => {
+      clearInterval(interval)
+      modHealthGuard.next()
+    }
+  }, [activeServerId, canManageMods, modHealthGuard])
 
   useEffect(() => {
     if (!socket) return
@@ -1430,6 +1465,13 @@ export default function Dashboard() {
       state: modsPending ? t('workItems.modsToUpdate', { count: maintenance.modUpdatesAvailable }) : t('workItems.modsTracked', { count: maintenance.modsTracked }),
       tone: modsPending ? 'warning' : 'default',
     },
+    // Only while the health check finds problems that stop mods from loading.
+    ...(modHealthCritical ? [{
+      id: 'mod-health',
+      to: '/mods?view=health', icon: HeartPulse, label: tHealth('dashboard.label'),
+      state: tHealth('dashboard.critical', { count: modHealthCritical }),
+      tone: 'bad',
+    } as WorkItem] : []),
     {
       id: 'schedule',
       to: '/scheduler', icon: CalendarClock, label: pageLabel('scheduledTasks'),

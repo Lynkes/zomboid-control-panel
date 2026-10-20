@@ -117,7 +117,9 @@ export function ModGroupsPanel({
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const aliveRef = useRef(true)
-  const suggestions = useGroupSuggestions(canManage && loadState === 'ready')
+  // Read again when the active server's saved mod list changes (a server switch too).
+  const suggestionsKey = useMemo(() => [...(savedModIds ?? [])].sort().join(';'), [savedModIds])
+  const suggestions = useGroupSuggestions(canManage && loadState === 'ready', suggestionsKey)
 
   useEffect(() => {
     aliveRef.current = true
@@ -170,7 +172,6 @@ export function ModGroupsPanel({
     if (!ok) return
     try {
       await modsApi.deleteGroup(group.id)
-      store.setPlacement(group.id, null)
       toast({ title: t('delete.doneTitle'), description: t('delete.doneDesc', { name: group.name }) })
     } catch (error) {
       toast({

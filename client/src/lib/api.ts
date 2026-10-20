@@ -1387,6 +1387,8 @@ export interface ModGroup {
   color?: ModGroupColorName | null;
   // The members also load as one contiguous block.
   keepTogether?: boolean;
+  // Where smart sort puts the group (null: anywhere). Absent on older servers.
+  placement?: ModGroupPlacement;
 }
 
 export interface ModGroupInput {
@@ -1395,6 +1397,7 @@ export interface ModGroupInput {
   modIds: string[];
   color?: ModGroupColorName | null;
   keepTogether?: boolean;
+  placement?: ModGroupPlacement;
 }
 
 // The export / import file: a group without its id and dates, so it can be
@@ -1407,6 +1410,7 @@ export interface ModGroupDocument {
   modIds: string[];
   color?: ModGroupColorName | null;
   keepTogether?: boolean;
+  placement?: ModGroupPlacement;
 }
 
 // POST /mods/groups/:id/enable
@@ -2133,8 +2137,8 @@ export const modsApi = {
     apiPost<{ rule: ModOrderRule; existing: boolean; replaced: string[] }>("/mods/order-rules", rule),
   deleteOrderRule: (id: string) =>
     apiDelete<{ success: boolean }>(`/mods/order-rules/${encodeURIComponent(id)}`),
-  planLoadOrder: (request: LoadOrderPlanRequest = {}) =>
-    apiPost<LoadOrderPlan>("/mods/load-order/plan", request),
+  planLoadOrder: (request: LoadOrderPlanRequest = {}, options?: { signal?: AbortSignal }) =>
+    apiPost<LoadOrderPlan>("/mods/load-order/plan", request, options),
   getModHealth: () =>
     apiGet<ModHealth>("/mods/health"),
   applyModHealthFix: (issueId: string, action: ModHealthFixAction, params?: Record<string, unknown>) =>

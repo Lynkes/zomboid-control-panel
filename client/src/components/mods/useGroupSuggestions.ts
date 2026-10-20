@@ -2,8 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { modsApi, type ModGroupSuggestion } from '@/lib/api'
 import { reportClientWarning } from '@/lib/client-errors'
 
-/** The groups the server suggests for the active server's mods (empty while none, or when unavailable). */
-export function useGroupSuggestions(enabled: boolean) {
+/**
+ * The groups the server suggests for the active server's mods (empty while
+ * none, or when unavailable). Read again when `refreshKey` changes: the
+ * active server switched or its mod list changed.
+ */
+export function useGroupSuggestions(enabled: boolean, refreshKey = '') {
   const [suggestions, setSuggestions] = useState<ModGroupSuggestion[]>([])
   const seq = useRef(0)
 
@@ -23,7 +27,8 @@ export function useGroupSuggestions(enabled: boolean) {
 
   useEffect(() => {
     if (enabled) void reload()
-  }, [enabled, reload])
+    else setSuggestions([])
+  }, [enabled, reload, refreshKey])
 
   /** Hides it for every admin; rejects with the server's error (the caller reloads). */
   const dismiss = useCallback(async (key: string) => {

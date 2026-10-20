@@ -46,6 +46,7 @@ vi.mock('@/lib/api', async () => {
       getCachedConflicts: vi.fn(),
       listDiskOnly: vi.fn(),
       saveModOrder: vi.fn(),
+      planLoadOrder: vi.fn(),
       getGroups: vi.fn(),
       getGroupsStatus: vi.fn(),
       getNotes: vi.fn(),
@@ -210,6 +211,14 @@ describe('Mods.tsx: a switch of the active server', () => {
     renderMods()
     await waitFor(() => expect(m.getTrackedMods).toHaveBeenCalled())
     fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
+    // The server's planner answers with modA first.
+    m.planLoadOrder.mockResolvedValue({
+      order: ['modA', 'modB'], changed: true,
+      moves: [{ modId: 'modA', from: 1, to: 0, confidence: 'high', reasons: [{ code: 'require', params: { relation: 'before', other: 'modB' } }] }],
+      explanations: {}, satisfied: 1, unsatisfied: [], cycles: [], winnersChanged: [], implicit: [], warnings: [],
+      stats: { constraints: 1, hard: 1, strong: 0, soft: 0, ms: 1 },
+      steamStatus: { source: 'none', fetchedAt: null, stale: false, failed: false, pending: false, known: 0, total: 0 },
+    } as never)
     fireEvent.click(await screen.findByRole('button', { name: /auto-sort/i }))
     expect(await screen.findByRole('button', { name: /^apply$/i })).toBeInTheDocument()
 

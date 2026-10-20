@@ -44,6 +44,8 @@ export interface ConflictPair {
   thirdPartyWins?: number
   /** Files whose winner can't be determined (one of the mods is not in Mods=). */
   unknownWins?: number
+  /** Which mod the panel thinks should win, when it has a reason to (smart sort). */
+  suggestion?: import('@/lib/api').ConflictWinnerSuggestion
 }
 
 export interface ConflictModRef {

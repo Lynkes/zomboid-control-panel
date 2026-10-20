@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Smart load order (server):** the panel plans a big mod list's load order, Workshop and local mods alike (requirements, mod.info hints, Steam Required items, patches, pinned rules, group order and first/last placement), explains each move, checks the list for problems with one-click fixes, and suggests conflict winners.
+- **Smart sort:** Auto-sort uses the server planner, shows every move with its reasons and confidence, can put libraries first and patches and translations last, and says what it could not do.
+- **Mod health check:** a Health view (and a Dashboard alert) lists what stops mods from loading, with one-click fixes and "Fix all safe issues".
+- **"Why is it here?" and pinned order:** each Load order row explains its place, "Always load after/before" rules can be pinned, and conflicts suggest a winner to apply in one click.
+- **Mod kinds:** Library, Map, Patch, Translation... chips with a Kind filter, "Needed by N mods" and each item's Steam required items.
 - **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
 - **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
 - **Mod groups to organise big mod lists:** a group can have a colour and keep its mods together in the load order, be enabled or disabled in one step (mods another enabled group needs, and PanelBridge, stay on), and the panel suggests groups from shared libraries, multi-mod Workshop items and name prefixes; any Workshop item can carry a note.
@@ -69,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Server Configuration raw editor after a server switch:** the raw editor now reloads the file after a server switch, Refresh or restore, so saving no longer writes the previous server's text over the new server's file.
 - **Mod Settings after a server switch:** the tab now loads the new server's mod options instead of listing the previous server's.
 - **Sandbox Save keeps Mod Settings edits:** saving the Sandbox tab now writes only the values you changed, so it no longer undoes a Mod Settings change made earlier in the same visit.
+- **Mod Manager "Needs attention":** enabled mod IDs that are on no Workshop item on disk are listed again (and counted) under the filter.
 - **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
 - **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
 - **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.

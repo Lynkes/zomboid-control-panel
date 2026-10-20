@@ -45,6 +45,7 @@ import {
   FolderMinus,
   History,
   HardDrive,
+  HeartPulse,
 } from 'lucide-react'
 import { ConflictScanResult, ScanStreamModScanned, ScanStreamConflictFound } from '@/types'
 import { WorkshopCollectionPanel } from '@/components/WorkshopCollectionPanel'
@@ -60,7 +61,16 @@ import { GroupSections } from '@/components/mods/GroupSections'
 import { GroupSuggestions } from '@/components/mods/GroupSuggestions'
 import { useGroupSuggestions } from '@/components/mods/useGroupSuggestions'
 import { LoadOrderList } from '@/components/mods/LoadOrderList'
-import { AutoSortPreview } from '@/components/mods/AutoSortPreview'
+import { SmartSortPreview } from '@/components/mods/SmartSortPreview'
+import { WhyHerePopover } from '@/components/mods/WhyHerePopover'
+import { KindChip } from '@/components/mods/KindChip'
+import { ItemInsights } from '@/components/mods/ItemInsights'
+import { HealthView } from '@/components/mods/HealthView'
+import { HealthSummaryCard } from '@/components/mods/HealthSummaryCard'
+import { PinnedOrderCard } from '@/components/mods/PinnedOrderCard'
+import { OrderRuleDialog } from '@/components/mods/OrderRuleDialog'
+import { useSmartMods } from '@/components/mods/useSmartMods'
+import { SHOWN_KINDS } from '@/components/mods/smartText'
 import { VirtualRows } from '@/components/mods/VirtualRows'
 import { useModGroupsStore } from '@/components/mods/useModGroupsStore'
 import { useModNotes } from '@/components/mods/useModNotes'
@@ -134,7 +144,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
-import { modsApi, serversApi, ApiError, type ModGroup } from '@/lib/api'
+import { modsApi, serversApi, ApiError, type ModGroup, type ModHealthFix, type ModHealthIssue, type ModKind } from '@/lib/api'
 import { launchIsOperatorDefined } from '@/lib/launchTarget'
 import { FolderBrowser } from '@/components/FolderBrowser'
 import {
@@ -143,7 +153,6 @@ import {
   reconcileLoadOrder,
   sameLoadOrderEntries,
 } from '@/lib/modLoadOrder'
-import { autoSortLoadOrder, hasSortRules, type AutoSortResult } from '@/lib/loadOrderAutoSort'
 import { groupsOfMods, summarizeGroupConflicts, type GroupConflictSummary } from '@/lib/modGroupTools'
 import {
   ACTIVE_SORTS,
@@ -221,10 +230,10 @@ function parseWorkshopId(input: string): string | null {
  * the tools. The old "Add mods" view is gone: its queue was never filled, and
  * Sync Mod IDs lives in Tools.
  */
-const MODS_VIEWS = ['installed', 'deactivated', 'active', 'order', 'conflicts', 'collection', 'presets', 'tools'] as const
+const MODS_VIEWS = ['installed', 'deactivated', 'active', 'order', 'conflicts', 'health', 'collection', 'presets', 'tools'] as const
 type ModsView = (typeof MODS_VIEWS)[number]
 
-const CONFIG_VIEWS: readonly ModsView[] = ['active', 'order', 'presets', 'tools']
+const CONFIG_VIEWS: readonly ModsView[] = ['active', 'order', 'health', 'presets', 'tools']
 
 const VIEW_ICONS: Record<ModsView, typeof Package> = {
   installed: Package,
@@ -232,6 +241,7 @@ const VIEW_ICONS: Record<ModsView, typeof Package> = {
   active: Power,
   order: ListOrdered,
   conflicts: ShieldAlert,
+  health: HeartPulse,
   collection: Library,
   presets: Bookmark,
   tools: Wrench,
@@ -239,7 +249,7 @@ const VIEW_ICONS: Record<ModsView, typeof Package> = {
 
 const NAV_GROUPS: Array<{ id: string; labelKey: string; views: ModsView[] }> = [
   { id: 'library', labelKey: 'nav.groupLibrary', views: ['installed', 'deactivated'] },
-  { id: 'server', labelKey: 'nav.groupServer', views: ['active', 'order', 'conflicts'] },
+  { id: 'server', labelKey: 'nav.groupServer', views: ['active', 'order', 'conflicts', 'health'] },
   { id: 'tools', labelKey: 'nav.groupTools', views: ['collection', 'presets', 'tools'] },
 ]
 
@@ -284,6 +294,7 @@ function modsFallback(key: string, fallback: string): string {
 export default function Mods() {
   const { t, i18n } = useTranslation('mods')
   const { t: tGroups } = useTranslation('modGroups')
+  const { t: tSmart } = useTranslation('modsSmart')
   const { formatDate } = useDateFormat()
   const [searchParams] = useSearchParams()
   const reviewUnresolved = searchParams.get('review') === 'unresolved'
@@ -455,7 +466,6 @@ export default function Mods() {
   // serverChangedSinceLoad above already covers two entry points
   // (handleSaveModOrder, promoteModOverOpponent) for the reorder hazard.
   const [pendingAddServerChanged, setPendingAddServerChanged] = useState(false)
-  const [autoSortPreview, setAutoSortPreview] = useState<AutoSortResult | null>(null)
   // "Show groups" on the Load order list: each group as a block with a header.
   const [showGroupBlocks, setShowGroupBlocks] = useLocalStorageState<boolean>('zcp:mods:order:showGroups', false)
   // Expand/collapse states
@@ -484,6 +494,9 @@ export default function Mods() {
   const [activeFilters, setActiveFilters] = useLocalStorageState<ActiveExtraFilters>('zcp:mods:active:filters', { updates: false, missingDep: false, hasNote: false, group: ALL_GROUPS })
   const [activeSort, setActiveSort] = useLocalStorageState<ActiveSort>('zcp:mods:active:sort', 'config')
   const [activeMode, setActiveMode] = useLocalStorageState<ListMode>('zcp:mods:active:mode', 'list')
+  // "Kind" filter on Active on server (smart sort's classification); 'all' is off.
+  const [activeKindRaw, setActiveKind] = useLocalStorageState<string>('zcp:mods:active:kind', 'all')
+  const activeKind: ModKind | null = SHOWN_KINDS.includes(activeKindRaw as ModKind) ? (activeKindRaw as ModKind) : null
   // "Select" on Active on server: a tick per row for "Add selected to group"
   // (the row's own checkbox is the enable switch, so ticks only show in this mode).
   const [activeSelecting, setActiveSelecting] = useState(false)
@@ -558,6 +571,23 @@ export default function Mods() {
     const currentSnapshot = createConflictScanSnapshot(iniConfig?.workshopIds, iniConfig?.modIds)
     return currentSnapshot !== scanIniSnapshot
   }, [conflicts, scanIniSnapshot, iniConfig?.workshopIds, iniConfig?.modIds])
+
+  // Smart sort v2 (components/mods/useSmartMods): kinds, health, order
+  // rules, the plan of the order on screen and the smart sort proposal. A
+  // stale scan (or one of another server) gives the planner no winners.
+  const smart = useSmartMods({
+    canManage: canManageMods,
+    configured: iniConfig?.configured === true,
+    saved: iniConfig,
+    order: orderedModIds,
+    planCurrent: activeTab === 'order',
+    groups: groupsStore.groups,
+    conflicts,
+    conflictsStale: conflictsStale || serverChangedSinceLoad,
+  })
+  const autoSortPreview = smart.smartSort.preview
+  const closeSmartSort = smart.smartSort.close
+  const smartInsightOf = smart.insights.insightOf
 
   // Track if auto-discover is pending (moved here for cleanup)
   const autoDiscoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1262,6 +1292,13 @@ export default function Mods() {
     if (iniConfig === null) return [] as TrackedMod[]
     return sortInstalledMods(mods.filter((mod) => !configuredWorkshopIds.has(mod.workshop_id)), 'name')
   }, [mods, iniConfig, configuredWorkshopIds])
+  // The Deactivated list as shown: the shared search (name, Workshop ID, note).
+  const shownDeactivated = useMemo(() => {
+    const q = deferredSearchQuery.trim().toLowerCase()
+    if (!q) return deactivatedMods
+    return deactivatedMods.filter((mod) =>
+      (mod.name ?? '').toLowerCase().includes(q) || mod.workshop_id.includes(q) || notesStore.noteText(mod.workshop_id).toLowerCase().includes(q))
+  }, [deactivatedMods, deferredSearchQuery, notesStore])
 
   // A remembered "In group" filter whose group was deleted reads as "all".
   const installedGroupFilter = useMemo(() => parseGroupFilter(installedFilters.group, groupIds), [installedFilters.group, groupIds])
@@ -2183,57 +2220,37 @@ export default function Mods() {
   // drag with these too, so a lost dragend can't reorder behind a lock.
   const loadOrderLocked = savingModOrder || autoSortPreview !== null
 
-  // Group-aware Auto-sort (lib/loadOrderAutoSort): dependencies, group order,
-  // keep-together blocks, first/last placement and the conflict winners the
-  // cached scan knows. Computes a proposal only; nothing is written until the
-  // user applies it and then saves the order.
+  // Smart sort: the server's planner (routes/modsSmart.js) plans the order on
+  // screen, unsaved moves included, from require=, order rules, groups and
+  // their placement, mod.info hints, Steam "Required items", patches and the
+  // current conflict winners. A proposal only: Apply changes the list here,
+  // Save Order writes it.
   const handleAutoSort = () => {
-    if (!canManageMods) return
-    const result = autoSortLoadOrder({
-      order: orderedModIds,
-      requires: requiresMap,
-      groups: groupsStore.groups.map((group) => ({
-        id: group.id,
-        modIds: group.modIds,
-        keepTogether: group.keepTogether === true,
-        placement: groupsStore.placements[group.id] ?? null,
-      })),
-      conflictPairs: (conflicts?.pairs ?? []).map((pair) => [pair.modA.modId, pair.modB.modId] as [string, string]),
-    })
+    if (!canManageMods || savingModOrder) return
+    void smart.smartSort.open(orderedModIds)
+  }
 
-    if (!hasSortRules(result)) {
-      toast({
-        title: result.missing.length > 0 ? t('toasts.nothingToSortByTitle') : t('toasts.noDependencyDataTitle'),
-        description:
-          result.missing.length > 0
-            ? t('toasts.nothingToSortByDesc', { count: result.missing.length })
-            : t('toasts.noSortRulesDesc'),
-      })
-      return
-    }
-
-    if (result.moves.length === 0) {
-      toast({
-        title: t('toasts.loadOrderAlreadyCorrectTitle'),
-        description:
-          result.cycles.length > 0
-            ? t('toasts.loadOrderCyclesDesc', { count: result.cycles.length })
-            : t('toasts.loadOrderRulesMetDesc'),
-      })
-      return
-    }
-
-    setAutoSortPreview(result)
+  // "Sort now" from a conflict suggestion or "Why is it here?".
+  const openSmartSort = () => {
+    if (!canManageMods || savingModOrder) return
+    selectView('order')
+    void smart.smartSort.open(orderedModIds)
   }
 
   const applyAutoSort = () => {
     if (!autoSortPreview || !canManageMods) return
-    setOrderedModIds(autoSortPreview.order)
-    const movedCount = autoSortPreview.moves.length
-    setAutoSortPreview(null)
+    const { plan, input } = autoSortPreview
+    // The list is locked while the proposal is open; a reload under it would
+    // have replaced the order the proposal was made from.
+    if (input.join('\n') !== orderedModIds.join('\n')) {
+      smart.smartSort.close()
+      return
+    }
+    setOrderedModIds(plan.order)
+    smart.smartSort.close()
     toast({
       title: t('toasts.autoSortAppliedTitle'),
-      description: t('toasts.autoSortAppliedDesc', { count: movedCount }),
+      description: t('toasts.autoSortAppliedDesc', { count: plan.moves.length }),
     })
   }
 
@@ -2427,7 +2444,7 @@ export default function Mods() {
       // server's mods. Applied and saved, the proposal wrote the old server's
       // whole Mods= into the new one; the scan's winners fed the group
       // badges, Auto-sort and "Make X win". The new server is scanned anew.
-      setAutoSortPreview(null)
+      closeSmartSort()
       if (eventSourceRef.current) {
         closingIntentionallyRef.current = true
         eventSourceRef.current.close()
@@ -2500,7 +2517,7 @@ export default function Mods() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, fetchData, hasModOrderChanged, discoveredMod, collectionMods.length, toast, t])
+  }, [socket, fetchData, hasModOrderChanged, discoveredMod, collectionMods.length, toast, t, closeSmartSort])
 
   // Once the user discards the stale reorder (the "Reset" button sets
   // orderedModIds back to iniConfig.modIds, making hasModOrderChanged
@@ -2909,6 +2926,7 @@ export default function Mods() {
         missingDep: activeFilters.missingDep,
         hasNote: activeFilters.hasNote,
         group: activeGroupFilter,
+        kind: activeKind,
       },
       {
         needsAttention: (g) => groupAttention(g).any,
@@ -2916,6 +2934,7 @@ export default function Mods() {
         hasMissingDep: (g) => g.mods.some((m) => m.enabled && (activeModsData.missingDepsMap.get(m.id)?.length ?? 0) > 0),
         noteText: notesStore.noteText,
         groupIdsOf: groupIdsOfWorkshop,
+        kindsOf: (g) => g.mods.filter((m) => m.enabled).map((m) => smartInsightOf(m.id)?.kind ?? 'unknown'),
       },
     )
     const loadIndex = new Map((iniConfig?.modIds ?? []).map((id, i) => [id, i]))
@@ -2927,13 +2946,14 @@ export default function Mods() {
         return Number.isFinite(time) ? time : 0
       },
     })
-  }, [activeModsFiltered, filterAttention, multiIdFilterOn, filterNotEnabled, activeFilters, activeGroupFilter, groupAttention, trackedByWs, activeModsData, notesStore.noteText, groupIdsOfWorkshop, iniConfig?.modIds, activeSort])
+  }, [activeModsFiltered, filterAttention, multiIdFilterOn, filterNotEnabled, activeFilters, activeGroupFilter, groupAttention, trackedByWs, activeModsData, notesStore.noteText, groupIdsOfWorkshop, iniConfig?.modIds, activeSort, activeKind, smartInsightOf])
 
   // Counts for the Active chips (over the whole list, not the filtered one).
   const activeCounts = useMemo(() => {
-    const { groups, missingDepsMap } = activeModsData
+    const { groups, missingDepsMap, orphaned } = activeModsData
     return {
-      attention: groups.filter((g) => groupAttention(g).any).length,
+      // Enabled IDs no Workshop item on disk ships need attention too (they never load).
+      attention: groups.filter((g) => groupAttention(g).any).length + orphaned.length,
       notEnabled: groups.reduce((sum, g) => sum + g.mods.filter((m) => !m.enabled).length, 0),
       updates: groups.filter((g) => !!trackedByWs.get(g.wsId)?.update_available).length,
       missingDep: groups.filter((g) => g.mods.some((m) => m.enabled && (missingDepsMap.get(m.id)?.length ?? 0) > 0)).length,
@@ -2941,6 +2961,16 @@ export default function Mods() {
       ungrouped: groups.filter((g) => groupIdsOfWorkshop(g.wsId).length === 0).length,
     }
   }, [activeModsData, groupAttention, trackedByWs, notesStore, groupIdsOfWorkshop])
+
+  // Items per kind, for the Kind filter (an item counts once per kind it has enabled).
+  const kindCounts = useMemo(() => {
+    const counts = new Map<ModKind, number>()
+    for (const g of activeModsData.groups) {
+      const kinds = new Set(g.mods.filter((m) => m.enabled).map((m) => smartInsightOf(m.id)?.kind).filter((k): k is ModKind => !!k))
+      for (const kind of kinds) counts.set(kind, (counts.get(kind) ?? 0) + 1)
+    }
+    return counts
+  }, [activeModsData, smartInsightOf])
 
   // File conflicts touching each group, from the cached conflict scan.
   const conflictsByGroup = useMemo(
@@ -3006,7 +3036,10 @@ export default function Mods() {
     setAddToGroup(null)
   }
 
-  const activeSuggestions = useGroupSuggestions(activeTab === 'active' && activeMode === 'groups' && canManageMods && groupsStore.loadState === 'ready')
+  // Suggestions are made from the active server's mods: read again after a
+  // server switch (another ini) or a change of its mod list.
+  const suggestionsKey = `${iniConfig?.iniPath ?? ''}|${[...(iniConfig?.modIds ?? [])].sort().join(';')}`
+  const activeSuggestions = useGroupSuggestions(activeTab === 'active' && activeMode === 'groups' && canManageMods && groupsStore.loadState === 'ready', suggestionsKey)
 
   const handleSaveGroup = async (values: ModGroupDialogValues) => {
     const editing = groupEditor?.group ?? null
@@ -3490,6 +3523,56 @@ export default function Mods() {
     if (next === 'conflicts' && !conflicts && !conflictsLoading) void scanConflicts()
   }
 
+  // ── Smart sort v2: links and refreshes ─────────────────────────────────────
+
+  // A mod named by the health check: its Workshop item on Active on server.
+  const showWorkshopItem = (workshopId: string) => {
+    setSelectedActiveWsId(workshopId)
+    handleModManagerSearchChange(workshopId)
+    selectView('active')
+  }
+  const showModFromHealth = (modId: string) => {
+    const workshopId = modIdWsMap.get(modId)
+    if (workshopId) setSelectedActiveWsId(workshopId)
+    handleModManagerSearchChange(modId)
+    selectView(workshopId ? 'active' : 'order')
+  }
+
+  // A fix wrote the server ini: the page takes what was written, and every
+  // plan made from the old list is forgotten.
+  const afterHealthFix = (result: { applied: boolean }) => {
+    if (!result.applied) return
+    smart.invalidatePlans()
+    void fetchData({ adoptServerOrder: true })
+    void smart.insights.reload()
+  }
+
+  // A rule stored or deleted: plans change, and the cached scan's
+  // suggestions now answer "rule" for the pairs it decides.
+  const refreshAfterRuleChange = () => {
+    smart.invalidatePlans()
+    modsApi.getCachedConflicts()
+      .then((cached) => { if (cached && !serverChangedSinceLoad) setConflicts(cached) })
+      .catch(() => { /* the suggestions stay as they were */ })
+  }
+
+  // The inspector's "Add" for a missing Steam required item: the health
+  // check's own fix when it has one.
+  const applyHealthFixFromInspector = async (issue: ModHealthIssue, fix: ModHealthFix) => {
+    try {
+      const result = await smart.health.applyFix(issue, fix)
+      afterHealthFix(result)
+      toast({ title: tSmart('item.addedTitle') })
+    } catch (error) {
+      toast({ title: tSmart('item.addFailedTitle'), description: getUserErrorMessage(error, tSmart('item.addFailedFallback')), variant: 'destructive' })
+    }
+  }
+  const openAddDialogFor = (workshopId: string) => {
+    setAdvancedAddDialogOpen(true)
+    // As a Workshop link, so the dialog looks the item up at once.
+    handleModInputChange(`https://steamcommunity.com/sharedfiles/filedetails/?id=${workshopId}`)
+  }
+
   // The "downloaded, not on the server" section scans the Workshop folder the
   // first time the Deactivated view opens (and again from its Refresh).
   const diskScanRequestedRef = useRef(false)
@@ -3510,12 +3593,24 @@ export default function Mods() {
         view === 'deactivated' ? deactivatedMods.length
         : view === 'installed' ? modsWithUpdates.length
         : 0
+      const healthCounts = smart.health.health?.counts
+      const healthCount = view === 'health' && healthCounts ? (healthCounts.critical > 0 ? healthCounts.critical : healthCounts.warning) : 0
       return {
         id: view,
-        label: t(`nav.${view}.label`),
+        label: view === 'health' ? tSmart('nav.health') : t(`nav.${view}.label`),
         icon: VIEW_ICONS[view],
         dirty: view === 'order' && hasModOrderChanged,
-        badge: count > 0 ? (
+        badge: healthCount > 0 && healthCounts ? (
+          <span
+            className={cn(
+              'rounded-full px-1.5 text-[10px] font-medium tabular-nums',
+              healthCounts.critical > 0 ? 'bg-destructive/20 text-foreground' : 'bg-warning/15 text-foreground',
+            )}
+            title={healthCounts.critical > 0 ? tSmart('nav.healthCritical', { count: healthCount }) : tSmart('nav.healthWarning', { count: healthCount })}
+          >
+            {healthCount}
+          </span>
+        ) : count > 0 ? (
           <span
             className={cn(
               'rounded-full px-1.5 text-[10px] font-medium tabular-nums',
@@ -3669,11 +3764,13 @@ export default function Mods() {
     ...(activeFilters.missingDep ? [{ key: 'missingDep', label: t('filters.missingDep'), onRemove: () => setActiveFilters((f) => ({ ...f, missingDep: false })) }] : []),
     ...(activeFilters.hasNote ? [{ key: 'note', label: t('filters.hasNote'), onRemove: () => setActiveFilters((f) => ({ ...f, hasNote: false })) }] : []),
     ...(activeGroupFilter.kind !== 'all' ? [{ key: 'group', label: groupFilterLabel(activeGroupFilter), onRemove: () => setActiveFilters((f) => ({ ...f, group: ALL_GROUPS })) }] : []),
+    ...(activeKind ? [{ key: 'kind', label: tSmart('filter.chip', { kind: tSmart(`kind.${activeKind}`) }), onRemove: () => setActiveKind('all') }] : []),
   ]
   const clearActiveFilters = () => {
     setFilterMultiId(false)
     setFilterAttention(false)
     setFilterNotEnabled(false)
+    setActiveKind('all')
     setActiveFilters({ updates: false, missingDep: false, hasNote: false, group: ALL_GROUPS })
   }
 
@@ -4320,9 +4417,20 @@ export default function Mods() {
                   </div>
                 ) : (
                   <>
+                    <div className="border-b border-border/40 px-4 py-2.5">
+                      <Toolbar
+                        search={{
+                          value: searchQuery,
+                          onChange: handleSearchChange,
+                          placeholder: t('installedTab.searchPlaceholder'),
+                          ariaLabel: t('installedTab.searchAria'),
+                          slashToFocus: true,
+                        }}
+                      />
+                    </div>
                     {/* Toolbar: select-all / enable / delete bulk actions */}
                     {(() => {
-                      const deactivatedIds = deactivatedMods.map(m => m.workshop_id)
+                      const deactivatedIds = shownDeactivated.map(m => m.workshop_id)
                       const selectedDeactivated = deactivatedIds.filter(id => selectedMods.has(id))
                       const allSelected = selectedDeactivated.length === deactivatedIds.length && deactivatedIds.length > 0
                       const someSelected = selectedDeactivated.length > 0
@@ -4432,7 +4540,10 @@ export default function Mods() {
 
                     {/* Rows: per-row Enable + Delete; checkbox for bulk select */}
                     <div className="divide-y divide-border/40">
-                      {deactivatedMods.map(mod => {
+                      {shownDeactivated.length === 0 && (
+                        <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t('activeMods.noMatchesFor', { query: searchQuery })}</p>
+                      )}
+                      {shownDeactivated.map(mod => {
                         const isSelected = selectedMods.has(mod.workshop_id)
                         const name = mod.name || t('deactivatedTab.workshopModFallback', { id: mod.workshop_id })
                         return (
@@ -4760,7 +4871,9 @@ export default function Mods() {
             const inspectedLocked = !!inspectedGroup && isBridgeGroup(inspectedGroup)
             const inspectedLockReason = !canManageMods ? t('permissions.noModsManage') : inspectedLocked ? bridgeLockReason : null
             const copyWs = (wsId: string) => copyText(wsId).then(() => toast({ title: t('installedTab.copiedTitle'), description: t('installedTab.copiedWorkshopId', { id: wsId }) })).catch(() => {})
-            const showOrphans = !multiIdFilterOn && !filterNotEnabled && activeChips.length === 0
+            // Enabled IDs that are not on disk: shown unfiltered and under "Needs
+            // attention" (they never load), hidden by every other filter.
+            const showOrphans = !multiIdFilterOn && !filterNotEnabled && activeChips.every((chip) => chip.key === 'attention')
 
             const renderActiveRow = (g: WsGroup) => {
               const isSingle = g.mods.length === 1
@@ -4817,8 +4930,11 @@ export default function Mods() {
                 />
               )
 
+              // One kind chip per kind among the enabled mods (two at most).
+              const kindInsights = [...new Map(g.mods.filter((m) => m.enabled).map((m) => smartInsightOf(m.id)).filter((i) => !!i).map((i) => [i!.kind, i!])).values()].slice(0, 2)
               const extraBadges = (
                 <>
+                  {kindInsights.map((insight) => <KindChip key={insight.kind} insight={insight} showDependents />)}
                   <GroupDots groups={itemGroups} />
                   <NoteIndicator note={notesStore.notes[g.wsId]} onOpen={() => setNoteEditor({ workshopId: g.wsId, name: label })} />
                   {tracked?.update_available ? (
@@ -5213,6 +5329,7 @@ export default function Mods() {
 
             return (
               <>
+                <HealthSummaryCard health={smart.health.health} onReview={() => selectView('health')} />
                 {detectedConflicts.length > 0 && (
                   <div className="space-y-1.5">
                     {detectedConflicts.map((conflict, idx) => (
@@ -5437,6 +5554,19 @@ export default function Mods() {
                         </button>
                       )}
                       {groupsStore.groups.length > 0 && renderGroupFilter(activeGroupFilter, (group) => setActiveFilters((f) => ({ ...f, group })))}
+                      {(kindCounts.size > 0 || activeKind) && (
+                        <Select value={activeKind ?? 'all'} onValueChange={setActiveKind}>
+                          <SelectTrigger className="h-11 w-auto min-w-[8rem] gap-2 text-xs sm:h-8" aria-label={tSmart('filter.kindAria')}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="all">{tSmart('filter.allKinds')}</SelectItem>
+                            {SHOWN_KINDS.filter((kind) => (kindCounts.get(kind) ?? 0) > 0 || kind === activeKind).map((kind) => (
+                              <SelectItem key={kind} value={kind}>{tSmart('filter.option', { kind: tSmart(`kind.${kind}`), count: kindCounts.get(kind) ?? 0 })}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                       <Select value={activeSort} onValueChange={(value) => setActiveSort(ACTIVE_SORTS.includes(value as ActiveSort) ? (value as ActiveSort) : 'config')}>
                         <SelectTrigger className="h-11 w-auto min-w-[9rem] gap-2 text-xs sm:h-8" aria-label={t('sort.aria')}>
                           <SelectValue />
@@ -5608,6 +5738,17 @@ export default function Mods() {
                               })}
                             </div>
                           </div>
+
+                          {/* Smart sort: each mod's kind and the Steam "Required items". */}
+                          <ItemInsights
+                            modIds={inspectedGroup.mods.filter((m) => m.enabled).map((m) => m.id)}
+                            insightOf={smartInsightOf}
+                            requires={smart.insights.requirementsOf(inspectedGroup.wsId)}
+                            health={smart.health.health}
+                            canManage={canManageMods}
+                            onApplyFix={applyHealthFixFromInspector}
+                            onAddItem={openAddDialogFor}
+                          />
 
                           {/* Groups this item belongs to, and its note. */}
                           <div className="space-y-1.5 border-t border-border/50 pt-3">
@@ -5852,6 +5993,7 @@ export default function Mods() {
           {/* ═══ LOAD ORDER ═══ */}
           {activeTab === 'order' && iniConfig?.configured && (
             <>
+              <HealthSummaryCard health={smart.health.health} onReview={() => selectView('health')} />
               <ModGroupsPanel
                 canManage={canManageMods}
                 serverModIds={orderedModIds}
@@ -5890,9 +6032,10 @@ export default function Mods() {
                           variant="outline"
                           size="sm"
                           onClick={handleAutoSort}
-                          disabled={savingModOrder || !!autoSortPreview || !canManageMods}
+                          disabled={savingModOrder || !!autoSortPreview || smart.smartSort.busy || !canManageMods}
+                          aria-busy={smart.smartSort.busy}
                         >
-                          <Wand2 aria-hidden="true" />
+                          {smart.smartSort.busy && !autoSortPreview ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wand2 aria-hidden="true" />}
                           <span className="sr-only sm:not-sr-only">{t('loadOrder.autoSort')}</span>
                         </Button>
                       </DisabledReason>
@@ -5968,13 +6111,19 @@ export default function Mods() {
 
                     {autoSortPreview && (
                       <div className="border-b border-border/60 p-4">
-                        <AutoSortPreview
-                          result={autoSortPreview}
+                        <SmartSortPreview
+                          state={autoSortPreview}
+                          busy={smart.smartSort.busy}
                           modNames={modIdNameMap}
                           groupsById={groupsStore.groupsById}
                           membership={groupsStore.membership}
+                          tiered={smart.smartSort.tiered}
+                          onTieredChange={(on) => smart.smartSort.setMode(on ? 'tiered' : 'minimal')}
+                          steamStatus={autoSortPreview.plan.steamStatus}
+                          steamRefreshing={smart.insights.refreshing}
+                          onRefreshSteam={() => void smart.insights.refreshSteam().then(() => smart.smartSort.replan())}
                           onApply={applyAutoSort}
-                          onCancel={() => setAutoSortPreview(null)}
+                          onCancel={closeSmartSort}
                         />
                       </div>
                     )}
@@ -6001,11 +6150,67 @@ export default function Mods() {
                         return next
                       })}
                       onOpenNote={(workshopId, label) => setNoteEditor({ workshopId, name: label })}
+                      insightOf={smart.insights.insightOf}
+                      movingIds={smart.movingIds}
+                      onExplain={smart.explain}
+                      rowMenu={smart.rowMenu}
                     />
                   </>
                 )}
               </SectionCard>
+              <PinnedOrderCard
+                store={smart.rules}
+                enabledModIds={new Set(orderedModIds)}
+                modNames={modIdNameMap}
+                canManage={canManageMods}
+                onChanged={refreshAfterRuleChange}
+              />
+              <WhyHerePopover
+                modId={smart.why?.modId ?? null}
+                anchor={smart.why?.anchor ?? null}
+                onClose={smart.closeWhy}
+                order={orderedModIds}
+                plan={smart.current.plan}
+                fresh={smart.current.fresh}
+                loading={smart.current.loading}
+                insight={smart.why ? smart.insights.insightOf(smart.why.modId) : undefined}
+                modNames={modIdNameMap}
+                groupsById={groupsStore.groupsById}
+                groups={groupsStore.groups}
+                rules={smart.why ? smart.rules.rulesFor(smart.why.modId) : []}
+                canManage={canManageMods}
+                onPin={smart.openPin}
+                onSortNow={canManageMods && !loadOrderLocked ? () => { smart.closeWhy(); handleAutoSort() } : null}
+              />
+              {smart.pin && (
+                <OrderRuleDialog
+                  open
+                  onOpenChange={(open) => { if (!open) smart.closePin() }}
+                  modId={smart.pin.modId}
+                  direction={smart.pin.direction}
+                  candidates={orderedModIds}
+                  modNames={modIdNameMap}
+                  store={smart.rules}
+                  onAdded={refreshAfterRuleChange}
+                />
+              )}
             </>
+          )}
+
+          {/* ═══ HEALTH ═══ */}
+          {activeTab === 'health' && iniConfig?.configured && (
+            <HealthView
+              store={smart.health}
+              canManage={canManageMods}
+              blockedReason={hasModOrderChanged ? tSmart('health.unsavedOrder') : savingModOrder ? tSmart('health.saving') : null}
+              modName={(modId) => modIdNameMap.get(modId)}
+              itemTitle={(workshopId) => trackedByWs.get(workshopId)?.name ?? undefined}
+              onShowMod={showModFromHealth}
+              onShowWorkshopItem={showWorkshopItem}
+              onFixed={afterHealthFix}
+              onRefreshSteam={() => void smart.insights.refreshSteam().then(() => smart.health.reload())}
+              steamRefreshing={smart.insights.refreshing}
+            />
           )}
 
           {/* ═══ CONFLICTS ═══ */}
@@ -6038,6 +6243,7 @@ export default function Mods() {
               setDepAdding={setDepAdding}
               depAddResults={depAddResults}
               setDepAddResults={setDepAddResults}
+              smart={{ rules: smart.rules, canManage: canManageMods, onRuleAdded: refreshAfterRuleChange, onSortNow: openSmartSort }}
             />
           )}
 
@@ -6347,7 +6553,7 @@ export default function Mods() {
             dirty={hasModOrderChanged}
             saving={savingModOrder}
             onSave={() => void handleSaveModOrder()}
-            onDiscard={() => { setAutoSortPreview(null); setOrderedModIds(iniConfig.modIds) }}
+            onDiscard={() => { closeSmartSort(); setOrderedModIds(iniConfig.modIds) }}
             saveLabel={t('loadOrder.saveOrder')}
             disabledReason={!canManageMods ? t('permissions.noModsManage') : serverChangedSinceLoad ? t('toasts.serverChangedSinceLoadDesc') : undefined}
           />
