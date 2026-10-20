@@ -56,6 +56,7 @@ import {
   readSftpLogTail,
 } from "../services/panelBridgeSftp.js";
 import { SftpPasswordRequiredError, sftpPasswordForRequest } from "../utils/sftpSavedTarget.js";
+import { characterImportRefusal } from "../utils/characterImport.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   listRemoteConfigFiles,
@@ -1677,6 +1678,12 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
   }
 
   // Action-specific validation
+  if (action === "importPlayerData") {
+    const importRefusal = characterImportRefusal(args?.data);
+    if (importRefusal) {
+      return res.status(400).json({ error: importRefusal, code: ErrorCode.PANELBRIDGE_CHARACTER_PERK_INVALID });
+    }
+  }
   if (action === "airdrop" && args) {
     const VALID_PRESETS = [
       "military",
@@ -3883,6 +3890,10 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       code: ErrorCode.PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION,
       params: sanitizeErrorParams({ sections: validSections.join(", ") }),
     });
+  }
+  const importRefusal = characterImportRefusal(data);
+  if (importRefusal) {
+    return res.status(400).json({ error: importRefusal, code: ErrorCode.PANELBRIDGE_CHARACTER_PERK_INVALID });
   }
   // Snapshot the target's CURRENT data before overwriting it. Unlike a
   // config edit, another player's XP/perks/inventory can't be reconstructed

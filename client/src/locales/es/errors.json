@@ -408,6 +408,7 @@
   "PANELBRIDGE_CHARACTER_DATA_REQUIRED": "Se requieren los datos del personaje",
   "PANELBRIDGE_CHARACTER_DATA_NOT_OBJECT": "Los datos del personaje deben ser un objeto",
   "PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION": "Los datos del personaje deben contener al menos uno de: {{sections}}",
+  "PANELBRIDGE_CHARACTER_PERK_INVALID": "Cada habilidad de los datos del personaje debe tener un nivel entero de 0 a 10.",
   "PANELBRIDGE_HORDE_COUNT_INVALID": "count debe estar entre 1 y 100",
   "PANELBRIDGE_CLEAR_ZOMBIES_RADIUS_INVALID": "radius debe estar entre 1 y 500",
   "PANELBRIDGE_VALUE_REQUIRED_NUMBER_0_1": "Se requiere value (número 0.0-1.0)",
