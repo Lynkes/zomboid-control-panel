@@ -194,6 +194,16 @@ export const ROUTES: RouteMeta[] = [
     requiresServer: true,
     shortcut: '3',
     loader: { variant: 'list', descriptionKey: 'players:pageHeader.description' },
+    deepLinks: {
+      param: 'list',
+      items: [
+        { id: 'online', labelKey: 'players:roster.tabOnline' },
+        { id: 'roster', labelKey: 'players:roster.tabRoster' },
+        { id: 'banned', labelKey: 'players:roster.tabBanned' },
+        { id: 'whitelist', labelKey: 'players:roster.tabWhitelist' },
+        { id: 'activity', labelKey: 'players:roster.tabActivity' },
+      ],
+    },
     load: () => import('../pages/Players'),
   },
   {
@@ -262,6 +272,7 @@ export const ROUTES: RouteMeta[] = [
     requiresLocal: true,
     shortcut: '7',
     loader: { variant: 'list', descriptionKey: 'backups:pageHeader.description' },
+    deepLinks: { param: 'panel', items: [{ id: 'schedule', labelKey: 'backups:pageHeader.settings' }] },
     load: () => import('../pages/Backups'),
   },
   {
