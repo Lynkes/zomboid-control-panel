@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "الحساب",
+    "title": "حسابات اللوحة",
     "role": "الدور",
     "created": "تاريخ الإنشاء",
     "lastSignIn": "آخر تسجيل دخول",
     "never": "أبدًا",
     "actions": "الإجراءات",
+    "rowActions": "إجراءات {{username}}",
     "removeTooltip": "إزالة {{username}}",
     "linkSsoTooltip": "ربط SSO بـ {{username}}",
     "unlinkSsoTooltip": "إلغاء ربط SSO من {{username}}",

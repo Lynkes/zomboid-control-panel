@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Capacidad",
+    "title": "Capacidades por rol",
     "scrollHint": "Desliza a la derecha para ver todos los roles →",
     "seededBadge": "Predefinido",
     "memberCount_one": "{{count}} miembro",

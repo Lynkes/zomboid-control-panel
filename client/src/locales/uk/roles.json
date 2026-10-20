@@ -26,6 +26,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Можливість",
+    "title": "Можливості за ролями",
     "scrollHint": "Прокрутіть праворуч, щоб побачити всі ролі →",
     "seededBadge": "Вбудована",
     "memberCount_one": "{{count}} учасник",

@@ -42,7 +42,7 @@
     "https": { "label": "HTTPS", "tip": "Sètifika TLS pou koneksyon kripte", "description": "Tèminezon TLS. Aktive sa a lè w ekspoze panèl la pi lwen pase rezo LAN ou a." },
     "access": { "label": "Aksè adistans", "tip": "Ki navigatè ak aparèy ki ka konekte (CORS)", "description": "Ki orijin ki ka rive nan panèl sa a soti nan yon lòt machin, ak poukisa demann yo bloke." },
     "security": { "label": "Sekirite", "tip": "Modpas kont ak koneksyon", "description": "Kontwòl modpas kont panèl la ak koneksyon." },
-    "users": { "label": "Itilizatè", "tip": "Kont panèl yo ak wòl yo asiyen", "description": "Kreye, retire, epi chanje wòl pou kont panèl yo." },
+    "users": { "label": "Itilizatè", "tip": "Kont panèl yo ak wòl yo asiyen", "description": "Ajoute epi retire kont panèl yo. Wòl chak kont chwazi nan Wòl ak Otorizasyon." },
     "roles": { "label": "Wòl ak Otorizasyon", "tip": "Tablo kapasite pou chak wòl", "description": "Ki kapasite chak wòl bay, ak ki kont panèl ki genyen yo." },
     "sso": { "label": "Koneksyon inik", "tip": "Founisè koneksyon inik (OIDC)", "description": "Kite kont panèl yo konekte atravè yon founisè idantite ekstèn." },
     "connection": { "label": "RCON", "tip": "Koneksyon konsòl adistans ak konpòtman demaraj", "description": "Koneksyon RCON yo itilize pou kòmand, epi si sèvè jwèt la demare ansanm ak panèl la." },

@@ -65,7 +65,7 @@
     "users": {
       "label": "Usuários",
       "tip": "Contas do painel e seus cargos",
-      "description": "Crie e remova contas do painel e troque os cargos delas."
+      "description": "Adicione e remova contas do painel. O cargo de cada uma é definido em Cargos e permissões."
     },
     "roles": {
       "label": "Cargos e permissões",

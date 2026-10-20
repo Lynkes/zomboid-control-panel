@@ -90,7 +90,7 @@
     "users": {
       "label": "Benutzer",
       "tip": "Panel-Konten und ihre zugewiesenen Rollen",
-      "description": "Panel-Konten anlegen, entfernen und ihre Rolle ändern."
+      "description": "Panel-Konten anlegen und entfernen. Welche Rolle ein Konto hat, legst du unter Rollen und Berechtigungen fest."
     },
     "roles": {
       "label": "Rollen und Berechtigungen",

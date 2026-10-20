@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Conta",
+    "title": "Contas do painel",
     "role": "Cargo",
     "created": "Criada em",
     "lastSignIn": "Último login",
     "never": "Nunca",
     "actions": "Ações",
+    "rowActions": "Ações para {{username}}",
     "removeTooltip": "Remover {{username}}",
     "linkSsoTooltip": "Vincular SSO a {{username}}",
     "unlinkSsoTooltip": "Desvincular SSO de {{username}}",

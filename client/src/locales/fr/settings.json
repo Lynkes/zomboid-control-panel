@@ -90,7 +90,7 @@
     "users": {
       "label": "Utilisateurs",
       "tip": "Comptes du panneau et rôles attribués",
-      "description": "Créez et supprimez des comptes du panneau, et modifiez leur rôle."
+      "description": "Ajoutez et supprimez des comptes du panneau. Le rôle de chacun se règle dans Rôles et permissions."
     },
     "roles": {
       "label": "Rôles et permissions",

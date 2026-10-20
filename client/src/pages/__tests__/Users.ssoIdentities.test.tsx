@@ -81,13 +81,16 @@ describe('Users -- linked SSO identities', () => {
     renderUsers()
 
     expect(await screen.findByText('SSO: alice@example.com')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Unlink SSO from alice' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for alice' }), { button: 0, ctrlKey: false })
+    fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Unlink SSO from alice' }))
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink SSO' }))
 
     await waitFor(() => expect(unlink).toHaveBeenCalledWith('u1'))
     await waitFor(() => expect(screen.queryByText('SSO: alice@example.com')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: 'Unlink SSO from alice' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for alice' }), { button: 0, ctrlKey: false })
+    expect(within(await screen.findByRole('menu')).queryByRole('menuitem', { name: 'Unlink SSO from alice' })).not.toBeInTheDocument()
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'SSO unlinked' }))
   })
 

@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Kont",
+    "title": "Kont panèl",
     "role": "Wòl",
     "created": "Kreye",
     "lastSignIn": "Dènye koneksyon",
     "never": "Jamè",
     "actions": "Aksyon",
+    "rowActions": "Aksyon pou {{username}}",
     "removeTooltip": "Retire {{username}}",
     "linkSsoTooltip": "Konekte SSO ak {{username}}",
     "unlinkSsoTooltip": "Dekonekte SSO nan {{username}}",

@@ -90,7 +90,7 @@
     "users": {
       "label": "Usuarios",
       "tip": "Cuentas del panel y los roles asignados",
-      "description": "Cree y elimine cuentas del panel, y cambie su rol."
+      "description": "Añada y elimine cuentas del panel. El rol de cada una se asigna en Roles y permisos."
     },
     "roles": {
       "label": "Roles y permisos",

@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "身份",
-    "title": "登入",
+    "title": "單一登入",
     "description": "允許使用身份提供方（如 Google Workspace、Okta、Authentik 等）的現有帳號登入，作為使用者名稱密碼登入的補充——而非替代。本地登入始終可用。"
   },
   "loading": "正在載入登入設定…",
