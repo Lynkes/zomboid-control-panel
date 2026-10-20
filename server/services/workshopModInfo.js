@@ -367,48 +367,151 @@ function compareModInfoCandidatePaths(leftCandidate, rightCandidate) {
   return leftCandidate.order - rightCandidate.order;
 }
 
+// Parse a mod.info file and return { id, meta: { name, poster, ... } }, where
+// `id` is the one the game takes (see the note above): the last non-blank
+// value of a line that starts with "id=", or null.
+function parseModInfoFile(modInfoPath) {
+  let id = null;
+  const meta = {};
+  let content;
+  try {
+    content = readTextFile(modInfoPath);
+  } catch {
+    return { id, meta, game: null };
+  }
+  if (!content) return { id, meta, game: null };
+  if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+  // The ordering lists exactly as the game reads them (utils/modLoadOrder.js).
+  const game = parseModInfoForGame(content);
+  for (const rawLine of content.split(/\r?\n/)) {
+    if (rawLine.startsWith("id=")) {
+      // The game does line.replace("id=", "").trim() (every "id=" goes).
+      const val = rawLine.split("id=").join("").trim();
+      if (val) id = val;
+      continue;
+    }
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//") || line.startsWith("#")) continue;
+    const idx = line.indexOf("=");
+    if (idx === -1) continue;
+    const key = line.substring(0, idx).trim();
+    const val = line.substring(idx + 1).trim();
+    if (!key || key.toLowerCase() === "id") continue;
+    if (!(key in meta)) {
+      // First-occurrence wins for non-id fields (name/poster/icon/etc.)
+      meta[key] = val;
+    }
+  }
+  return { id, meta, game };
+}
+
+// The mods of one mods folder (a Workshop item's mods/, the data folder's
+// mods/, a staged item's Contents/mods/): one per mod folder, the id the game
+// would read, appended to `mods` unless `seenIds` has it. Throws when the
+// folder cannot be listed.
+function collectModsFromFolder(searchPath, mods, seenIds) {
+  const entries = fs.readdirSync(searchPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const modDir = path.join(searchPath, entry.name);
+    // Build candidate mod.info paths: the mod root, plus every direct
+    // subdirectory (covers `common/`, `42/`, `42.0/`, `41/`, `43/`, ...).
+    const candidatePaths = [
+      {
+        path: path.join(modDir, "mod.info"),
+        version: null,
+        order: 0,
+      },
+    ];
+    try {
+      const subfolders = fs
+        // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
+        .readdirSync(modDir, { withFileTypes: true })
+        .filter((sub) => sub.isDirectory())
+        .map((sub) => sub.name)
+        .sort((leftName, rightName) =>
+          leftName.localeCompare(rightName, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          }),
+        );
+      for (const [subIndex, subfolder] of subfolders.entries()) {
+        candidatePaths.push({
+          path: path.join(modDir, subfolder, "mod.info"),
+          version: parseModInfoVersionFolder(subfolder),
+          order: subIndex + 1,
+        });
+      }
+    } catch (e) {
+      log.debug(`Failed to scan subdirs for ${modDir}: ${e.message}`);
+    }
+
+    // Version-specific mod.info files may coexist; the game reads one of
+    // them, so take the first (newest version folder, then the mod root,
+    // then common/ ...) that actually declares an id.
+    for (const candidate of candidatePaths
+      // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
+      .filter((item) => fs.existsSync(item.path))
+      .sort(compareModInfoCandidatePaths)) {
+      const { id, meta, game } = parseModInfoFile(candidate.path);
+      if (!id) continue;
+      if (!seenIds.has(id)) {
+        seenIds.add(id);
+        const ordering = orderingFieldsFromModInfo(game);
+        mods.push({
+          id,
+          // The mod folder the id came from. Not necessarily named after
+          // the id or the display name (conflict scanning matches on it).
+          folder: entry.name,
+          name: meta.name || id,
+          poster: meta.poster,
+          icon: meta.icon,
+          description: meta.description || "",
+          url: meta.url,
+          require: meta.require
+            ? meta.require
+                .split(/[,;]/)
+                .map((s) => s.trim().replace(/^\\+/, ""))
+                .filter(Boolean)
+            : [],
+          // What the game itself reads (utils/modLoadOrder.js): the raw
+          // require= entries it loads (null: no require= line), the
+          // ordering lists the main menu uses, and every entry the game
+          // cannot match.
+          requireRaw: game?.require ?? null,
+          loadAfter: ordering.loadAfter,
+          loadBefore: ordering.loadBefore,
+          incompatible: ordering.incompatible,
+          modInfoIssues: ordering.modInfoIssues,
+        });
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * The mods of a folder that holds mod folders the way the game's own mods
+ * folders do (<Zomboid>/mods, <Zomboid>/Workshop/<item>/Contents/mods): the
+ * same reading as getModDetailsFromWorkshop, [] when the folder is missing.
+ * Unlike a Workshop item's list, two folders declaring the same id both come
+ * back (the game sees both and loads the first it lists).
+ */
+export function getModDetailsFromModsFolder(folderPath) {
+  const mods = [];
+  try {
+    collectModsFromFolder(folderPath, mods, { has: () => false, add: () => {} });
+  } catch (e) {
+    log.debug(`Error scanning mods folder ${folderPath}: ${e.message}`);
+  }
+  return mods;
+}
+
 export function getModDetailsFromWorkshop(workshopId, serverPath) {
   const mods = [];
   const seenIds = new Set();
   const possiblePaths = getWorkshopPaths(workshopId, serverPath);
-
-  // Parse a mod.info file and return { id, meta: { name, poster, ... } }, where
-  // `id` is the one the game takes (see the note above): the last non-blank
-  // value of a line that starts with "id=", or null.
-  function parseModInfoFile(modInfoPath) {
-    let id = null;
-    const meta = {};
-    let content;
-    try {
-      content = readTextFile(modInfoPath);
-    } catch {
-      return { id, meta, game: null };
-    }
-    if (!content) return { id, meta, game: null };
-    if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
-    // The ordering lists exactly as the game reads them (utils/modLoadOrder.js).
-    const game = parseModInfoForGame(content);
-    for (const rawLine of content.split(/\r?\n/)) {
-      if (rawLine.startsWith("id=")) {
-        // The game does line.replace("id=", "").trim() (every "id=" goes).
-        const val = rawLine.split("id=").join("").trim();
-        if (val) id = val;
-        continue;
-      }
-      const line = rawLine.trim();
-      if (!line || line.startsWith("//") || line.startsWith("#")) continue;
-      const idx = line.indexOf("=");
-      if (idx === -1) continue;
-      const key = line.substring(0, idx).trim();
-      const val = line.substring(idx + 1).trim();
-      if (!key || key.toLowerCase() === "id") continue;
-      if (!(key in meta)) {
-        // First-occurrence wins for non-id fields (name/poster/icon/etc.)
-        meta[key] = val;
-      }
-    }
-    return { id, meta, game };
-  }
 
   for (const workshopPath of possiblePaths) {
     // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
@@ -419,86 +522,7 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
     const searchPath = fs.existsSync(modsFolder) ? modsFolder : workshopPath;
 
     try {
-      // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-      const entries = fs.readdirSync(searchPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const modDir = path.join(searchPath, entry.name);
-        // Build candidate mod.info paths: the mod root, plus every direct
-        // subdirectory (covers `common/`, `42/`, `42.0/`, `41/`, `43/`, ...).
-        const candidatePaths = [
-          {
-            path: path.join(modDir, "mod.info"),
-            version: null,
-            order: 0,
-          },
-        ];
-        try {
-          const subfolders = fs
-            // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-            .readdirSync(modDir, { withFileTypes: true })
-            .filter((sub) => sub.isDirectory())
-            .map((sub) => sub.name)
-            .sort((leftName, rightName) =>
-              leftName.localeCompare(rightName, undefined, {
-                numeric: true,
-                sensitivity: "base",
-              }),
-            );
-          for (const [subIndex, subfolder] of subfolders.entries()) {
-            candidatePaths.push({
-              path: path.join(modDir, subfolder, "mod.info"),
-              version: parseModInfoVersionFolder(subfolder),
-              order: subIndex + 1,
-            });
-          }
-        } catch (e) {
-          log.debug(`Failed to scan subdirs for ${modDir}: ${e.message}`);
-        }
-
-        // Version-specific mod.info files may coexist; the game reads one of
-        // them, so take the first (newest version folder, then the mod root,
-        // then common/ ...) that actually declares an id.
-        for (const candidate of candidatePaths
-          // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-          .filter((item) => fs.existsSync(item.path))
-          .sort(compareModInfoCandidatePaths)) {
-          const { id, meta, game } = parseModInfoFile(candidate.path);
-          if (!id) continue;
-          if (!seenIds.has(id)) {
-            seenIds.add(id);
-            const ordering = orderingFieldsFromModInfo(game);
-            mods.push({
-              id,
-              // The mod folder the id came from. Not necessarily named after
-              // the id or the display name (conflict scanning matches on it).
-              folder: entry.name,
-              name: meta.name || id,
-              poster: meta.poster,
-              icon: meta.icon,
-              description: meta.description || "",
-              url: meta.url,
-              require: meta.require
-                ? meta.require
-                    .split(/[,;]/)
-                    .map((s) => s.trim().replace(/^\\+/, ""))
-                    .filter(Boolean)
-                : [],
-              // What the game itself reads (utils/modLoadOrder.js): the raw
-              // require= entries it loads (null: no require= line), the
-              // ordering lists the main menu uses, and every entry the game
-              // cannot match.
-              requireRaw: game?.require ?? null,
-              loadAfter: ordering.loadAfter,
-              loadBefore: ordering.loadBefore,
-              incompatible: ordering.incompatible,
-              modInfoIssues: ordering.modInfoIssues,
-            });
-          }
-          break;
-        }
-      }
+      collectModsFromFolder(searchPath, mods, seenIds);
 
       // If we found mods in this path, stop searching other paths
       if (mods.length > 0) return mods;

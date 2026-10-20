@@ -408,10 +408,16 @@ describe("validateGroupDocument", () => {
 });
 
 describe("normalizeGroup", () => {
-  it("reads a group saved before colours and keepTogether existed as color null, keepTogether false", () => {
+  it("reads a group saved before colours, keepTogether and placement existed as color null, keepTogether false, placement null", () => {
     const old = { id: "g", name: "Old", description: "", modIds: ["a"], createdAt: "t", updatedAt: "t" };
-    expect(normalizeGroup(old)).toEqual({ ...old, color: null, keepTogether: false });
+    expect(normalizeGroup(old)).toEqual({ ...old, color: null, keepTogether: false, placement: null });
     expect(old).not.toHaveProperty("color");
+  });
+
+  it("keeps a valid placement and reads an unknown one as null", () => {
+    expect(normalizeGroup({ id: "g", placement: "first" }).placement).toBe("first");
+    expect(normalizeGroup({ id: "g", placement: "last" }).placement).toBe("last");
+    expect(normalizeGroup({ id: "g", placement: "middle" }).placement).toBeNull();
   });
 
   it("keeps valid values and replaces unknown ones", () => {
@@ -432,5 +438,24 @@ describe("uniqueGroupName", () => {
     const result = uniqueGroupName(long, [long]);
     expect(result.length).toBeLessThanOrEqual(MOD_GROUP_LIMITS.nameMax);
     expect(result.endsWith(" (2)")).toBe(true);
+  });
+});
+
+describe("group placement", () => {
+  it("is optional, first, last or null, and named when wrong", () => {
+    const base = { name: "G", modIds: ["a"] };
+    expect(validateGroupFields(base)).toEqual({ ok: true, value: { name: "G", description: "", modIds: ["a"] } });
+    expect(validateGroupFields({ ...base, placement: "first" }).value.placement).toBe("first");
+    expect(validateGroupFields({ ...base, placement: null }).value.placement).toBeNull();
+    expect(validateGroupFields({ placement: "last" }, { partial: true })).toEqual({ ok: true, value: { placement: "last" } });
+    for (const bad of ["First", "middle", 1, true, ""]) {
+      expect(validateGroupFields({ ...base, placement: bad })).toEqual({ ok: false, field: "placement" });
+    }
+  });
+
+  it("travels in a shared group file, and an unknown one is left out", () => {
+    const doc = { schema: 1, kind: "zcp-mod-group", name: "G", modIds: ["a"] };
+    expect(validateGroupDocument({ ...doc, placement: "last" }).value.placement).toBe("last");
+    expect(validateGroupDocument({ ...doc, placement: "sideways" })).toEqual({ ok: true, value: { name: "G", description: "", modIds: ["a"] } });
   });
 });

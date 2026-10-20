@@ -169,6 +169,7 @@ const defaultData = {
   mod_presets: [],
   mod_groups: [],
   mod_notes: [],
+  mod_order_rules: [],
   user_templates: [],
   steamid_bans: [],
   performance_history: [],
@@ -1307,6 +1308,7 @@ function getDatabaseStatsSync() {
       mod_presets: data.mod_presets?.length ?? 0,
       mod_groups: data.mod_groups?.length ?? 0,
       mod_notes: data.mod_notes?.length ?? 0,
+      mod_order_rules: data.mod_order_rules?.length ?? 0,
       user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
@@ -3058,7 +3060,7 @@ export async function getModGroups() {
  * has that name (used by import).
  */
 export async function createModGroup(
-  { name, description, modIds, color = null, keepTogether = false },
+  { name, description, modIds, color = null, keepTogether = false, placement = null },
   { maxGroups = Infinity, uniqueName = false } = {},
 ) {
   const db = await getDb();
@@ -3078,6 +3080,7 @@ export async function createModGroup(
     modIds: [...modIds],
     color: color ?? null,
     keepTogether: keepTogether === true,
+    placement: placement === "first" || placement === "last" ? placement : null,
     createdAt: now,
     updatedAt: now,
   };
@@ -3089,7 +3092,7 @@ export async function createModGroup(
 
 /**
  * Changes only the given fields (name, description, modIds, color,
- * keepTogether). Null when the group does not exist.
+ * keepTogether, placement). Null when the group does not exist.
  */
 export async function updateModGroup(id, updates) {
   const db = await getDb();
@@ -3097,7 +3100,7 @@ export async function updateModGroup(id, updates) {
   if (!group) return null;
 
   let changed = false;
-  for (const key of ["name", "description", "modIds", "color", "keepTogether"]) {
+  for (const key of ["name", "description", "modIds", "color", "keepTogether", "placement"]) {
     if (updates[key] === undefined) continue;
     group[key] = key === "modIds" ? [...updates[key]] : updates[key];
     changed = true;
@@ -3182,6 +3185,64 @@ export async function deleteModNote(workshopId) {
   const index = db.data.mod_notes.findIndex((n) => n?.workshopId === workshopId);
   if (index === -1) return false;
   db.data.mod_notes.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// ============================================
+// Mod Order Rules (panel-wide, like mod groups)
+// ============================================
+// { id, before, after, note, source, createdBy, createdAt }: "load `before`
+// before `after`", pinned by an admin (utils/modOrderRules.js). Validation
+// lives with the routes; these only store.
+
+export async function getModOrderRules() {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) db.data.mod_order_rules = [];
+  return db.data.mod_order_rules;
+}
+
+/**
+ * Stores a new rule. `check(existingRules)` runs in the same synchronous step
+ * as the push (before the limit check), so two requests cannot both pass a
+ * check made before the other's push; it returns a refusal (any truthy
+ * value, returned as { refused }) or null. Returns { rule } or { limit: true }
+ * or { refused }. `replaceIds` are removed in that same step (a rule the new
+ * one replaces).
+ */
+export async function createModOrderRule(
+  { before, after, note = "", source = "manual", createdBy = null },
+  { maxRules = Infinity, check = null, replaceIds = [] } = {},
+) {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) db.data.mod_order_rules = [];
+  const rules = db.data.mod_order_rules;
+  const replacing = new Set(replaceIds);
+  const kept = rules.filter((r) => !replacing.has(r?.id));
+  const refused = check ? check(kept) : null;
+  if (refused) return { refused };
+  if (kept.length >= maxRules) return { limit: true };
+  const rule = {
+    id: generateId(),
+    before,
+    after,
+    note: note || "",
+    source,
+    createdBy: createdBy || null,
+    createdAt: new Date().toISOString(),
+  };
+  db.data.mod_order_rules = [...kept, rule];
+  scheduleWrite();
+  return { rule };
+}
+
+/** Removes a rule; false when there was none. */
+export async function deleteModOrderRule(id) {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) return false;
+  const index = db.data.mod_order_rules.findIndex((r) => r?.id === id);
+  if (index === -1) return false;
+  db.data.mod_order_rules.splice(index, 1);
   scheduleWrite();
   return true;
 }

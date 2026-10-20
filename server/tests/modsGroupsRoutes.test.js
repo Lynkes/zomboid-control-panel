@@ -177,6 +177,7 @@ describe("POST /groups", () => {
       modIds: ["lib", "core", "addon"],
       color: null,
       keepTogether: false,
+      placement: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });
@@ -611,5 +612,28 @@ describe("POST /save-order and mod groups", () => {
     const res = await saveOrder(["3519629457", "lib"]);
     expect(Object.keys(res.getBody()).sort()).toEqual(["groupConflicts", "groupsAdjusted", "message", "modCount"]);
     expect(modsLine()).toBe("lib;3519629457");
+  });
+});
+
+describe("group placement (where the load-order plan puts a group)", () => {
+  it("is stored on create, changed on update, imported, and validated", async () => {
+    const { group } = (await create({ name: "Fixes", modIds: ["fix1", "fix2"], placement: "last" })).getBody();
+    expect(group.placement).toBe("last");
+    const updated = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: "first" } });
+    expect(updated.getBody().group.placement).toBe("first");
+    const cleared = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: null } });
+    expect(cleared.getBody().group.placement).toBeNull();
+    const bad = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: "middle" } });
+    expect(bad.getStatusCode()).toBe(400);
+    expect(bad.getBody()).toMatchObject({ code: "MODS_GROUP_INVALID", params: { field: "placement" } });
+    const imported = await call("/groups/import", "post", {
+      body: { document: { schema: 1, kind: "zcp-mod-group", name: "Frameworks", modIds: ["lib"], placement: "first" } },
+    });
+    expect(imported.getBody().group.placement).toBe("first");
+  });
+
+  it("reads a group stored without one as null", async () => {
+    await seed(["Old", "a", "b"]);
+    expect((await call("/groups", "get")).getBody().groups[0].placement).toBeNull();
   });
 });

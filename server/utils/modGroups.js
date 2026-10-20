@@ -35,11 +35,92 @@ export const MOD_GROUP_COLORS = Object.freeze([
   "pink",
 ]);
 
+// Where the load-order planner puts a group (utils/modSmartSort.js): "first"
+// as early as its constraints allow, "last" as late; null, the default,
+// wherever its mods are.
+export const MOD_GROUP_PLACEMENTS = Object.freeze(["first", "last"]);
+
 // How many times the whole list of groups is re-applied before giving up on
 // groups that keep undoing each other.
 const MAX_PASSES = 10;
 
 // ───── Enforcement ─────────────────────────────────────────────────────────
+
+// Hard constraints, strongest first (utils/modSmartSort.js ranks): the
+// weaker of two that order a pair both ways yields.
+const HARD_RANK = { require: 0, rule: 1 };
+
+/**
+ * The one rule the load-order planner (utils/modSmartSort.js) and this
+ * file's enforcement (POST /save-order, /groups/apply, /groups/status) share
+ * for a group kept together: it yields to hard constraints. When a mod
+ * outside the group must load between two of its members -- it is reached
+ * from a member and reaches a member through require= links, order rules and
+ * the groups' own orders -- the group cannot be one block. It then keeps only
+ * its order, and the mods that keep it apart are reported.
+ *
+ * `order` the Mods= ids; `hardEdges` [{ before, after, reason }] (reason
+ * "require" or "rule") between them. Returns Map<groupId, string[]>: for each
+ * group kept together with 2+ members in `order` that cannot be one block,
+ * the mods forced between its members (in `order`'s order). Groups that can
+ * be one block are not in the map.
+ */
+export function keepTogetherForcedApart(order, groups, hardEdges = []) {
+  const position = firstPositions(Array.isArray(order) ? order : []);
+  const list = Array.isArray(groups) ? groups : [];
+  const result = new Map();
+  if (!list.some(keepsTogether)) return result;
+
+  const edges = new Map();
+  const addEdge = (before, after, rank) => {
+    if (before === after || !position.has(before) || !position.has(after)) return;
+    const key = `${before}\u0000${after}`;
+    if (!edges.has(key) || edges.get(key).rank > rank) edges.set(key, { before, after, rank });
+  };
+  for (const edge of Array.isArray(hardEdges) ? hardEdges : []) {
+    const rank = HARD_RANK[edge?.reason];
+    if (rank === undefined || typeof edge.before !== "string" || typeof edge.after !== "string") continue;
+    addEdge(edge.before, edge.after, rank);
+  }
+  for (const group of list) {
+    const members = groupMembers(group).filter((id) => position.has(id));
+    for (let i = 0; i + 1 < members.length; i++) addEdge(members[i], members[i + 1], 2);
+  }
+  const succ = new Map();
+  const pred = new Map();
+  for (const edge of edges.values()) {
+    const reverse = edges.get(`${edge.after}\u0000${edge.before}`);
+    if (reverse && reverse.rank < edge.rank) continue;
+    if (!succ.has(edge.before)) succ.set(edge.before, []);
+    succ.get(edge.before).push(edge.after);
+    if (!pred.has(edge.after)) pred.set(edge.after, []);
+    pred.get(edge.after).push(edge.before);
+  }
+  const walk = (starts, adjacency, isMember) => {
+    const seen = new Set();
+    const stack = [...starts];
+    while (stack.length > 0) {
+      for (const next of adjacency.get(stack.pop()) || []) {
+        if (isMember.has(next) || seen.has(next)) continue;
+        seen.add(next);
+        stack.push(next);
+      }
+    }
+    return seen;
+  };
+  for (const group of list) {
+    if (!keepsTogether(group)) continue;
+    const members = groupMembers(group).filter((id) => position.has(id));
+    if (members.length < 2) continue;
+    const isMember = new Set(members);
+    const down = walk(members, succ, isMember);
+    if (down.size === 0) continue;
+    const up = walk(members, pred, isMember);
+    const between = [...down].filter((id) => up.has(id)).sort((a, b) => position.get(a) - position.get(b));
+    if (between.length > 0) result.set(group?.id, between);
+  }
+  return result;
+}
 
 function groupMembers(group) {
   // Unique string IDs in the group's own order.
@@ -89,19 +170,27 @@ function isGroupInOrder(members, positions, together = false) {
  * `present` counts the group's members that are in `modIds`, `missing` lists
  * those that are not (in the group's order). A group with fewer than two
  * present members cannot be out of order. A group with `keepTogether` is in
- * order only when its present members also sit next to each other.
+ * order only when its present members also sit next to each other -- unless
+ * hard constraints (`options.hardEdges`, see keepTogetherForcedApart) force
+ * mods between them: then only its order counts, and `forcedApart` lists
+ * those mods.
  */
-export function groupsInOrder(modIds, groups) {
-  const positions = firstPositions(Array.isArray(modIds) ? modIds : []);
-  return (Array.isArray(groups) ? groups : []).map((group) => {
+export function groupsInOrder(modIds, groups, { hardEdges = [] } = {}) {
+  const order = Array.isArray(modIds) ? modIds : [];
+  const positions = firstPositions(order);
+  const list = Array.isArray(groups) ? groups : [];
+  const forcedApart = keepTogetherForcedApart(order, list, hardEdges);
+  return list.map((group) => {
     const members = groupMembers(group);
     const missing = members.filter((id) => !positions.has(id));
+    const apart = forcedApart.get(group?.id);
     return {
       id: group?.id,
-      inOrder: isGroupInOrder(members, positions, keepsTogether(group)),
+      inOrder: isGroupInOrder(members, positions, keepsTogether(group) && !apart),
       present: members.length - missing.length,
       total: members.length,
       missing,
+      ...(apart ? { forcedApart: apart } : {}),
     };
   });
 }
@@ -173,20 +262,28 @@ function gatherMembers(order, members) {
  * hold; their ids come back in `conflicts` and `order` is the result of the
  * last pass.
  *
+ * A group kept together that hard constraints (`options.hardEdges`: require=
+ * links and order rules between the mods) keep apart only keeps its order;
+ * see keepTogetherForcedApart, the rule the load-order planner follows too.
+ *
  * Returns { order, moved, conflicts }: `moved` are the mod IDs whose index
  * differs from the one in `modIds`, in their new order.
  */
-export function applyModGroups(modIds, groups) {
+export function applyModGroups(modIds, groups, { hardEdges = [] } = {}) {
   const input = Array.isArray(modIds) ? modIds : [];
   const list = Array.isArray(groups) ? groups : [];
   const order = [...input];
+  // A group kept together that hard constraints keep apart only keeps its
+  // order (the shared rule, keepTogetherForcedApart).
+  const forcedApart = keepTogetherForcedApart(input, list, hardEdges);
 
   for (let pass = 0; pass < MAX_PASSES; pass++) {
     let changed = false;
     for (const group of list) {
       const members = groupMembers(group);
       if (members.length < 2) continue;
-      const moved = keepsTogether(group) ? gatherMembers(order, members) : permuteMemberSlots(order, members);
+      const together = keepsTogether(group) && !forcedApart.has(group?.id);
+      const moved = together ? gatherMembers(order, members) : permuteMemberSlots(order, members);
       if (moved) changed = true;
     }
     if (!changed) break;
@@ -201,7 +298,7 @@ export function applyModGroups(modIds, groups) {
     }
   }
 
-  const conflicts = groupsInOrder(order, list)
+  const conflicts = groupsInOrder(order, list, { hardEdges })
     .filter((status) => !status.inOrder)
     .map((status) => status.id);
 
@@ -271,12 +368,18 @@ export function isGroupColor(value) {
   return value === null || (typeof value === "string" && MOD_GROUP_COLORS.includes(value));
 }
 
+/** "first", "last", or null for "wherever its mods are". */
+export function isGroupPlacement(value) {
+  return value === null || (typeof value === "string" && MOD_GROUP_PLACEMENTS.includes(value));
+}
+
 /**
  * Validates the fields of a create (every field required, description
  * optional) or an update (`partial`: only the fields that are given).
- * `color` (one of MOD_GROUP_COLORS or null) and `keepTogether` (a boolean)
- * are optional in both and only come back when given; a stored group
- * without them reads as color null, keepTogether false (normalizeGroup).
+ * `color` (one of MOD_GROUP_COLORS or null), `keepTogether` (a boolean) and
+ * `placement` ("first", "last" or null) are optional in both and only come
+ * back when given; a stored group without them reads as color null,
+ * keepTogether false, placement null (normalizeGroup).
  * Returns { ok: true, value } with the cleaned fields, or { ok: false, field }
  * naming the first field that is wrong.
  */
@@ -307,15 +410,20 @@ export function validateGroupFields(input, { partial = false } = {}) {
     if (typeof body.keepTogether !== "boolean") return { ok: false, field: "keepTogether" };
     value.keepTogether = body.keepTogether;
   }
+  if (body.placement !== undefined) {
+    if (!isGroupPlacement(body.placement)) return { ok: false, field: "placement" };
+    value.placement = body.placement;
+  }
   return { ok: true, value };
 }
 
 /**
  * Validates a shared group file: { schema: 1, kind: "zcp-mod-group", name,
- * description?, modIds, color?, keepTogether? }. Returns { ok: true, value:
- * { name, description, modIds, color?, keepTogether? } } or { ok: false }.
+ * description?, modIds, color?, keepTogether?, placement? }. Returns { ok:
+ * true, value: { name, description, modIds, color?, keepTogether?,
+ * placement? } } or { ok: false }.
  *
- * The two display options are taken when they are valid and otherwise left
+ * The options are taken when they are valid and otherwise left
  * out (the group gets the defaults): a file from another panel version with a
  * colour this one does not know still imports.
  */
@@ -329,20 +437,22 @@ export function validateGroupDocument(document) {
     modIds: document.modIds,
     ...(isGroupColor(document.color) ? { color: document.color } : {}),
     ...(typeof document.keepTogether === "boolean" ? { keepTogether: document.keepTogether } : {}),
+    ...(isGroupPlacement(document.placement) ? { placement: document.placement } : {}),
   });
   return fields.ok ? { ok: true, value: fields.value } : { ok: false };
 }
 
 /**
  * A stored group as the API answers it: every field of the contract, with
- * color null and keepTogether false for a group saved before they existed
- * (or holding a value this version does not know).
+ * color null, keepTogether false and placement null for a group saved before
+ * they existed (or holding a value this version does not know).
  */
 export function normalizeGroup(group) {
   return {
     ...group,
     color: isGroupColor(group?.color) ? group.color : null,
     keepTogether: group?.keepTogether === true,
+    placement: isGroupPlacement(group?.placement) ? group.placement : null,
   };
 }
 
