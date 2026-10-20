@@ -108,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Single Sign-On edits kept across Settings tabs:** unsaved Single Sign-On fields no longer vanish when you open another Settings tab before saving.
 - **Single Sign-On display name help:** it now shows the button text ("Continue with Keycloak") instead of a raw `{{name}}`.
 - **Skip to content in the demo:** the keyboard skip link now moves to the page content instead of opening "Page Not Found".
+- **Old panel addresses:** bookmarks such as `/serverconfig?tab=sandbox` or `/users` keep the rest of the address when they open the page's new home, and "Page Not Found" is in your language.
 - **Phone menu in Arabic:** the navigation drawer now slides in from the right, next to the menu button, instead of from the left.
 - **Confirmation dialogs dim the page again:** the page behind an "Are you sure?" dialog is darkened, primary buttons show their hover state, and the sidebar's connection notice has its coloured border.
 

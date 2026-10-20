@@ -1,5 +1,11 @@
 {
   "skipToContent": "Skip to content",
+  "notFound": {
+    "title": "Page Not Found",
+    "description": "The route you requested does not exist or is no longer available in this panel build.",
+    "goDashboard": "Go to Dashboard",
+    "openServers": "Open Servers"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Control Panel",

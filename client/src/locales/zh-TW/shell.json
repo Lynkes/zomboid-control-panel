@@ -1,5 +1,11 @@
 {
   "skipToContent": "跳至主內容",
+  "notFound": {
+    "title": "找不到頁面",
+    "description": "你要求的頁面不存在，或此版本的面板已不再提供。",
+    "goDashboard": "前往儀表板",
+    "openServers": "開啟伺服器列表"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "控制面板",
