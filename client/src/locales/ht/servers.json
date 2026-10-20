@@ -1,14 +1,12 @@
 {
   "pageHeader": {
-    "title": "Sèvè Jere",
-    "description": "Jere plizyè sèvè Project Zomboid nan yon sèl panèl",
-    "eyebrow": "Flòt",
+    "title": "Sèvè yo",
+    "description": "Ajoute, chanje, mete ajou epi modifye sèvè Project Zomboid panèl sa a jere yo.",
     "scanAria": "Chèche sèvè",
     "scanTitle": "Chèche sèvè",
     "scanNoPermission": "Pou ou eskane enstalasyon bind-mount yo, ou bezwen pèmisyon servers.discover, e wòl sa a pa genyen li.",
-    "addRemote": "Ajoute Sèvè Aleka",
-    "addExisting": "Ajoute Sèvè ki Egziste",
-    "installNew": "Enstale Nouvo Sèvè"
+    "publicServers": "Sèvè piblik",
+    "installNoPermission": "Pou ou enstale yon nouvo sèvè, ou bezwen pèmisyon server.install, e wòl sa a pa genyen li."
   },
   "addServer": {
     "menu": "Ajoute sèvè",
@@ -27,6 +25,7 @@
       "description": "Jere yon sèvè k ap fonksyone sou yon lòt machin, atravè RCON."
     }
   },
+  "loadingLabel": "N ap chaje sèvè yo",
   "fetchError": {
     "title": "Sèvè yo pa t kapab chaje",
     "fallback": "Echwe pou chaje sèvè yo. Backend la ka pa aksesib.",
@@ -34,23 +33,10 @@
   },
   "emptyState": {
     "title": "Pa gen Sèvè Konfigire",
-    "description": "Kòmanse ak yon sèl sèvè. Yon fwa li aktif, tablo, jwè, kopi sovgad, mods, ak aksyon aleka vin disponib.",
-    "addLocalTitle": "Ajoute yon sèvè lokal ki egziste",
-    "addLocalDesc": "Itilize sa a lè dosye sèvè yo deja egziste sou machin sa a.",
-    "installTitle": "Enstale yon nouvo sèvè lokal",
-    "installDesc": "Itilize enstalatè a lè w bezwen dosye, pò, modpas, ak konfigirasyon memwa nan yon sèl flux.",
-    "connectRemoteTitle": "Konekte yon sèvè aleka",
-    "connectRemoteDesc": "Itilize sa a pou sèvè k ap fonksyone sou yon lòt machin atravè RCON.",
-    "step1Label": "Etap 1",
-    "step1Text": "Pran yon sèvè",
-    "step2Label": "Etap 2",
-    "step2Text": "Fè l aktif epi verifye RCON",
-    "step3Label": "Etap 3",
-    "step3Text": "Retounen nan Tablo pou kontwòl an dirèk"
+    "description": "Kòmanse ak yon sèl sèvè. Yon fwa li aktif, tablo, jwè, kopi sovgad, mods, ak aksyon aleka vin disponib."
   },
   "card": {
     "selected": "Chwazi",
-    "inactive": "Inaktif",
     "remote": "Aleka",
     "updateAvailable": "Mizajou Disponib",
     "updateStatusUnknown": "Update status unknown",
@@ -87,8 +73,12 @@
     "statusNotConfigured": "Pa konfigire",
     "statusAuthFailed": "Otantifikasyon echwe",
     "statusUnavailable": "Pa disponib",
-    "buildLabel": "Build:",
-    "branchLabel": "Branch:",
+    "buildLabel": "Build",
+    "branchLabel": "Branch",
+    "version": "Vèsyon",
+    "detailsPaths": "Chemen yo",
+    "detailsPathsContainer": "Chemen ak kontenè",
+    "detailsRemote": "Detay",
     "stopThisServer": "Sispann sèvè sa a",
     "stopConfirmTitle": "Sispann {{name}}?",
     "stopConfirmDescription": "Sa ap dekonekte tout jwè ki konekte kounye a nan \"{{name}}\". Ou ka demare l ankò nenpòt lè.",
@@ -101,7 +91,6 @@
     "configureSftpTitle": "Konfigire pon SFTP pou sèvè aleka sa a",
     "configureSftp": "Konfigire Pon SFTP",
     "configureSftpTip": "Si sa a poko sèvè aktif ou a, klike la a ap chanje sèvè aktif ou a pou vin sa a anvan li louvri konfigirasyon SFTP nan Paramèt.",
-    "updateNow": "Mete Ajou Kounye a",
     "activating": "N ap aktive...",
     "switchToThisServer": "Chanje sou Sèvè Sa a",
     "added": "Ajoute {{date}}",
@@ -230,6 +219,11 @@
     "lifecycleCompleteFirst": "Aktive founisè sik lavi ou chwazi a oswa retounen sou founisè aktyèl la anvan ou sove lòt paramèt sèvè yo.",
     "title": "Modifye Sèvè",
     "description": "Mete ajou paramèt konfigirasyon sèvè yo",
+    "sectionIdentity": "Idantite",
+    "sectionPaths": "Chemen yo",
+    "sectionNetwork": "Rezo ak RCON",
+    "sectionLaunch": "Lansman ak memwa",
+    "sectionDocker": "Docker",
     "remoteTitle": "Sèvè Aleka",
     "remoteDesc": "Jesyon RCON sèlman disponib pou sèvè sa a.",
     "displayNameLabel": "Non Afichaj",

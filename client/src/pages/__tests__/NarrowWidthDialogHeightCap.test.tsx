@@ -273,7 +273,7 @@ describe('Servers -- Steam Update dialog fits a short mobile viewport', () => {
       detectedServers: [{ serverName, iniFile: `${serverName}.ini`, rconPort: 27015, serverPort: 16261, publicName: '[EU]KnoxCountrySurvivors|B42Unstable|PvE|150+Mods', hasRcon: true }],
     } as never)
     renderServers()
-    fireEvent.click(await screen.findByRole('button', { name: en.pageHeader.addExisting }))
+    await openAddFromHeader('existing')
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByPlaceholderText(en.localForm.dataPathPlaceholder), { target: { value: '/srv/pz/data' } })
     fireEvent.click(within(dialog).getByRole('button', { name: en.localForm.detect }))
@@ -355,3 +355,14 @@ describe('ServerConfig -- Backups dialog fits a short mobile viewport', () => {
     expect(dialog.contains(firstBackupRow)).toBe(true)
   })
 })
+
+// The page header's "Add server" menu (UX restructure, one command primary):
+// the existing-files and remote dialogs open from its items. Radix opens the
+// menu on pointerdown.
+async function openAddFromHeader(choice: 'existing' | 'remote') {
+  const trigger = await screen.findByRole('button', { name: en.addServer.menu })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+  fireEvent.click(trigger)
+  const menu = await screen.findByRole('menu')
+  fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(en.addServer[choice].label) }))
+}
