@@ -3161,6 +3161,11 @@ onLog((logEntry) => {
 // ============================================
 import { getDataPaths } from "./utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "./utils/exportFolderName.js";
+import {
+  enforceAutoExportFolderCap,
+  isAutoExportFileName,
+  MAX_AUTO_EXPORT_PLAYER_FOLDERS,
+} from "./utils/autoExportFolders.js";
 
 // Exported so tests can call it directly against real fs/database state
 // without needing a live PanelBridge mod connection -- see
@@ -3192,7 +3197,9 @@ export async function autoExportPlayer(username) {
       return;
     }
     const { dataDir } = getDataPaths();
-    const exportDir = path.join(dataDir, "exports", exportFolder);
+    const exportsRoot = path.join(dataDir, "exports");
+    const exportDir = path.join(exportsRoot, exportFolder);
+    const newFolder = !fs.existsSync(exportDir);
     fs.mkdirSync(exportDir, { recursive: true });
 
     // Write timestamped export file. toISOString() is millisecond-resolution
@@ -3219,10 +3226,12 @@ export async function autoExportPlayer(username) {
     // sortBackupFilenamesNewestFirst(): a raw string sort would put
     // "-2.json" before ".json" ('-' < '.'), treating a collision's later
     // duplicate as older than the original it collided with.
+    // Only this rotation's own files: a pre-import snapshot in the same
+    // folder (routes/panelBridge.js) is an admin's recovery copy.
     const maxExports = Number(await getSetting("autoExportMaxPerPlayer")) || 3;
     const files = fs
       .readdirSync(exportDir)
-      .filter((f) => f.endsWith(".json"))
+      .filter(isAutoExportFileName)
       .map((name) => {
         const withoutExt = name.slice(0, -".json".length);
         const match = withoutExt.match(/^(.*)-(\d+)$/);
@@ -3239,6 +3248,15 @@ export async function autoExportPlayer(username) {
     if (files.length > maxExports) {
       for (const old of files.slice(maxExports)) {
         fs.unlinkSync(path.join(exportDir, old));
+      }
+    }
+
+    // A new player's folder: keep the number of player folders bounded
+    // (utils/autoExportFolders.js).
+    if (newFolder) {
+      const removed = enforceAutoExportFolderCap(exportsRoot, exportFolder);
+      if (removed.length > 0) {
+        log.info(`Removed the auto-exports of ${removed.length} player(s) exported longest ago (at most ${MAX_AUTO_EXPORT_PLAYER_FOLDERS} players keep them)`);
       }
     }
 

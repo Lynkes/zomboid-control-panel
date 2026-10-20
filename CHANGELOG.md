@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - **Hostile Workshop mods can no longer freeze the panel:** a mod.info, Workshop description or console line built to make text matching slow is now read in milliseconds (panel start, update checks, diagnostics, Console page).
+- **Per-player data is bounded:** playtime stats (5,000 players per server), cached character sheets (5,000 / 256 MB per server) and login auto-export folders (2,000 players) now drop the longest-unseen entries instead of growing with every new name that joins; auto-export rotation no longer deletes pre-import snapshots.
 - **In-game admin password hidden from logs:** the line where the game prints it on a world's first start is now redacted on the Console page for every role and in support bundles.
 
 ## [1.4.17] - 2026-10-18

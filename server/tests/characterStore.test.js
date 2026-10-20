@@ -1,10 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { getDataPaths } from "../utils/paths.js";
 import {
   CHARACTER_STORE_DIR,
   CHARACTER_STORE_LIMITS,
+  _setCharacterStoreCapsForTests,
+  getCharacterStoreCaps,
   characterRecordPath,
   computeSkillDelta,
   pruneCharacterStore,
@@ -398,5 +400,85 @@ describe("concurrency and pruning", () => {
 
   it("prune never throws when the store doesn't exist", async () => {
     await expect(pruneCharacterStore({ maxAgeDays: 180, now: 0 })).resolves.toEqual(expect.any(Object));
+  });
+});
+
+// Security audit 2026-10-20: a record is made for every player name the
+// panel reads a sheet for, and records went only once 180 days old -- a
+// client joining under endless made-up names grew the store without bound.
+// Each server's folder is now capped by record count and bytes; the records
+// written longest ago go first.
+describe("per-server caps", () => {
+  const defaults = getCharacterStoreCaps();
+  afterEach(() => _setCharacterStoreCapsForTests(defaults));
+
+  const recordsIn = (id) =>
+    fs.existsSync(path.join(getDataPaths().dataDir, CHARACTER_STORE_DIR, id))
+      ? fs.readdirSync(path.join(getDataPaths().dataDir, CHARACTER_STORE_DIR, id)).filter((n) => n.endsWith(".json"))
+      : [];
+  const has = (id, name) => fs.existsSync(characterRecordPath(id, name));
+
+  it("default to 5,000 records and 256 MiB per server", () => {
+    expect(defaults).toEqual({ maxRecordsPerServer: 5000, maxBytesPerServer: 256 * 1024 * 1024 });
+  });
+
+  it("keep at most maxRecordsPerServer records, dropping the ones written longest ago", async () => {
+    _setCharacterStoreCapsForTests({ maxRecordsPerServer: 3 });
+    const id = freshServerId();
+    const other = freshServerId();
+    await recordCharacterSheet(other, "Elsewhere", sheet(), { sections: BASE, now: T0 });
+    for (const name of ["P1", "P2", "P3"]) {
+      await recordCharacterSheet(id, name, sheet(), { sections: BASE, now: T0 });
+    }
+    // P1 is read again: now the newest.
+    await recordCharacterSheet(id, "P1", sheet({ levels: { Axe: 2 } }), { sections: BASE, now: T0 + MIN });
+    await recordCharacterSheet(id, "P4", sheet(), { sections: BASE, now: T0 });
+    await recordCharacterSheet(id, "P5", sheet(), { sections: BASE, now: T0 });
+
+    expect(recordsIn(id)).toHaveLength(3);
+    expect(has(id, "P2")).toBe(false);
+    expect(has(id, "P3")).toBe(false);
+    expect(has(id, "P1")).toBe(true);
+    expect(has(id, "P4")).toBe(true);
+    expect(has(id, "P5")).toBe(true);
+    expect(has(other, "Elsewhere")).toBe(true);
+    // An evicted player's next sheet simply starts a new record.
+    await recordCharacterSheet(id, "P2", sheet(), { sections: BASE, now: T0 });
+    expect(has(id, "P2")).toBe(true);
+    expect(recordsIn(id)).toHaveLength(3);
+  });
+
+  it("keep at most maxBytesPerServer bytes, never dropping the record just written", async () => {
+    const id = freshServerId();
+    await recordCharacterSheet(id, "Size", sheet(), { sections: BASE, now: T0 });
+    const one = fs.statSync(characterRecordPath(id, "Size")).size;
+    _setCharacterStoreCapsForTests({ maxBytesPerServer: Math.floor(one * 2.5) });
+    for (const name of ["B1", "B2", "B3"]) {
+      await recordCharacterSheet(id, name, sheet(), { sections: BASE, now: T0 });
+    }
+    expect(recordsIn(id)).toHaveLength(2);
+    expect(has(id, "B2")).toBe(true);
+    expect(has(id, "B3")).toBe(true);
+
+    _setCharacterStoreCapsForTests({ maxBytesPerServer: 1 });
+    await recordCharacterSheet(id, "Huge", sheet(), { sections: BASE, now: T0 });
+    expect(recordsIn(id)).toEqual([path.basename(characterRecordPath(id, "Huge"))]);
+  });
+
+  it("are applied at boot to a folder that is already over them, oldest first", async () => {
+    const id = freshServerId();
+    for (const [i, name] of ["Q1", "Q2", "Q3", "Q4"].entries()) {
+      await recordCharacterSheet(id, name, sheet(), { sections: BASE, now: T0 });
+      const when = new Date(Date.now() - (10 - i) * MIN);
+      fs.utimesSync(characterRecordPath(id, name), when, when);
+    }
+    _setCharacterStoreCapsForTests({ maxRecordsPerServer: 2 });
+
+    const { removed } = await pruneCharacterStore({ maxAgeDays: 180 });
+    expect(removed).toBeGreaterThanOrEqual(2);
+    expect(has(id, "Q1")).toBe(false);
+    expect(has(id, "Q2")).toBe(false);
+    expect(has(id, "Q3")).toBe(true);
+    expect(has(id, "Q4")).toBe(true);
   });
 });
