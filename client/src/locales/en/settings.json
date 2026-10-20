@@ -44,11 +44,11 @@
     "security": { "label": "Security", "tip": "Account password and sign-in", "description": "Panel account password and sign-in controls." },
     "users": { "label": "Users", "tip": "Panel accounts and their assigned roles", "description": "Create, remove, and reassign roles for panel accounts." },
     "roles": { "label": "Roles & Permissions", "tip": "Capability matrix for each role", "description": "Which capabilities each role grants, and which panel accounts hold them." },
-    "sso": { "label": "Sign-in", "tip": "Single sign-on (OIDC) provider", "description": "Let panel accounts sign in through an external identity provider." },
+    "sso": { "label": "Single Sign-On", "tip": "Single sign-on (OIDC) provider", "description": "Let panel accounts sign in through an external identity provider." },
     "connection": { "label": "RCON", "tip": "Remote console connection and startup behaviour", "description": "RCON connection used for commands, plus whether the game server starts with the panel." },
     "bridge": { "label": "PanelBridge", "tip": "Lua mod link, including remote servers over SFTP", "description": "PanelBridge Lua mod link for weather, teleport, and item control. Supports remote servers over SFTP." },
     "mods": { "label": "Mods & Workshop", "tip": "Update checks, collection sync, and Steam key", "description": "Workshop update detection, collection sync, and the Steam Web API key they rely on." },
-    "backups": { "label": "Backups", "tip": "World backup schedule and character exports", "description": "Automatic world backups and per-character export copies." },
+    "backups": { "label": "Backups", "tip": "World backup schedule and character exports", "description": "Character export copies. World backups and their schedule are on World Backups." },
     "about": { "label": "About", "tip": "Version, runtime info, and settings kept on other pages", "description": "Panel version and runtime details, plus where the remaining settings live." }
   },
   "ariaLabel": "Settings sections",
@@ -82,8 +82,8 @@
   "dateFormatSelect": { "auto": "Automatic ({{example}})", "dmy": "Day/Month/Year ({{example}})", "mdy": "Month/Day/Year ({{example}})", "ymd": "Year-Month-Day ({{example}})" },
 
   "general": {
-    "cardTitle": "Panel Settings",
-    "cardDescription": "Port this panel listens on, and how it looks.",
+    "cardTitle": "Port and restart",
+    "cardDescription": "The port this panel listens on, and restarting the panel to apply it.",
     "portLabel": "Panel Port",
     "portHelp": "Port used to access the panel (default: 3001).",
     "restartRequiredTitle": "Restart Required",
@@ -293,7 +293,7 @@
     "reverseProxyTitle": "Reverse Proxy Note",
     "reverseProxyDesc": "If TLS is terminated by Nginx, Caddy, or Cloudflare Tunnel, keep panel HTTPS off and proxy local HTTP.",
     "restartRequiredTitle": "Restart Required",
-    "restartRequiredDesc": "HTTPS changes require restart. Save first, then restart from Panel Settings."
+    "restartRequiredDesc": "HTTPS changes require a restart. Save first, then restart from Settings › General."
   },
 
   "connection": {
@@ -336,6 +336,7 @@
     "sectionRemoteConfigLogs": "Remote config & logs",
     "sectionInstallUpdates": "Install & updates",
     "howItWorksButton": "How it works",
+    "openInDiagnostics": "Open in Diagnostics",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "A Lua mod that runs inside Project Zomboid, giving this panel direct access to the live game world.",
     "unlocksTitle": "What it unlocks",
@@ -559,6 +560,9 @@
     "backupsPathLabel": "Backups:",
     "characterExportsCardTitle": "Character Exports",
     "characterExportsCardDesc": "Per-player character copies, saved separately from world backups.",
+    "worldBackupsLinkTitle": "World backups",
+    "worldBackupsLinkDesc": "Automatic backups, their schedule, how many are kept, restores and downloads all live on the World Backups page.",
+    "openWorldBackups": "Open World Backups",
     "autoExportLabel": "Export a character when a player joins",
     "autoExportDesc": "Runs about ten seconds after the player loads, so one character can be restored without rolling back the world. Needs PanelBridge connected.",
     "copiesKeptLabel": "Copies kept per player",
@@ -641,6 +645,7 @@
     "elsewhereServers": { "label": "Server profiles", "detail": "Install paths, RCON host and password, memory, and SteamCMD." },
     "elsewhereDiscord": { "label": "Discord bot", "detail": "Bot token, channels, event notifications, and the chat bridge." },
     "elsewhereScheduler": { "label": "Scheduled tasks", "detail": "Restarts, announcements, and recurring commands." },
+    "elsewhereBackups": { "label": "World backups", "detail": "Backup schedule, how many are kept, restores and downloads." },
     "elsewhereServerConfig": { "label": "Game server config", "detail": "Server INI options and sandbox rules." },
     "elsewhereChat": { "label": "Chat quick messages", "detail": "Preset messages shown above the chat input." },
     "aboutCardTitle": "About",

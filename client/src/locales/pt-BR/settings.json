@@ -73,7 +73,7 @@
       "description": "Quais permissões cada cargo concede e quais contas do painel as têm."
     },
     "sso": {
-      "label": "Login",
+      "label": "Login único",
       "tip": "Provedor de login único (OIDC)",
       "description": "Permita que as contas do painel façam login por um provedor de identidade externo."
     },
@@ -95,7 +95,7 @@
     "backups": {
       "label": "Backups",
       "tip": "Agendamento de backups do mundo e exportações de personagens",
-      "description": "Backups automáticos do mundo e cópias exportadas de cada personagem."
+      "description": "Cópias de personagens exportados. Os backups do mundo e o agendamento ficam em Backups do mundo."
     },
     "about": {
       "label": "Sobre",
@@ -141,8 +141,8 @@
     "ymd": "Ano-Mês-Dia ({{example}})"
   },
   "general": {
-    "cardTitle": "Configurações do painel",
-    "cardDescription": "Porta em que este painel escuta e sua aparência.",
+    "cardTitle": "Porta e reinício",
+    "cardDescription": "A porta em que este painel escuta e o reinício do painel para aplicá-la.",
     "portLabel": "Porta do painel",
     "portHelp": "Porta usada para acessar o painel (padrão: 3001).",
     "restartRequiredTitle": "Reinício necessário",
@@ -352,7 +352,7 @@
     "reverseProxyTitle": "Observação sobre proxy reverso",
     "reverseProxyDesc": "Se o TLS for terminado pelo Nginx, Caddy ou Cloudflare Tunnel, mantenha o HTTPS do painel desativado e faça proxy do HTTP local.",
     "restartRequiredTitle": "Reinício necessário",
-    "restartRequiredDesc": "Alterações de HTTPS exigem reinício. Salve primeiro e depois reinicie em Configurações do painel."
+    "restartRequiredDesc": "Alterações de HTTPS exigem reinício. Salve primeiro e depois reinicie em Configurações › Geral."
   },
   "connection": {
     "cardTitle": "Conexão RCON",
@@ -393,6 +393,7 @@
     "sectionRemoteConfigLogs": "Configuração remota e logs",
     "sectionInstallUpdates": "Instalação e atualizações",
     "howItWorksButton": "Como funciona",
+    "openInDiagnostics": "Abrir em Diagnóstico",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "Um mod em Lua que roda dentro do Project Zomboid e dá a este painel acesso direto ao mundo do jogo em execução.",
     "unlocksTitle": "O que ele libera",
@@ -614,6 +615,9 @@
     "backupsPathLabel": "Backups:",
     "characterExportsCardTitle": "Exportações de personagens",
     "characterExportsCardDesc": "Cópias dos personagens de cada jogador, salvas separadamente dos backups do mundo.",
+    "worldBackupsLinkTitle": "Backups do mundo",
+    "worldBackupsLinkDesc": "Backups automáticos, o agendamento, quantos são mantidos, restaurações e downloads ficam na página Backups do mundo.",
+    "openWorldBackups": "Abrir Backups do mundo",
     "autoExportLabel": "Exportar um personagem quando um jogador entrar",
     "autoExportDesc": "Executa cerca de dez segundos depois que o jogador carrega, para que um personagem possa ser restaurado sem reverter o mundo. Requer o PanelBridge conectado.",
     "copiesKeptLabel": "Cópias mantidas por jogador",
@@ -704,6 +708,7 @@
       "label": "Tarefas agendadas",
       "detail": "Reinícios, anúncios e comandos recorrentes."
     },
+    "elsewhereBackups": { "label": "Backups do mundo", "detail": "Agendamento de backups, quantos são mantidos, restaurações e downloads." },
     "elsewhereServerConfig": {
       "label": "Configuração do servidor do jogo",
       "detail": "Opções INI do servidor e regras do sandbox."

@@ -80,7 +80,7 @@
     "backups": {
       "label": "備份",
       "tip": "伺服器備份排程及角色匯出",
-      "description": "自動伺服器備份及按角色匯出的副本。"
+      "description": "匯出角色的副本。世界備份及其排程在「伺服器備份管理」頁面。"
     },
     "about": {
       "label": "關於",
@@ -98,7 +98,7 @@
       "description": "每個角色授予哪些權限，以及哪些面板帳號擁有它們。"
     },
     "sso": {
-      "label": "登入",
+      "label": "單一登入",
       "tip": "單一登入（OIDC）提供商",
       "description": "允許面板帳號通過外部身份提供商登入。"
     }
@@ -141,8 +141,8 @@
     "ymd": "年-月-日（{{example}}）"
   },
   "general": {
-    "cardTitle": "面板設定",
-    "cardDescription": "本面板監聽的埠，以及外觀樣式。",
+    "cardTitle": "埠與重新啟動",
+    "cardDescription": "本面板監聽的埠，以及重新啟動面板使其生效。",
     "portLabel": "面板埠",
     "portHelp": "用於訪問面板的埠（預設：3001）。",
     "restartRequiredTitle": "需要重新啟動",
@@ -346,7 +346,7 @@
     "reverseProxyTitle": "反向代理說明",
     "reverseProxyDesc": "若 TLS 由 Nginx、Caddy 或 Cloudflare Tunnel 終止，請保持面板 HTTPS 關閉，並代理本地 HTTP。",
     "restartRequiredTitle": "需要重新啟動",
-    "restartRequiredDesc": "HTTPS 更改需要重新啟動才能生效。請先儲存，然後在「面板設定」中重新啟動。",
+    "restartRequiredDesc": "HTTPS 更改需要重新啟動才能生效。請先儲存，然後在「設定 › 一般」中重新啟動。",
     "certPathPlaceholder": "憑證 PEM 檔案路徑",
     "certPathPlaceholderWindows": "範例：C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "範例：/etc/zomboid-panel/panel.fullchain.pem",
@@ -393,6 +393,7 @@
     "sectionRemoteConfigLogs": "遠端設定與記錄",
     "sectionInstallUpdates": "安裝與更新",
     "howItWorksButton": "工作原理",
+    "openInDiagnostics": "在診斷中開啟",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "一個運行於 Project Zomboid 內部的 Lua 模組，讓本面板可直接訪問即時遊戲世界。",
     "unlocksTitle": "可解鎖的功能",
@@ -611,6 +612,9 @@
     "backupsPathLabel": "備份：",
     "characterExportsCardTitle": "角色匯出",
     "characterExportsCardDesc": "按玩家儲存的角色副本，與伺服器備份分開儲存。",
+    "worldBackupsLinkTitle": "世界備份",
+    "worldBackupsLinkDesc": "自動備份、備份排程、保留數量、還原與下載都在「伺服器備份管理」頁面。",
+    "openWorldBackups": "開啟伺服器備份管理",
     "autoExportLabel": "玩家加入時匯出角色",
     "autoExportDesc": "在玩家載入後約十秒執行，因此可在不還原整個伺服器存檔的情況下還原單個角色。需要 PanelBridge 處於已連線狀態。",
     "copiesKeptLabel": "每位玩家保留的副本數",
@@ -703,6 +707,7 @@
       "label": "排程任務",
       "detail": "重新啟動、公告，以及週期性命令。"
     },
+    "elsewhereBackups": { "label": "世界備份", "detail": "備份排程、保留數量、還原與下載。" },
     "elsewhereServerConfig": {
       "label": "遊戲伺服器設定",
       "detail": "伺服器 INI 選項與沙盒規則。"

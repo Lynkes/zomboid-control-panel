@@ -59,14 +59,19 @@ function primeMocks() {
   vi.mocked(usersApi.list).mockResolvedValue({ users: [] } as never)
 }
 
-// Every `variant:utility` class of the trigger whose variant matches the
-// trigger's real attributes. data-[state=active]: needs data-state="active";
-// aria-selected: needs aria-selected="true".
+// The selected-look classes of the trigger that really apply given its
+// attributes: data-[state=active]: needs data-state="active"; aria-selected:
+// needs aria-selected="true"; a plain class always applies. The shared SubNav
+// styles the selected row from the selected value itself (plain classes),
+// never from data-state, which a wrapping Tooltip overwrites.
+const SELECTED_LOOK = ['bg-primary/10', 'font-medium', 'text-foreground', 'text-primary']
 function appliedSelectedClasses(trigger: HTMLElement): string[] {
   return [...trigger.classList].filter((cls) => {
+    const utility = cls.slice(cls.lastIndexOf(':') + 1)
+    if (!SELECTED_LOOK.includes(utility) || cls.startsWith('hover:') || cls.startsWith('group-hover:')) return false
     if (cls.startsWith('data-[state=active]:')) return trigger.getAttribute('data-state') === 'active'
     if (cls.startsWith('aria-selected:')) return trigger.getAttribute('aria-selected') === 'true'
-    return false
+    return !cls.includes(':')
   })
 }
 
@@ -89,8 +94,8 @@ describe('Settings: the selected tab looks selected', () => {
     const selected = screen.getByRole('tab', { selected: true })
     expect(selected).toHaveTextContent('Users')
     const applied = appliedSelectedClasses(selected)
-    expect(applied.some((cls) => cls.endsWith(':bg-primary/10'))).toBe(true)
-    expect(applied.some((cls) => cls.endsWith(':text-primary'))).toBe(true)
+    expect(applied).toContain('bg-primary/10')
+    expect(applied).toContain('font-medium')
 
     // And the other tabs don't carry the selected look.
     const general = screen.getByRole('tab', { name: 'General' })

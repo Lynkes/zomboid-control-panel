@@ -80,7 +80,7 @@
     "backups": {
       "label": "Sauvegardes",
       "tip": "Planification des sauvegardes du monde et exports de personnages",
-      "description": "Sauvegardes automatiques du monde et copies d'export par personnage."
+      "description": "Copies des personnages exportés. Les sauvegardes du monde et leur planning sont dans Sauvegardes du monde."
     },
     "about": {
       "label": "À propos",
@@ -98,7 +98,7 @@
       "description": "Les capacités accordées par chaque rôle, et les comptes du panneau qui les détiennent."
     },
     "sso": {
-      "label": "Connexion",
+      "label": "Connexion unique",
       "tip": "Fournisseur d'authentification unique (OIDC)",
       "description": "Permettez aux comptes du panneau de se connecter via un fournisseur d'identité externe."
     }
@@ -141,8 +141,8 @@
     "ymd": "Année-Mois-Jour ({{example}})"
   },
   "general": {
-    "cardTitle": "Paramètres du panneau",
-    "cardDescription": "Port sur lequel ce panneau écoute, et son apparence.",
+    "cardTitle": "Port et redémarrage",
+    "cardDescription": "Le port sur lequel ce panneau écoute, et le redémarrage du panneau pour l’appliquer.",
     "portLabel": "Port du panneau",
     "portHelp": "Port utilisé pour accéder au panneau (par défaut : 3001).",
     "restartRequiredTitle": "Redémarrage requis",
@@ -346,7 +346,7 @@
     "reverseProxyTitle": "Note sur le proxy inverse",
     "reverseProxyDesc": "Si le TLS est terminé par Nginx, Caddy, ou Cloudflare Tunnel, laissez HTTPS désactivé sur le panneau et redirigez en HTTP local.",
     "restartRequiredTitle": "Redémarrage requis",
-    "restartRequiredDesc": "Les changements HTTPS nécessitent un redémarrage. Enregistrez d'abord, puis redémarrez depuis les Paramètres du panneau.",
+    "restartRequiredDesc": "Les changements HTTPS nécessitent un redémarrage. Enregistrez d’abord, puis redémarrez depuis Paramètres › Général.",
     "certPathPlaceholder": "Path to the certificate PEM file",
     "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
@@ -393,6 +393,7 @@
     "sectionRemoteConfigLogs": "Configuration et journaux distants",
     "sectionInstallUpdates": "Installation et mises à jour",
     "howItWorksButton": "Comment ça marche",
+    "openInDiagnostics": "Ouvrir dans Diagnostic",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod Lua qui s'exécute dans Project Zomboid, donnant à ce panneau un accès direct au monde du jeu en direct.",
     "unlocksTitle": "Ce que ça débloque",
@@ -611,6 +612,9 @@
     "backupsPathLabel": "Sauvegardes :",
     "characterExportsCardTitle": "Exports de personnages",
     "characterExportsCardDesc": "Copies de personnages par joueur, enregistrées séparément des sauvegardes du monde.",
+    "worldBackupsLinkTitle": "Sauvegardes du monde",
+    "worldBackupsLinkDesc": "Les sauvegardes automatiques, leur planning, le nombre conservé, les restaurations et les téléchargements sont tous sur la page Sauvegardes du monde.",
+    "openWorldBackups": "Ouvrir Sauvegardes du monde",
     "autoExportLabel": "Exporter un personnage à la connexion d'un joueur",
     "autoExportDesc": "S'exécute environ dix secondes après le chargement du joueur, afin qu'un personnage puisse être restauré sans revenir en arrière sur tout le monde. Nécessite PanelBridge connecté.",
     "copiesKeptLabel": "Copies conservées par joueur",
@@ -704,6 +708,7 @@
       "label": "Tâches planifiées",
       "detail": "Redémarrages, annonces et commandes récurrentes."
     },
+    "elsewhereBackups": { "label": "Sauvegardes du monde", "detail": "Planning des sauvegardes, nombre conservé, restaurations et téléchargements." },
     "elsewhereServerConfig": {
       "label": "Configuration du serveur de jeu",
       "detail": "Options INI du serveur et règles sandbox."

@@ -80,7 +80,7 @@
     "backups": {
       "label": "备份",
       "tip": "世界备份计划及角色导出",
-      "description": "自动世界备份及按角色导出的副本。"
+      "description": "导出角色的副本。世界备份及其计划在「世界备份」页面。"
     },
     "about": {
       "label": "关于",
@@ -98,7 +98,7 @@
       "description": "每个角色授予哪些权限，以及哪些面板账户拥有它们。"
     },
     "sso": {
-      "label": "登录",
+      "label": "单点登录",
       "tip": "单点登录（OIDC）提供商",
       "description": "允许面板账户通过外部身份提供商登录。"
     }
@@ -141,8 +141,8 @@
     "ymd": "年-月-日（{{example}}）"
   },
   "general": {
-    "cardTitle": "面板设置",
-    "cardDescription": "本面板监听的端口，以及外观样式。",
+    "cardTitle": "端口与重启",
+    "cardDescription": "本面板监听的端口，以及重启面板使其生效。",
     "portLabel": "面板端口",
     "portHelp": "用于访问面板的端口（默认：3001）。",
     "restartRequiredTitle": "需要重启",
@@ -346,7 +346,7 @@
     "reverseProxyTitle": "反向代理说明",
     "reverseProxyDesc": "若 TLS 由 Nginx、Caddy 或 Cloudflare Tunnel 终止，请保持面板 HTTPS 关闭，并代理本地 HTTP。",
     "restartRequiredTitle": "需要重启",
-    "restartRequiredDesc": "HTTPS 更改需要重启才能生效。请先保存，然后在「面板设置」中重启。",
+    "restartRequiredDesc": "HTTPS 更改需要重启才能生效。请先保存，然后在「设置 › 常规」中重启。",
     "certPathPlaceholder": "Path to the certificate PEM file",
     "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
@@ -393,6 +393,7 @@
     "sectionRemoteConfigLogs": "远程配置与日志",
     "sectionInstallUpdates": "安装与更新",
     "howItWorksButton": "工作原理",
+    "openInDiagnostics": "在诊断中打开",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "一个运行于 Project Zomboid 内部的 Lua 模组，让本面板可直接访问实时游戏世界。",
     "unlocksTitle": "可解锁的功能",
@@ -611,6 +612,9 @@
     "backupsPathLabel": "备份：",
     "characterExportsCardTitle": "角色导出",
     "characterExportsCardDesc": "按玩家保存的角色副本，与世界备份分开存储。",
+    "worldBackupsLinkTitle": "世界备份",
+    "worldBackupsLinkDesc": "自动备份、备份计划、保留数量、恢复和下载都在「世界备份」页面。",
+    "openWorldBackups": "打开世界备份",
     "autoExportLabel": "玩家加入时导出角色",
     "autoExportDesc": "在玩家加载后约十秒运行，因此可在不回滚世界的情况下还原单个角色。需要 PanelBridge 处于已连接状态。",
     "copiesKeptLabel": "每位玩家保留的副本数",
@@ -703,6 +707,7 @@
       "label": "计划任务",
       "detail": "重启、公告，以及周期性命令。"
     },
+    "elsewhereBackups": { "label": "世界备份", "detail": "备份计划、保留数量、恢复和下载。" },
     "elsewhereServerConfig": {
       "label": "游戏服务器配置",
       "detail": "服务器 INI 选项与沙盒规则。"
