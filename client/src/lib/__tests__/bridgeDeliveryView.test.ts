@@ -254,6 +254,24 @@ describe('resolveStateActions: lifecycle and option-card de-duplication only, no
     expect(resolveStateActions(makeLocalStatus({ state: 'local-update-pending' }))).toEqual(['updateNow'])
     expect(resolveStateActions(makeLocalStatus({ state: 'local-not-installed' }))).toEqual(['installNow'])
   })
+
+  // The panel never downgrades a copy newer than its own (installBridge()),
+  // so this state offers no "Update now" and names the panel's version.
+  it('local-newer offers no update and says the copy is newer than the bundled version', () => {
+    const status = makeLocalStatus({ state: 'local-newer' })
+    expect(resolveStateActions(status)).toEqual([])
+    expect(resolveStateCopy(status)).toEqual({
+      titleKey: 'state.local-newer.title',
+      bodyKey: 'state.local-newer.body',
+      params: { version: '1.7.70' },
+    })
+    expect(i18n.t('state.local-newer.body', { ns: 'bridgeDelivery', lng: 'en', version: '1.7.70' })).toContain('newer PanelBridge than the v1.7.70')
+    expect(resolveStateCopy(makeLocalStatus({ state: 'local-newer', bundledVersion: null }))).toEqual({
+      titleKey: 'state.local-newer.title',
+      bodyKey: 'state.local-newer.bodyNoVersion',
+      params: {},
+    })
+  })
 })
 
 describe('local-ok copy and version: only what the state was decided on', () => {

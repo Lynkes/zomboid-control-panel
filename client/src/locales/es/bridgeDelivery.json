@@ -81,6 +81,11 @@
       "title": "Actualización pendiente",
       "body": "La carpeta del juego tiene un PanelBridge más antiguo que el de este panel. Actualízalo ahora o deja que el próximo inicio lo copie (solo si «Mantener actualizado PanelBridge instalado por el panel» está activado)."
     },
+    "local-newer": {
+      "title": "Más reciente que la del panel",
+      "body": "La carpeta del juego tiene un PanelBridge más reciente que la v{{version}} que incluye este panel. El panel lo deja como está; actualiza el panel para que coincidan.",
+      "bodyNoVersion": "La carpeta del juego tiene un PanelBridge más reciente que el que incluye este panel. El panel lo deja como está; actualiza el panel para que coincidan."
+    },
     "local-not-installed": {
       "title": "No instalado",
       "body": "PanelBridge aún no está instalado en esta carpeta del juego."

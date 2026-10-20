@@ -81,6 +81,11 @@
       "title": "Update waiting",
       "body": "The game folder has an older PanelBridge than this panel's. Update it now, or let the next start copy it in (only while “Keep the panel-installed PanelBridge up to date” is on)."
     },
+    "local-newer": {
+      "title": "Newer than this panel's",
+      "body": "The game folder has a newer PanelBridge than the v{{version}} this panel ships. The panel leaves it as it is; update the panel so the two match.",
+      "bodyNoVersion": "The game folder has a newer PanelBridge than the one this panel ships. The panel leaves it as it is; update the panel so the two match."
+    },
     "local-not-installed": {
       "title": "Not installed",
       "body": "PanelBridge isn't installed in this game folder yet."

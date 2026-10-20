@@ -129,6 +129,34 @@ describe('checkBridgeInstalled', () => {
     expect(status.installed).toBe(true);
     expect(status.needsUpdate).toBe(true);
   });
+
+  // installBridge() refuses to downgrade a newer copy (see "does not
+  // downgrade a newer installed bridge"), so flagging it as needing an
+  // update offered an "Update now" that never did anything.
+  it('does not flag an update for an installed copy newer than the bundled one', () => {
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'PanelBridge.lua'), 'local VERSION = "99.0.0"\n');
+
+    const status = checkBridgeInstalled(localServer());
+    expect(status).toMatchObject({
+      installed: true,
+      version: '99.0.0',
+      bundledVersion: getBundledBridgeVersion(),
+      needsUpdate: false,
+      newerThanBundled: true,
+    });
+  });
+
+  it('reports newerThanBundled false for an older or matching copy', () => {
+    const targetDir = path.join(tmpDir, 'media', 'lua', 'server');
+    fs.mkdirSync(targetDir, { recursive: true });
+    fs.writeFileSync(path.join(targetDir, 'PanelBridge.lua'), 'local VERSION = "0.0.1"\n');
+    expect(checkBridgeInstalled(localServer())).toMatchObject({ needsUpdate: true, newerThanBundled: false });
+
+    installBridge(localServer());
+    expect(checkBridgeInstalled(localServer())).toMatchObject({ needsUpdate: false, newerThanBundled: false });
+  });
 });
 
 describe('installBridge', () => {
@@ -162,7 +190,7 @@ describe('installBridge', () => {
 
     const status = checkBridgeInstalled(localServer());
     expect(status).toMatchObject({ installed: true, needsUpdate: false });
-    expect(Object.keys(status).sort()).toEqual(['installed', 'needsUpdate', 'sourcePath', 'targetPath', 'version']);
+    expect(Object.keys(status).sort()).toEqual(['bundledVersion', 'installed', 'needsUpdate', 'newerThanBundled', 'sourcePath', 'targetPath', 'version']);
   });
 
   it('creates the media/lua/server directory tree if missing', () => {

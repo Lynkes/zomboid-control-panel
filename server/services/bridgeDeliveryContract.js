@@ -5,7 +5,7 @@
 export const DELIVERY_METHODS = Object.freeze(["local", "workshop"]);
 export const DELIVERY_STATES = Object.freeze([
   "local-ok", "local-update-pending", "local-not-installed", "local-unverified", "local-workshop-loaded",
-  "workshop-restart-needed", "workshop-waiting", "workshop-confirmed", "workshop-not-loaded",
+  "local-newer", "workshop-restart-needed", "workshop-waiting", "workshop-confirmed", "workshop-not-loaded",
   "workshop-stopped", "workshop-start-failed", "workshop-id-unknown",
 ]);
 export const DELIVERY_BLOCK_REASONS = Object.freeze([

@@ -81,6 +81,11 @@
       "title": "等待更新",
       "body": "游戏文件夹中的 PanelBridge 比此面板自带的版本旧。请立即更新，或让下次启动时复制新版本（仅当「保持由面板安装的 PanelBridge 为最新版本」已启用时）。"
     },
+    "local-newer": {
+      "title": "比此面板的版本新",
+      "body": "游戏文件夹中的 PanelBridge 比此面板自带的 v{{version}} 新。面板不会改动它；请更新面板，使两者一致。",
+      "bodyNoVersion": "游戏文件夹中的 PanelBridge 比此面板自带的版本新。面板不会改动它；请更新面板，使两者一致。"
+    },
     "local-not-installed": {
       "title": "未安装",
       "body": "此游戏文件夹中尚未安装 PanelBridge。"

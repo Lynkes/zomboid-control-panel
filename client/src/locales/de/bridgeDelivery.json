@@ -81,6 +81,11 @@
       "title": "Update ausstehend",
       "body": "Im Spielordner liegt ein älteres PanelBridge als das dieses Panels. Aktualisiere es jetzt oder lass es beim nächsten Start hineinkopieren (nur solange „Vom Panel installiertes PanelBridge aktuell halten“ an ist)."
     },
+    "local-newer": {
+      "title": "Neuer als die des Panels",
+      "body": "Im Spielordner liegt ein neueres PanelBridge als das v{{version}} dieses Panels. Das Panel lässt es unverändert; aktualisiere das Panel, damit beide zusammenpassen.",
+      "bodyNoVersion": "Im Spielordner liegt ein neueres PanelBridge als das dieses Panels. Das Panel lässt es unverändert; aktualisiere das Panel, damit beide zusammenpassen."
+    },
     "local-not-installed": {
       "title": "Nicht installiert",
       "body": "PanelBridge ist in diesem Spielordner noch nicht installiert."
