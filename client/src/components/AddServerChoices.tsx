@@ -1,56 +1,14 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { ChevronRight, Download, FolderOpen, Globe, type LucideIcon } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { DisabledReason } from '@/components/DisabledReason'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { useAddServerChoices, type AddServerChoice } from '@/lib/addServerChoices'
 import { cn } from '@/lib/utils'
 
-// The one way to say "add a server", shared by the Dashboard's first-run
-// block, the Servers header menu and empty state, and the Add a Server
-// page's mode choice. Same three labels everywhere (DESIGN.md naming rule).
-
-export type AddServerChoice = 'fresh' | 'existing' | 'remote'
-
-export const ADD_SERVER_CHOICES: readonly AddServerChoice[] = ['fresh', 'existing', 'remote']
-
-/**
- * Where each choice goes when the caller has no handler of its own. The
- * Servers page reads `?add=existing|remote` and opens its dialog; the Add a
- * Server page reads `?mode=fresh|existing`.
- */
-export const ADD_SERVER_LINKS: Record<AddServerChoice, string> = {
-  fresh: '/server-setup?mode=fresh',
-  existing: '/servers?add=existing',
-  remote: '/servers?add=remote',
-}
-
-export const ADD_SERVER_ICONS: Record<AddServerChoice, LucideIcon> = {
-  fresh: Download,
-  existing: FolderOpen,
-  remote: Globe,
-}
-
-export interface AddServerChoiceMeta {
-  id: AddServerChoice
-  label: string
-  description: string
-  icon: LucideIcon
-  to: string
-}
-
-/** Labels, descriptions, icons and default links, for menus that list the choices. */
-// eslint-disable-next-line react-refresh/only-export-components -- the menu variant (Servers header) needs the same labels
-export function useAddServerChoices(): AddServerChoiceMeta[] {
-  const { t } = useTranslation('servers')
-  return ADD_SERVER_CHOICES.map((id) => ({
-    id,
-    label: t(`addServer.${id}.label`),
-    description: t(`addServer.${id}.description`),
-    icon: ADD_SERVER_ICONS[id],
-    to: ADD_SERVER_LINKS[id],
-  }))
-}
+// The list of the three ways to add a server (lib/addServerChoices.ts holds
+// the choices, their words and their default links).
 
 export interface AddServerChoicesProps {
   /** A handler replaces the default link for that choice (the Servers page opens its dialog in place). */

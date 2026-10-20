@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { AddServerChoices, ADD_SERVER_LINKS } from '../AddServerChoices'
+import { AddServerChoices } from '../AddServerChoices'
+import { ADD_SERVER_LINKS } from '@/lib/addServerChoices'
 
 // One way to say "add a server" (UX plan §2.2): the Dashboard, the Servers
 // header and empty state and the Add a Server page all list the same three
