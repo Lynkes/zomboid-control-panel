@@ -41,7 +41,8 @@
     "allVersions": "所有版本",
     "sortName": "名称",
     "sortPlayers": "玩家数",
-    "sortPing": "延迟"
+    "sortPing": "延迟",
+    "sortMaxPlayers": "最大玩家数"
   },
   "error": {
     "title": "无法加载公共服务器",

@@ -376,6 +376,8 @@ export const ROUTES: RouteMeta[] = [
     labelKey: 'shell:nav.items.browsePublic',
     titleKey: 'serverFinder:pageHeader.title',
     icon: Search,
+    // Every /api/server-finder route needs server.install.
+    capability: 'server.install',
     inSidebar: true,
     loader: { variant: 'list', descriptionKey: 'serverFinder:pageHeader.description' },
     load: () => import('../pages/ServerFinder'),

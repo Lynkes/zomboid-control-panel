@@ -62,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Public Servers needs install permission:** roles without "Install servers" no longer see a Public Servers entry that only opened a permission error.
 - **Server Configuration raw editor after a server switch:** the raw editor now reloads the file after a server switch, Refresh or restore, so saving no longer writes the previous server's text over the new server's file.
 - **Mod Settings after a server switch:** the tab now loads the new server's mod options instead of listing the previous server's.
 - **Sandbox Save keeps Mod Settings edits:** saving the Sandbox tab now writes only the values you changed, so it no longer undoes a Mod Settings change made earlier in the same visit.

@@ -45,7 +45,8 @@
     "allVersions": "Усі версії",
     "sortName": "Назвою",
     "sortPlayers": "Гравцями",
-    "sortPing": "Пінгом"
+    "sortPing": "Пінгом",
+    "sortMaxPlayers": "Максимумом гравців"
   },
   "error": {
     "title": "Не вдається завантажити публічні сервери",
