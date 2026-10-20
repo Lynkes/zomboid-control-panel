@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "تم رفض الحذف: مجلد بيانات Zomboid لهذا الخادم موجود داخل المجلد الذي توشك على حذفه، فسيؤدي ذلك أيضًا إلى تدمير حفظ العالم. انقل مسار البيانات خارج مجلد التثبيت من الإعدادات، أو خذ نسخة احتياطية منه بنفسك أولًا.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "لا يطابق هذا المسار أي خادم مسجَّل لدى اللوحة. تم رفض الحذف حفاظًا على السلامة.",
   "DELETE_FILES_CONFIRM_REQUIRED": "يتطلب حذف هذه الملفات confirm: true",
+  "DELETE_FILES_FOLDER_SHARED": "يستخدم مجلد اللعبة هذا أيضًا: {{names}}. حذفه يزيل ملفات اللعبة الخاصة بها أيضًا. أكّد لحذفه على أي حال.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "يستخدم \"{{name}}\" مجلد اللعبة نفسه وهو قيد التشغيل. أوقفه أولًا.",
   "PATH_NOT_A_DIRECTORY": "المسار ليس دليلًا",
   "DIRECTORY_READ_FAILED": "تعذّرت قراءة {{path}} ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "تعذّرت قراءة {{path}} ({{code}}). شغّل اللوحة بحساب يستطيع قراءة هذا المجلد.",

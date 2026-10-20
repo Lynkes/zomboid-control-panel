@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "Löschung verweigert: Der Zomboid-Datenordner dieses Servers liegt innerhalb des Ordners, den du löschen möchtest, wodurch auch der Welt-Spielstand zerstört würde. Verschiebe den Datenpfad in den Einstellungen außerhalb des Installationsordners oder sichere ihn zuerst selbst.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "Dieser Pfad entspricht keinem im Panel hinterlegten Server. Löschung wird aus Sicherheitsgründen verweigert.",
   "DELETE_FILES_CONFIRM_REQUIRED": "Für das Löschen dieser Dateien ist confirm: true erforderlich",
+  "DELETE_FILES_FOLDER_SHARED": "Diesen Spielordner nutzen auch: {{names}}. Beim Löschen verschwinden auch ihre Spieldateien. Bestätige, um ihn trotzdem zu löschen.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "„{{name}}“ nutzt denselben Spielordner und läuft gerade. Stoppe ihn zuerst.",
   "PATH_NOT_A_DIRECTORY": "Pfad ist kein Ordner",
   "DIRECTORY_READ_FAILED": "{{path}} kann nicht gelesen werden ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "{{path}} kann nicht gelesen werden ({{code}}). Führe das Panel unter einem Konto aus, das diesen Ordner lesen kann.",

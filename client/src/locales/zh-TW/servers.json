@@ -317,6 +317,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "其他伺服器也在使用此遊戲資料夾",
+    "desc": "也在使用此遊戲資料夾：{{names}}。刪除它也會刪除它們的遊戲檔案；在重新安裝遊戲之前，它們將無法啟動。"
+  },
   "clearInstallDialog": {
     "title": "清除安裝資料夾？",
     "descriptionBefore": "這將永久刪除以下路徑中的全部內容：",

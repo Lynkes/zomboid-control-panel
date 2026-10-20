@@ -116,6 +116,9 @@ import {
   suggestFreePorts,
   suggestHostServersRoot,
 } from "../services/serverPortPlan.js";
+import { installDirKey } from "../services/bridgeDisk.js";
+import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 
 const router = express.Router();
 
@@ -3733,12 +3736,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // route had no guard at all. See resolveTargetServerForRunningCheck's
     // own comment for why Convention A (the shared serverManager singleton)
     // would answer the wrong question here.
-    const installTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      { serverName, zomboidDataPath },
-    );
-    const installNotStoppedError = await checkSpecificServerStopped(
+    // Every profile using this game folder, not only the first one found.
+    const { target: installTargetServer, sharing: installSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, { serverName, zomboidDataPath });
+    const installNotStoppedError = await checkGameFolderServersStopped(
       installTargetServer,
+      installSharingServers,
       "installing to this path",
     );
     if (installNotStoppedError) {
@@ -3753,8 +3756,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // SERVER. Not a global block (SteamCMD must not take the lock itself --
     // see lifecycleCoordinator.js's own comment on isLifecycleLockedForServer
     // for why) -- refuses only when the held lock names installTargetServer's
-    // own id, same as every other lock-aware refusal in this file.
-    if (isLifecycleLockedForServer(installTargetServer.id)) {
+    // own id (or another profile using the same folder), same as every other
+    // lock-aware refusal in this file.
+    if (
+      isLifecycleLockedForServer(installTargetServer.id) ||
+      installSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -4605,12 +4612,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // why the shared serverManager singleton (Convention A) would answer
     // the wrong question for a route whose target is an arbitrary
     // caller-supplied path, not necessarily the active server.
-    const quickSetupTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      { serverName, zomboidDataPath },
-    );
-    const quickSetupNotStoppedError = await checkSpecificServerStopped(
+    const { target: quickSetupTargetServer, sharing: quickSetupSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, { serverName, zomboidDataPath });
+    const quickSetupNotStoppedError = await checkGameFolderServersStopped(
       quickSetupTargetServer,
+      quickSetupSharingServers,
       "running quick setup on this path",
     );
     if (quickSetupNotStoppedError) {
@@ -4622,7 +4628,10 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // steamcmd-ops-never-check-the-lifecycle-lock, 2026-09-09: see /install
     // above for the full reasoning -- same-server refusal only, no global
     // block.
-    if (isLifecycleLockedForServer(quickSetupTargetServer.id)) {
+    if (
+      isLifecycleLockedForServer(quickSetupTargetServer.id) ||
+      quickSetupSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -5270,12 +5279,11 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // 8f04b051, except here the wrong answer was a false GREEN LIGHT, not
     // just a missing check. See resolveTargetServerForRunningCheck's own
     // comment for the fix.
-    const steamUpdateTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      {},
-    );
-    const steamUpdateNotStoppedError = await checkSpecificServerStopped(
+    const { target: steamUpdateTargetServer, sharing: steamUpdateSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, {});
+    const steamUpdateNotStoppedError = await checkGameFolderServersStopped(
       steamUpdateTargetServer,
+      steamUpdateSharingServers,
       "updating it",
     );
     if (steamUpdateNotStoppedError) {
@@ -5287,7 +5295,10 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // steamcmd-ops-never-check-the-lifecycle-lock, 2026-09-09: see /install
     // above for the full reasoning -- same-server refusal only, no global
     // block.
-    if (isLifecycleLockedForServer(steamUpdateTargetServer.id)) {
+    if (
+      isLifecycleLockedForServer(steamUpdateTargetServer.id) ||
+      steamUpdateSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -6119,18 +6130,70 @@ export async function checkSpecificServerStopped(targetServer, actionLabel) {
 // descriptor built from the request's own fields only when genuinely no
 // configured server matches -- a brand-new install this panel has never
 // registered, exactly the state /install's own first-time-setup case is in.
+//
+// Shared game folders: Quick Setup reuses the active server's install folder
+// on purpose, so SEVERAL profiles can use one folder. Returns the target
+// (the exact-path match, else any profile using the folder, else the
+// synthetic descriptor) and every profile using the folder; callers check
+// all of them with checkGameFolderServersStopped(). Checking only the first
+// profile with that path let a stopped profile's Delete files / Clear
+// install folder / Update wipe or patch the files of a running one.
 async function resolveTargetServerForRunningCheck(installPath, fallback = {}) {
   const resolvedPath = path.resolve(installPath);
-  const configuredServers = await getServers();
-  const matchedServer = configuredServers.find(
-    (s) => s.installPath && path.resolve(s.installPath) === resolvedPath,
-  );
-  if (matchedServer) return matchedServer;
-  return {
+  const sharing = await serversUsingGameFolder(installPath);
+  const matchedServer =
+    sharing.find((s) => s.installPath && path.resolve(s.installPath) === resolvedPath) ||
+    sharing[0];
+  const target = matchedServer || {
     serverName: fallback.serverName,
     zomboidDataPath: fallback.zomboidDataPath,
     installPath,
   };
+  return { target, sharing };
+}
+
+// Every local profile whose game folder is `installPath`: the same real
+// folder however it is spelled (case on Windows, a trailing separator, a
+// junction or symlink -- installDirKey()), with a launcher-file installPath
+// standing for its folder (resolveInstallDir()). A remote (SFTP) profile's
+// path names a folder on another host and never shares this one.
+async function serversUsingGameFolder(installPath) {
+  const key = installDirKey(installPath);
+  if (!key) return [];
+  const configuredServers = (await getServers()) || [];
+  return configuredServers.filter((server) => {
+    if (!server || isUnmanagedRemoteServer(server)) return false;
+    const folders = [
+      resolveInstallDir(server),
+      resolveInstallDir({ installPath: server.installPath }),
+    ];
+    return folders.some((folder) => folder && installDirKey(folder) === key);
+  });
+}
+
+// checkSpecificServerStopped() for every profile using one game folder,
+// the target first (its own refusal keeps its wording). Another profile
+// found running is named with its own code, so the operator knows which
+// server to stop: the one they acted on may well be stopped.
+async function checkGameFolderServersStopped(target, sharing, actionLabel) {
+  const others = sharing.filter((server) => server !== target);
+  for (const server of [target, ...others]) {
+    const notStoppedError = await checkSpecificServerStopped(server, actionLabel);
+    if (!notStoppedError) continue;
+    if (server !== target && notStoppedError.body?.code === ErrorCode.WIPE_SERVER_RUNNING) {
+      const name = String(server.name || server.serverName || "another server");
+      return {
+        status: 409,
+        body: {
+          error: `"${name}" uses the same game folder and is running. Stop it before ${actionLabel}.`,
+          code: ErrorCode.INSTALL_FOLDER_SHARED_SERVER_RUNNING,
+          params: { name },
+        },
+      };
+    }
+    return notStoppedError;
+  }
+  return null;
 }
 
 // Delete server files (used when removing a server from panel with file deletion)
@@ -6167,7 +6230,7 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     return res.status(409).json(lifecycleInProgressResponse());
   }
   try {
-    const { path: deletePath, confirm } = req.body || {};
+    const { path: deletePath, confirm, confirmShared } = req.body || {};
     if (confirm !== true) {
       return res.status(400).json({
         error: "Deleting these files requires confirm: true",
@@ -6283,6 +6346,40 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
       }
     }
 
+    // Other profiles using this same game folder (Quick Setup reuses the
+    // active server's install on purpose). This route used to look at the
+    // first profile with the path only, so deleting a stopped profile's
+    // files wiped a running one that shares them. Their world saves get the
+    // same nesting refusal as the target's; the folder itself goes only
+    // when the caller confirmed it knows the others lose their game files
+    // too (the client lists them before sending confirmShared), and only
+    // once every one of them is stopped (below).
+    const otherServersUsingFolder = (await serversUsingGameFolder(deletePath)).filter(
+      (server) => String(server.id) !== String(targetServer.id),
+    );
+    for (const server of otherServersUsingFolder) {
+      if (server.zomboidDataPath && confineToRoots(server.zomboidDataPath, [resolvedDeletePath])) {
+        return res.status(400).json({
+          error: `Refusing to delete: the Zomboid data folder of "${server.name || server.serverName}" (${server.zomboidDataPath}), which uses the same game folder, is inside the folder you're about to delete, so this would also permanently destroy its world save.`,
+          code: ErrorCode.DELETE_FILES_DATA_PATH_NESTED,
+        });
+      }
+    }
+    if (otherServersUsingFolder.length > 0 && confirmShared !== true) {
+      const names = otherServersUsingFolder
+        .map((server) => String(server.name || server.serverName || server.id))
+        .join(", ");
+      return res.status(409).json({
+        error: `This game folder is also used by ${names}. Deleting it removes their game files too. Confirm to delete it anyway.`,
+        code: ErrorCode.DELETE_FILES_FOLDER_SHARED,
+        params: { names },
+        sharedWith: otherServersUsingFolder.map((server) => ({
+          id: server.id,
+          name: server.name || server.serverName || null,
+        })),
+      });
+    }
+
     // Confirmed-stopped check, positioned immediately before the
     // irreversible delete (2026-08-26 bug hunt round 2, Pam's finding 2:
     // narrows the check-then-act TOCTOU window as far as it can go without
@@ -6293,9 +6390,11 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     // server-identity question this route needs answered at all) and once
     // here. The first copy is gone -- it was answering the wrong question,
     // not just answering it from a stale source -- leaving this single,
-    // correctly-targeted check right before the delete it guards.
-    const notStoppedError = await checkSpecificServerStopped(
+    // correctly-targeted check right before the delete it guards. Every
+    // profile using the folder must be stopped, not only targetServer.
+    const notStoppedError = await checkGameFolderServersStopped(
       targetServer,
+      [targetServer, ...otherServersUsingFolder],
       "deleting its files",
     );
     if (notStoppedError) {

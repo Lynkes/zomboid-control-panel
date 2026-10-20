@@ -472,6 +472,160 @@ describe("POST /api/server/delete-files safety guards", () => {
     });
   });
 
+  // Quick Setup reuses the active server's install folder on purpose, so two
+  // profiles can share one game folder. This route used to check only the
+  // first profile with the path: with A stopped and B (same folder) running,
+  // "Delete files" on A passed and rmSync wiped B's game files.
+  describe("another profile uses the same game folder", () => {
+    const runningB = () => ({
+      scanFailed: false,
+      matched: [
+        {
+          pid: 222,
+          cmd: `java zombie.network.GameServer -servername "ServerB" -cachedir="${installDir}_B"`,
+        },
+      ],
+    });
+
+    it("refuses with a named 409 while that other profile is running, even with confirmShared", async () => {
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Bravo", installPath: installDir, serverName: "ServerB" },
+      ]);
+      scanHostForServerProcesses.mockResolvedValue(runningB());
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true, confirmShared: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "INSTALL_FOLDER_SHARED_SERVER_RUNNING",
+          params: { name: "Bravo" },
+        }),
+      );
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    // Adversary pass: the other profile reaches the same folder by another
+    // spelling -- a trailing separator, other letter case (Windows), or a
+    // launcher file inside it.
+    it.each([
+      ["a trailing separator", () => `${installDir}${path.sep}`],
+      ["a launcher file inside the folder", () => path.join(installDir, "StartServer64.bat")],
+      ...(process.platform === "win32" ? [["other letter case", () => installDir.toUpperCase()]] : []),
+    ])("still finds a running profile whose path is written with %s", async (_label, spelling) => {
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Bravo", installPath: spelling(), serverName: "ServerB" },
+      ]);
+      scanHostForServerProcesses.mockResolvedValue(runningB());
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true, confirmShared: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "INSTALL_FOLDER_SHARED_SERVER_RUNNING" }),
+      );
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    it("still finds a running profile that reaches the folder through a junction/symlink", async () => {
+      const link = `${installDir}-link`;
+      fs.symlinkSync(installDir, link, "junction");
+      try {
+        getServers.mockResolvedValue([
+          { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+          { id: 2, name: "Bravo", installPath: link, serverName: "ServerB" },
+        ]);
+        scanHostForServerProcesses.mockResolvedValue(runningB());
+
+        const response = createResponse();
+        await getDeleteFilesHandler()(buildRequest({ confirm: true, confirmShared: true }), response);
+
+        expect(response.status).toHaveBeenCalledWith(409);
+        expect(response.json).toHaveBeenCalledWith(
+          expect.objectContaining({ code: "INSTALL_FOLDER_SHARED_SERVER_RUNNING" }),
+        );
+        expect(fs.existsSync(installDir)).toBe(true);
+      } finally {
+        // The link only, never what it points at.
+        try {
+          fs.unlinkSync(link);
+        } catch {
+          fs.rmdirSync(link);
+        }
+      }
+    });
+
+    it("asks for confirmShared, naming the other profiles, when they are stopped", async () => {
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Bravo", installPath: installDir, serverName: "ServerB" },
+      ]);
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: "DELETE_FILES_FOLDER_SHARED",
+          params: { names: "Bravo" },
+          sharedWith: [{ id: 2, name: "Bravo" }],
+        }),
+      );
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    it("deletes with confirmShared once every profile using the folder is stopped", async () => {
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Bravo", installPath: installDir, serverName: "ServerB" },
+      ]);
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true, confirmShared: true }), response);
+
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+      expect(fs.existsSync(installDir)).toBe(false);
+      // One scan per profile using the folder.
+      expect(scanHostForServerProcesses).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses when the other profile's world save is inside the folder, even with confirmShared", async () => {
+      const dataDir = path.join(installDir, "Zomboid");
+      fs.mkdirSync(dataDir, { recursive: true });
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Bravo", installPath: installDir, serverName: "ServerB", zomboidDataPath: dataDir },
+      ]);
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true, confirmShared: true }), response);
+
+      expect(response.status).toHaveBeenCalledWith(400);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "DELETE_FILES_DATA_PATH_NESTED" }),
+      );
+      expect(fs.existsSync(installDir)).toBe(true);
+    });
+
+    it("does not count a remote (SFTP) profile whose path happens to be the same", async () => {
+      getServers.mockResolvedValue([
+        { id: 1, name: "Alpha", installPath: installDir, serverName: "ServerA" },
+        { id: 2, name: "Remote", installPath: installDir, serverName: "ServerB", isRemote: true },
+      ]);
+
+      const response = createResponse();
+      await getDeleteFilesHandler()(buildRequest({ confirm: true }), response);
+
+      expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+      expect(fs.existsSync(installDir)).toBe(false);
+    });
+  });
+
   // steamcmd-routes-running-check card, second finding: this route did a
   // recursive rmSync directly on installPath with no check for an
   // in-progress SteamCMD operation at all -- unconditional, unlike /wipe's

@@ -4323,8 +4323,15 @@ export const serversDetectApi = {
   // same shape as serverApi.wipe below: every caller of this function is
   // already behind its own confirmation dialog before it's ever invoked, so
   // there's no real call site where the confirmation isn't already implied.
-  deleteFiles: (path: string): Promise<unknown> =>
-    apiPost("/server/delete-files", { path, confirm: true }),
+  // confirmShared: the dialog listed the other profiles that use the same
+  // game folder (the server refuses with DELETE_FILES_FOLDER_SHARED without
+  // it when there are any).
+  deleteFiles: (path: string, options?: { confirmShared?: boolean }): Promise<unknown> =>
+    apiPost("/server/delete-files", {
+      path,
+      confirm: true,
+      ...(options?.confirmShared ? { confirmShared: true } : {}),
+    }),
 };
 
 // Update Checker API

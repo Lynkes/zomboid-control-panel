@@ -318,6 +318,10 @@
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
   },
+  "sharedInstallWarning": {
+    "title": "Otros servidores usan esta carpeta del juego",
+    "desc": "También usan esta carpeta del juego: {{names}}. Eliminarla borra también sus archivos del juego; no arrancarán hasta que se vuelva a instalar el juego."
+  },
   "clearInstallDialog": {
     "title": "¿Vaciar carpeta de instalación?",
     "descriptionBefore": "Esto elimina permanentemente todo en",

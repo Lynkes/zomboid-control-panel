@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "Suppression refusée : le dossier de données Zomboid de ce serveur se trouve à l'intérieur du dossier que vous êtes sur le point de supprimer, ce qui détruirait aussi la sauvegarde du monde. Déplacez le chemin des données hors du dossier d'installation dans Paramètres, ou sauvegardez-le vous-même au préalable.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "Ce chemin ne correspond à aucun serveur enregistré dans le panneau. Suppression refusée par sécurité.",
   "DELETE_FILES_CONFIRM_REQUIRED": "La suppression de ces fichiers nécessite confirm : true",
+  "DELETE_FILES_FOLDER_SHARED": "Utilisent aussi ce dossier de jeu : {{names}}. Le supprimer efface aussi leurs fichiers de jeu. Confirmez pour le supprimer quand même.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "« {{name}} » utilise le même dossier de jeu et est en cours d'exécution. Arrêtez-le d'abord.",
   "PATH_NOT_A_DIRECTORY": "Le chemin n'est pas un dossier",
   "DIRECTORY_READ_FAILED": "Impossible de lire {{path}} ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "Impossible de lire {{path}} ({{code}}). Exécutez le panneau avec un compte pouvant lire ce dossier.",

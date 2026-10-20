@@ -206,6 +206,8 @@
   "DELETE_FILES_DATA_PATH_NESTED": "Refusing to delete: this server's Zomboid data folder is inside the folder you're about to delete, so this would also destroy the world save. Move the data path outside the install folder in Settings, or back it up yourself first.",
   "DELETE_FILES_NOT_CONFIGURED_SERVER": "This path doesn't match a server the panel has on record. Refusing to delete for safety.",
   "DELETE_FILES_CONFIRM_REQUIRED": "Deleting these files requires confirm: true",
+  "DELETE_FILES_FOLDER_SHARED": "Also using this game folder: {{names}}. Deleting it removes their game files too. Confirm to delete it anyway.",
+  "INSTALL_FOLDER_SHARED_SERVER_RUNNING": "\"{{name}}\" uses the same game folder and is running. Stop it first.",
   "PATH_NOT_A_DIRECTORY": "Path is not a directory",
   "DIRECTORY_READ_FAILED": "Cannot read {{path}} ({{code}}). {{guidance}}",
   "DIRECTORY_READ_FAILED_WINDOWS": "Cannot read {{path}} ({{code}}). Run the panel as an account that can read this folder.",

@@ -1388,7 +1388,10 @@ export default function Servers() {
       // legitimately lower bar than servers.manage already grants.
       if (deleteFiles && deleteServer.installPath && canServerWipe) {
         try {
-          const result = await serversDetectApi.deleteFiles(deleteServer.installPath) as { error?: string }
+          // The dialog listed any other profile using this game folder.
+          const result = await serversDetectApi.deleteFiles(deleteServer.installPath, {
+            confirmShared: profilesSharingInstall(deleteServer).length > 0,
+          }) as { error?: string }
           if (result?.error) {
             toast({
               title: t('toasts.fileDeletionFailedTitle'),
@@ -1666,7 +1669,10 @@ export default function Servers() {
 
     setClearingInstall(true)
     try {
-      const result = await serversDetectApi.deleteFiles(installFolder) as { error?: string }
+      // The confirmation listed any other profile using this game folder.
+      const result = await serversDetectApi.deleteFiles(installFolder, {
+        confirmShared: profilesSharingInstall(steamOperation.server).length > 0,
+      }) as { error?: string }
       if (result?.error) {
         toast({ title: t('toasts.couldNotClearFolderTitle'), description: result.error, variant: 'destructive' })
         return
@@ -1729,6 +1735,20 @@ export default function Servers() {
     }
     return installPath
   }
+
+  // Other local profiles whose game folder is this server's (Quick Setup
+  // reuses the active server's install on purpose). Deleting or clearing the
+  // folder removes their game files too, so both confirmations list them,
+  // and the server refuses while any of them runs.
+  const profilesSharingInstall = (server: ServerInstance | null | undefined): ServerInstance[] => {
+    const folder = getInstallFolder(server?.installPath)
+    if (!server || !folder) return []
+    return (servers || []).filter((other) =>
+      other.id !== server.id && !other.isRemote && samePath(getInstallFolder(other.installPath), folder),
+    )
+  }
+  const deleteSharingProfiles = profilesSharingInstall(deleteServer)
+  const clearInstallSharingProfiles = profilesSharingInstall(steamOperation?.server)
 
   const addLauncherBlocked = addMode === 'local' && !canFilesManage && isCustomLauncherPath(newServer.installPath)
 
@@ -3562,6 +3582,15 @@ export default function Servers() {
                   </div>
                 )}
 
+                {deleteFiles && deleteSharingProfiles.length > 0 && (
+                  <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+                    <p className="font-medium text-destructive">{t('sharedInstallWarning.title')}</p>
+                    <p className="text-muted-foreground">
+                      {t('sharedInstallWarning.desc', { names: deleteSharingProfiles.map((server) => server.name).join(', ') })}
+                    </p>
+                  </div>
+                )}
+
                 {!deleteFiles && !deleting && (
                   <p className="text-sm text-muted-foreground">
                     {t('deleteDialog.filesNotDeleted')}
@@ -3788,6 +3817,14 @@ export default function Servers() {
               {' '}{t('clearInstallDialog.descriptionAfter')}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {clearInstallSharingProfiles.length > 0 && (
+            <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+              <p className="font-medium text-destructive">{t('sharedInstallWarning.title')}</p>
+              <p className="text-muted-foreground">
+                {t('sharedInstallWarning.desc', { names: clearInstallSharingProfiles.map((server) => server.name).join(', ') })}
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={clearingInstall}>{t('clearInstallDialog.cancel')}</AlertDialogCancel>
             <DisabledReason reason={!canServerWipe ? t('clearInstallDialog.noPermission') : null}>

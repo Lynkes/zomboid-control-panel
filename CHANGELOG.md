@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
+- **Servers sharing a game folder:** Delete files, Clear Folder, Update and Quick Setup now refuse while any server using the same game folder runs, and deleting a shared folder lists the other servers first; before, deleting a stopped server's files could wipe a running one's.
 - **Restart during a mod download:** the server now starts again instead of staying down because a Workshop item was still downloading.
 - **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
 - **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
