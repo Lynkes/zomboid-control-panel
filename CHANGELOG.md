@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Scheduler redesign:** tasks read as plain schedules ("Every day at 06:00") with next and last run at a glance, one-click presets and Duplicate; the task dialog asks what to run first and previews the next runs instead of showing raw cron.
+
 ## [1.5.0] - 2026-10-20
 
 ### Security

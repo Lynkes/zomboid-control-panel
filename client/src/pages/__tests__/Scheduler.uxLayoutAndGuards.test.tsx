@@ -134,7 +134,9 @@ describe('Scheduler: one header in every state, tasks first', () => {
     expect(screen.queryByRole('heading', { level: 2, name: enScheduler.scheduledTasks.title })).not.toBeInTheDocument()
   })
 
-  it('orders the sections: tasks, manual restart and quick broadcasts, then history, settings and automatic backups', async () => {
+  // Scheduler redesign: the tasks and their history are the main column;
+  // act-now, backups health and settings sit beside them.
+  it('orders the sections: tasks and history, then manual restart, quick broadcasts, automatic backups and settings', async () => {
     baseMocks()
     renderScheduler()
 
@@ -142,11 +144,11 @@ describe('Scheduler: one header in every state, tasks first', () => {
     const order = screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
     expect(order).toEqual([
       enScheduler.scheduledTasks.title,
+      enScheduler.executionHistory.title,
       enScheduler.manualRestart.title,
       enScheduler.quickBroadcasts.title,
-      enScheduler.executionHistory.title,
-      enScheduler.settings.title,
       enScheduler.timezone.backupHealthTitle,
+      enScheduler.settings.title,
       enScheduler.cronHelp.title,
     ])
   })
@@ -236,6 +238,7 @@ describe('Scheduler task dialog: unsaved edits are not dropped silently', () => 
 
     fireEvent.click(await screen.findByRole('button', { name: enScheduler.pageHeader.newTask }))
     const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('radio', { name: enScheduler.taskType.restart }))
     fireEvent.change(within(dialog).getByPlaceholderText(enScheduler.dialog.taskNamePlaceholder), { target: { value: 'Half-written task' } })
 
     fireEvent.keyDown(dialog, { key: 'Escape' })
