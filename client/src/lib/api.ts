@@ -995,7 +995,7 @@ export const serverApi = {
     apiPost("/server/install", config),
 
   detectSteamCmd: () =>
-    apiGet("/server/steamcmd/detect") as Promise<{
+    apiPost("/server/steamcmd/detect") as Promise<{
       found: boolean;
       path?: string;
       executable?: string;

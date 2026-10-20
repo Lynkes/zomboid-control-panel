@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
 - **Editing the active server:** saving it no longer drops and reconnects RCON unless the RCON connection itself changed, and the reconnect warning is translated.
 - **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
+- **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
 
 ### Security
 

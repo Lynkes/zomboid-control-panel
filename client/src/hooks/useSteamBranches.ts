@@ -80,9 +80,17 @@ export function useSteamBranches<Op extends SteamBranchOperation>({
     const fetchBranches = async () => {
       let thisFetchId: number | null = null
       try {
-        const detection = await serverApi.detectSteamCmd()
+        // Detection saves the path it finds, so it is server.install's (POST
+        // /server/steamcmd/detect); for any other role -- or a failed
+        // detection -- the branches are looked up with the path as typed.
+        let detection: Awaited<ReturnType<typeof serverApi.detectSteamCmd>> | null = null
+        try {
+          detection = await serverApi.detectSteamCmd()
+        } catch {
+          detection = null
+        }
         if (cancelled) return
-        const resolvedSteamcmdPath = detection.found && detection.path ? detection.path : steamcmdPath
+        const resolvedSteamcmdPath = detection?.found && detection.path ? detection.path : steamcmdPath
         if (resolvedSteamcmdPath) {
           // Detection is asynchronous. Do not replace a path the operator
           // typed after the dialog opened but before detection completed.
