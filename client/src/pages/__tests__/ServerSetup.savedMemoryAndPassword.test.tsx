@@ -6,6 +6,7 @@ import { SocketContext } from "@/contexts/SocketContext";
 import ServerSetup, { generatePassword, savedMemoryToSliderGb } from "../ServerSetup";
 import { resetRuntimeInfoForTests } from "@/hooks/useRuntimeInfo";
 import enServerSetup from "../../locales/en/serverSetup.json";
+import enServers from "../../locales/en/servers.json";
 
 // Two things the wizard got wrong:
 //  - the memory the panel saved is in GB, but the wizard divided it by 1024, so
@@ -145,7 +146,7 @@ describe("ServerSetup -- memory step", () => {
         </SocketContext.Provider>
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
     await screen.findByText(enServerSetup.full.step1.title);
     const next = () => fireEvent.click(screen.getByRole("button", { name: enServerSetup.common.nextStepButton }));
     await waitFor(() => expect(screen.getByRole("button", { name: enServerSetup.common.nextStepButton })).toBeEnabled());

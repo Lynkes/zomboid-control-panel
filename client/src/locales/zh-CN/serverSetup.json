@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "新建服务器",
-    "title": "服务器设置",
     "description": "选择如何让 Project Zomboid 服务器上线。",
     "fullCard": {
-      "recommendedBadge": "推荐",
-      "title": "全新安装",
-      "description": "从零下载并配置一台新的专用服务器",
       "bullet1": "通过 SteamCMD 下载服务器文件",
       "bullet1Size": "（约 3 GB）",
       "bullet2": "选择游戏版本分支",
-      "bullet3": "自动生成配置和启动文件",
-      "cta": "开始安装"
+      "bullet3": "自动生成配置和启动文件"
     },
     "quickCard": {
-      "title": "使用现有文件",
-      "description": "使用已下载的文件注册服务器",
       "bullet1": "无需下载",
       "bullet2": "指向现有的 PZ 服务器文件夹",
-      "bullet3": "快速三步设置",
-      "cta": "注册服务器"
+      "bullet3": "快速三步设置"
     },
     "tips": {
       "title": "不确定该选哪个？",
-      "description": "如果你从未搭建过 Project Zomboid 服务器，请选择 <1>全新安装</1>。它会自动下载所需的一切。"
+      "description": "如果你从未搭建过 Project Zomboid 服务器，请选择 <1>安装新服务器</1>。它会自动下载所需的一切。"
     }
   },
   "resumeBanner": {
     "title": "可能仍有安装正在进行",
     "description": "之前的会话开始安装到 {{installPath}}（{{elapsed}}前），但页面在完成前被关闭或刷新。它可能仍在后台下载。",
-    "continueButton": "继续设置",
-    "dismissButton": "忽略"
+    "continueButton": "继续设置"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> 已存在。如果之前有同名服务器用过它，这台服务器会沿用其设置和世界。如需从头开始，请换一个服务器名称或文件夹。"
   },
   "full": {
-    "pageTitle": "全新安装",
-    "pageDescription": "下载、配置并注册一台新的专用服务器。",
     "step1": {
       "title": "设置 SteamCMD",
       "description": "下载和更新 Project Zomboid 专用服务器文件需要 SteamCMD。",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "快速设置",
-    "pageDescription": "使用现有的专用服务器文件创建并注册服务器。",
     "step1": {
       "title": "选择服务器文件",
       "description": "选择现有的 Project Zomboid 专用服务器文件夹。",
@@ -303,9 +289,9 @@
     "serverStartingDesc": "正在跳转到仪表盘...",
     "startFailedTitle": "启动失败",
     "registerFailedTitle": "服务器文件已安装，但注册失败",
-    "registerFailedDesc": "游戏文件已写入磁盘，但面板未能将此服务器添加到数据库，因此它还不会出现在“我的服务器”中。请查看上方日志，然后重新运行服务器安装——重复运行是安全的。",
+    "registerFailedDesc": "游戏文件已写入磁盘，但面板未能将此服务器添加到数据库，因此它还不会出现在“服务器列表”中。请查看上方日志，然后重新运行“添加服务器”——重复运行是安全的。",
     "activateFailedLog": "警告：服务器已注册，但未能设为活动服务器。",
     "activateFailedTitle": "服务器已注册，但未设为活动状态",
-    "activateFailedDesc": "服务器已添加到“我的服务器”，但面板未能自动切换到它。请前往“我的服务器”手动选择它，然后再启动。"
+    "activateFailedDesc": "服务器已添加到“服务器列表”，但面板未能自动切换到它。请前往“服务器列表”手动选择它，然后再启动。"
   }
 }

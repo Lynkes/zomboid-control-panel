@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "新建伺服器",
-    "title": "伺服器設定",
     "description": "選擇如何讓 Project Zomboid 伺服器上線。",
     "fullCard": {
-      "recommendedBadge": "推薦",
-      "title": "全新安裝",
-      "description": "從零下載並設定一臺新的專用伺服器",
       "bullet1": "通過 SteamCMD 下載伺服器檔案",
       "bullet1Size": "（約 3 GB）",
       "bullet2": "選擇遊戲版本分支",
-      "bullet3": "自動生成設定和啟動檔案",
-      "cta": "開始安裝"
+      "bullet3": "自動生成設定和啟動檔案"
     },
     "quickCard": {
-      "title": "使用現有檔案",
-      "description": "使用已下載的檔案註冊伺服器",
       "bullet1": "無需下載",
       "bullet2": "指向現有的 PZ 伺服器資料夾",
-      "bullet3": "快速三步設定",
-      "cta": "註冊伺服器"
+      "bullet3": "快速三步設定"
     },
     "tips": {
       "title": "不確定該選哪個？",
-      "description": "如果你從未搭建過 Project Zomboid 伺服器，請選擇 <1>全新安裝</1>。它會自動下載所需的一切。"
+      "description": "如果你從未搭建過 Project Zomboid 伺服器，請選擇 <1>安裝新伺服器</1>。它會自動下載所需的一切。"
     }
   },
   "resumeBanner": {
     "title": "可能仍有安裝正在進行",
     "description": "之前的工作階段開始安裝到 {{installPath}}（{{elapsed}}前），但頁面在完成前被關閉或重新整理。它可能仍在後臺下載。",
-    "continueButton": "繼續設定",
-    "dismissButton": "忽略"
+    "continueButton": "繼續設定"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> 已存在。如果之前有同名伺服器用過它，這台伺服器會沿用其設定和世界。如需從頭開始，請換一個伺服器名稱或資料夾。"
   },
   "full": {
-    "pageTitle": "全新安裝",
-    "pageDescription": "下載、設定並註冊一臺新的專用伺服器。",
     "step1": {
       "title": "設定 SteamCMD",
       "description": "下載和更新 Project Zomboid 專用伺服器檔案需要 SteamCMD。",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "快速設定",
-    "pageDescription": "使用現有的專用伺服器檔案建立並註冊伺服器。",
     "step1": {
       "title": "選擇伺服器檔案",
       "description": "選擇現有的 Project Zomboid 專用伺服器資料夾。",
@@ -303,9 +289,9 @@
     "serverStartingDesc": "正在跳轉到儀表板...",
     "startFailedTitle": "啟動失敗",
     "registerFailedTitle": "伺服器檔案已安裝，但註冊失敗",
-    "registerFailedDesc": "遊戲檔案已寫入磁碟，但面板未能將此伺服器新增到資料庫，因此它還不會出現在“我的伺服器”中。請檢視上方日誌，然後重新執行伺服器安裝——重複執行是安全的。",
+    "registerFailedDesc": "遊戲檔案已寫入磁碟，但面板未能將此伺服器新增到資料庫，因此它還不會出現在“伺服器列表”中。請檢視上方日誌，然後重新執行“新增伺服器”——重複執行是安全的。",
     "activateFailedLog": "警告：伺服器已註冊，但未能設為活動伺服器。",
     "activateFailedTitle": "伺服器已註冊，但未設為活動狀態",
-    "activateFailedDesc": "伺服器已新增到“我的伺服器”，但面板未能自動切換到它。請前往“我的伺服器”手動選擇它，然後再啟動。"
+    "activateFailedDesc": "伺服器已新增到“伺服器列表”，但面板未能自動切換到它。請前往“伺服器列表”手動選擇它，然後再啟動。"
   }
 }

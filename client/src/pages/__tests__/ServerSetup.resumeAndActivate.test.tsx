@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io-client'
 import ServerSetup, { INSTALL_INFLIGHT_KEY } from '../ServerSetup'
 import { serverApi, serversApi } from '@/lib/api'
 import enServerSetup from '../../locales/en/serverSetup.json'
+import enServers from '../../locales/en/servers.json'
 
 // 2026-08-26 install-failure hunt (finding #7) + god's follow-up dispatch:
 // install:complete/install:log are heard by exactly one file in the whole
@@ -163,7 +164,7 @@ async function reachFullInstallButton(installPath: string, serverName: string, s
 describe('ServerSetup -- resume banner for an install left running by a previous page load', () => {
   it('shows nothing when no marker was left behind', async () => {
     renderServerSetup()
-    await screen.findByText(enServerSetup.modeSelect.title)
+    await screen.findByRole('list', { name: enServers.addServer.listLabel })
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
   })
 
@@ -177,7 +178,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
     await screen.findByText(enServerSetup.resumeBanner.title)
     expect(screen.getByText(/\/srv\/pz-fresh/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: enServerSetup.resumeBanner.dismissButton }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
     expect(localStorage.getItem(INSTALL_INFLIGHT_KEY)).toBeNull()
@@ -192,7 +193,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
 
     // Give the mount effect a tick, then confirm the banner never appears
     // and the stale marker was cleaned up rather than left to nag forever.
-    await screen.findByText(enServerSetup.modeSelect.title)
+    await screen.findByRole('list', { name: enServers.addServer.listLabel })
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
     expect(localStorage.getItem(INSTALL_INFLIGHT_KEY)).toBeNull()
   })
@@ -209,7 +210,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
 
     // Landed past the mode-select screen (its title is gone) and the install
     // path field carries the marker's value forward instead of starting blank.
-    await waitFor(() => expect(screen.queryByText(enServerSetup.modeSelect.title)).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('list', { name: enServers.addServer.listLabel })).not.toBeInTheDocument())
     expect(screen.getByDisplayValue('/srv/pz-continue')).toBeInTheDocument()
   })
 })

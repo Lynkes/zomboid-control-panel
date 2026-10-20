@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "New Server",
-    "title": "Server Setup",
     "description": "Choose how you want to bring a Project Zomboid server online.",
     "fullCard": {
-      "recommendedBadge": "Recommended",
-      "title": "Fresh Install",
-      "description": "Download and configure a new dedicated server from scratch",
       "bullet1": "Downloads server files via SteamCMD",
       "bullet1Size": "(~3 GB)",
       "bullet2": "Choose game version branch",
-      "bullet3": "Generates config and startup files automatically",
-      "cta": "Begin install"
+      "bullet3": "Generates config and startup files automatically"
     },
     "quickCard": {
-      "title": "Use Existing Files",
-      "description": "Register a server using files you already downloaded",
       "bullet1": "No download required",
       "bullet2": "Point to an existing PZ server folder",
-      "bullet3": "Fast 3-step setup",
-      "cta": "Register server"
+      "bullet3": "Fast 3-step setup"
     },
     "tips": {
       "title": "Not sure which to choose?",
-      "description": "If you've never set up a Project Zomboid server before, choose <1>Fresh Install</1>. It will download everything you need automatically."
+      "description": "If you've never set up a Project Zomboid server before, choose <1>Install a new server</1>. It downloads everything you need automatically."
     }
   },
   "resumeBanner": {
     "title": "An install may still be running",
     "description": "A previous session started installing to {{installPath}} ({{elapsed}} ago) and the page was closed or reloaded before it finished. It may still be downloading in the background.",
-    "continueButton": "Continue setup",
-    "dismissButton": "Dismiss"
+    "continueButton": "Continue setup"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> already exists. If a server with this name used it before, this one will start with its settings and world. To start fresh, choose another server name or folder."
   },
   "full": {
-    "pageTitle": "Fresh Install",
-    "pageDescription": "Download, configure, and register a new dedicated server.",
     "step1": {
       "title": "Set Up SteamCMD",
       "description": "SteamCMD is required to download and update Project Zomboid dedicated server files.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Quick Setup",
-    "pageDescription": "Create and register a server using existing dedicated server files.",
     "step1": {
       "title": "Select Server Files",
       "description": "Choose the existing Project Zomboid dedicated server folder.",
@@ -274,10 +260,10 @@
     "activeServerSwitchedLog": "Switched active server to new installation",
     "registerFailedLog": "Warning: Failed to register server in panel.",
     "registerFailedTitle": "Server files installed, but registration failed",
-    "registerFailedDesc": "The game files are on disk, but the panel couldn't add this server to its database, so it won't appear in My Servers yet. Check the log above, then try Server Setup again — it's safe to re-run.",
+    "registerFailedDesc": "The game files are on disk, but the panel couldn't add this server to its database, so it won't appear in Servers yet. Check the log above, then try Add a Server again — it's safe to re-run.",
     "activateFailedLog": "Warning: Server was registered, but couldn't be set as the active server.",
     "activateFailedTitle": "Server registered, but not set active",
-    "activateFailedDesc": "The server was added to My Servers, but the panel couldn't switch to it automatically. Go to My Servers and select it manually before starting it.",
+    "activateFailedDesc": "The server was added to Servers, but the panel couldn't switch to it automatically. Go to Servers and select it manually before starting it.",
     "steamCmdReadyTitle": "SteamCMD Ready",
     "steamCmdReadyDesc": "SteamCMD is installed and ready to use.",
     "steamCmdFailedTitle": "SteamCMD Setup Failed",

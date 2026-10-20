@@ -1,36 +1,26 @@
 {
   "modeSelect": {
-    "badge": "Nouvo Sèvè",
-    "title": "Konfigirasyon Sèvè",
     "description": "Chwazi kijan ou vle mete yon sèvè Project Zomboid anliy.",
     "fullCard": {
-      "recommendedBadge": "Rekòmande",
-      "title": "Nouvèl Enstalasyon",
-      "description": "Telechaje epi konfigire yon nouvo sèvè dedye soti nan zewo",
       "bullet1": "Telechaje fichye sèvè atravè SteamCMD",
       "bullet1Size": "(~3 GB)",
       "bullet2": "Chwazi branch vèsyon jwèt",
-      "bullet3": "Jenere fichye konfigirasyon ak demaraj otomatikman",
-      "cta": "Kòmanse enstalasyon"
+      "bullet3": "Jenere fichye konfigirasyon ak demaraj otomatikman"
     },
     "quickCard": {
-      "title": "Itilize Fichye ki Egziste",
-      "description": "Anrejistre yon sèvè ak fichye ou deja telechaje",
       "bullet1": "Pa gen telechajman obligatwa",
       "bullet2": "Pwente sou yon dosye sèvè PZ ki egziste",
-      "bullet3": "Konfigirasyon rapid 3-etap",
-      "cta": "Anrejistre sèvè"
+      "bullet3": "Konfigirasyon rapid 3-etap"
     },
     "tips": {
       "title": "Pa sèten ki sa pou chwazi?",
-      "description": "Si ou pa janm konfigire yon sèvè Project Zomboid anvan, chwazi <1>Nouvèl Enstalasyon</1>. Li ap telechaje tout sa ou bezwen otomatikman."
+      "description": "Si ou pa janm konfigire yon sèvè Project Zomboid anvan, chwazi <1>Enstale yon nouvo sèvè</1>. Li ap telechaje tout sa ou bezwen otomatikman."
     }
   },
   "resumeBanner": {
     "title": "Yon enstalasyon ka toujou ap kouri",
     "description": "Yon sesyon anvan te kòmanse enstale nan {{installPath}} ({{elapsed}} de sa) epi paj la te fèmen oswa rechaje anvan li te fini. Li ka toujou ap telechaje an background.",
-    "continueButton": "Kontinye konfigirasyon",
-    "dismissButton": "Ignore"
+    "continueButton": "Kontinye konfigirasyon"
   },
   "stepIndicator": {
     "quick": {
@@ -143,8 +133,6 @@
     "dataFolderExists": "<1>{{path}}</1> egziste deja. Si yon sèvè ki gen menm non an te itilize l anvan, sèvè sa a ap kòmanse ak paramèt li yo ak mond li. Pou kòmanse a zewo, chwazi yon lòt non sèvè oswa yon lòt dosye."
   },
   "full": {
-    "pageTitle": "Nouvèl Enstalasyon",
-    "pageDescription": "Telechaje, konfigire, epi anrejistre yon nouvo sèvè dedye.",
     "step1": {
       "title": "Konfigire SteamCMD",
       "description": "SteamCMD obligatwa pou telechaje epi mete ajou fichye sèvè dedye Project Zomboid.",
@@ -219,8 +207,6 @@
     }
   },
   "quick": {
-    "pageTitle": "Konfigirasyon Rapid",
-    "pageDescription": "Kreye epi anrejistre yon sèvè ak fichye sèvè dedye ki egziste.",
     "step1": {
       "title": "Chwazi Fichye Sèvè",
       "description": "Chwazi dosye sèvè dedye Project Zomboid ki egziste a.",
@@ -274,10 +260,10 @@
     "activeServerSwitchedLog": "Chanje sèvè aktif la pou nouvèl enstalasyon an",
     "registerFailedLog": "Avètisman: Echwe pou anrejistre sèvè nan panèl la.",
     "registerFailedTitle": "Fichye sèvè enstale, men anrejistreman echwe",
-    "registerFailedDesc": "Fichye jwèt yo sou disk, men panèl la pa t kapab ajoute sèvè sa a nan baz done li, kidonk li p ap parèt nan Sèvè Mwen yo poko. Tcheke jounal anwo a, epi eseye Konfigirasyon Sèvè ankò — li san danje pou fè l ankò.",
+    "registerFailedDesc": "Fichye jwèt yo sou disk, men panèl la pa t kapab ajoute sèvè sa a nan baz done li, kidonk li p ap parèt nan Sèvè yo poko. Tcheke jounal anwo a, epi eseye Ajoute yon Sèvè ankò — li san danje pou fè l ankò.",
     "activateFailedLog": "Avètisman: Sèvè a te anrejistre, men li pa t kapab defini kòm sèvè aktif la.",
     "activateFailedTitle": "Sèvè anrejistre, men li pa aktif",
-    "activateFailedDesc": "Sèvè a te ajoute nan Sèvè Mwen yo, men panèl la pa t kapab chanje pou li otomatikman. Ale nan Sèvè Mwen yo epi chwazi l manyèlman anvan ou demare l.",
+    "activateFailedDesc": "Sèvè a te ajoute nan Sèvè yo, men panèl la pa t kapab chanje pou li otomatikman. Ale nan Sèvè yo epi chwazi l manyèlman anvan ou demare l.",
     "steamCmdReadyTitle": "SteamCMD Pare",
     "steamCmdReadyDesc": "SteamCMD enstale epi pare pou itilize.",
     "steamCmdFailedTitle": "Konfigirasyon SteamCMD Echwe",
