@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "De mod yo gen fichye sa a; se sèlman kopi mod ki chaje an dènye a ki itilize.",
+    "mapFileOverride": "De mod yo gen fichye kat sa a; se sèlman kopi mod ki chaje an dènye a ki itilize.",
+    "dataFileOverride": "De mod yo gen fichye done sa a; se sèlman kopi mod ki chaje an dènye a ki itilize.",
+    "luaFileOverride": "Menm fichye Lua: se sèlman kopi mod ki chaje an dènye a ki egzekite; lòt la pa janm egzekite.",
+    "scriptFileReplaced": "Menm fichye script: jwèt la li sèlman kopi dènye mod la, kidonk atik ak resèt ki defini sèlman nan lòt kopi a pèdi.",
+    "scriptFileOverride": "Menm fichye script: mod ki chaje an dènye a redefini antre sa yo.",
+    "scriptDefinitionOverride": "De mod yo defini antre sa yo; definisyon ki chaje an dènye a ranplase lòt la.",
+    "scriptDefinitionMerge": "De mod yo chanje veyikil oswa skin sa yo; jwèt la mete yo youn sou lòt, e valè dènye mod la genyen.",
+    "translationKeyOverride": "De mod yo tradui tèks sa yo yon fason diferan; mod ki chaje an dènye a genyen.",
+    "translationUnreadable": "Yo pa t ka li yon fichye tradiksyon, kidonk yo pa t ka konpare tèks li yo.",
+    "clothingOutfitOverride": "De mod yo defini ekipman rad sa yo; mod ki chaje an dènye a ranplase yo.",
+    "clothingItemOverride": "De mod yo gen atik rad sa a; se sèlman kopi mod ki chaje an dènye a ki itilize.",
+    "luaGlobalRedefined": "De mod yo defini non Lua sa yo nan fichye diferan; sa ki egzekite an dènye a ka ranplase lòt la.",
+    "luaVariantClash": "De mod ki soti nan menm atik Workshop la redefini menm non Lua yo; souvan se varyant pou itilize youn alafwa.",
+    "declaredIncompatible": "Youn nan mod sa yo deklare lòt la enkonpatib.",
+    "intendedPatch": "Fè espre: mod sa a deklare li bati sou lòt la epi li chaje apre li.",
+    "patchLoadsBeforeTarget": "Mod sa a bati sou lòt la men li chaje anvan li, kidonk chanjman li yo efase. Chaje l apre.",
+    "order": {
+      "requireCycle": "{{modId}} nan yon bouk require=; jwèt la pa ka chaje mod sa yo.",
+      "requireNotFound": "{{modId}} pa chaje: li bezwen {{missing}}, ki pa sou sèvè a.",
+      "requireUnavailable": "{{modId}} pa chaje: mod li bezwen an, {{missing}}, pa ka chaje.",
+      "requireEntryInvalid": "{{modId}} pa chaje: jwèt la pa ka rekonèt antre require= “{{entry}}” nan mod.info li a.",
+      "requireAutoLoaded": "{{dependency}} chaje menm si Mods= pa genyen l, paske {{modId}} bezwen l.",
+      "requireReordered": "{{dependency}} chaje anvan {{modId}}, ki bezwen l, kèlkeswa lòd ki nan Mods=.",
+      "loadAfterViolated": "{{modId}} mande pou l chaje apre {{other}}, men li chaje anvan.",
+      "loadBeforeViolated": "{{modId}} mande pou l chaje anvan {{other}}, men li chaje apre.",
+      "declaredIncompatible": "{{modId}} ak {{other}} deklare enkonpatib, men tou de chaje.",
+      "modInfoListIssue": "{{modId}}: jwèt la pa ka rekonèt antre “{{entry}}” nan mod.info a.",
+      "modNotFound": "{{modId}} pa pami mod Workshop sèvè a telechaje yo."
+    }
+  },
+  "severity": {
+    "high": "Wo",
+    "medium": "Mwayen",
+    "low": "Fèb",
+    "info": "Fè espre"
+  },
   "title": "Eskanè Konfli Mod",
   "subtitle": "Verifye si plizyè mod modifye menm fichye yo — lè sa fèt, sèlman dènye mod nan lòd chajman ou a aplike",
   "lastScan": "Dènye eskanè {{time}}",

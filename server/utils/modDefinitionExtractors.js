@@ -11,6 +11,7 @@
 // rescanned from every line start, and Lua block comments are stripped by a
 // linear scan. On ordinary files the results are exactly what the old
 // patterns gave (server/tests/modDefinitionExtractors.test.js).
+import crypto from "crypto";
 import fs from "fs";
 import { stripBom } from "./modIni.js";
 import { createLogger } from "./logger.js";
@@ -209,6 +210,265 @@ export function extractLuaSymbols(filePath) {
     const classRe = new RegExp(LUA_CLASS_RE);
     while ((m = classRe.exec(stripped)) !== null) symbols.add(`class:${m[1]}`);
     return symbols;
+  } catch (e) {
+    log.debug(`Error parsing Lua file ${filePath}: ${e.message}`);
+    return null;
+  }
+}
+
+// ─── Game-accurate readers (conflict rules, utils/modLoadOrder.js) ──────────
+// The readers below give the conflict scanner what the game really merges:
+// a translation's key -> value pairs, a script's definitions with a digest of
+// each body, the global names a Lua file defines, clothing.xml's outfits.
+// Same caps as above; every pattern is linear.
+
+function digest(text) {
+  return crypto.createHash("md5").update(text).digest("hex").slice(0, 16);
+}
+
+// Collapses whitespace runs so formatting alone never counts as a change.
+function normaliseBody(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+// B42 translations are JSON objects ({ "UI_Key": "text" }), read by the game
+// with org.json's lenient parser. JSON.parse first; for a file it refuses,
+// the "key": "value" pairs are read one by one.
+const JSON_PAIR_RE = /"((?:[^"\\\n]|\\.)*)"[ \t]*:[ \t]*"((?:[^"\\\n]|\\.)*)"/g;
+
+function unescapeJsonString(raw) {
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * key -> value of a B42 translation file (Translate/<LANG>/<Category>.json),
+ * or null when it cannot be read. Values are strings (numbers etc. as text);
+ * nested objects are ignored.
+ */
+export function extractTranslationEntries(filePath) {
+  try {
+    const content = readCappedText(filePath);
+    if (content === null) return null;
+    const entries = new Map();
+    let parsed = null;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      parsed = null;
+    }
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      for (const [key, value] of Object.entries(parsed)) {
+        if (value === null || typeof value === "object") continue;
+        entries.set(key, String(value));
+      }
+      return entries;
+    }
+    const re = new RegExp(JSON_PAIR_RE);
+    let m;
+    while ((m = re.exec(content)) !== null) {
+      entries.set(unescapeJsonString(m[1]), unescapeJsonString(m[2]));
+    }
+    return entries.size > 0 || content.trim() === "" ? entries : null;
+  } catch (e) {
+    log.debug(`Error parsing translation file ${filePath}: ${e.message}`);
+    return null;
+  }
+}
+
+// Script block types of Build 42.21 (zombie.scripting.ScriptType tags), plus
+// the B41 keywords the older reader knew. Compared case-insensitively.
+const SCRIPT_TAGS = new Set(
+  [
+    "entityComponent", "vehicle", "entity", "item", "recipe", "uniquerecipe",
+    "evolvedrecipe", "fixing", "animationsMesh", "mannequin", "model",
+    "spriteModel", "sound", "soundTimeline", "animation", "vehicleEngineRPM",
+    "itemConfig", "xuiLayout", "xuiStyle", "xuiDefaultStyle", "xuiGlobalColors",
+    "xuiSkin", "xuiConfig", "itemFilter", "craftRecipe", "fluidFilter",
+    "stringList", "energy", "fluid", "physicsShape", "timedAction", "ragdoll",
+    "physicsHitReaction", "clock", "character_trait_definition",
+    "character_profession_definition",
+    "multistagebuild", "componenttemplate", "bodylocation", "wallpaper",
+    "material", "electrical", "liquid", "liquidvacuumdef", "stash",
+    "profession", "trait", "bodypart",
+  ].map((t) => t.toLowerCase()),
+);
+// Types without the ResetExisting flag: a later body is applied on top of the
+// earlier one instead of replacing it.
+const MERGED_SCRIPT_TAGS = new Set(["vehicle", "xuiskin"]);
+
+/** Removes every slash-star block comment in one pass. */
+export function stripScriptBlockComments(text) {
+  let out = "";
+  let pos = 0;
+  for (;;) {
+    const start = text.indexOf("/*", pos);
+    if (start === -1) break;
+    const end = text.indexOf("*/", start + 2);
+    if (end === -1) break;
+    out += text.slice(pos, start);
+    pos = end + 2;
+  }
+  return out + text.slice(pos);
+}
+
+/**
+ * The definitions a PZ script file makes, as Map<"Module.type.Name",
+ * { hash, merged }>: only blocks directly inside a module (the lines inside a
+ * craftRecipe's inputs { item 1 [Base.Nails] } are not definitions), `hash`
+ * a digest of the whitespace-normalised body, `merged` true for the types the
+ * game layers instead of replacing (vehicle, xuiSkin). "template vehicle X" is
+ * kept apart from "vehicle X". null when the file cannot be read.
+ */
+export function extractScriptDefinitionBodies(filePath) {
+  try {
+    const raw = readCappedText(filePath);
+    if (raw === null) return null;
+    const content = stripScriptBlockComments(raw);
+    const defs = new Map();
+    const closing = matchingBraces(content);
+    const moduleRe = /module\s+(\w+)\s*\{/g;
+    let moduleEnd = -1;
+    let m;
+    while ((m = moduleRe.exec(content)) !== null) {
+      if (m.index < moduleEnd) continue; // a module opened inside another
+      const moduleName = m[1];
+      const bodyStart = m.index + m[0].length;
+      const close = closing.get(bodyStart - 1);
+      const bodyEnd = close !== undefined ? close : content.length;
+      moduleEnd = bodyEnd;
+      let pos = bodyStart;
+      while (pos < bodyEnd) {
+        const open = content.indexOf("{", pos);
+        if (open === -1 || open >= bodyEnd) break;
+        const blockClose = closing.get(open);
+        const end = blockClose !== undefined && blockClose <= bodyEnd ? blockClose : bodyEnd;
+        const header = content.slice(Math.max(pos, open - 400), open).trim();
+        const tokens = header.split(/\s+/);
+        const name = tokens[tokens.length - 1];
+        const tag = (tokens[tokens.length - 2] || "").toLowerCase();
+        if (tokens.length >= 2 && SCRIPT_TAGS.has(tag) && name && !/[{},]/.test(name)) {
+          const template = (tokens[tokens.length - 3] || "").toLowerCase() === "template";
+          const key = `${moduleName}.${template ? `template ${tag}` : tag}.${name}`;
+          defs.set(key, {
+            hash: digest(normaliseBody(content.slice(open + 1, end))),
+            merged: !template && MERGED_SCRIPT_TAGS.has(tag),
+          });
+        }
+        pos = end + 1;
+      }
+      moduleRe.lastIndex = Math.max(moduleRe.lastIndex, bodyEnd);
+    }
+    return defs;
+  } catch (e) {
+    log.debug(`Error parsing script file ${filePath}: ${e.message}`);
+    return null;
+  }
+}
+
+/**
+ * The outfits of a clothing/clothing.xml, as Map<"male:Name" | "female:Name",
+ * digest of the outfit>. The game merges these files outfit by outfit
+ * (OutfitManager), a later outfit of the same name replacing the earlier.
+ */
+export function extractClothingOutfits(filePath) {
+  try {
+    const content = readCappedText(filePath);
+    if (content === null) return null;
+    const outfits = new Map();
+    for (const gender of ["Male", "Female"]) {
+      const openTag = `<m_${gender}Outfits>`;
+      const closeTag = `</m_${gender}Outfits>`;
+      let pos = 0;
+      for (;;) {
+        const start = content.indexOf(openTag, pos);
+        if (start === -1) break;
+        const end = content.indexOf(closeTag, start + openTag.length);
+        if (end === -1) break;
+        const body = content.slice(start + openTag.length, end);
+        const nameStart = body.indexOf("<m_Name>");
+        const nameEnd = nameStart === -1 ? -1 : body.indexOf("</m_Name>", nameStart);
+        if (nameEnd !== -1) {
+          const name = body.slice(nameStart + 8, nameEnd).trim();
+          if (name) outfits.set(`${gender.toLowerCase()}:${name}`, digest(normaliseBody(body)));
+        }
+        pos = end + closeTag.length;
+      }
+    }
+    return outfits;
+  } catch (e) {
+    log.debug(`Error parsing clothing file ${filePath}: ${e.message}`);
+    return null;
+  }
+}
+
+const LUA_LOCAL_NAMES_RE = /\blocal[ \t]+([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/g;
+const LUA_LOCAL_FUNCTION_RE = /\blocal[ \t]+function[ \t]+([A-Za-z_]\w*)/g;
+const LUA_PARAMS_RE = /\bfunction\b[^(\n]{0,200}\(([^)\n]{0,400})\)/g;
+const LUA_GLOBAL_FN_RE = new RegExp(`${LUA_LINE_START}function\\s+([A-Za-z_]\\w*(?:[.:][A-Za-z_]\\w*)*)\\s*\\(`, "g");
+const LUA_GLOBAL_ASSIGN_FN_RE = new RegExp(`${LUA_LINE_START}([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\s*=\\s*function\\s*\\(`, "g");
+const LUA_GLOBAL_TABLE_RE = /(?:^|\n)([A-Za-z_]\w*)[ \t]*=[ \t]*\{/g;
+const LUA_CAPTURE_RE = /=\s*([A-Za-z_]\w*(?:[ \t]*[.:][ \t]*[A-Za-z_]\w*)+)/g;
+
+/**
+ * The global names a Lua file (re)defines, which another mod's file defining
+ * the same name would clobber:
+ *   fn:Foo.bar   function Foo.bar / Foo:bar / Foo.bar = function (":" is ".")
+ *   fn:bar       function bar / bar = function
+ *   class:ISFoo  ISFoo = ISBase:derive(...)
+ *   tbl:Foo      Foo = { ... } at the start of a line (resets the table)
+ * Skipped: names whose first part is local in the file (local declarations,
+ * local functions, function parameters, self) and functions the file keeps
+ * the original of before replacing it (`local old = Foo.bar` -- a chained
+ * hook, which coexists with others). Event subscriptions are additive and
+ * never listed. null when the file cannot be read.
+ */
+export function extractLuaGlobals(filePath) {
+  try {
+    const content = readCappedText(filePath);
+    if (content === null) return null;
+    const stripped = stripLuaBlockComments(content).replace(/--[^\n]*/g, "");
+    const locals = new Set(["self"]);
+    let m;
+    const localRe = new RegExp(LUA_LOCAL_NAMES_RE);
+    while ((m = localRe.exec(stripped)) !== null) {
+      for (const name of m[1].split(",")) locals.add(name.trim());
+    }
+    const localFnRe = new RegExp(LUA_LOCAL_FUNCTION_RE);
+    while ((m = localFnRe.exec(stripped)) !== null) locals.add(m[1]);
+    const paramsRe = new RegExp(LUA_PARAMS_RE);
+    while ((m = paramsRe.exec(stripped)) !== null) {
+      for (const name of m[1].split(",")) {
+        const p = name.trim();
+        if (/^[A-Za-z_]\w*$/.test(p)) locals.add(p);
+      }
+    }
+    const captured = new Set();
+    const captureRe = new RegExp(LUA_CAPTURE_RE);
+    while ((m = captureRe.exec(stripped)) !== null) captured.add(m[1].replace(/[ \t]/g, "").replace(/:/g, "."));
+    const globals = new Set();
+    const addFn = (rawName) => {
+      const name = rawName.replace(/:/g, ".");
+      const root = name.split(".")[0];
+      if (locals.has(root) || captured.has(name)) return;
+      globals.add(`fn:${name}`);
+    };
+    const fnRe = new RegExp(LUA_GLOBAL_FN_RE);
+    while ((m = fnRe.exec(stripped)) !== null) addFn(m[1]);
+    const assignRe = new RegExp(LUA_GLOBAL_ASSIGN_FN_RE);
+    while ((m = assignRe.exec(stripped)) !== null) addFn(m[1]);
+    const classRe = new RegExp(LUA_CLASS_RE);
+    while ((m = classRe.exec(stripped)) !== null) {
+      if (!locals.has(m[1])) globals.add(`class:${m[1]}`);
+    }
+    const tableRe = new RegExp(LUA_GLOBAL_TABLE_RE);
+    while ((m = tableRe.exec(stripped)) !== null) {
+      if (!locals.has(m[1])) globals.add(`tbl:${m[1]}`);
+    }
+    return globals;
   } catch (e) {
     log.debug(`Error parsing Lua file ${filePath}: ${e.message}`);
     return null;

@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "Beide Mods liefern diese Datei; verwendet wird nur die Kopie der zuletzt geladenen Mod.",
+    "mapFileOverride": "Beide Mods liefern diese Kartendatei; verwendet wird nur die Kopie der zuletzt geladenen Mod.",
+    "dataFileOverride": "Beide Mods liefern diese Datendatei; verwendet wird nur die Kopie der zuletzt geladenen Mod.",
+    "luaFileOverride": "Gleiche Lua-Datei: Nur die Kopie der zuletzt geladenen Mod läuft, die andere läuft nie.",
+    "scriptFileReplaced": "Gleiche Skriptdatei: Das Spiel liest nur die Kopie der letzten Mod, daher gehen Items und Rezepte verloren, die nur die andere Kopie definiert.",
+    "scriptFileOverride": "Gleiche Skriptdatei: Die zuletzt geladene Mod definiert diese Einträge neu.",
+    "scriptDefinitionOverride": "Beide Mods definieren diese Einträge; die zuletzt geladene Definition ersetzt die andere.",
+    "scriptDefinitionMerge": "Beide Mods ändern diese Fahrzeuge oder Skins; das Spiel legt sie übereinander, die Werte der letzten Mod gewinnen.",
+    "translationKeyOverride": "Beide Mods übersetzen diese Texte unterschiedlich; die zuletzt geladene Mod gewinnt.",
+    "translationUnreadable": "Eine Übersetzungsdatei konnte nicht gelesen werden, daher ließen sich ihre Texte nicht vergleichen.",
+    "clothingOutfitOverride": "Beide Mods definieren diese Outfits; die zuletzt geladene Mod ersetzt sie.",
+    "clothingItemOverride": "Beide Mods liefern dieses Kleidungsstück; verwendet wird nur die Kopie der zuletzt geladenen Mod.",
+    "luaGlobalRedefined": "Beide Mods definieren diese Lua-Namen in verschiedenen Dateien; was zuletzt läuft, kann das andere ersetzen.",
+    "luaVariantClash": "Zwei Mods aus demselben Workshop-Item definieren dieselben Lua-Namen neu; meist sind es Varianten, von denen nur eine aktiv sein soll.",
+    "declaredIncompatible": "Eine dieser Mods erklärt die andere für inkompatibel.",
+    "intendedPatch": "Beabsichtigt: Diese Mod baut laut eigener Angabe auf der anderen auf und lädt nach ihr.",
+    "patchLoadsBeforeTarget": "Diese Mod baut auf der anderen auf, lädt aber vor ihr, daher werden ihre Änderungen überschrieben. Lade sie danach.",
+    "order": {
+      "requireCycle": "{{modId}} steckt in einer require=-Schleife; das Spiel kann diese Mods nicht laden.",
+      "requireNotFound": "{{modId}} lädt nicht: Sie benötigt {{missing}}, die nicht auf dem Server ist.",
+      "requireUnavailable": "{{modId}} lädt nicht: Die benötigte Mod {{missing}} kann nicht laden.",
+      "requireEntryInvalid": "{{modId}} lädt nicht: Das Spiel kann den require=-Eintrag „{{entry}}“ in ihrer mod.info nicht zuordnen.",
+      "requireAutoLoaded": "{{dependency}} lädt, obwohl Mods= sie nicht aufführt, weil {{modId}} sie benötigt.",
+      "requireReordered": "{{dependency}} lädt vor {{modId}}, die sie benötigt, unabhängig von der Reihenfolge in Mods=.",
+      "loadAfterViolated": "{{modId}} möchte nach {{other}} laden, lädt aber davor.",
+      "loadBeforeViolated": "{{modId}} möchte vor {{other}} laden, lädt aber danach.",
+      "declaredIncompatible": "{{modId}} und {{other}} sind als inkompatibel erklärt, laden aber beide.",
+      "modInfoListIssue": "{{modId}}: Das Spiel kann den mod.info-Eintrag „{{entry}}“ nicht zuordnen.",
+      "modNotFound": "{{modId}} ist nicht unter den heruntergeladenen Workshop-Mods des Servers."
+    }
+  },
+  "severity": {
+    "high": "Hoch",
+    "medium": "Mittel",
+    "low": "Niedrig",
+    "info": "Beabsichtigt"
+  },
   "title": "Mod-Konfliktscanner",
   "subtitle": "Prüft, ob mehrere Mods dieselben Dateien verändern — wenn ja, greift nur die letzte Mod in deiner Ladereihenfolge",
   "lastScan": "Letzter Scan: {{time}}",
