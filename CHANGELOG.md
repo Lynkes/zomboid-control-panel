@@ -7,29 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
-- **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
-- **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
-
-### Changed
-
-- **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
-
-### Fixed
-
-- **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
-- **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
-- **Servers sharing a game folder:** Delete files, Clear Folder, Update and Quick Setup now refuse while any server using the same game folder runs, and deleting a shared folder lists the other servers first; before, deleting a stopped server's files could wipe a running one's.
-- **Restart during a mod download:** the server now starts again instead of staying down because a Workshop item was still downloading.
-- **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
-- **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
-- **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
-- **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
-- **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
-- **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
-
 ### Security
 
 - **SFTP password bound to its host:** the saved PanelBridge SFTP password is only used with the saved host, port and username; testing or saving another target asks for its password.
@@ -58,9 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
 - **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
 - **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
-
-### Security
-
 - **Demo site deploy:** the client build that publishes the demo runs without a write token; a separate job with no npm code publishes it.
 - **Docker `:latest` is the newest release:** main-branch builds now publish `:main`/`:edge` only; dependency updates wait 7 days, only npm patch/minor updates auto-merge, and release builds and images install exactly what the lockfiles pin.
 - **Steam Sync extension:** sends the panel password and Steam cookies over plain HTTP only to a panel on your own network (or one address you explicitly allow); anything else needs HTTPS, and a URL typed without a scheme defaults to HTTPS.
@@ -72,15 +46,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Restore of an archive without world files:** a backup whose server-named folder holds no world (only a readme, say) is refused instead of replacing the live world; a real world elsewhere in the archive is used instead.
 - **Leftover upload temp files:** a backup upload cut off by a panel crash or restart no longer leaves its temporary file in the backups folder forever; the next backup removes it.
 - **Character import recovery copies:** the panel keeps the newest ones per player (as many as the auto-export keeps, else 5) instead of one more on every import, forever.
-
-### Security
-
 - **Diagnostics log downloads:** only the listed .log files can be downloaded, and the logs folder can no longer be set to the data or program folder (it exposed the panel's secrets to diagnostics roles).
 - **Backup "View snapshot":** a snapshot larger than 1 MB is refused instead of being inflated into memory (a small uploaded zip could take hundreds of MB).
 - **Backup restore and upload disk use:** a restore stops when an archive inflates past the sizes it records or would nearly fill the disk, and an upload is refused when it would leave less than 1 GB free.
 - **Mod conflict scan:** a crafted Workshop file can no longer freeze the panel for minutes while its clothing, translation, script or Lua definitions are read.
 - **Mod conflict file comparison:** it no longer follows a symlink or junction out of a mod's media folder (the scan already refused them).
 - **PanelBridge files on the panel's machine:** status, result and queue files over 16 MB are no longer read into memory (the SFTP transport already refused them); an oversized result is skipped instead of stalling the queue.
+
+### Added
+
+- **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
+- **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
+- **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+
+### Changed
+
+- **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
+
+### Fixed
+
+- **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
+- **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
+- **Servers sharing a game folder:** Delete files, Clear Folder, Update and Quick Setup now refuse while any server using the same game folder runs, and deleting a shared folder lists the other servers first; before, deleting a stopped server's files could wipe a running one's.
+- **Restart during a mod download:** the server now starts again instead of staying down because a Workshop item was still downloading.
+- **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
+- **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
+- **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
+- **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
+- **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
+- **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
 
 ## [1.4.17] - 2026-10-18
 
