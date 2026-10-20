@@ -79,6 +79,8 @@
     "frequencyHelp": "Fréquence de création automatique des sauvegardes",
     "maxBackupsLabel": "Nombre maximum de sauvegardes à conserver",
     "maxBackupsHelp": "Le panneau supprime automatiquement les sauvegardes les plus anciennes lorsque cette limite est atteinte",
+    "includeDbLabel": "Inclure la base de données du panneau (sans mots de passe)",
+    "includeDbHelp": "Ajoute à chaque sauvegarde une copie de la base de données du panneau (serveurs, paramètres, planifications, comptes), sans les mots de passe, sessions et autres secrets. Restaurer une sauvegarde ne l'applique jamais.",
     "maxBackupsInvalid": "Indiquez combien de sauvegardes conserver, de 1 à 100.",
     "customLabel": "Expression cron",
     "customHint": "Format : minute heure jour mois jour de la semaine. « {{example}} » s'exécute chaque jour à 3 h 30. Au plus une fois toutes les 5 minutes.",

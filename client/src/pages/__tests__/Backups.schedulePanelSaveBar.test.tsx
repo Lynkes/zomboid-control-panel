@@ -143,7 +143,7 @@ describe('Backups.tsx: the schedule card saves through the save bar', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save Settings' }))
 
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '0 */6 * * *', maxBackups: 12 }, 1),
+      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '0 */6 * * *', maxBackups: 12, includeDb: true }, 1),
     )
   })
 
@@ -168,6 +168,51 @@ describe('Backups.tsx: the schedule card saves through the save bar', () => {
     expect(maxBackups).toBeDisabled()
     expect(screen.getByRole('switch', { name: 'Toggle scheduled backups' })).toBeDisabled()
     expect(screen.getAllByText(/requires the backups\.manage permission/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('switch', { name: 'Include panel database (without passwords)' })).toBeDisabled()
     expect(screen.queryByRole('button', { name: 'Save Settings' })).not.toBeInTheDocument()
+  })
+})
+
+// Up to v1.4.17 the Dashboard's and Diagnostics' backups put the panel
+// database in the archive. Since then only the backupIncludeDb setting
+// decides (a redacted copy), it starts off on an upgraded install, and no
+// page could turn it on. It now sits in this card and saves with it.
+describe('Backups.tsx: "Include panel database" in the schedule card', () => {
+  it('shows the saved choice, marks a change unsaved, and saves it with the rest', async () => {
+    getStatus.mockResolvedValue({ ...status, includeDb: false })
+    renderAt('/backups?panel=schedule')
+    const includeDb = await screen.findByRole('switch', { name: 'Include panel database (without passwords)' })
+    await waitFor(() => expect(includeDb).toBeEnabled())
+    expect(includeDb).not.toBeChecked()
+    expect(includeDb).toHaveAccessibleDescription(/passwords, sessions and other secrets left out/)
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
+
+    fireEvent.click(includeDb)
+    expect(includeDb).toBeChecked()
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument()
+    updateSettings.mockResolvedValue({ success: true, settings: { ...status, includeDb: true } })
+    getStatus.mockResolvedValue({ ...status, includeDb: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    await waitFor(() =>
+      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '0 */6 * * *', maxBackups: 10, includeDb: true }, 1),
+    )
+    // Saved: the bar goes away and the switch keeps the saved value.
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument())
+    expect(includeDb).toBeChecked()
+  })
+
+  it('Discard puts the saved choice back', async () => {
+    renderAt('/backups?panel=schedule')
+    const includeDb = await screen.findByRole('switch', { name: 'Include panel database (without passwords)' })
+    await waitFor(() => expect(includeDb).toBeChecked())
+
+    fireEvent.click(includeDb)
+    expect(await screen.findByText('Unsaved changes')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+
+    await waitFor(() => expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument())
+    expect(includeDb).toBeChecked()
+    expect(updateSettings).not.toHaveBeenCalled()
   })
 })

@@ -78,6 +78,8 @@
     "frequencyHelp": "How often to automatically create backups",
     "maxBackupsLabel": "Maximum Backups to Keep",
     "maxBackupsHelp": "Oldest backups will be auto-deleted when limit is reached",
+    "includeDbLabel": "Include panel database (without passwords)",
+    "includeDbHelp": "Adds a copy of the panel database (servers, settings, schedules, accounts) to every backup, with passwords, sessions and other secrets left out. Restoring a backup never applies it.",
     "maxBackupsInvalid": "Enter how many backups to keep, from 1 to 100.",
     "customLabel": "Cron expression",
     "customHint": "Format: minute hour day month weekday. \"{{example}}\" runs every day at 3:30. At most once every 5 minutes.",

@@ -78,6 +78,8 @@
     "frequencyHelp": "Wie oft automatisch Backups erstellt werden sollen",
     "maxBackupsLabel": "Maximale Anzahl an Backups",
     "maxBackupsHelp": "Die ältesten Backups werden automatisch gelöscht, sobald das Limit erreicht ist",
+    "includeDbLabel": "Panel-Datenbank einschließen (ohne Passwörter)",
+    "includeDbHelp": "Fügt jedem Backup eine Kopie der Panel-Datenbank hinzu (Server, Einstellungen, Zeitpläne, Konten), ohne Passwörter, Sitzungen und andere Geheimnisse. Beim Wiederherstellen eines Backups wird sie nie angewendet.",
     "maxBackupsInvalid": "Gib an, wie viele Backups behalten werden sollen (1 bis 100).",
     "customLabel": "Cron-Ausdruck",
     "customHint": "Format: Minute Stunde Tag Monat Wochentag. „{{example}}“ läuft täglich um 3:30 Uhr. Höchstens alle 5 Minuten.",

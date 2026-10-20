@@ -79,6 +79,8 @@
     "frequencyHelp": "Con qué frecuencia se crean copias de seguridad automáticamente",
     "maxBackupsLabel": "Máximo de copias de seguridad a conservar",
     "maxBackupsHelp": "Las copias de seguridad más antiguas se eliminarán automáticamente al alcanzar el límite",
+    "includeDbLabel": "Incluir la base de datos del panel (sin contraseñas)",
+    "includeDbHelp": "Añade a cada copia de seguridad una copia de la base de datos del panel (servidores, ajustes, programaciones, cuentas), sin contraseñas, sesiones ni otros secretos. Restaurar una copia nunca la aplica.",
     "maxBackupsInvalid": "Indica cuántas copias conservar, de 1 a 100.",
     "customLabel": "Expresión cron",
     "customHint": "Formato: minuto hora día mes día de la semana. «{{example}}» se ejecuta todos los días a las 3:30. Como máximo una vez cada 5 minutos.",

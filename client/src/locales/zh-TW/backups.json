@@ -78,6 +78,8 @@
     "frequencyHelp": "自動建立備份的頻率",
     "maxBackupsLabel": "最大保留備份數",
     "maxBackupsHelp": "達到數量上限後，最舊的備份將被自動刪除",
+    "includeDbLabel": "包含面板資料庫（不含密碼）",
+    "includeDbHelp": "在每個備份中加入面板資料庫的副本（伺服器、設定、排程、帳號），不含密碼、工作階段和其他機密。還原備份時不會套用它。",
     "maxBackupsInvalid": "請輸入要保留的備份數量（1 到 100）。",
     "customLabel": "cron 表示式",
     "customHint": "格式：分鐘 小時 日 月 星期。「{{example}}」表示每天 3:30 執行。最多每 5 分鐘一次。",
