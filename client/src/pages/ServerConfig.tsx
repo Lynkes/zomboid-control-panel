@@ -1002,9 +1002,21 @@ export default function ServerConfig() {
   // palette and links from other pages (Files, Diagnostics) open it directly.
   const [activeTab, setActiveTabParam] = useUrlParamState<ServerConfigTab>('tab', SERVER_CONFIG_TAB_IDS, 'ini')
   const activeTabRef = useRef<string>(activeTab)
+  // On a phone the tab row scrolls sideways; a deep link to a later tab
+  // (?tab=spawnregions) must not open with its own tab out of sight.
+  const tabListRef = useRef<HTMLDivElement>(null)
   const guardedNavigate = useGuardedNavigate()
   const pendingTabChangeRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const list = tabListRef.current
+    const active = list?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (!list || !active || typeof list.scrollBy !== 'function') return
+    const box = list.getBoundingClientRect()
+    const tab = active.getBoundingClientRect()
+    if (tab.left < box.left) list.scrollBy({ left: tab.left - box.left - 8 })
+    else if (tab.right > box.right) list.scrollBy({ left: tab.right - box.right + 8 })
+  }, [activeTab, loading])
   const [saving, setSaving] = useState(false)
   const [serverRunning, setServerRunning] = useState<boolean | null>(null)
   const [searchQuery, setSearchQuery] = useState(initialDeepLink.search)
@@ -3672,7 +3684,7 @@ export default function ServerConfig() {
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
         {/* One row that scrolls sideways on a phone instead of wrapping
             into a block of buttons above the content. */}
-        <TabsList aria-label={t('tabs.listAria')} className="nav-scroll flex h-auto w-full justify-start gap-1 overflow-x-auto">
+        <TabsList ref={tabListRef} aria-label={t('tabs.listAria')} className="nav-scroll flex h-auto w-full justify-start gap-1 overflow-x-auto">
           {tabDefs.map((tabDef) => (
             <TabsTrigger key={tabDef.value} value={tabDef.value} className="shrink-0 gap-2">
               <tabDef.icon className="h-4 w-4 shrink-0" aria-hidden="true" />

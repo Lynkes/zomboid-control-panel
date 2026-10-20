@@ -124,6 +124,28 @@ describe('Server Configuration: URL state', () => {
     expect(screen.getByRole('tab', { name: /spawn regions/i })).toHaveAttribute('aria-selected', 'true')
   })
 
+  it('a deep link to a later tab scrolls the phone tab strip so that tab is in sight', async () => {
+    mockLoads()
+    // jsdom has no layout: the strip is 300px wide and every tab sits 400px
+    // in, i.e. past its right edge, as on a 390px phone.
+    const scrollBy = vi.fn()
+    const rect = (left: number, width: number) => ({ left, right: left + width, top: 0, bottom: 40, width, height: 40, x: left, y: 0, toJSON: () => ({}) })
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return (this.getAttribute('role') === 'tablist' ? rect(0, 300) : rect(400, 120)) as DOMRect
+    })
+    // An own property on HTMLElement.prototype, removed afterwards (jsdom's
+    // own scrollBy, if any, lives further up the chain and is untouched).
+    Object.defineProperty(HTMLElement.prototype, 'scrollBy', { value: scrollBy, configurable: true, writable: true })
+    try {
+      renderAt('/server-config?tab=spawnregions')
+      expect(await screen.findByRole('tab', { name: /spawn regions/i })).toHaveAttribute('aria-selected', 'true')
+      await waitFor(() => expect(scrollBy).toHaveBeenCalledWith({ left: 400 + 120 - 300 + 8 }))
+    } finally {
+      rectSpy.mockRestore()
+      delete (HTMLElement.prototype as { scrollBy?: unknown }).scrollBy
+    }
+  })
+
   it('?open=snapshots opens the Config snapshots dialog, then drops the parameter', async () => {
     mockLoads()
     renderAt('/server-config?tab=ini&open=snapshots')
