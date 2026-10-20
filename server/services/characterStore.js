@@ -29,6 +29,26 @@ export const CHARACTER_STORE_LIMITS = Object.freeze({
   staleSheetToleranceMs: 60 * 1000,
 });
 
+// SECURITY (2026-10-20): a record is made for every player name the panel
+// reads a sheet for (the login sampler included), up to maxBytes each, and
+// they used to go only once 180 days old, at boot: a client joining under
+// endless made-up names grew the folder without bound. Each server's folder
+// now keeps at most this many records and bytes; past either, the records
+// written longest ago go first (enforceServerCaps()).
+const characterStoreCaps = {
+  maxRecordsPerServer: 5000,
+  maxBytesPerServer: 256 * 1024 * 1024,
+};
+
+export function getCharacterStoreCaps() {
+  return { ...characterStoreCaps };
+}
+
+// Tests shrink the caps so eviction is observable without thousands of files.
+export function _setCharacterStoreCapsForTests(overrides = {}) {
+  Object.assign(characterStoreCaps, overrides);
+}
+
 const SERVER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const RECORD_FILE_RE = /^[0-9a-f]{32}\.json$/;
 const SNAPSHOT_SOURCES = new Set(["view", "login", "sampler"]);
@@ -261,6 +281,91 @@ function applySheet(record, sheet, { source, sections, now, deathAt }) {
   return { serialized, skillDelta, newLife };
 }
 
+// serverId -> Map<fileName, { size, mtimeMs }>, oldest write first:
+// what each server's folder holds, scanned once and then kept up to date by
+// this module's own writes and deletes (only the panel writes here). Plain
+// synchronous fs, like the rest of this module.
+const serverFolderIndexes = new Map();
+
+function scanServerFolder(dir) {
+  const entries = [];
+  let names = [];
+  try {
+    // codeql[js/path-injection] dir is <dataDir>/character-sheets/<serverId>, where serverId passed ^[A-Za-z0-9_-]{1,64}$.
+    names = fs.readdirSync(dir);
+  } catch {
+    return new Map();
+  }
+  for (const name of names) {
+    if (!RECORD_FILE_RE.test(name)) continue;
+    try {
+      // codeql[js/path-injection] a <32 hex>.json entry listed from the store's own server folder above.
+      const stats = fs.statSync(path.join(dir, name));
+      if (stats.isFile()) entries.push([name, { size: stats.size, mtimeMs: stats.mtimeMs }]);
+    } catch {
+      /* vanished mid-scan */
+    }
+  }
+  entries.sort((left, right) => left[1].mtimeMs - right[1].mtimeMs);
+  return new Map(entries);
+}
+
+function serverFolderIndex(serverId) {
+  let index = serverFolderIndexes.get(serverId);
+  if (!index) {
+    index = scanServerFolder(path.join(storeRoot(), serverId));
+    serverFolderIndexes.set(serverId, index);
+  }
+  return index;
+}
+
+/**
+ * Deletes the server's records written longest ago until it holds at most
+ * maxRecordsPerServer records and maxBytesPerServer bytes. `keepName`, the
+ * record just written, is never one of them. Never throws.
+ */
+function enforceServerCaps(serverId, keepName = null) {
+  try {
+    const index = serverFolderIndex(serverId);
+    let totalBytes = 0;
+    for (const entry of index.values()) totalBytes += entry.size;
+    const withinCaps = () =>
+      index.size <= characterStoreCaps.maxRecordsPerServer &&
+      totalBytes <= characterStoreCaps.maxBytesPerServer;
+    if (withinCaps()) return 0;
+    const dir = path.join(storeRoot(), serverId);
+    let removed = 0;
+    // Deleting the entry being visited is safe while iterating a Map.
+    for (const [name, entry] of index) {
+      if (withinCaps()) break;
+      if (name === keepName) continue;
+      try {
+        // codeql[js/path-injection] name is a <32 hex>.json entry of this store's own server folder (RECORD_FILE_RE).
+        fs.unlinkSync(path.join(dir, name));
+      } catch (error) {
+        if (error?.code !== "ENOENT") continue;
+      }
+      index.delete(name);
+      totalBytes -= entry.size;
+      removed += 1;
+    }
+    if (removed > 0) log.info(`Removed ${removed} character record(s) of server ${serverId} past the store's limits`);
+    return removed;
+  } catch (error) {
+    log.debug(`Character store limit check skipped: ${error.message}`);
+    return 0;
+  }
+}
+
+function noteRecordWritten(serverId, file, bytes) {
+  const index = serverFolderIndex(serverId);
+  const name = path.basename(file);
+  // Delete first so the entry moves to the newest end of the Map.
+  index.delete(name);
+  index.set(name, { size: bytes, mtimeMs: Date.now() });
+  return name;
+}
+
 /**
  * Merge a freshly read sheet into the player's record and write it back.
  * `sections` are the sections that fetch asked for: an inventory-only fetch
@@ -279,7 +384,7 @@ export async function recordCharacterSheet(
 ) {
   const file = characterRecordPath(serverId, username);
   if (!file || !sheet || typeof sheet !== "object") return null;
-  return withFileLock(file, async () => {
+  const result = await withFileLock(file, async () => {
     const record = readRecordFile(file) ?? emptyRecord(serverId, username);
     record.username = sheet.username ?? record.username ?? username;
     record.serverId = serverId;
@@ -288,19 +393,27 @@ export async function recordCharacterSheet(
     // codeql[js/path-injection] file comes from characterRecordPath(): <dataDir>/character-sheets/<serverId>/<hex>.json, where serverId passed ^[A-Za-z0-9_-]{1,64}$ and the name is a sha256 hex digest.
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
     writeFileAtomic(file, serialized, { encoding: "utf8", mode: 0o600 });
-    return { record, skillDelta, newLife };
+    const written = noteRecordWritten(serverId, file, Buffer.byteLength(serialized, "utf8"));
+    return { record, skillDelta, newLife, written };
   });
+  if (!result?.written) return result;
+  const { written, ...answer } = result;
+  enforceServerCaps(serverId, written);
+  return answer;
 }
 
 /**
- * Drop records not updated for `maxAgeDays`, then empty server folders.
- * Runs at boot; never throws.
+ * Drop records not updated for `maxAgeDays`, then bring each server's
+ * folder within the store's caps (oldest first), then remove empty server
+ * folders. Runs at boot; never throws.
  */
 export async function pruneCharacterStore({ maxAgeDays = 180, now = Date.now() } = {}) {
   const root = storeRoot();
   const cutoff = now - maxAgeDays * 24 * 60 * 60 * 1000;
   let removed = 0;
   let serverDirs;
+  // Whatever this deletes, each folder is scanned afresh after it.
+  serverFolderIndexes.clear();
   try {
     serverDirs = fs.readdirSync(root, { withFileTypes: true });
   } catch {
@@ -324,11 +437,16 @@ export async function pruneCharacterStore({ maxAgeDays = 180, now = Date.now() }
           /* a file that vanished or can't be read is left for the next boot */
         }
       }
+      serverFolderIndexes.delete(dirent.name);
+      removed += enforceServerCaps(dirent.name);
+      serverFolderIndexes.delete(dirent.name);
       if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
     } catch (error) {
       log.debug(`Character store prune skipped a folder: ${error.message}`);
     }
   }
-  if (removed > 0) log.info(`Removed ${removed} character record(s) older than ${maxAgeDays} days`);
+  if (removed > 0) {
+    log.info(`Removed ${removed} character record(s) older than ${maxAgeDays} days or past the store's limits`);
+  }
   return { removed };
 }

@@ -94,6 +94,10 @@ export async function collectKnownSecretValues() {
     const servers = await getServers();
     for (const server of servers) {
       if (server?.rconPassword) values.add(String(server.rconPassword));
+      // The in-game admin account's password: the game logs it on a world's
+      // first start (utils/gameLogSecrets.js), so a support bundle's copy of
+      // server-console.txt can carry it.
+      if (server?.adminPassword) values.add(String(server.adminPassword));
       const joinPassword = readServerJoinPassword(server);
       if (joinPassword) values.add(joinPassword);
     }

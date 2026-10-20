@@ -119,6 +119,7 @@ import {
 import { installDirKey } from "../services/bridgeDisk.js";
 import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
 import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
+import { redactGameLogSecrets } from "../utils/gameLogSecrets.js";
 
 const router = express.Router();
 
@@ -6765,7 +6766,15 @@ const CONSOLE_LOG_IMPORTANT_PATTERNS = [
   /player-connect/,
   /connection-lost/,
   /disconnect/,
-  /Steam client .* is initiating/,
+  // Was /Steam client .* is initiating/, which rescanned the rest of the line
+  // from every "Steam client " in it: a mod can print a 5 MB line of those,
+  // and the Console page filters every line on each load.
+  {
+    test(line) {
+      const at = line.indexOf("Steam client ");
+      return at !== -1 && line.indexOf(" is initiating", at + "Steam client ".length) !== -1;
+    },
+  },
   /RCON:/,
   /Recipe AutoLearned/,
   /Reduce Head Condition/,
@@ -6904,12 +6913,18 @@ async function resolveConsoleLogFolder(activeServer) {
 // log's file name instead of where it lives.
 const CONSOLE_LOG_FILE_NAME = "server-console.txt";
 
+// SECURITY (2026-10-20): every role, admins included, gets the game's
+// "Command line admin password: <value>" line redacted
+// (utils/gameLogSecrets.js); the Console page never needs to show it.
 async function consoleLogView(req) {
   if (await canSeeHostPaths(req.user)) {
-    return { lines: (lines) => lines, path: (consoleLogPath) => consoleLogPath };
+    return {
+      lines: (lines) => lines.map((line) => redactGameLogSecrets(line)),
+      path: (consoleLogPath) => consoleLogPath,
+    };
   }
   return {
-    lines: (lines) => lines.map((line) => (line ? sanitizeError(line) : line)),
+    lines: (lines) => lines.map((line) => (line ? sanitizeError(redactGameLogSecrets(line)) : line)),
     path: () => CONSOLE_LOG_FILE_NAME,
   };
 }
@@ -7340,19 +7355,29 @@ const CONSOLE_STREAM_MAX_READ_BYTES = 256 * 1024;
 // Bytes [start, end) of the file as text, at most the last
 // CONSOLE_STREAM_MAX_READ_BYTES of them. When the range is longer the read
 // starts that far from the end and the first line, probably cut, is dropped.
-function readConsoleLogRange(consoleLogPath, start, end) {
+//
+// SECURITY (2026-10-20): `start` is the client's lastSize. With
+// `wholeLinesOnly` (no held-back fragment of the line before it, see
+// splitConsoleStreamLines) a start in the middle of a line drops the rest of
+// that line too: answering from any byte offset handed out the tail of a line
+// without its head, so lastSize aimed just past "Command line admin
+// password: " returned the bare password, out of reach of the line's
+// redaction (utils/gameLogSecrets.js).
+function readConsoleLogRange(consoleLogPath, start, end, { wholeLinesOnly = false } = {}) {
   let from = start;
   let truncated = false;
   if (end - start > CONSOLE_STREAM_MAX_READ_BYTES) {
     from = end - CONSOLE_STREAM_MAX_READ_BYTES;
     truncated = true;
   }
-  const length = Math.max(0, end - from);
+  // One byte more in front says whether `from` begins a line.
+  const peek = wholeLinesOnly && !truncated && from > 0 ? 1 : 0;
+  const length = Math.max(0, end - from + peek);
   const buffer = Buffer.alloc(length);
   let bytesRead = 0;
   const fd = fs.openSync(consoleLogPath, "r");
   try {
-    bytesRead = fs.readSync(fd, buffer, 0, length, from);
+    bytesRead = fs.readSync(fd, buffer, 0, length, from - peek);
   } finally {
     try {
       fs.closeSync(fd);
@@ -7360,8 +7385,9 @@ function readConsoleLogRange(consoleLogPath, start, end) {
       /* ignore */
     }
   }
-  let text = buffer.toString("utf-8", 0, bytesRead);
-  if (truncated) {
+  let text = buffer.toString("utf-8", peek, Math.max(peek, bytesRead));
+  const startsMidLine = peek === 1 && bytesRead > 0 && buffer[0] !== 0x0a;
+  if (truncated || startsMidLine) {
     const firstNewline = text.indexOf("\n");
     text = firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
   }
@@ -7466,11 +7492,18 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     // Read only new content from the last known position -- the last
     // CONSOLE_STREAM_MAX_READ_BYTES of it when the client is further behind
     // than that, in which case the held-back fragment of its old position no
-    // longer belongs in front of what is read (resume -1).
+    // longer belongs in front of what is read (resume -1). Without a
+    // held-back fragment for lastSize, the read starts on a whole line
+    // (readConsoleLogRange's wholeLinesOnly).
     const { text: newContent, truncated } = readConsoleLogRange(
       consoleLogPath,
       lastSize,
       stats.size,
+      {
+        wholeLinesOnly: !consoleStreamRemainders.has(
+          consoleStreamRemainderKey(consoleLogPath, lastSize),
+        ),
+      },
     );
     const { completeLines, remainder } = splitConsoleStreamLines(
       consoleLogPath,

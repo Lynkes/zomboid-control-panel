@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { EventEmitter } from 'events';
+import { StringDecoder } from 'string_decoder';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('LogTailer');
 import { getActiveServer, getSetting } from '../database/init.js';
@@ -533,16 +534,42 @@ export class LogTailer extends EventEmitter {
      }
   }
 
+  // Bytes [start, end) of the file as text. Decoded with a StringDecoder kept
+  // per file across reads: `data += chunk` decoded every 64 KB chunk on its
+  // own, and each poll's read ends wherever the game had got to, so a
+  // Cyrillic or CJK character split across either boundary came out as two
+  // U+FFFD (a player's name or chat line mangled on Discord). The decoder
+  // carries the partial character to the next read when that read starts
+  // where this one ended; any other start (a new file, a truncation, a
+  // skipped burst) begins a fresh one.
   readChunk(filePath, start, end) {
     return new Promise((resolve) => {
         // `end` is inclusive in createReadStream, so read up to end-1 or the
         // byte at `end` gets replayed as the first byte of the next chunk.
         if (end <= start) return resolve(null);
+        if (!this._decoders) this._decoders = new Map();
+        let state = this._decoders.get(filePath);
+        if (!state || state.offset !== start) {
+          state = { offset: start, decoder: new StringDecoder('utf8') };
+          this._decoders.set(filePath, state);
+          // Only the files being tailed now: a rotated-away log's entry goes.
+          if (this._decoders.size > 8) this._decoders.delete(this._decoders.keys().next().value);
+        }
         const stream = fs.createReadStream(filePath, { start, end: end - 1 });
         let data = '';
-        stream.on('data', chunk => data += chunk);
-        stream.on('end', () => resolve(data));
-        stream.on('error', () => resolve(null));
+        let bytesRead = 0;
+        stream.on('data', (chunk) => {
+          bytesRead += chunk.length;
+          data += state.decoder.write(chunk);
+        });
+        stream.on('end', () => {
+          state.offset = start + bytesRead;
+          resolve(data);
+        });
+        stream.on('error', () => {
+          this._decoders.delete(filePath);
+          resolve(null);
+        });
     });
   }
 

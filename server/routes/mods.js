@@ -2924,17 +2924,36 @@ router.post("/add-to-ini", async (req, res) => {
   }
 });
 
+// The first id= after the description's first [code], when a [/code] follows
+// it: what /\[code\][\s\S]*?id\s*=\s*([^\s\[\]]+)[\s\S]*?\[\/code\]/i
+// matched, found in one pass. That regex retried every [code] against every
+// id= and every later position (cubic: a 16,000-character Workshop
+// description took 2.7 s). A later [code] can only find the same id= or a
+// later one, and the value stops at "[", so this is the same answer.
+function matchCodeBlockId(text) {
+  const open = /\[code\]/i.exec(text);
+  if (!open) return null;
+  const idPattern = /id\s*=\s*([^\s[\]]+)/gi;
+  idPattern.lastIndex = open.index + open[0].length;
+  const idMatch = idPattern.exec(text);
+  if (!idMatch) return null;
+  const close = /\[\/code\]/gi;
+  close.lastIndex = idMatch.index + idMatch[0].length;
+  return close.test(text) ? idMatch : null;
+}
+
 export function extractWorkshopModId(description, title) {
   const patterns = [
     /Mod\s*ID\s*[:=]\s*([^\n\r\[\]<>]+)/i,
     /\bid\s*=\s*([^\n\r\[\]<>]+)/i,
     /\bMod\s*:\s*([^\n\r\[\]<>]+)/i,
-    /\[code\][\s\S]*?id\s*=\s*([^\s\n\r\[\]]+)[\s\S]*?\[\/code\]/i,
+    matchCodeBlockId,
     /IDs\s*[:=]\s*([^\n\r\[\]<>]+)/i,
   ];
 
+  const text = String(description || "");
   for (const pattern of patterns) {
-    const match = String(description || "").match(pattern);
+    const match = typeof pattern === "function" ? pattern(text) : text.match(pattern);
     if (!match) continue;
     const candidate = match[1].trim();
     if (/^[A-Za-z0-9_-]+$/.test(candidate) && candidate.length > 0) {

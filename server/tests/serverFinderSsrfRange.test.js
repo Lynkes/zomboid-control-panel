@@ -233,3 +233,66 @@ describe("deriveEmptyReason: the master-list zero-collapse, disambiguated", () =
     ).toBe("no-servers-responded");
   });
 });
+
+// Security audit 2026-10-20: isPrivateIp() accepted legacy IPv4 spellings
+// ("012.0.0.1" read as 12.0.0.1), but dgram resolves a non-literal through
+// getaddrinfo, and glibc reads a leading 0 as octal: 012.0.0.1 is 10.0.0.1,
+// 0177.0.0.1 is 127.0.0.1 -- past the guard on Linux. Only canonical
+// dotted-decimal IPv4 passes now, and queryServerInfo() itself refuses
+// anything that is not an IPv4 literal.
+describe("isPrivateIp: only canonical dotted-decimal IPv4 passes", () => {
+  it.each([
+    "012.0.0.1", // glibc: 10.0.0.1
+    "0177.0.0.1", // glibc: 127.0.0.1
+    "192.0250.0.1", // glibc: 192.168.0.1
+    "0x7f.1",
+    "0x7f.0.0.1",
+    "127.1",
+    "2130706433",
+    "017700000001",
+    "1.2.3.04",
+    "08.8.8.8",
+    " 8.8.8.8",
+    "8.8.8.8 ",
+    "8.8.8.8\n",
+    "8.8.8.8.",
+    "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
+    "::1",
+    "2001:4860:4860::8888",
+    "localhost",
+    "example.com",
+    "",
+  ])("refuses %j", (ip) => {
+    expect(isPrivateIp(ip)).toBe(true);
+  });
+
+  it("still lets a canonical public address through", () => {
+    expect(isPrivateIp("8.8.8.8")).toBe(false);
+    expect(isPrivateIp("203.0.113.50")).toBe(false);
+  });
+});
+
+describe("queryServerInfo: never resolves a name", () => {
+  it.each(["0177.0.0.1", "127.1", "localhost", "2130706433"])(
+    "sends nothing for %j (a listener on 127.0.0.1 hears no packet)",
+    async (ip) => {
+      const listener = dgram.createSocket("udp4");
+      let received = 0;
+      listener.on("message", () => {
+        received += 1;
+      });
+      await new Promise((resolve) => listener.bind(0, "127.0.0.1", resolve));
+      try {
+        const reasons = [];
+        const result = await queryServerInfo(ip, listener.address().port, (r) => reasons.push(r));
+        expect(result).toBeNull();
+        expect(reasons).toEqual(["socket-error"]);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(received).toBe(0);
+      } finally {
+        listener.close();
+      }
+    },
+  );
+});

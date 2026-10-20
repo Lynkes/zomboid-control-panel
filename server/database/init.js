@@ -2714,21 +2714,105 @@ export async function getPlayerStat(playerName, serverId = undefined) {
 // started for each (player, server) pair going forward; the untagged row
 // stays exactly as it was, still readable via getPlayerStat()/
 // getPlayerStats() as that player's figures until a tagged row exists.
+//
+// SECURITY (2026-10-20): a row was added for every distinct name that ever
+// connected, never removed, and found with a scan of every row: a client
+// joining under endless made-up names grew db.json (rewritten whole on each
+// write) and every connect's lookup without bound. Rows are now found
+// through an index, and each server keeps at most
+// PLAYER_STATS_LIMITS.maxRowsPerServer of them (see evictPlayerStats()).
+export const PLAYER_STATS_LIMITS = Object.freeze({ maxRowsPerServer: 5000 });
+
+// server_id (null for an untagged row) -> lower-cased name -> the first row
+// with that pair, as the old .find() returned. Rebuilt whenever the array is
+// not the one indexed or changed length behind its back (a restore or an
+// import replaces db.data).
+let playerStatIndex = null;
+
+function playerStatServerKey(serverId) {
+  return serverId ?? null;
+}
+
+function getPlayerStatIndex(rows) {
+  if (playerStatIndex?.rows === rows && playerStatIndex.length === rows.length) {
+    return playerStatIndex;
+  }
+  const byServer = new Map();
+  for (const row of rows) {
+    const serverKey = playerStatServerKey(row.server_id);
+    let byName = byServer.get(serverKey);
+    if (!byName) byServer.set(serverKey, (byName = new Map()));
+    const nameKey = String(row.player_name).toLowerCase();
+    if (!byName.has(nameKey)) byName.set(nameKey, row);
+  }
+  playerStatIndex = { rows, length: rows.length, byServer };
+  return playerStatIndex;
+}
+
+// Makes room for one more row of `serverId`: drops the server's rows seen
+// longest ago until it holds fewer than the cap. Never a player with a
+// session open (they are online). Players with under an hour of playtime go
+// first, so a flood of made-up names makes room among its own rows rather
+// than the regulars', and players with a moderator note go last (the note
+// itself lives in player_notes and is kept either way; the row is only
+// playtime).
+const PLAYER_STATS_ESTABLISHED_SECONDS = 3600;
+
+function evictPlayerStats(db, index, serverId) {
+  const byName = index.byServer.get(playerStatServerKey(serverId));
+  const cap = PLAYER_STATS_LIMITS.maxRowsPerServer;
+  if (!byName || byName.size < cap) return;
+  const noted = new Set(
+    (db.data.player_notes || []).map((note) => String(note.player_name).toLowerCase()),
+  );
+  const candidates = [];
+  for (const [nameKey, row] of byName) {
+    if (row.last_session_start) continue;
+    candidates.push({
+      nameKey,
+      row,
+      noted: noted.has(nameKey),
+      established: (Number(row.total_playtime_seconds) || 0) >= PLAYER_STATS_ESTABLISHED_SECONDS,
+    });
+  }
+  candidates.sort(
+    (left, right) =>
+      Number(left.noted) - Number(right.noted) ||
+      Number(left.established) - Number(right.established) ||
+      String(left.row.last_seen ?? "").localeCompare(String(right.row.last_seen ?? "")),
+  );
+  const evicted = new Set();
+  for (const { nameKey, row } of candidates.slice(0, byName.size - cap + 1)) {
+    byName.delete(nameKey);
+    evicted.add(row);
+  }
+  if (evicted.size === 0) return;
+  // In place, so a caller holding the array (getPlayerStats()) sees it too.
+  const rows = db.data.player_stats;
+  let kept = 0;
+  for (const row of rows) {
+    if (evicted.has(row)) continue;
+    rows[kept++] = row;
+  }
+  rows.length = kept;
+  playerStatIndex = null;
+}
+
 export async function recordPlayerSession(playerName, action, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
   const targetServerId = serverId !== undefined ? serverId : await getActiveServerId();
 
-  let playerStat = db.data.player_stats.find(
-    (p) =>
-      p.player_name.toLowerCase() === playerName.toLowerCase() &&
-      (p.server_id ?? null) === targetServerId,
-  );
+  let index = getPlayerStatIndex(db.data.player_stats);
+  const nameKey = String(playerName).toLowerCase();
+  let playerStat = index.byServer.get(playerStatServerKey(targetServerId))?.get(nameKey);
 
   const now = new Date().toISOString();
 
   if (!playerStat) {
+    evictPlayerStats(db, index, targetServerId);
+    index = getPlayerStatIndex(db.data.player_stats);
     playerStat = {
       id: generateId(),
       player_name: playerName,
@@ -2742,6 +2826,10 @@ export async function recordPlayerSession(playerName, action, serverId = undefin
       pending_suspend_adjustment_seconds: 0,
     };
     db.data.player_stats.push(playerStat);
+    const serverKey = playerStatServerKey(targetServerId);
+    if (!index.byServer.has(serverKey)) index.byServer.set(serverKey, new Map());
+    index.byServer.get(serverKey).set(nameKey, playerStat);
+    index.length = db.data.player_stats.length;
   }
 
   if (action === "connect") {
