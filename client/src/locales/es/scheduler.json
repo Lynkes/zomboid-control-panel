@@ -5,6 +5,10 @@
     "eyebrow": "Mantenimiento",
     "newTask": "Nueva tarea"
   },
+  "settings": {
+    "title": "Ajustes del programador",
+    "description": "La zona horaria de todas las programaciones y la cuenta atrás que ven los jugadores antes de un reinicio."
+  },
   "fetchError": {
     "title": "No se pudieron cargar los datos del programador",
     "fallback": "No se pudieron cargar los datos del programador. Es posible que el backend no esté disponible.",
@@ -140,8 +144,10 @@
     "welcome": "¡Bienvenidos! Por favor, lean las reglas al aparecer"
   },
   "scheduledTasks": {
-    "title": "Tareas programadas",
-    "description": "Administrar comandos automatizados.",
+    "title": "Tareas",
+    "description": "Comandos que se ejecutan según un horario. Ejecuta uno ahora, edítalo o páusalo.",
+    "activeCount": "{{active}} de {{total}} activas",
+    "modUpdatePending": "Reinicio por actualización de mods pendiente",
     "emptyTitle": "No hay tareas programadas",
     "emptyDesc": "Crea una tarea para ejecutar reinicios, guardados, mensajes del servidor o comandos de PanelBridge (clima, servicios) según un horario cron.",
     "emptyActionLabel": "Crear tarea programada",
@@ -201,7 +207,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = diariamente a las 6 a. m."
   },
   "timezone": {
-    "title": "Zona horaria del planificador",
+    "title": "Zona horaria",
     "description": "Todos los horarios de abajo -- tus tareas, la copia de seguridad automática y el reinicio automático -- se ejecutan en esta zona horaria.",
     "inputLabel": "Nombre de zona horaria IANA",
     "noMatches": "No hay ninguna zona horaria coincidente",
@@ -212,7 +218,9 @@
     "backupScheduleOff": "inactiva",
     "autoRestartOn": "activado",
     "autoRestartOff": "desactivado",
-    "backupHealthTitle": "Estado de la copia de seguridad programada",
+    "backupHealthTitle": "Copias de seguridad automáticas",
+    "backupHealthDesc": "La última copia programada del mundo y la siguiente.",
+    "backupHealthLink": "Programación de copias",
     "backupLastAttemptOk": "Último intento correcto · {{date}}",
     "backupLastAttemptFailed": "Último intento fallido · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Último intento omitido por un reinicio · {{date}}",
@@ -222,7 +230,9 @@
     "savedDesc": "Los horarios ahora se ejecutan en {{tz}}.",
     "saveFailedFallback": "No se pudo guardar la zona horaria",
     "fallbackTitle": "La zona horaria guardada ya no es válida",
-    "fallbackDesc": "No se pudo usar «{{configured}}» (puede que se haya eliminado de la base de datos de zonas horarias, o que este panel se haya restaurado desde otra máquina). Los horarios se ejecutan en {{effective}} hasta que esto se corrija."
+    "fallbackDesc": "No se pudo usar «{{configured}}» (puede que se haya eliminado de la base de datos de zonas horarias, o que este panel se haya restaurado desde otra máquina). Los horarios se ejecutan en {{effective}} hasta que esto se corrija.",
+    "fallbackAction": "Cambiar la zona horaria",
+    "emptyReason": "Elige primero una zona horaria."
   },
   "restartWarning": {
     "title": "Avisos de reinicio",
@@ -234,6 +244,7 @@
     "saveButton": "Guardar avisos",
     "saved": "Avisos de reinicio guardados",
     "saveFailed": "No se pudieron guardar los avisos de reinicio",
+    "emptyReason": "Escribe primero el mensaje de la cuenta atrás.",
     "languages": {
       "en": "Inglés",
       "zh-CN": "Chino simplificado",

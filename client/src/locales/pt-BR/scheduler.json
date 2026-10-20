@@ -5,6 +5,10 @@
     "eyebrow": "Manutenção",
     "newTask": "Nova tarefa"
   },
+  "settings": {
+    "title": "Configurações do agendador",
+    "description": "O fuso horário de todos os agendamentos e a contagem regressiva que os jogadores veem antes de um reinício."
+  },
   "fetchError": {
     "title": "Não foi possível carregar os dados do agendador",
     "fallback": "Falha ao carregar os dados do agendador. O backend pode estar inacessível.",
@@ -140,8 +144,10 @@
     "welcome": "Bem-vindos! Leiam as regras no ponto de spawn"
   },
   "scheduledTasks": {
-    "title": "Tarefas agendadas",
-    "description": "Gerencie comandos automatizados.",
+    "title": "Tarefas",
+    "description": "Comandos que rodam em horários definidos. Execute um agora, edite-o ou pause-o.",
+    "activeCount": "{{active}} de {{total}} ativas",
+    "modUpdatePending": "Reinício por atualização de mod pendente",
     "emptyTitle": "Nenhuma tarefa agendada",
     "emptyDesc": "Crie uma tarefa para executar reinícios, salvamentos, mensagens do servidor ou comandos do PanelBridge (clima, energia e água) em um agendamento cron.",
     "emptyActionLabel": "Criar tarefa agendada",
@@ -201,7 +207,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = diariamente às 6h"
   },
   "timezone": {
-    "title": "Fuso horário do agendador",
+    "title": "Fuso horário",
     "description": "Todos os agendamentos abaixo -- suas tarefas, o backup automático e o reinício automático -- usam este fuso horário.",
     "inputLabel": "Nome do fuso horário IANA",
     "noMatches": "Nenhum fuso horário correspondente",
@@ -212,7 +218,9 @@
     "backupScheduleOff": "inativo",
     "autoRestartOn": "ativado",
     "autoRestartOff": "desativado",
-    "backupHealthTitle": "Saúde do agendamento de backup",
+    "backupHealthTitle": "Backups automáticos",
+    "backupHealthDesc": "O último backup agendado do mundo e o próximo.",
+    "backupHealthLink": "Agenda de backups",
     "backupLastAttemptOk": "Última tentativa concluída · {{date}}",
     "backupLastAttemptFailed": "Última tentativa falhou · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Última tentativa pulada por causa de um reinício · {{date}}",
@@ -222,7 +230,9 @@
     "savedDesc": "Os agendamentos agora usam {{tz}}.",
     "saveFailedFallback": "Falha ao salvar o fuso horário",
     "fallbackTitle": "O fuso horário salvo não é mais válido",
-    "fallbackDesc": "Não foi possível usar \"{{configured}}\" (ele pode ter sido removido do banco de dados de fusos horários, ou este painel foi restaurado de outra máquina). Os agendamentos estão usando {{effective}} até que isso seja corrigido."
+    "fallbackDesc": "Não foi possível usar \"{{configured}}\" (ele pode ter sido removido do banco de dados de fusos horários, ou este painel foi restaurado de outra máquina). Os agendamentos estão usando {{effective}} até que isso seja corrigido.",
+    "fallbackAction": "Alterar o fuso horário",
+    "emptyReason": "Escolha um fuso horário primeiro."
   },
   "restartWarning": {
     "title": "Avisos de reinício",
@@ -234,6 +244,7 @@
     "saveButton": "Salvar avisos",
     "saved": "Avisos de reinício salvos",
     "saveFailed": "Falha ao salvar os avisos de reinício",
+    "emptyReason": "Escreva primeiro a mensagem da contagem regressiva.",
     "languages": {
       "en": "Inglês",
       "zh-CN": "Chinês (simplificado)",

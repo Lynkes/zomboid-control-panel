@@ -3,7 +3,11 @@
     "title": "Planifikatè",
     "description": "Otomatize tach sèvè ak redemaraj",
     "eyebrow": "Antretyen",
-    "newTask": "Nouvo Tach"
+    "newTask": "Nouvo tach"
+  },
+  "settings": {
+    "title": "Paramèt planifikatè a",
+    "description": "Fizo orè tout orè yo kouri ladan l, ak kontaj jwè yo wè anvan yon redemaraj."
   },
   "fetchError": {
     "title": "Done planifikatè a pa t kapab chaje",
@@ -86,7 +90,7 @@
     "modUpdatePending": "An atant"
   },
   "manualRestart": {
-    "title": "Redemaraj Manyèl",
+    "title": "Redemaraj manyèl",
     "descRunning": "Chwazi yon kontdaoun — jwè yo avèti epi sèvè a redemare lè li fini.",
     "descOffline": "Sèvè a òfliy — demare l anvan w lanse yon redemaraj.",
     "noPermission": "Pou ou redemare sèvè a, ou bezwen pèmisyon server.control, e wòl sa a pa genyen li.",
@@ -104,7 +108,7 @@
     "editWarningMessage": "Modifye mesaj avètisman an"
   },
   "quickBroadcasts": {
-    "title": "Difizyon Rapid",
+    "title": "Difizyon rapid",
     "descRunning": "Voye anons komen bay tout jwè.",
     "descOffline": "Sèvè a òfliy — difizyon mande yon sèvè k ap fonksyone.",
     "maintenanceStart": "Kòmansman Antretyen",
@@ -119,8 +123,10 @@
     "welcome": "Byenveni! Tanpri li règ yo nan pwen kòmansman an"
   },
   "scheduledTasks": {
-    "title": "Tach Pwograme",
-    "description": "Jere kòmand otomatize.",
+    "title": "Tach yo",
+    "description": "Kòmand ki kouri dapre yon orè. Kouri youn kounye a, modifye l oswa poze l.",
+    "activeCount": "{{active}} sou {{total}} aktif",
+    "modUpdatePending": "Redemaraj mizajou mod an atant",
     "emptyTitle": "Pa gen tach pwograme",
     "emptyDesc": "Kreye yon tach pou fè rekòmansaj, sovgad, mesaj sèvè, oswa kòmand PanelBridge (move tan, sèvis) dapre yon orè cron.",
     "emptyActionLabel": "Kreye Tach Pwograme",
@@ -142,7 +148,7 @@
     "deleteConfirm": "Efase"
   },
   "executionHistory": {
-    "title": "Istorik Egzekisyon",
+    "title": "Istorik egzekisyon",
     "description": "Jounal egzekisyon tach resamman.",
     "refresh": "Rafrechi",
     "clear": "Efase",
@@ -163,7 +169,7 @@
     }
   },
   "cronHelp": {
-    "title": "Èd Ekspresyon Cron",
+    "title": "Èd ekspresyon cron",
     "minuteLabel": "Minit",
     "minuteRange": "0-59",
     "hourLabel": "Èdtan",
@@ -180,7 +186,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = chak jou a 6 AM"
   },
   "timezone": {
-    "title": "Fizo Orè Pwogramatè a",
+    "title": "Fizo orè",
     "description": "Chak orè anba a -- tach ou yo, sovgad otomatik la, ak redemaraj otomatik la -- fonksyone nan fizo orè sa a.",
     "inputLabel": "Non fizo orè IANA",
     "noMatches": "Pa gen okenn fizo orè ki koresponn",
@@ -191,7 +197,9 @@
     "backupScheduleOff": "inaktif",
     "autoRestartOn": "aktive",
     "autoRestartOff": "dezaktive",
-    "backupHealthTitle": "Sante orè sovgad la",
+    "backupHealthTitle": "Sovgad otomatik",
+    "backupHealthDesc": "Dènye sovgad monn ki te pwograme a ak pwochen an.",
+    "backupHealthLink": "Orè sovgad",
     "backupLastAttemptOk": "Dènye eseyè te reyisi · {{date}}",
     "backupLastAttemptFailed": "Dènye eseyè echwe · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Dènye eseyè a sote pandan yon redemaraj · {{date}}",
@@ -201,10 +209,12 @@
     "savedDesc": "Orè yo kounye a fonksyone nan {{tz}}.",
     "saveFailedFallback": "Pa t kapab sove fizo orè a",
     "fallbackTitle": "Fizo orè ki sove a pa valab ankò",
-    "fallbackDesc": "Nou pa t kapab itilize \"{{configured}}\" (petèt yo retire l nan baz done fizo orè yo, oswa panel sa a restore soti nan yon lòt machin). Orè yo ap fonksyone nan {{effective}} jiskaske pwoblèm sa a rezoud."
+    "fallbackDesc": "Nou pa t kapab itilize \"{{configured}}\" (petèt yo retire l nan baz done fizo orè yo, oswa panel sa a restore soti nan yon lòt machin). Orè yo ap fonksyone nan {{effective}} jiskaske pwoblèm sa a rezoud.",
+    "fallbackAction": "Chanje fizo orè a",
+    "emptyReason": "Chwazi yon fizo orè dabò."
   },
   "restartWarning": {
-    "title": "Avètisman Redèmaj",
+    "title": "Avètisman redemaraj",
     "description": "Mesaj kontdaoun redèmaj otomatik ki voye bay tout jwè konekte yo.",
     "languageLabel": "Lang mesaj la",
     "templateLabel": "Modèl kontdaoun",
@@ -213,6 +223,7 @@
     "saveButton": "Sove avètisman yo",
     "saved": "Avètisman redèmaj yo sove",
     "saveFailed": "Nou pa t kapab sove avètisman redèmaj yo",
+    "emptyReason": "Ekri mesaj kontaj la dabò.",
     "languages": {
       "en": "Anglè",
       "zh-CN": "Chinwa senplifye",

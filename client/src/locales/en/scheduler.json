@@ -3,7 +3,11 @@
     "title": "Scheduler",
     "description": "Automate server tasks and restarts",
     "eyebrow": "Maintenance",
-    "newTask": "New Task"
+    "newTask": "New task"
+  },
+  "settings": {
+    "title": "Scheduler settings",
+    "description": "The timezone every schedule runs in, and the countdown players see before a restart."
   },
   "fetchError": {
     "title": "Scheduler data could not be loaded",
@@ -86,7 +90,7 @@
     "modUpdatePending": "Pending"
   },
   "manualRestart": {
-    "title": "Manual Restart",
+    "title": "Manual restart",
     "descRunning": "Pick a countdown — players are warned and the server restarts when it ends.",
     "descOffline": "Server is offline — start it before issuing a restart.",
     "noPermission": "Restarting the server requires the server.control permission, which this role doesn't have.",
@@ -103,7 +107,7 @@
     "editWarningMessage": "Edit the warning message"
   },
   "quickBroadcasts": {
-    "title": "Quick Broadcasts",
+    "title": "Quick broadcasts",
     "descRunning": "Send common announcements to all players.",
     "descOffline": "Server is offline — broadcasts require a running server.",
     "maintenanceStart": "Maintenance Start",
@@ -118,8 +122,10 @@
     "welcome": "Welcome! Please read the rules at spawn"
   },
   "scheduledTasks": {
-    "title": "Scheduled Tasks",
-    "description": "Manage automated commands.",
+    "title": "Tasks",
+    "description": "Commands that run on a schedule. Run one now, edit it or pause it.",
+    "activeCount": "{{active}} of {{total}} active",
+    "modUpdatePending": "Mod-update restart pending",
     "emptyTitle": "No scheduled tasks",
     "emptyDesc": "Create a task to run restarts, saves, server messages, or PanelBridge commands (weather, utilities) on a cron schedule.",
     "emptyActionLabel": "Create scheduled task",
@@ -141,7 +147,7 @@
     "deleteConfirm": "Delete"
   },
   "executionHistory": {
-    "title": "Execution History",
+    "title": "Execution history",
     "description": "Recent task execution log.",
     "refresh": "Refresh",
     "clear": "Clear",
@@ -161,7 +167,7 @@
     }
   },
   "cronHelp": {
-    "title": "Cron Expression Help",
+    "title": "Cron expression help",
     "minuteLabel": "Minute",
     "minuteRange": "0-59",
     "hourLabel": "Hour",
@@ -178,7 +184,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = daily at 6 AM"
   },
   "timezone": {
-    "title": "Scheduler Timezone",
+    "title": "Timezone",
     "description": "Every schedule below -- your tasks, the automatic backup, and auto-restart -- runs in this timezone.",
     "inputLabel": "IANA timezone name",
     "noMatches": "No matching timezone",
@@ -189,7 +195,9 @@
     "backupScheduleOff": "inactive",
     "autoRestartOn": "on",
     "autoRestartOff": "off",
-    "backupHealthTitle": "Backup schedule health",
+    "backupHealthTitle": "Automatic backups",
+    "backupHealthDesc": "The latest scheduled world backup and the next one.",
+    "backupHealthLink": "Backup schedule",
     "backupLastAttemptOk": "Last attempt succeeded · {{date}}",
     "backupLastAttemptFailed": "Last attempt failed · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Last attempt skipped for a restart · {{date}}",
@@ -199,10 +207,12 @@
     "savedDesc": "Schedules now run in {{tz}}.",
     "saveFailedFallback": "Failed to save the timezone",
     "fallbackTitle": "Saved timezone is no longer valid",
-    "fallbackDesc": "\"{{configured}}\" could not be used (it may have been removed from the timezone database, or this panel was restored from a different machine). Schedules are running in {{effective}} until this is fixed."
+    "fallbackDesc": "\"{{configured}}\" could not be used (it may have been removed from the timezone database, or this panel was restored from a different machine). Schedules are running in {{effective}} until this is fixed.",
+    "fallbackAction": "Change the timezone",
+    "emptyReason": "Pick a timezone first."
   },
   "restartWarning": {
-    "title": "Restart Warnings",
+    "title": "Restart warnings",
     "description": "Automatic restart countdown messages sent to every connected player.",
     "languageLabel": "Message language",
     "templateLabel": "Countdown template",
@@ -211,6 +221,7 @@
     "saveButton": "Save warnings",
     "saved": "Restart warnings saved",
     "saveFailed": "Failed to save restart warnings",
+    "emptyReason": "Write the countdown message first.",
     "languages": {
       "en": "English",
       "zh-CN": "Chinese (Simplified)",
