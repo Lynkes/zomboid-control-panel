@@ -513,6 +513,27 @@ export default function Mods() {
   const autoDiscoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastAutoDiscoverIdRef = useRef<string | null>(null)
 
+  // Every way the Add-mod dialog closes (Escape, Cancel, the collection
+  // link, a finished add) resets it and stops its lookup: the server stops
+  // its SteamCMD download when the request goes away, a reopened dialog
+  // takes a new URL, and the old result never lands in it.
+  const setAdvancedAddDialogOpen = useCallback((open: boolean) => {
+    setAdvancedAddOpen(open)
+    if (open) return
+    discoverAbortRef.current?.abort()
+    discoverAbortRef.current = null
+    setDiscoveringMod(false)
+    setAdvancedModInput('')
+    setDiscoveredMod(null)
+    setSelectedModIds(new Set())
+    setShowAdvancedIdSelection(false)
+    lastAutoDiscoverIdRef.current = null
+    if (autoDiscoverTimeoutRef.current) {
+      clearTimeout(autoDiscoverTimeoutRef.current)
+      autoDiscoverTimeoutRef.current = null
+    }
+  }, [])
+
   // Mod Presets
   interface ModPreset {
     id: number
@@ -1335,6 +1356,9 @@ export default function Mods() {
       // mod IDs are known now and get enabled with it (otherwise it is only added to
       // WorkshopItems= and the server downloads it on a later boot, too late to enable it).
       const result = await modsApi.discoverModIds(workshopId, undefined, { signal: controller.signal, download: true })
+      // Superseded, or the dialog was closed: this result belongs to nobody
+      // now and must not fill a reopened dialog.
+      if (controller.signal.aborted) return
 
       // Filter out duplicate mod IDs (case-insensitive)
       const seenIds = new Set<string>()
@@ -1385,14 +1409,22 @@ export default function Mods() {
         })
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') return // Superseded by newer request
+      // Superseded by a newer request, or the dialog was closed. (The request
+      // layer reports an abort as its own error type, so the signal is the
+      // reliable test.)
+      if (controller.signal.aborted) return
+      if (error instanceof DOMException && error.name === 'AbortError') return
       toast({
         title: t('toasts.discoveryFailedTitle'),
         description: getUserErrorMessage(error, t('toasts.discoveryFailedFallback')),
         variant: 'destructive',
       })
     } finally {
-      setDiscoveringMod(false)
+      // Closing the dialog already reset this; a newer discovery owns it.
+      if (discoverAbortRef.current === controller) {
+        discoverAbortRef.current = null
+        setDiscoveringMod(false)
+      }
     }
   }, [discoveringMod, iniConfig?.modIds, iniConfig?.workshopIds, toast, t, canManageMods])
 
@@ -1499,7 +1531,7 @@ export default function Mods() {
       setAdvancedModInput('')
       setDiscoveredMod(null)
       setSelectedModIds(new Set())
-      setAdvancedAddOpen(false)
+      setAdvancedAddDialogOpen(false)
       fetchData()
     } catch (error) {
       toast({
@@ -3620,20 +3652,7 @@ export default function Mods() {
             </Dialog>
 
             {/* Add Single Mod Dialog - Improved with Multi-ID support */}
-            <Dialog open={advancedAddOpen} onOpenChange={(open) => {
-                setAdvancedAddOpen(open)
-                if (!open) {
-                  setAdvancedModInput('')
-                  setDiscoveredMod(null)
-                  setSelectedModIds(new Set())
-                  setShowAdvancedIdSelection(false)
-                  lastAutoDiscoverIdRef.current = null
-                  if (autoDiscoverTimeoutRef.current) {
-                    clearTimeout(autoDiscoverTimeoutRef.current)
-                    autoDiscoverTimeoutRef.current = null
-                  }
-                }
-              }}>
+            <Dialog open={advancedAddOpen} onOpenChange={setAdvancedAddDialogOpen}>
                 {/* 2026-09 dialog sweep: after Discover, the mod panel (and
                     the mod-ID list with Review IDs open, its own 50vh scroller
                     inside a dialog that scrolled as a whole) pushed the Add
@@ -3648,7 +3667,7 @@ export default function Mods() {
                       <button
                         type="button"
                         className="text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 rounded-sm"
-                        onClick={() => { setAdvancedAddOpen(false); setCollectionDialogOpen(true) }}
+                        onClick={() => { setAdvancedAddDialogOpen(false); setCollectionDialogOpen(true) }}
                       >
                         {t('addModDialog.importCollectionLink')}
                       </button>.
@@ -3910,7 +3929,7 @@ export default function Mods() {
                   <DialogFooter className="flex-col sm:flex-row gap-2">
                     <Button
                       variant="outline"
-                      onClick={() => setAdvancedAddOpen(false)}
+                      onClick={() => setAdvancedAddDialogOpen(false)}
                       className="w-full sm:order-1 sm:w-auto"
                     >
                       {t('addModDialog.cancel')}
