@@ -66,6 +66,7 @@ import {
 import {
   createRestoreStagingDir,
   extractArchiveToStaging,
+  normalizeZipEntryPath,
   sweepStaleRestoreStaging,
 } from "./backupRestoreExtract.js";
 
@@ -2451,9 +2452,18 @@ export class BackupService {
       return { ok: false, corruptFiles: [`(could not read archive directory: ${error.message})`] };
     }
 
+    const stagingRoot = path.resolve(stagingPath) + path.sep;
     for (const entry of archive.files) {
       if (entry.type !== "File") continue;
-      const entryPath = path.join(stagingPath, entry.path);
+      // Same separators as the extraction (normalizeZipEntryPath()), so a
+      // backslash-separated zip is checked where it was written.
+      const entryPath = path.join(stagingPath, normalizeZipEntryPath(entry.path));
+      // An entry the extraction refused as a traversal: never read a file
+      // outside staging to compare it (and a zip carrying one is refused).
+      if (!path.resolve(entryPath).startsWith(stagingRoot)) {
+        corruptFiles.push(`${entry.path} (outside the archive's folder)`);
+        continue;
+      }
 
       let actualCrc32;
       try {

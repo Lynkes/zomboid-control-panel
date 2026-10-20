@@ -103,6 +103,16 @@ export function sweepStaleRestoreStaging(savesParentPath) {
 }
 
 /**
+ * An entry's path with "/" separators. Windows PowerShell 5.1's
+ * Compress-Archive writes "servertest\map_meta.bin", which on Linux is one
+ * file with a backslash in its name, not a folder. Normalised BEFORE any
+ * containment check, so "..\..\x" is caught as the traversal it is.
+ */
+export function normalizeZipEntryPath(entryPath) {
+  return String(entryPath).replace(/\\/g, "/");
+}
+
+/**
  * Stream-extract a backup archive into `stagingPath` with zip-slip protection.
  *
  * It resolves once the whole archive has been parsed AND every entry's write
@@ -185,7 +195,7 @@ export function extractArchiveToStaging(unzip, backupPath, stagingPath) {
           return;
         }
         try {
-          const entryPath = path.join(stagingPath, entry.path);
+          const entryPath = path.join(stagingPath, normalizeZipEntryPath(entry.path));
           const resolvedEntry = path.resolve(entryPath);
 
           // Block zip-slip: entry must resolve inside the target directory
