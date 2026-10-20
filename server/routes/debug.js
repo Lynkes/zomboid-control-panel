@@ -480,6 +480,24 @@ function redactRawLogText(text, knownSecrets) {
   return out;
 }
 
+// One in-memory log buffer entry (addLogToBuffer) with every string field
+// redacted like a raw log line; a non-string message is turned into its JSON
+// text first, so nothing reaches the bundle unscrubbed.
+function redactLogBufferEntry(entry, knownSecrets) {
+  if (!entry || typeof entry !== "object") return entry;
+  const out = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (typeof value === "string") {
+      out[key] = redactRawLogText(value, knownSecrets);
+    } else if (value !== null && typeof value === "object") {
+      out[key] = redactRawLogText(JSON.stringify(value), knownSecrets);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /**
  * Wraps a raw log file's read stream so each COMPLETE line is redacted
  * before it reaches the zip, without ever holding the whole file in
@@ -1757,9 +1775,12 @@ async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
     wrap("db-write-health.json", async () => buildDbWriteHealth()),
     wrap("backups-summary.json", () => buildBackupsSummary(req)),
     wrap("discord-bot-status.json", () => buildDiscordBotStatus(req)),
+    // SECURITY (2026-10-20): these are combined.log's newest lines, so they
+    // get the redaction combined.log gets in this bundle
+    // (createRedactingLogStream). They used to go in as they were logged.
     wrap("in-memory-log-buffer.json", async () => ({
       total: logBuffer.length,
-      entries: logBuffer.slice(-MAX_BUFFER_SIZE),
+      entries: logBuffer.slice(-MAX_BUFFER_SIZE).map((entry) => redactLogBufferEntry(entry, knownSecrets)),
     })),
   ]);
 

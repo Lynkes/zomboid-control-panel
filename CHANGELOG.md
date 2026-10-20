@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workshop map folder names:** a map folder whose name holds a line break, ";", "=" or a control character is no longer written to Map=, where it could add other server .ini lines.
 - **Character import:** a skill level outside 0 to 10 is refused, and PanelBridge clamps levels and item numbers, so an import file can no longer freeze the game server.
 - **Docker memory reading:** the dashboard reads memory only from a container labelled for panel management, like the Docker page, its logs and its actions.
+- **Support bundle:** the recent panel log lines in in-memory-log-buffer.json are redacted like combined.log.
 
 ## [1.4.17] - 2026-10-18
 
