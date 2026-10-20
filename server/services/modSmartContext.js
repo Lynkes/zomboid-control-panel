@@ -208,6 +208,26 @@ export async function loadModSmartContext({ content, serverPath, zomboidDataPath
   };
 }
 
+/**
+ * The hard order constraints (require=, also through a required mod Mods=
+ * does not list, and order rules) between the mods of `order`, exactly as the
+ * load-order planner builds them: what the group enforcement of routes/mods.js
+ * passes to the keep-together rule it shares with the planner
+ * (modGroups.js keepTogetherForcedApart). [] when the mod list cannot be read
+ * (the enforcement then keeps every group together, as before).
+ */
+export async function hardOrderEdges(order, { content, serverPath, zomboidDataPath = null }) {
+  try {
+    const ctx = await loadModSmartContext({ content, serverPath, zomboidDataPath, catalogOnly: true });
+    const built = buildLoadOrderConstraints({ order, mods: ctx.catalog, rules: await getModOrderRules() });
+    return built.constraints
+      .filter((c) => c.reason === "require" || c.reason === "rule")
+      .map(({ before, after, reason }) => ({ before, after, reason }));
+  } catch {
+    return [];
+  }
+}
+
 /** The require= links between the known mods, as order-rule cycle edges. */
 export function requireEdgesOf(ctx) {
   const edges = [];

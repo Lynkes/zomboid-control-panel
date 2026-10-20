@@ -124,6 +124,7 @@ import {
 } from "../utils/modConflictRules.js";
 import { downloadWorkshopItem } from "../services/workshopDownload.js";
 import { addConflictSuggestions, refreshConflictSuggestions } from "../services/modSmartScan.js";
+import { hardOrderEdges } from "../services/modSmartContext.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
 // keeps exporting getModDetailsFromWorkshop for its existing importers.
@@ -5504,19 +5505,24 @@ router.post("/groups/import", async (req, res) => {
   }
 });
 
-// Which groups the CURRENT Mods= order already respects.
+// Which groups the CURRENT Mods= order already respects. A group kept
+// together that require= links or order rules keep apart (another mod must
+// load between its members) is judged on its order alone and carries
+// `forcedApart` (the rule the load-order planner follows too).
 router.get("/groups/status", async (req, res) => {
   try {
-    const iniPath = await resolveActiveIniPathOrRespond(res);
-    if (!iniPath) return;
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
 
-    const order = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
+    const content = readTextFile(active.iniPath);
+    const order = modTokensOf(content).map((token) => token.id);
     const groups = await getModGroups();
-    const statuses = groupsInOrder(order, groups);
+    const hardEdges = await hardOrderEdges(order, { content, ...active });
+    const statuses = groupsInOrder(order, groups, { hardEdges });
     res.json({
       groups: statuses,
       inOrder: statuses.every((status) => status.inOrder),
-      conflicts: applyModGroups(order, groups).conflicts,
+      conflicts: applyModGroups(order, groups, { hardEdges }).conflicts,
     });
   } catch (error) {
     log.error(`Failed to get mod group status: ${error.message}`);
@@ -5530,8 +5536,9 @@ router.get("/groups/status", async (req, res) => {
 router.post("/groups/apply", async (req, res) => {
   try {
     const preview = req.body?.preview === true;
-    const iniPath = await resolveActiveIniPathOrRespond(res);
-    if (!iniPath) return;
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    const { iniPath } = active;
 
     const groups = await getModGroups();
     let result = { order: [], moved: [], conflicts: [] };
@@ -5539,16 +5546,15 @@ router.post("/groups/apply", async (req, res) => {
     let backupWarning = null;
 
     if (preview) {
-      const ids = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
-      result = applyModGroups(ids, groups);
+      const content = readTextFile(iniPath);
+      const ids = modTokensOf(content).map((token) => token.id);
+      result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
     } else {
       await withIniLock(iniPath, async () => {
         let content = readTextFile(iniPath);
         const tokens = modTokensOf(content);
-        result = applyModGroups(
-          tokens.map((token) => token.id),
-          groups,
-        );
+        const ids = tokens.map((token) => token.id);
+        result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
         if (result.moved.length === 0) return;
 
         // Write the entries as they were written (backslashes kept), only in
@@ -5782,7 +5788,7 @@ router.post("/groups/:id/enable", async (req, res) => {
 
     const active = await resolveActiveServerIniOrRespond(res);
     if (!active) return;
-    const { iniPath, serverPath } = active;
+    const { iniPath, serverPath, zomboidDataPath } = active;
     const members = uniqueMemberIds(group);
     const enforce = await isModGroupEnforcementOn();
 
@@ -5815,7 +5821,13 @@ router.post("/groups/:id/enable", async (req, res) => {
       let newOrder = insertInGroupOrder(order, members, enabled);
       if (enforce) {
         try {
-          const applied = applyModGroups(newOrder, groups);
+          // The mod list as it will be (with the items this adds), for the
+          // require= links the keep-together rule reads.
+          const probe = workshopItemsAdded.length
+            ? withIniLine(content, "WorkshopItems", `WorkshopItems=${sanitizeIniList([...workshopItems, ...workshopItemsAdded])}`)
+            : content;
+          const hardEdges = await hardOrderEdges(newOrder, { content: probe, serverPath, zomboidDataPath });
+          const applied = applyModGroups(newOrder, groups, { hardEdges });
           newOrder = applied.order;
           result.groupsAdjusted = applied.moved;
         } catch (error) {
@@ -6011,7 +6023,7 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -6040,7 +6052,11 @@ router.post("/save-order", async (req, res) => {
     let groupConflicts = [];
     try {
       if (await isModGroupEnforcementOn()) {
-        const applied = applyModGroups(modIds, await getModGroups());
+        // A group kept together that require= links or order rules keep
+        // apart only keeps its order: the rule the load-order planner
+        // follows, so saving a plan leaves it as planned.
+        const hardEdges = await hardOrderEdges(modIds, { content: readTextFile(iniPath), serverPath, zomboidDataPath });
+        const applied = applyModGroups(modIds, await getModGroups(), { hardEdges });
         orderToWrite = applied.order;
         groupsAdjusted = applied.moved;
         groupConflicts = applied.conflicts;

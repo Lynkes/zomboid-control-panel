@@ -35,6 +35,7 @@
 
 import { computeOrderingConstraints, normaliseModInfoList } from "./modLoadOrder.js";
 import { usableOrderRules } from "./modOrderRules.js";
+import { keepTogetherForcedApart } from "./modGroups.js";
 
 export const CONSTRAINT_REASONS = Object.freeze({
   require: Object.freeze({ strength: "hard", rank: 0 }),
@@ -689,7 +690,29 @@ function solve(input, ids) {
   }
 
   // ── Units: a block per group kept together, else one mod each ──
-  const blocks = blockGroups.map((b) => ({ ...b, split: false }));
+  // A group kept together yields to hard constraints: the rule shared with
+  // the group enforcement of POST /save-order (modGroups.js
+  // keepTogetherForcedApart), so saving a plan never gathers a group the
+  // plan had to split.
+  const forcedApart = keepTogetherForcedApart(
+    ids,
+    groups,
+    (Array.isArray(input.constraints) ? input.constraints : []).filter(
+      (c) => c && (c.reason === "require" || c.reason === "rule") && index.has(c.before) && index.has(c.after),
+    ),
+  );
+  const blocks = blockGroups.map((b) => ({ ...b, split: forcedApart.has(b.group?.id) }));
+  for (const block of blocks) {
+    if (!block.split) continue;
+    warnings.push({
+      code: "keepTogetherBroken",
+      params: {
+        group: String(block.group.id),
+        groupName: String(block.group.name ?? ""),
+        mods: forcedApart.get(block.group.id).slice(0, SMART_SORT_LIMITS.maxCycleMods),
+      },
+    });
+  }
   let units;
   let unitOf;
   for (let attempt = 0; attempt <= blocks.length; attempt++) {
