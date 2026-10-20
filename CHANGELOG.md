@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
 - **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
 - **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
+- **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
+- **Failed panel update download:** the Updates card no longer stays on "Downloading".
+- **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
+- **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
 
 ## [1.4.17] - 2026-10-18
 

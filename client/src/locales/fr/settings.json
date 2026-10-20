@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Mise à jour non appliquée",
+    "rolledBackDescription": "Le panneau a redémarré mais exécute la v{{running}}, pas la v{{expected}} : la mise à jour a été annulée ou ne s'est pas appliquée. La section Mises à jour indique ce qui s'est passé."
   },
   "saveButton": {
     "saving": "Enregistrement...",
@@ -987,7 +989,7 @@
     "updateDownloaded": {
       "title": "Mise à jour téléchargée"
     },
-    "updateDownloadedDescDocker": "Le conteneur du panneau est en cours de reconstruction et se reconnectera une fois le contrôle de santé réussi.",
+    "updateDownloadedDescDocker": "Le conteneur du panneau est en cours de recréation. Le panneau ne peut pas confirmer la fin de la mise à jour : s'il ne revient pas, vérifiez l'état ou les journaux du conteneur.",
     "updateDownloadedDescBinary": "Les fichiers de mise à jour sont prêts. Redémarrez le panneau pour appliquer cette version.",
     "downloadFailed": {
       "title": "Échec du téléchargement",

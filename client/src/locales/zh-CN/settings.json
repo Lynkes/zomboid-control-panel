@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "更新未应用",
+    "rolledBackDescription": "面板已重启，但运行的是 v{{running}}，而不是 v{{expected}}：更新已回滚或未能应用。“更新”部分会显示具体情况。"
   },
   "saveButton": {
     "saving": "正在保存…",
@@ -985,7 +987,7 @@
     "updateDownloaded": {
       "title": "更新已下载"
     },
-    "updateDownloadedDescDocker": "面板容器正在重新构建，健康检查通过后将重新连接。",
+    "updateDownloadedDescDocker": "正在重新创建面板容器。面板无法确认更新已完成：如果面板没有恢复，请检查容器的状态或日志。",
     "updateDownloadedDescBinary": "更新文件已就绪，重启面板即可应用此版本。",
     "downloadFailed": {
       "title": "下载失败",
