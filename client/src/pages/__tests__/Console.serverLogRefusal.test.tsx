@@ -102,7 +102,7 @@ describe("Console -- the server log says why the panel won't read it", () => {
     })
     renderConsole()
     expect(await screen.findByText(enConsole.serverLog.unavailableTitle)).toBeInTheDocument()
-    const shown = screen.getByText(/My Servers page/)
+    const shown = screen.getByText(/Servers page/)
     expect(shown.textContent).toBe(enErrors.SERVER_CONSOLE_LOG_NO_DATA_FOLDER)
     expect(screen.queryByText('raw server text')).not.toBeInTheDocument()
   })
