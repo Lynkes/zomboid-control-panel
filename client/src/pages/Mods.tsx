@@ -50,6 +50,8 @@ import { ConflictsPanel } from '@/components/mods/ConflictsPanel'
 import { ModRow, WorkshopIdChip, WorkshopLinkAction, WorkshopThumb } from '@/components/mods/ModRow'
 import { LoadOrderMoveControls, type LoadOrderMoveSource } from '@/components/mods/LoadOrderMoveControls'
 import { BridgeManagedBadge } from '@/components/mods/BridgeManagedBadge'
+import { ModGroupsPanel } from '@/components/mods/ModGroupsPanel'
+import { useGroupOrderNotice } from '@/components/mods/useGroupOrderNotice'
 import { isBridgeManagedMod } from '@/lib/bridgeDeliveryView'
 import type { BridgeManaged } from '@/lib/bridgeDeliveryTypes'
 import {
@@ -269,6 +271,7 @@ export default function Mods() {
   const [savingWorkshopPath, setSavingWorkshopPath] = useState(false)
   const { toast } = useToast()
   const confirm = useConfirm()
+  const noticeGroupOrder = useGroupOrderNotice()
   const { can } = useAuth()
   // mods.js gates every route (including reads) behind mods.manage via a
   // whole-file router.use, except GET /thumbnail/:workshopId -- every
@@ -2250,13 +2253,20 @@ export default function Mods() {
     try {
       setSavingModOrder(true)
       setDraggedModIndex(null)
-      await modsApi.saveModOrder(orderedModIds)
-      setConflicts(prev => prev ? recalculateConflictWinners(prev, orderedModIds) : prev)
-      setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, orderedModIds))
+      const saved = await modsApi.saveModOrder(orderedModIds)
+      // With "Keep group order" on, the server may have moved group members
+      // (groupsAdjusted): what it wrote is then not orderedModIds, so the
+      // conflict winners are not recalculated from it -- the scan reads as
+      // out of date against the reloaded INI instead.
+      if (!(saved?.groupsAdjusted?.length)) {
+        setConflicts(prev => prev ? recalculateConflictWinners(prev, orderedModIds) : prev)
+        setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, orderedModIds))
+      }
       toast({
         title: t('toasts.modOrderSavedTitle'),
         description: t('toasts.modOrderSavedDesc'),
       })
+      noticeGroupOrder(saved)
       // Awaited (fetchData never throws) so savingModOrder -- which locks
       // drag and the row move controls -- stays set until this reload has
       // replaced orderedModIds with what the server wrote. Released any
@@ -2319,14 +2329,19 @@ export default function Mods() {
     busyRef.current = true
     try {
       setSavingModOrder(true)
-      await modsApi.saveModOrder(next)
+      const saved = await modsApi.saveModOrder(next)
       setOrderedModIds(next)
-      setConflicts(prev => prev ? recalculateConflictWinners(prev, next) : prev)
-      setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, next))
+      // Same as handleSaveModOrder: group members the server moved back into
+      // group order mean `next` is not what was written.
+      if (!(saved?.groupsAdjusted?.length)) {
+        setConflicts(prev => prev ? recalculateConflictWinners(prev, next) : prev)
+        setScanIniSnapshot(createConflictScanSnapshot(iniConfig?.workshopIds, next))
+      }
       toast({
         title: t('toasts.loadOrderUpdatedTitle'),
         description: t('toasts.loadOrderUpdatedDesc', { winner: winnerName, loser: loserName }),
       })
+      noticeGroupOrder(saved)
       // Awaited for the same reason as in handleSaveModOrder: savingModOrder
       // also locks the Load Order tab, and a move made there before this
       // reload lands would be overwritten by it.
@@ -5757,6 +5772,15 @@ export default function Mods() {
 
                   return (
                   <div className="space-y-3 sub-tab-enter">
+                    <ModGroupsPanel
+                      canManage={canManageMods}
+                      serverModIds={orderedModIds}
+                      modNames={Object.fromEntries(modIdNameMap)}
+                      savedModIds={iniConfig?.modIds}
+                      orderDirty={hasModOrderChanged}
+                      orderSaving={savingModOrder}
+                      onOrderApplied={fetchData}
+                    />
                     {orderedModIds.length === 0 ? (
                       <div className="flex items-center justify-center py-10 text-muted-foreground">
                         <div className="text-center space-y-2">

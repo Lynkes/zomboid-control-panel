@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
 - **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
 
 ### Fixed
