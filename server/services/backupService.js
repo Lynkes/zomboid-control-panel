@@ -197,6 +197,10 @@ export async function readZipEntryCapped(unzip, filePath, entryPath, maxBytes) {
 //     NOT given a false sense of safety by bolting a liveness check onto a
 //     name that cannot carry one.
 const CENTRAL_TEMP_PATTERN = /^\.central-(\d+)-\d+-[0-9a-z]+\.tmp$/;
+// POST /api/backup/upload streams into `${targetPath}.${pid}.${random}.tmp`
+// (routes/backup.js) and a killed panel left it behind for good: it embeds
+// a pid, so it is swept like the central-directory temp, once that pid is gone.
+const UPLOAD_TEMP_PATTERN = /\.zip\.(\d+)\.[0-9a-z]+\.tmp$/;
 
 // Exported alias, not a fresh implementation: kept so this sweep's own
 // tests and callers can name the check in domain terms (is the temp
@@ -212,9 +216,9 @@ export function cleanupOrphanBackupTemps(backupsPath) {
     return;
   }
   for (const name of entries) {
-    const centralMatch = CENTRAL_TEMP_PATTERN.exec(name);
-    if (centralMatch) {
-      if (isBackupTempOwnerAlive(Number(centralMatch[1]))) continue;
+    const pidMatch = CENTRAL_TEMP_PATTERN.exec(name) || UPLOAD_TEMP_PATTERN.exec(name);
+    if (pidMatch) {
+      if (isBackupTempOwnerAlive(Number(pidMatch[1]))) continue;
     } else if (!name.endsWith(".zip.tmp")) {
       continue;
     }
