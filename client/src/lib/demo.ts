@@ -47,74 +47,101 @@ function normalizeApiPath(input: RequestInfo | URL): string {
 
 const demoTimestamp = '2026-06-24T02:00:00.000Z'
 
-const demoTrackedMods = [
-  {
-    id: 1,
-    workshop_id: '2392709985',
-    name: 'Tsar\'s Common Library 2.0',
-    last_updated: '2026-06-23T20:15:00.000Z',
-    last_checked: demoTimestamp,
-    update_available: 0,
-    created_at: '2026-05-18T12:00:00.000Z',
-    active: true,
-  },
-  {
-    id: 2,
-    workshop_id: '2169435993',
-    name: 'Brita\'s Weapon Pack',
-    last_updated: '2026-06-24T01:10:00.000Z',
-    last_checked: demoTimestamp,
-    update_available: 1,
-    created_at: '2026-05-18T12:05:00.000Z',
-    active: true,
-  },
-  {
-    id: 3,
-    workshop_id: '2004998206',
-    name: 'Raven Creek',
-    last_updated: '2026-06-20T09:30:00.000Z',
-    last_checked: demoTimestamp,
-    update_available: 0,
-    created_at: '2026-05-18T12:10:00.000Z',
-    active: true,
-  },
-  {
-    id: 4,
-    workshop_id: '2849247394',
-    name: 'Authentic Z',
-    last_updated: '2026-06-18T15:45:00.000Z',
-    last_checked: demoTimestamp,
-    update_available: 0,
-    created_at: '2026-05-18T12:15:00.000Z',
-    active: true,
-  },
-  {
-    id: 5,
-    workshop_id: '3000000003',
-    name: 'Expanded Helicopter Events',
-    last_updated: '2026-06-12T08:10:00.000Z',
-    last_checked: demoTimestamp,
-    update_available: 0,
-    created_at: '2026-05-25T14:00:00.000Z',
-    active: false,
-  },
-]
-
-const demoWorkshopModMap = {
-  '2392709985': [{ id: 'TchernoLib', name: 'Tsar\'s Common Library 2.0', enabled: true }],
-  '2169435993': [{ id: 'Brita', name: 'Brita\'s Weapon Pack', enabled: true, require: ['TchernoLib', 'Arsenal(26)GunFighter'] }],
-  '2004998206': [{ id: 'RavenCreek', name: 'Raven Creek', enabled: true }],
-  '2849247394': [
-    { id: 'AuthenticZLite', name: 'Authentic Z Lite', enabled: true },
-    { id: 'AuthenticZBackpacks', name: 'Authentic Z Backpacks', enabled: false },
-  ],
+// The demo server's Workshop items, as a 40-odd mod community server has
+// them: a few frameworks, a KI5 vehicle stack, quality-of-life mods, maps and
+// patches. Each item ships its mod IDs (`require=` from mod.info); `active:
+// false` items are tracked but not in WorkshopItems= (the Deactivated view).
+interface DemoWorkshopItem {
+  workshopId: string
+  name: string
+  mods: Array<{ id: string; name?: string; require?: string[] }>
+  updated: string
+  update?: boolean
+  active?: boolean
 }
 
+const demoWorkshopItems: DemoWorkshopItem[] = [
+  { workshopId: '2392709985', name: 'Tsar\'s Common Library 2.0', mods: [{ id: 'TchernoLib' }], updated: '2026-06-23T20:15:00.000Z' },
+  { workshopId: '2169435993', name: 'Brita\'s Weapon Pack', mods: [{ id: 'Brita', require: ['TchernoLib', 'Arsenal(26)GunFighter'] }], updated: '2026-06-24T01:10:00.000Z', update: true },
+  { workshopId: '2460154811', name: 'Brita\'s Armor Pack', mods: [{ id: 'Brita_2', require: ['Brita'] }], updated: '2026-06-20T17:00:00.000Z' },
+  { workshopId: '2004998206', name: 'Raven Creek', mods: [{ id: 'RavenCreek' }], updated: '2026-06-20T09:30:00.000Z' },
+  {
+    workshopId: '2849247394',
+    name: 'Authentic Z',
+    mods: [{ id: 'AuthenticZLite', name: 'Authentic Z Lite' }, { id: 'AuthenticZBackpacks', name: 'Authentic Z Backpacks' }],
+    updated: '2026-06-18T15:45:00.000Z',
+  },
+  { workshopId: '2730000101', name: '[KI5] Vehicle Library', mods: [{ id: 'KI5Library' }], updated: '2026-06-22T08:00:00.000Z' },
+  { workshopId: '2730000102', name: '[KI5] \'93 Chevrolet K5 Blazer', mods: [{ id: 'KI5_93Blazer', require: ['KI5Library'] }], updated: '2026-06-01T10:00:00.000Z' },
+  { workshopId: '2730000103', name: '[KI5] \'87 Chevrolet Suburban', mods: [{ id: 'KI5_87Suburban', require: ['KI5Library'] }], updated: '2026-05-28T10:00:00.000Z' },
+  { workshopId: '2730000104', name: '[KI5] M35A2 Truck', mods: [{ id: 'KI5_M35A2', require: ['KI5Library'] }], updated: '2026-05-20T10:00:00.000Z' },
+  { workshopId: '2730000105', name: '[KI5] Vehicle Fixes', mods: [{ id: 'KI5Fixes', require: ['KI5Library'] }], updated: '2026-06-23T22:00:00.000Z', update: true },
+  { workshopId: '2169435901', name: 'Mod Options (Build 42)', mods: [{ id: 'ModOptions' }], updated: '2026-04-11T12:00:00.000Z' },
+  { workshopId: '2169435902', name: 'Better Sorting', mods: [{ id: 'BetterSorting' }], updated: '2026-03-02T12:00:00.000Z' },
+  { workshopId: '2169435903', name: 'Better Containers', mods: [{ id: 'BetterContainers' }], updated: '2026-02-14T12:00:00.000Z' },
+  { workshopId: '2169435904', name: 'Map Legend UI', mods: [{ id: 'MapLegendUI' }], updated: '2026-01-09T12:00:00.000Z' },
+  { workshopId: '2169435905', name: 'Common Sense', mods: [{ id: 'CommonSense' }], updated: '2026-05-30T12:00:00.000Z' },
+  { workshopId: '2169435906', name: 'Minimal Display Bars', mods: [{ id: 'MinimalDisplayBars', require: ['ModOptions'] }], updated: '2026-06-05T12:00:00.000Z' },
+  { workshopId: '2169435907', name: 'Eris Minimap', mods: [{ id: 'ErisMinimap', require: ['ModOptions'] }], updated: '2026-06-07T12:00:00.000Z' },
+  { workshopId: '2169435908', name: 'Fancy Handwork', mods: [{ id: 'FancyHandwork' }], updated: '2026-04-21T12:00:00.000Z' },
+  { workshopId: '2169435909', name: 'Proximity Inventory', mods: [{ id: 'ProximityInventory' }], updated: '2026-03-18T12:00:00.000Z' },
+  { workshopId: '2169435910', name: 'Craft Helper Continued', mods: [{ id: 'CraftHelperContinued' }], updated: '2026-05-02T12:00:00.000Z' },
+  { workshopId: '2169435911', name: 'True Music', mods: [{ id: 'truemusic' }], updated: '2026-02-02T12:00:00.000Z' },
+  { workshopId: '2169435912', name: 'True Music Addon - Retro Pack', mods: [{ id: 'truemusic_retro', require: ['truemusic'] }], updated: '2026-02-03T12:00:00.000Z' },
+  { workshopId: '2169435913', name: 'True Music Jukebox', mods: [{ id: 'truemusic_jukebox', require: ['truemusic'] }], updated: '2026-02-04T12:00:00.000Z' },
+  { workshopId: '2169435914', name: 'Clothing Fix Patch', mods: [{ id: 'ClothingFixPatch' }], updated: '2026-06-10T12:00:00.000Z' },
+  {
+    workshopId: '2169435915',
+    name: 'Better Sorting - Authentic Z Compatibility',
+    mods: [{ id: 'BetterSorting_AuthZ_Compat', require: ['BetterSorting', 'AuthenticZLite'] }],
+    updated: '2026-06-11T12:00:00.000Z',
+  },
+  { workshopId: '2169435916', name: 'Bedford Falls', mods: [{ id: 'BedfordFalls' }], updated: '2026-01-20T12:00:00.000Z' },
+  { workshopId: '2169435917', name: 'Fort Rock Ridge', mods: [{ id: 'FortRockRidge' }], updated: '2025-12-12T12:00:00.000Z' },
+  { workshopId: '2169435918', name: 'Pitstop', mods: [{ id: 'Pitstop' }], updated: '2026-03-03T12:00:00.000Z' },
+  { workshopId: '2169435919', name: 'Superb Survivors', mods: [{ id: 'SuperbSurvivors' }], updated: '2025-11-30T12:00:00.000Z' },
+  { workshopId: '2169435920', name: 'Water Dispenser', mods: [{ id: 'WaterDispenser' }], updated: '2026-01-05T12:00:00.000Z' },
+  { workshopId: '2169435921', name: 'Grapeseed', mods: [{ id: 'grapeseed' }], updated: '2026-04-04T12:00:00.000Z' },
+  {
+    workshopId: '2169435922',
+    name: 'Lifestyle: Hobbies',
+    mods: [
+      { id: 'Lifestyle', name: 'Lifestyle: Hobbies' },
+      { id: 'LifestyleDJ', name: 'Lifestyle: DJ' },
+      { id: 'LifestyleDance', name: 'Lifestyle: Dancing' },
+      { id: 'LifestyleMeditation', name: 'Lifestyle: Meditation' },
+    ],
+    updated: '2026-06-19T12:00:00.000Z',
+    update: true,
+  },
+  { workshopId: '2169435923', name: 'Noir\'s Attachments', mods: [{ id: 'noirrsling' }], updated: '2026-02-27T12:00:00.000Z' },
+  { workshopId: '2169435924', name: 'Simple Overhaul: Traits and Occupations', mods: [{ id: 'SOTO' }], updated: '2026-05-15T12:00:00.000Z' },
+  { workshopId: '2169435925', name: 'More Traits', mods: [{ id: 'ToadTraits' }], updated: '2026-04-30T12:00:00.000Z' },
+  { workshopId: '2169435926', name: 'Dynamic Traits', mods: [{ id: 'DynamicTraits' }], updated: '2026-03-25T12:00:00.000Z' },
+  { workshopId: '2169435927', name: 'Skill Recovery Journal', mods: [{ id: 'SkillRecoveryJournal' }], updated: '2026-06-02T12:00:00.000Z' },
+  { workshopId: '2169435928', name: 'Autotsar Trailers', mods: [{ id: 'autotsartrailers', require: ['TchernoLib'] }], updated: '2026-05-09T12:00:00.000Z' },
+  { workshopId: '2169435929', name: 'Ladders', mods: [{ id: 'Ladders' }], updated: '2026-01-29T12:00:00.000Z' },
+  { workshopId: '3000000003', name: 'Expanded Helicopter Events', mods: [{ id: 'ExpandedHelicopterEvents' }], updated: '2026-06-12T08:10:00.000Z', active: false },
+  { workshopId: '3000000004', name: 'Workshop Mod 3000000004', mods: [{ id: 'OldLootTables' }], updated: '2025-10-01T08:10:00.000Z', active: false },
+]
+
+const demoTrackedMods = demoWorkshopItems.map((item, index) => ({
+  id: index + 1,
+  workshop_id: item.workshopId,
+  name: item.name,
+  last_updated: item.updated,
+  last_checked: demoTimestamp,
+  update_available: item.update ? 1 : 0,
+  created_at: '2026-05-18T12:00:00.000Z',
+  active: item.active !== false,
+}))
+
 function demoModsStatus() {
+  const needing = demoWorkshopItems.filter((item) => item.update)
   return {
     totalModsTracked: demoTrackedMods.length,
-    totalModsInWorkshop: 7,
-    updatesAvailable: 1,
+    totalModsInWorkshop: demoWorkshopItems.length + 2,
+    updatesAvailable: needing.length,
     lastCheck: demoTimestamp,
     lastUpdateDetected: '2026-06-24T01:20:00.000Z',
     autoRestartEnabled: true,
@@ -122,24 +149,36 @@ function demoModsStatus() {
     workshopAcfConfigured: true,
     workshopAcfPath: '/opt/pz/steamapps/workshop/appworkshop_108600.acf',
     checkInterval: 30,
-    modsNeedingUpdate: [
-      {
-        workshopId: '2169435993',
-        name: 'Brita\'s Weapon Pack',
-        localTimestamp: '2026-06-23T11:30:00.000Z',
-        latestTimestamp: '2026-06-24T01:10:00.000Z',
-      },
-    ],
+    modsNeedingUpdate: needing.map((item) => ({
+      workshopId: item.workshopId,
+      name: item.name,
+      localTimestamp: '2026-06-23T11:30:00.000Z',
+      latestTimestamp: item.updated,
+    })),
     restartWarningMinutes: 5,
     delayIfPlayersOnline: true,
     maxDelayMinutes: 30,
     pendingRestart: false,
+    steamApiHealthy: true,
+    lastSteamApiFailureAt: null,
+    removedWorkshopIds: [] as string[],
+    unknownWorkshopIds: [] as Array<{ id: string; resultCode: number }>,
   }
 }
 
-// The demo server's Mods= order. Mutable so Save Order and Mod groups' "Apply
-// group order" show up in the Load order tab for as long as the page lives.
-let demoModLoadOrder = ['TchernoLib', 'Brita', 'RavenCreek', 'AuthenticZLite']
+// The demo server's Mods= order. Mutable so Save Order, group enable/disable
+// and "Apply group order" show up for as long as the page lives. Deliberately
+// a little messy: a KI5 car above its library, a True Music add-on above True
+// Music, the KI5 group spread out, so Auto-sort has real work to show.
+const DEMO_INITIAL_LOAD_ORDER = [
+  'ModOptions', 'TchernoLib', 'Brita', 'Brita_2', 'RavenCreek', 'AuthenticZLite', 'KI5_93Blazer', 'KI5Library',
+  'BetterSorting', 'BetterContainers', 'KI5_87Suburban', 'MapLegendUI', 'CommonSense', 'MinimalDisplayBars', 'ErisMinimap',
+  'KI5_M35A2', 'FancyHandwork', 'truemusic_retro', 'truemusic', 'truemusic_jukebox', 'ClothingFixPatch', 'BedfordFalls',
+  'FortRockRidge', 'Pitstop', 'SuperbSurvivors', 'WaterDispenser', 'grapeseed', 'Lifestyle', 'LifestyleDJ', 'LifestyleDance',
+  'LifestyleMeditation', 'noirrsling', 'SOTO', 'ToadTraits', 'DynamicTraits', 'SkillRecoveryJournal', 'CraftHelperContinued',
+  'ProximityInventory', 'autotsartrailers', 'Ladders', 'KI5Fixes', 'BetterSorting_AuthZ_Compat',
+]
+let demoModLoadOrder = [...DEMO_INITIAL_LOAD_ORDER]
 
 interface DemoModGroup {
   id: string
@@ -148,19 +187,24 @@ interface DemoModGroup {
   modIds: string[]
   createdAt: string
   updatedAt: string
+  color: string | null
+  keepTogether: boolean
 }
 
 // Mod groups, in memory: create / edit / delete / import behave until reload.
-// "Survivor gear" starts out of order and "KI5 Vehicles" has members this demo
-// server does not have, so the badges and the "not on this server" text show.
+// "Survivor gear" starts out of order, "KI5 Vehicles" keeps together but is
+// spread out and has a member this server does not have, and "Weapons stack"
+// lists a library that is not enabled, so every badge and note shows.
 let demoModGroups: DemoModGroup[] = [
   {
     id: 'demo-group-1',
     name: 'Weapons stack',
-    description: 'The library first, then the weapon pack.',
-    modIds: ['TchernoLib', 'Brita'],
+    description: 'The library first, then the weapon packs.',
+    modIds: ['TchernoLib', 'Arsenal(26)GunFighter', 'Brita', 'Brita_2'],
     createdAt: '2026-06-10T18:30:00.000Z',
     updatedAt: '2026-06-10T18:30:00.000Z',
+    color: 'red',
+    keepTogether: false,
   },
   {
     id: 'demo-group-2',
@@ -169,18 +213,81 @@ let demoModGroups: DemoModGroup[] = [
     modIds: ['AuthenticZLite', 'RavenCreek'],
     createdAt: '2026-06-12T09:00:00.000Z',
     updatedAt: '2026-06-12T09:00:00.000Z',
+    color: 'teal',
+    keepTogether: false,
   },
   {
     id: 'demo-group-3',
     name: 'KI5 Vehicles',
-    description: 'Library, core, add-ons, then the fixes.',
-    modIds: ['KI5Library', 'KI5Core', 'KI5AddOns', 'KI5Fixes'],
+    description: 'Library, the cars, then the fixes.',
+    modIds: ['KI5Library', 'KI5_93Blazer', 'KI5_87Suburban', 'KI5_M35A2', 'KI5Fixes', 'KI5_Trailers'],
     createdAt: '2026-06-14T16:45:00.000Z',
     updatedAt: '2026-06-14T16:45:00.000Z',
+    color: 'amber',
+    keepTogether: true,
+  },
+  {
+    id: 'demo-group-4',
+    name: 'Quality of life',
+    description: 'UI and inventory helpers everyone on the server uses.',
+    modIds: ['ModOptions', 'BetterSorting', 'BetterContainers', 'MapLegendUI', 'CommonSense', 'MinimalDisplayBars', 'ErisMinimap', 'FancyHandwork', 'ProximityInventory', 'CraftHelperContinued'],
+    createdAt: '2026-06-15T11:00:00.000Z',
+    updatedAt: '2026-06-15T11:00:00.000Z',
+    color: 'sky',
+    keepTogether: false,
+  },
+  {
+    id: 'demo-group-5',
+    name: 'Maps',
+    description: '',
+    modIds: ['RavenCreek', 'BedfordFalls', 'FortRockRidge', 'Pitstop'],
+    createdAt: '2026-06-16T11:00:00.000Z',
+    updatedAt: '2026-06-16T11:00:00.000Z',
+    color: 'lime',
+    keepTogether: false,
+  },
+  {
+    id: 'demo-group-6',
+    name: 'Patches & fixes',
+    description: 'Compatibility patches load after the mods they patch.',
+    modIds: ['ClothingFixPatch', 'BetterSorting_AuthZ_Compat'],
+    createdAt: '2026-06-17T11:00:00.000Z',
+    updatedAt: '2026-06-17T11:00:00.000Z',
+    color: 'pink',
+    keepTogether: false,
   },
 ]
 let demoModGroupSeq = demoModGroups.length
 let demoModGroupsEnforce = false
+
+const DEMO_GROUP_COLORS = new Set(['slate', 'red', 'orange', 'amber', 'lime', 'green', 'teal', 'sky', 'blue', 'violet', 'pink'])
+function demoGroupColor(value: unknown, fallback: string | null): string | null {
+  if (value === null) return null
+  return typeof value === 'string' && DEMO_GROUP_COLORS.has(value) ? value : fallback
+}
+
+// Mod notes, keyed by Workshop item id.
+const demoModNotes: Record<string, { text: string; updatedAt: string; updatedBy: string | null }> = {
+  '2169435993': {
+    text: 'Keep this version until Arsenal GunFighter is back on the Workshop: the update needs it.',
+    updatedAt: '2026-06-22T19:40:00.000Z',
+    updatedBy: 'admin',
+  },
+  '2730000105': {
+    text: 'Must load after every KI5 car. Ask Rowan before removing.',
+    updatedAt: '2026-06-18T08:15:00.000Z',
+    updatedBy: 'rowan',
+  },
+}
+
+// Suggested groups, computed by the real server from require= lines, shared
+// name prefixes and multi-mod Workshop items.
+const demoGroupSuggestions = [
+  { key: 'dependency:modoptions', kind: 'dependency', name: 'Mod Options', modIds: ['ModOptions', 'MinimalDisplayBars', 'ErisMinimap'] },
+  { key: 'prefix:truemusic', kind: 'prefix', name: 'True Music', modIds: ['truemusic', 'truemusic_retro', 'truemusic_jukebox'] },
+  { key: 'workshop-item:2169435922', kind: 'workshop-item', name: 'Lifestyle: Hobbies', modIds: ['Lifestyle', 'LifestyleDJ', 'LifestyleDance', 'LifestyleMeditation'] },
+]
+const demoDismissedSuggestions = new Set<string>()
 
 function demoModGroupsStatus() {
   const groups = demoModGroups.map((group) => {
@@ -217,22 +324,70 @@ function demoModIdList(value: unknown): string[] {
 }
 
 function demoCurrentConfig() {
-  const workshopIds = demoTrackedMods.filter(mod => mod.active !== false).map(mod => mod.workshop_id)
+  const active = demoWorkshopItems.filter((item) => item.active !== false)
+  const workshopIds = active.map((item) => item.workshopId)
   const modIds = [...demoModLoadOrder]
+  const enabled = new Set(modIds)
+  const workshopModMap: Record<string, Array<{ id: string; name: string; enabled: boolean; require?: string[] }>> = {}
+  for (const item of active) {
+    workshopModMap[item.workshopId] = item.mods.map((mod) => ({
+      id: mod.id,
+      name: mod.name ?? item.name,
+      enabled: enabled.has(mod.id),
+      ...(mod.require ? { require: mod.require } : {}),
+    }))
+  }
   return {
     configured: true,
     modIds,
     workshopIds,
-    maps: ['Muldraugh, KY', 'RavenCreek'],
+    maps: ['Muldraugh, KY', 'RavenCreek', 'BedfordFalls', 'FortRockRidge'],
     totalMods: modIds.length,
     iniPath: '/home/pz/Zomboid/Server/DoomerZDemo.ini',
-    workshopModMap: demoWorkshopModMap,
+    workshopModMap,
   }
+}
+
+// Enables a group's members that a Workshop item ships, right after the
+// nearest earlier member (else at the end), like the real route.
+function demoEnableGroup(group: DemoModGroup) {
+  const shipped = new Set(demoWorkshopItems.filter((item) => item.active !== false).flatMap((item) => item.mods.map((mod) => mod.id)))
+  const alreadyEnabled = group.modIds.filter((id) => demoModLoadOrder.includes(id))
+  const wanted = group.modIds.filter((id) => !demoModLoadOrder.includes(id))
+  const enabled = wanted.filter((id) => shipped.has(id))
+  const missing = wanted.filter((id) => !shipped.has(id))
+  const order = [...demoModLoadOrder]
+  for (const id of enabled) {
+    const before = group.modIds.slice(0, group.modIds.indexOf(id)).reverse().find((member) => order.includes(member))
+    order.splice(before ? order.indexOf(before) + 1 : order.length, 0, id)
+  }
+  demoModLoadOrder = order
+  return { enabled, alreadyEnabled, missing, workshopItemsAdded: [] as string[], groupsAdjusted: [] as string[] }
+}
+
+// Disables a group's members; with keepShared, a member of another fully
+// enabled group stays.
+function demoDisableGroup(group: DemoModGroup, keepShared: boolean) {
+  const others = demoModGroups.filter((other) => other.id !== group.id)
+  const disabled: string[] = []
+  const keptShared: string[] = []
+  const notEnabled: string[] = []
+  for (const id of group.modIds) {
+    if (!demoModLoadOrder.includes(id)) {
+      notEnabled.push(id)
+      continue
+    }
+    const shared = keepShared && others.some((other) => other.modIds.includes(id) && other.modIds.every((member) => demoModLoadOrder.includes(member)))
+    if (shared) keptShared.push(id)
+    else disabled.push(id)
+  }
+  demoModLoadOrder = demoModLoadOrder.filter((id) => !disabled.includes(id))
+  return { disabled, keptShared, notEnabled, keptManaged: [] as string[] }
 }
 
 function demoConflictScan() {
   return {
-    totalConflicts: 3,
+    totalConflicts: 4,
     identicalSkipped: 14,
     additiveSkipped: 6,
     pzAdditiveSkipped: 4,
@@ -243,12 +398,12 @@ function demoConflictScan() {
       fileguidtable: 0,
       translate: 0,
     },
-    totalPairs: 2,
-    modsScanned: 4,
+    totalPairs: 3,
+    modsScanned: DEMO_INITIAL_LOAD_ORDER.length,
     modsNotFound: 0,
-    modsSkippedInactive: 1,
+    modsSkippedInactive: 2,
     totalWorkshopIds: demoCurrentConfig().workshopIds.length,
-    modLoadOrder: ['TchernoLib', 'Brita', 'RavenCreek', 'AuthenticZLite'],
+    modLoadOrder: [...DEMO_INITIAL_LOAD_ORDER],
     warnings: ['Demo scan uses static sample data. Run a real scan from a connected panel to inspect your server files.'],
     scanDurationMs: 1834,
     missingDeps: [
@@ -331,10 +486,31 @@ function demoConflictScan() {
           },
         ],
       },
+      {
+        modA: { workshopId: '2730000104', modId: 'KI5_M35A2', modName: '[KI5] M35A2 Truck' },
+        modB: { workshopId: '2730000105', modId: 'KI5Fixes', modName: '[KI5] Vehicle Fixes' },
+        highCount: 0,
+        mediumCount: 1,
+        lowCount: 0,
+        aWins: 0,
+        bWins: 1,
+        thirdPartyWins: 0,
+        unknownWins: 0,
+        files: [
+          {
+            file: 'media/scripts/vehicles/m35a2_burnt.txt',
+            category: 'scripts',
+            categoryLabel: 'Script definitions',
+            severity: 'medium',
+            winner: { workshopId: '2730000105', modId: 'KI5Fixes', modName: '[KI5] Vehicle Fixes' },
+            overlap: { kind: 'script-defs', items: ['Base.M35A2Burnt'], total: 1 },
+          },
+        ],
+      },
     ],
     stale: false,
     _workshopIdsSnapshot: demoCurrentConfig().workshopIds,
-    _modIdsSnapshot: ['TchernoLib', 'Brita', 'RavenCreek', 'AuthenticZLite'],
+    _modIdsSnapshot: [...DEMO_INITIAL_LOAD_ORDER],
   }
 }
 
@@ -1456,9 +1632,48 @@ export function installDemoFetchShim(): void {
         modIds,
         createdAt: now,
         updatedAt: now,
+        color: demoGroupColor(body.color, null),
+        keepTogether: body.keepTogether === true,
       }
       demoModGroups = [...demoModGroups, group]
       return jsonResponse({ group }, 201)
+    }
+    if (path === '/api/mods/groups/suggestions' && method === 'GET') {
+      const existing = demoModGroups.map((group) => new Set(group.modIds))
+      const suggestions = demoGroupSuggestions.filter((suggestion) =>
+        !demoDismissedSuggestions.has(suggestion.key) &&
+        !existing.some((members) => suggestion.modIds.every((id) => members.has(id))))
+      return jsonResponse({ suggestions })
+    }
+    if (path === '/api/mods/groups/suggestions/dismiss' && method === 'POST') {
+      const body = await readJsonBody(init)
+      if (typeof body.key === 'string') demoDismissedSuggestions.add(body.key)
+      return jsonResponse({ success: true })
+    }
+    const groupAction = path.match(/^\/api\/mods\/groups\/([^/]+)\/(enable|disable)$/)
+    if (groupAction && method === 'POST') {
+      const group = demoModGroups.find((entry) => entry.id === decodeURIComponent(groupAction[1]))
+      if (!group) return jsonResponse({ error: 'Group not found.', code: 'MODS_GROUP_NOT_FOUND' }, 404)
+      if (groupAction[2] === 'enable') return jsonResponse(demoEnableGroup(group))
+      const body = await readJsonBody(init)
+      return jsonResponse(demoDisableGroup(group, body.keepShared !== false))
+    }
+    if (path === '/api/mods/notes' && method === 'GET') {
+      return jsonResponse({ notes: demoModNotes })
+    }
+    if (path.startsWith('/api/mods/notes/') && method === 'PUT') {
+      const workshopId = decodeURIComponent(path.slice('/api/mods/notes/'.length))
+      const body = await readJsonBody(init)
+      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      if (text.length > 1000) {
+        return jsonResponse({ error: 'A mod note can be at most 1000 characters', code: 'MODS_NOTE_TOO_LONG', params: { max: 1000 } }, 400)
+      }
+      if (!text) {
+        delete demoModNotes[workshopId]
+        return jsonResponse({ note: null })
+      }
+      demoModNotes[workshopId] = { text, updatedAt: new Date().toISOString(), updatedBy: 'admin' }
+      return jsonResponse({ note: demoModNotes[workshopId] })
     }
     if (path === '/api/mods/groups/status' && method === 'GET') {
       return jsonResponse(demoModGroupsStatus())
@@ -1488,6 +1703,8 @@ export function installDemoFetchShim(): void {
         modIds,
         createdAt: now,
         updatedAt: now,
+        color: demoGroupColor(doc.color, null),
+        keepTogether: doc.keepTogether === true,
       }
       demoModGroups = [...demoModGroups, group]
       return jsonResponse({ group }, 201)
@@ -1511,10 +1728,24 @@ export function installDemoFetchShim(): void {
         name,
         description: typeof body.description === 'string' ? body.description.trim() : existing.description,
         modIds,
+        color: body.color === undefined ? existing.color : demoGroupColor(body.color, existing.color),
+        keepTogether: typeof body.keepTogether === 'boolean' ? body.keepTogether : existing.keepTogether,
         updatedAt: new Date().toISOString(),
       }
       demoModGroups = demoModGroups.map(entry => (entry.id === id ? group : entry))
       return jsonResponse({ group })
+    }
+    if ((path === '/api/mods/toggle-mod-id' || path === '/api/mods/batch-toggle-mod-ids') && method === 'POST') {
+      const body = await readJsonBody(init)
+      const changes = path.endsWith('batch-toggle-mod-ids')
+        ? (Array.isArray(body.changes) ? body.changes : []) as Array<{ modId?: unknown; enabled?: unknown }>
+        : [{ modId: body.modId, enabled: body.enabled }]
+      for (const change of changes) {
+        if (typeof change.modId !== 'string') continue
+        if (change.enabled === true && !demoModLoadOrder.includes(change.modId)) demoModLoadOrder = [...demoModLoadOrder, change.modId]
+        if (change.enabled === false) demoModLoadOrder = demoModLoadOrder.filter((id) => id !== change.modId)
+      }
+      return jsonResponse({ success: true, changed: changes.length, modIds: demoModLoadOrder })
     }
     if (path === '/api/mods/save-order' && method === 'POST') {
       const body = await readJsonBody(init)

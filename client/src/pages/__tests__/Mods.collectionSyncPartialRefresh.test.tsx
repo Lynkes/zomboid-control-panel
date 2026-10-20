@@ -86,7 +86,8 @@ describe('Mods.tsx: collection chip after Sync', () => {
     await screen.findByText('3 drift')
     // What is left after the partial sync.
     collectionDiff.mockResolvedValue(diffWith(['3333333333']))
-    fireEvent.click(screen.getByRole('button', { name: 'Sync' }))
+    // Not the status bar's "Sync" (tracked mods from the server INI).
+    fireEvent.click(screen.getByRole('button', { name: 'Sync the collection' }))
 
     await waitFor(() => expect(modsApi.collectionSync).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('1 drift')).toBeInTheDocument()

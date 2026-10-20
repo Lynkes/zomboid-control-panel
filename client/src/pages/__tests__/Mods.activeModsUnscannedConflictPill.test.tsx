@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import Mods from '../Mods'
 import { modsApi, serversApi } from '@/lib/api'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { openModsView } from './modsNav'
 
 // honest-unknown-renderings-have-no-regression-coverage (2026-09-09): the
 // second and last member of tonight's three-state-collapse family named as
@@ -126,7 +127,7 @@ async function goToActiveModsDetailed() {
   // inspect the group.
   localStorage.setItem('zcp:mods:active:density', JSON.stringify('detailed'))
   await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
-  fireEvent.click(await screen.findByText('Active on server'))
+  await openModsView('Active on server')
 }
 
 afterEach(() => {

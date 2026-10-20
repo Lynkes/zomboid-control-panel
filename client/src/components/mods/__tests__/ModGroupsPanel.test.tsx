@@ -229,7 +229,9 @@ describe('ModGroupsPanel: create and edit', () => {
     m.getGroups.mockResolvedValue({ groups: [KI5], enforce: false })
     fireEvent.click(button('Create group'))
 
-    await waitFor(() => expect(m.createGroup).toHaveBeenCalledWith({ name: 'KI5 Vehicles', description: '', modIds: ['KI5Lib', 'KI5Core'] }))
+    await waitFor(() =>
+      expect(m.createGroup).toHaveBeenCalledWith({ name: 'KI5 Vehicles', description: '', modIds: ['KI5Lib', 'KI5Core'], color: null, keepTogether: false }),
+    )
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'New mod group' })).toBeNull())
     expect(toastTitles()).toContain('Group created')
     expect(await screen.findByText('KI5 Vehicles')).toBeInTheDocument()
@@ -254,6 +256,8 @@ describe('ModGroupsPanel: create and edit', () => {
       name: 'KI5 Vehicles',
       description: 'Library, core, add-ons, fixes',
       modIds: ['KI5Lib', 'KI5Addon', 'KI5Core', 'Other'],
+      color: null,
+      keepTogether: false,
     }))
     expect(toastTitles()).toContain('Group saved')
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Edit mod group' })).toBeNull())
@@ -576,5 +580,38 @@ describe('ModGroupsPanel: without mods.manage', () => {
     expect(button('Apply group order')).toBeDisabled()
     expect(screen.getByRole('switch', { name: 'Keep group order when saving the load order' })).toBeDisabled()
     expect(button('Export group KI5 Vehicles')).toBeEnabled()
+  })
+})
+
+describe('ModGroupsPanel: colour, keep together, placement and conflicts', () => {
+  it('shows a group kept together and its placement, and keeps the placement in this browser', async () => {
+    prime([{ ...KI5, color: 'amber', keepTogether: true }, WEAPONS])
+    renderPanel()
+    await screen.findByText('KI5 Vehicles')
+    expect(within(groupRow('KI5 Vehicles')).getByText('Kept together')).toBeInTheDocument()
+    expect(within(groupRow('KI5 Vehicles')).queryByText('Loads first')).toBeNull()
+
+    fireEvent.click(button('Edit group KI5 Vehicles'))
+    fireEvent.click(await screen.findByRole('radio', { name: 'First' }))
+    fireEvent.click(button('Save changes'))
+
+    await waitFor(() => expect(m.updateGroup).toHaveBeenCalledWith('g1', expect.objectContaining({ color: 'amber', keepTogether: true })))
+    // The server does not keep a placement: it is not sent, this browser keeps it.
+    expect(m.updateGroup.mock.calls[0][1]).not.toHaveProperty('placement')
+    expect(JSON.parse(localStorage.getItem('zcp:mods:groupPlacement') ?? '{}')).toEqual({ g1: 'first' })
+    expect(await within(groupRow('KI5 Vehicles')).findByText('Loads first')).toBeInTheDocument()
+  })
+
+  it('opens the Conflicts view from a group conflict badge', async () => {
+    prime()
+    const onShowConflicts = vi.fn()
+    const summary = { internal: 1, external: 1, modIds: ['KI5Core', 'KI5Addon', 'Other'] }
+    renderPanel({ conflictsByGroup: new Map([['g1', summary]]), onShowConflicts })
+    await screen.findByText('KI5 Vehicles')
+
+    fireEvent.click(button('2 file conflicts involve KI5 Vehicles. Show them'))
+
+    expect(onShowConflicts).toHaveBeenCalledWith(expect.objectContaining({ id: 'g1' }), summary)
+    expect(within(groupRow('Weapons')).queryByText(/conflict/)).toBeNull()
   })
 })

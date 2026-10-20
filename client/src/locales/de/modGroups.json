@@ -27,7 +27,14 @@
     "delete": "Löschen",
     "deleteAria": "Gruppe {{name}} löschen",
     "enforceLabel": "Gruppenreihenfolge beim Speichern der Ladereihenfolge beibehalten",
-    "enforceDesc": "Wenn aktiviert, verschiebt das Speichern der Ladereihenfolge Gruppenmitglieder zurück in ihre Gruppenreihenfolge."
+    "enforceDesc": "Wenn aktiviert, verschiebt das Speichern der Ladereihenfolge Gruppenmitglieder zurück in ihre Gruppenreihenfolge.",
+    "keepsTogether": "Zusammengehalten",
+    "loadsFirst": "Lädt zuerst",
+    "loadsLast": "Lädt zuletzt",
+    "conflictsBadge_one": "{{count}} Konflikt",
+    "conflictsBadge_other": "{{count}} Konflikte",
+    "conflictsBadgeAria_one": "{{count}} Dateikonflikt betrifft {{name}}. Anzeigen",
+    "conflictsBadgeAria_other": "{{count}} Dateikonflikte betreffen {{name}}. Anzeigen"
   },
   "dialog": {
     "createTitle": "Neue Mod-Gruppe",
@@ -56,7 +63,23 @@
     "create": "Gruppe erstellen",
     "saveChanges": "Änderungen speichern",
     "saveFailedTitle": "Die Gruppe wurde nicht gespeichert",
-    "saveFailedFallback": "Die Gruppe konnte nicht gespeichert werden."
+    "saveFailedFallback": "Die Gruppe konnte nicht gespeichert werden.",
+    "colorLabel": "Farbe",
+    "placementLabel": "Platzierung beim automatischen Sortieren",
+    "placementAnywhere": "Beliebig",
+    "placementFirst": "Zuerst",
+    "placementLast": "Zuletzt",
+    "placementHint": "Bibliotheken und Frameworks zuerst, Patches und Fixes zuletzt. Wird in diesem Browser gespeichert.",
+    "keepTogetherLabel": "In der Ladereihenfolge zusammenhalten",
+    "keepTogetherHint": "Die Mods laden als ein Block an der Stelle, an der jetzt die erste von ihnen steht. Mods dazwischen rücken hinter den Block.",
+    "memberCount_one": "{{count}} Mod",
+    "memberCount_other": "{{count}} Mods",
+    "autoOrder": "Mitglieder automatisch ordnen",
+    "autoOrderDone": "Geordnet: zuerst Abhängigkeiten, dann Bibliotheken, Kern-Mods, Add-ons und Fixes. Prüfe die Reihenfolge und speichere dann.",
+    "autoOrderUnchanged": "Die Mitglieder sind bereits in dieser Reihenfolge.",
+    "autoOrderUndo": "Rückgängig",
+    "absentWarning_one": "{{count}} Mitglied ist nicht auf diesem Server. Es behält seinen Platz und lädt, sobald es aktiviert ist.",
+    "absentWarning_other": "{{count}} Mitglieder sind nicht auf diesem Server. Sie behalten ihren Platz und laden, sobald sie aktiviert sind."
   },
   "apply": {
     "confirmTitle": "Gruppenreihenfolge anwenden?",
@@ -115,5 +138,112 @@
     "orderKeptWithConflicts": "Beim Speichern wurden Mods zurück in ihre Gruppenreihenfolge verschoben. Einige Gruppen widersprechen sich: {{items}}",
     "conflictsTitle": "Mod-Gruppen widersprechen sich",
     "conflictsDesc": "Keine Ladereihenfolge kann alle Gruppen erfüllen. Prüfe die Reihenfolge dieser: {{items}}"
+  },
+  "dots": {
+    "inGroups": "In Gruppen: {{names}}"
+  },
+  "colors": {
+    "none": "Keine Farbe",
+    "slate": "Schiefer",
+    "red": "Rot",
+    "orange": "Orange",
+    "amber": "Bernstein",
+    "lime": "Limette",
+    "green": "Grün",
+    "teal": "Petrol",
+    "sky": "Himmelblau",
+    "blue": "Blau",
+    "violet": "Violett",
+    "pink": "Pink"
+  },
+  "addTo": {
+    "menuItem": "Zu Gruppe hinzufügen …",
+    "selected": "Auswahl zu Gruppe hinzufügen",
+    "title": "Zu einer Gruppe hinzufügen",
+    "descriptionOne": "Wähle die Gruppe für {{name}}. Neue Mitglieder kommen ans Ende der Gruppenreihenfolge.",
+    "descriptionMany_one": "Wähle die Gruppe für {{count}} Mod. Sie kommt ans Ende der Gruppenreihenfolge.",
+    "descriptionMany_other": "Wähle die Gruppe für {{count}} Mods. Sie kommen ans Ende der Gruppenreihenfolge.",
+    "search": "Gruppen durchsuchen",
+    "listAria": "Gruppen",
+    "members_one": "{{count}} Mod",
+    "members_other": "{{count}} Mods",
+    "alreadyIn": "Bereits in dieser Gruppe",
+    "newGroup": "Neue Gruppe …",
+    "cancel": "Abbrechen",
+    "noGroups": "Noch keine Gruppen. Erstelle eine mit „Neue Gruppe“.",
+    "noMatches": "Keine Gruppe passt zu deiner Suche.",
+    "failedFallback": "Die Mods konnten nicht zur Gruppe hinzugefügt werden.",
+    "doneTitle": "Zu {{name}} hinzugefügt",
+    "doneDesc_one": "{{count}} Mod wurde zur Gruppe hinzugefügt.",
+    "doneDesc_other": "{{count}} Mods wurden zur Gruppe hinzugefügt.",
+    "noModIds": "Die Mod-IDs sind erst bekannt, wenn das Workshop-Item auf dem Server ist.",
+    "pickFirst": "Hake zuerst die Mods an, die du hinzufügen willst."
+  },
+  "removeFrom": {
+    "menuItem": "Aus {{name}} entfernen",
+    "doneTitle": "Aus {{name}} entfernt",
+    "failedTitle": "Entfernen aus der Gruppe fehlgeschlagen",
+    "failedFallback": "Die Gruppe konnte nicht geändert werden.",
+    "tooFew": "Eine Gruppe braucht mindestens zwei Mods. Lösche stattdessen die Gruppe."
+  },
+  "sections": {
+    "enableAll": "Alle aktivieren",
+    "enableAllAria": "Alle Mods von {{name}} aktivieren",
+    "disableAll": "Alle deaktivieren",
+    "edit": "Gruppe bearbeiten",
+    "actionsAria": "Aktionen für Gruppe {{name}}",
+    "enabledOf": "{{enabled}} von {{total}} aktiviert",
+    "allEnabled": "Alle Mods der Gruppe, die dieser Server hat, sind aktiviert.",
+    "noneEnabled": "Keine Mod der Gruppe ist aktiviert.",
+    "notOnServer": "Nicht auf diesem Server: {{ids}}",
+    "ungrouped": "In keiner Gruppe"
+  },
+  "suggestions": {
+    "title": "Vorgeschlagene Gruppen ({{count}})",
+    "listAria": "Vorgeschlagene Gruppen",
+    "create": "Erstellen",
+    "createAria": "Gruppe {{name}} erstellen",
+    "dismiss": "Verwerfen",
+    "dismissAria": "Vorschlag {{name}} verwerfen",
+    "kind": {
+      "dependency_one": "{{name}} und die davon abhängige Mod",
+      "dependency_other": "{{name}} und {{count}} davon abhängige Mods",
+      "prefix_one": "{{count}} Mod namens „{{name}}…“",
+      "prefix_other": "{{count}} Mods namens „{{name}}…“",
+      "workshop-item_one": "{{count}} Mod aus einem Workshop-Item",
+      "workshop-item_other": "{{count}} Mods aus einem Workshop-Item"
+    },
+    "dismissFailedTitle": "Vorschlag konnte nicht verworfen werden",
+    "dismissFailedFallback": "Der Vorschlag konnte nicht verworfen werden. Versuche es erneut."
+  },
+  "enable": {
+    "doneTitle": "{{name}} aktiviert",
+    "doneDesc_one": "{{count}} Mod wurde zur Serverkonfiguration hinzugefügt. Starte den Server neu, damit sie geladen wird.",
+    "doneDesc_other": "{{count}} Mods wurden zur Serverkonfiguration hinzugefügt. Starte den Server neu, damit sie geladen werden.",
+    "nothingTitle": "Nichts zu aktivieren",
+    "nothingDesc": "Alle Mods von {{name}}, die dieser Server hat, sind bereits aktiviert.",
+    "missingNote_one": "{{count}} Mod ist nicht auf diesem Server und wurde übersprungen: {{ids}}.",
+    "missingNote_other": "{{count}} Mods sind nicht auf diesem Server und wurden übersprungen: {{ids}}.",
+    "failedTitle": "Gruppe konnte nicht aktiviert werden",
+    "failedFallback": "Die Mods der Gruppe konnten nicht aktiviert werden.",
+    "unsavedOrder": "Speichere oder verwirf zuerst deine Änderungen an der Ladereihenfolge: Diese Aktion ändert die Ladereihenfolge."
+  },
+  "disable": {
+    "title": "{{name}} deaktivieren?",
+    "description_one": "{{count}} Mod wird aus der Serverkonfiguration (Mods=) entfernt. Ihre Dateien bleiben auf der Festplatte, daher lässt sich die Gruppe sofort wieder aktivieren.",
+    "description_other": "{{count}} Mods werden aus der Serverkonfiguration (Mods=) entfernt. Ihre Dateien bleiben auf der Festplatte, daher lässt sich die Gruppe sofort wieder aktivieren.",
+    "sharedNote": "Beibehalten, weil eine andere, vollständig aktivierte Gruppe sie benötigt: {{items}}",
+    "confirm": "Mods deaktivieren",
+    "doneTitle": "{{name}} deaktiviert",
+    "doneDesc_one": "{{count}} Mod wurde aus der Serverkonfiguration entfernt.",
+    "doneDesc_other": "{{count}} Mods wurden aus der Serverkonfiguration entfernt.",
+    "keptNote_one": "{{count}} gemeinsam genutzte Mod wurde beibehalten.",
+    "keptNote_other": "{{count}} gemeinsam genutzte Mods wurden beibehalten.",
+    "failedTitle": "Gruppe konnte nicht deaktiviert werden",
+    "failedFallback": "Die Mods der Gruppe konnten nicht deaktiviert werden."
+  },
+  "inspector": {
+    "title": "Gruppen",
+    "none": "In keiner Gruppe."
   }
 }

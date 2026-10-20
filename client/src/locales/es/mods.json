@@ -12,7 +12,7 @@
     "retry": "Reintentar"
   },
   "pageHeader": {
-    "title": "Gestor de mods",
+    "title": "Mods",
     "description": "Añade, actualiza y configura mods de Steam Workshop en el servidor",
     "eyebrow": "Workshop",
     "addMod": "Añadir mod"
@@ -41,7 +41,11 @@
     "autoRestartSettings": "Ajustes de reinicio automático",
     "autoRestart": "Reinicio automático",
     "autoRestartAria": "Alternar el reinicio automático al actualizar mods",
-    "updatesCount_many": "{{count}} actualizaciones"
+    "updatesCount_many": "{{count}} actualizaciones",
+    "autoRestartOn": "Reinicio automático: activado",
+    "autoRestartOff": "Reinicio automático: desactivado",
+    "autoRestartOnAria": "El reinicio automático está activado. Abrir sus ajustes",
+    "autoRestartOffAria": "El reinicio automático está desactivado. Abrir sus ajustes"
   },
   "restartPending": {
     "title": "Reinicio pendiente",
@@ -107,8 +111,8 @@
       "hint": "Añadir por Workshop ID o URL"
     },
     "collection": {
-      "label": "Importar colección",
-      "hint": "Traer todos los elementos de una colección de Steam"
+      "label": "Colecciones",
+      "hint": "Importa una colección o mantén la tuya sincronizada"
     },
     "order": {
       "label": "Orden de carga",
@@ -125,7 +129,10 @@
     "tools": {
       "label": "Herramientas",
       "hint": "Reparar, deduplicar y limpiar"
-    }
+    },
+    "groupLibrary": "Biblioteca",
+    "groupServer": "En el servidor",
+    "groupTools": "Herramientas"
   },
   "collectionDialog": {
     "title": "Importar colección de Steam Workshop",
@@ -150,7 +157,8 @@
     "openWorkshopAria": "Abrir página de Workshop (se abre en una pestaña nueva)",
     "cancel": "Cancelar",
     "adding": "Añadiendo…",
-    "addToServer": "Añadir {{count}} mods al servidor"
+    "addToServer": "Añadir {{count}} mods al servidor",
+    "fetchAria": "Buscar la colección"
   },
   "addModDialog": {
     "title": "Añadir mod de Workshop",
@@ -208,7 +216,8 @@
     "currentMaxDelay": "• Retraso máximo: {{minutes}} minutos",
     "cancel": "Cancelar",
     "saving": "Guardando…",
-    "saveSettings": "Guardar ajustes"
+    "saveSettings": "Guardar ajustes",
+    "autoRestartHint": "Reinicia el servidor por sí solo cuando Steam publica una actualización de uno de sus mods."
   },
   "installedTab": {
     "searchPlaceholder": "Buscar mods…",
@@ -226,6 +235,7 @@
     "collectionDrift": "{{count}} con desviación",
     "collectionSyncTooltip": "Sincronizar los mods en seguimiento → colección de Steam Workshop",
     "collectionSync": "Sincronizar",
+    "collectionSyncAria": "Sincronizar la colección",
     "collectionChecking": "Comprobando la colección…",
     "selectedCount": "{{count}} seleccionados",
     "deselect": "Deseleccionar",
@@ -261,7 +271,13 @@
     "modFallback": "Mod {{id}}",
     "selectAria": "Seleccionar {{name}}",
     "removeModAria": "Quitar mod {{name}}",
-    "removeFromServer": "Quitar del servidor"
+    "removeFromServer": "Quitar del servidor",
+    "loading": "Cargando mods",
+    "selectionAria": "Mods seleccionados",
+    "allDeactivatedTitle": "Ningún mod en seguimiento está en el servidor",
+    "allDeactivatedDesc_one": "{{count}} mod en seguimiento está desactivado. Vuelve a activarlo desde Desactivados.",
+    "allDeactivatedDesc_many": "{{count}} mods en seguimiento están desactivados. Vuelve a activarlos desde Desactivados.",
+    "allDeactivatedDesc_other": "{{count}} mods en seguimiento están desactivados. Vuelve a activarlos desde Desactivados."
   },
   "disabledPanel": {
     "title": "Mods deshabilitados en el disco",
@@ -274,7 +290,11 @@
     "enable": "Habilitar",
     "deleteFromDisk": "Eliminar del disco",
     "scanFailedTitle": "No se pudieron buscar los mods desactivados",
-    "scanFailedDesc": "Falló el análisis de la carpeta de Workshop. Prueba a actualizar de nuevo."
+    "scanFailedDesc": "Falló el análisis de la carpeta de Workshop. Prueba a actualizar de nuevo.",
+    "sectionTitle": "En el disco, no en el servidor",
+    "description": "Descargados en la carpeta de Workshop pero ausentes de WorkshopItems= del servidor, así que el servidor no los carga.",
+    "notScanned": "Aún no se ha escaneado.",
+    "deleteFromDiskAria": "Eliminar {{name}} del disco"
   },
   "ignoredPanel": {
     "count_one": "{{count}} mod ignorado",
@@ -289,7 +309,8 @@
     "selectRow": "Seleccionar {{name}}",
     "removeSelected": "Quitar seleccionados ({{n}})",
     "reTrackHint": "Quita este mod de la lista de ignorados para que la sincronización y la importación de colecciones puedan volver a añadirlo. La configuración del servidor y los archivos del mod no se modifican.",
-    "count_many": "{{count}} mods ignorados"
+    "count_many": "{{count}} mods ignorados",
+    "description": "La sincronización y la importación de colecciones no volverán a añadirlos."
   },
   "serverConfigTab": {
     "summaryMods": "mods",
@@ -426,7 +447,13 @@
     "duplicateId_many": "{{count}} ID duplicados",
     "duplicateTooltip_many": "También lo proporcionan los elementos de Workshop {{ids}}",
     "restoreDismissedTooltip_many": "Restaurar {{count}} pares de conflicto descartados para este elemento de Workshop",
-    "dismissedCount_many": "{{count}} conflictos descartados"
+    "dismissedCount_many": "{{count}} conflictos descartados",
+    "hasNoteChip": "Con nota ({{count}})",
+    "updatesChip": "Actualización disponible ({{count}})",
+    "noFilterMatches": "Ningún elemento de Workshop coincide con estos filtros.",
+    "select": "Seleccionar",
+    "selectItemAria": "Seleccionar {{name}}",
+    "selectionAria": "Elementos de Workshop seleccionados"
   },
   "loadOrder": {
     "emptyTitle": "No hay mods en el orden de carga",
@@ -439,8 +466,8 @@
     "groupNeedsTwo": "Selecciona al menos 2 mods para crear un grupo.",
     "selectRowAria": "Seleccionar {{name}}",
     "previewLockHint": "Aplica o cancela el orden propuesto de abajo antes de reordenar a mano.",
-    "filteredHint": "Solo se muestran los mods que coinciden con «{{query}}» (el filtro de Activos en el servidor). No puedes arrastrar mientras esté activo; los botones de flecha siguen moviendo los mods dentro del orden de carga completo.",
-    "autoSort": "Ordenar automáticamente por dependencias",
+    "filteredHint": "Solo se muestran los mods que coinciden con «{{query}}». No puedes arrastrar mientras haya un filtro; los botones de flecha siguen moviendo los mods dentro del orden de carga completo.",
+    "autoSort": "Ordenar automáticamente",
     "proposedOrder_one": "Orden propuesto: {{count}} mod cambiaría de posición",
     "proposedOrder_other": "Orden propuesto: {{count}} mods cambiarían de posición",
     "basedOnDependencies_one": "Basado en {{count}} dependencia declarada en mod.info. Los mods sin dependencias mantienen el orden actual.",
@@ -466,7 +493,29 @@
     "saveOrder": "Guardar orden",
     "proposedOrder_many": "Orden propuesto: {{count}} mods cambiarían de posición",
     "basedOnDependencies_many": "Basado en {{count}} dependencias declaradas en mod.info. Los mods sin dependencias mantienen el orden actual.",
-    "missingRequirements_many": "{{count}} mods requeridos no están habilitados y no se pudieron ordenar (ver la pestaña Conflictos)."
+    "missingRequirements_many": "{{count}} mods requeridos no están habilitados y no se pudieron ordenar (ver la pestaña Conflictos).",
+    "searchPlaceholder": "Filtrar por ID o nombre de mod…",
+    "searchAria": "Filtrar el orden de carga",
+    "showGroups": "Mostrar grupos",
+    "blockCount_one": "{{count}} mod",
+    "blockCount_many": "{{count}} mods",
+    "blockCount_other": "{{count}} mods",
+    "blockTogether": "Mantenidos juntos",
+    "blockApart": "Miembros separados",
+    "gather": "Juntar",
+    "gatheredAnnouncement": "Grupo {{name}} reunido",
+    "blockToTopAria": "Mover el grupo {{name}} al principio",
+    "blockUpAria": "Subir el grupo {{name}}",
+    "blockDownAria": "Bajar el grupo {{name}}",
+    "blockToBottomAria": "Mover el grupo {{name}} al final",
+    "blockAlreadyFirst": "El grupo ya se carga primero",
+    "blockAlreadyLast": "El grupo ya se carga al final",
+    "blockMovedAnnouncement": "Grupo {{name}} movido a la posición {{position}} de {{total}}",
+    "collapseBlockAria": "Contraer el grupo {{name}}",
+    "expandBlockAria": "Expandir el grupo {{name}}",
+    "blockConflictsAria_one": "{{count}} conflicto de archivos afecta a {{name}}. Mostrarlo",
+    "blockConflictsAria_many": "{{count}} conflictos de archivos afectan a {{name}}. Mostrarlos",
+    "blockConflictsAria_other": "{{count}} conflictos de archivos afectan a {{name}}. Mostrarlos"
   },
   "addModsTab": {
     "syncTitle": "Sincronizar ID de mod desde las descargas",
@@ -506,7 +555,8 @@
     "applyPreset": "Aplicar preajuste",
     "deleteDialogTitle": "¿Eliminar preajuste «{{name}}»?",
     "deleteDialogDesc": "Este preajuste se eliminará permanentemente. Esta acción no se puede deshacer.",
-    "deletePreset": "Eliminar preajuste"
+    "deletePreset": "Eliminar preajuste",
+    "actionsAria": "Acciones del preajuste {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -824,6 +874,112 @@
     "modsAddedToConfigTitle_many": "{{count}} mods añadidos a la configuración del servidor",
     "nothingToSortByDesc_many": "{{count}} requisitos declarados no están habilitados, así que ninguno de los mods habilitados depende de otro.",
     "loadOrderCyclesDesc_many": "Todas las dependencias satisfacibles ya cargan primero. {{count}} dependencias circulares no se pueden ordenar.",
-    "autoSortAppliedDesc_many": "{{count}} mods reposicionados. Hacer clic en Guardar orden para escribirlo en el INI del servidor."
+    "autoSortAppliedDesc_many": "{{count}} mods reposicionados. Hacer clic en Guardar orden para escribirlo en el INI del servidor.",
+    "noSortRulesDesc": "Ningún mod activado declara un requisito y ningún grupo fija un orden ni una posición, así que no hay nada por lo que ordenar.",
+    "loadOrderRulesMetDesc": "Todas las dependencias, órdenes de grupo y posiciones de grupo ya se cumplen."
+  },
+  "listMode": {
+    "aria": "Mostrar la lista como",
+    "list": "Lista",
+    "groups": "Grupos"
+  },
+  "sort": {
+    "aria": "Ordenar por",
+    "status": "Ordenar: estado de actualización",
+    "name": "Ordenar: nombre",
+    "updated": "Ordenar: actualizados recientemente",
+    "config": "Ordenar: orden de la configuración",
+    "loadOrder": "Ordenar: orden de carga"
+  },
+  "filters": {
+    "filteredBy": "Filtrado por:",
+    "activeAria": "Filtros activos",
+    "removeAria": "Quitar filtro: {{name}}",
+    "clearAll": "Borrar filtros",
+    "updatesOnly": "Solo actualizaciones",
+    "updates": "Actualización disponible",
+    "hasNote": "Con nota",
+    "ungrouped": "Sin grupo",
+    "allGroups": "Todos los grupos",
+    "inGroup": "En {{name}}",
+    "groupAria": "Filtrar por grupo",
+    "multiId": "Solo Multi-ID",
+    "needsAttention": "Requiere atención",
+    "notEnabled": "Sin activar",
+    "missingDep": "Dependencia faltante"
+  },
+  "whatChanged": {
+    "label": "Cambios",
+    "updateLabel": "Actualización · cambios",
+    "aria": "Cambios en {{name}}: notas de cambios de Steam (se abre en una pestaña nueva)"
+  },
+  "rowMenu": {
+    "actionsAria": "Acciones de {{name}}"
+  },
+  "notes": {
+    "addAction": "Añadir nota",
+    "editAction": "Editar nota",
+    "addTitle": "Añadir una nota",
+    "editTitle": "Editar nota",
+    "dialogDesc": "Una nota sobre {{name}}. Todos los admins de este panel la ven.",
+    "label": "Nota",
+    "placeholder": "Por qué está aquí, una versión que conservar, a quién preguntar antes de quitarlo",
+    "counter": "{{count}} / {{max}}",
+    "save": "Guardar nota",
+    "delete": "Eliminar nota",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "lastEdited": "Última edición de {{name}} el {{date}}",
+    "lastEditedNoName": "Última edición el {{date}}",
+    "sharedHint": "Compartida con todos los admins de este panel.",
+    "savedTitle": "Nota guardada",
+    "deletedTitle": "Nota eliminada",
+    "saveFailedFallback": "No se pudo guardar la nota.",
+    "indicatorAria": "Nota: {{text}}",
+    "inspectorTitle": "Nota",
+    "empty": "Aún no hay nota."
+  },
+  "collectionView": {
+    "importTitle": "Importar una colección",
+    "importDesc": "Añade de una vez a este servidor todos los mods de una colección de Steam Workshop."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "Dependencias",
+      "groupOrder": "Orden de los grupos",
+      "together": "Mantenidos juntos",
+      "placement": "Posiciones",
+      "winners": "Ganadores de conflictos conservados"
+    },
+    "reason": {
+      "requires": "después de {{mod}}, que necesita",
+      "requiredBy": "antes de {{mod}}, que lo necesita",
+      "groupOrder": "respeta el orden de {{group}}",
+      "together": "se mantiene junto con {{group}}",
+      "placementFirst": "{{group}} se carga primero",
+      "placementLast": "{{group}} se carga al final",
+      "winner": "sigue prevaleciendo sobre {{mod}}",
+      "keepsWinner": "se queda antes de {{mod}}, que prevalece sobre él"
+    },
+    "issue": {
+      "groupVsDependency": "{{group}} pone {{before}} antes de {{after}}, pero una dependencia necesita lo contrario: gana la dependencia. Corrige el grupo con «Ordenar miembros automáticamente».",
+      "groupVsGroup": "{{group}} pone {{before}} antes de {{after}}, pero otro grupo necesita lo contrario: gana el grupo que aparece primero.",
+      "split": "{{groups}} no puede cargarse como un solo bloque: {{mods}} debe cargarse entre sus mods.",
+      "placement": "{{mods}} debe cargarse antes de un grupo «Primero», así que también se carga primero ({{groups}}).",
+      "winner": {
+        "dependency": "{{newWinner}} ahora prevalece sobre {{previousWinner}}: una dependencia necesita que se cargue después.",
+        "group": "{{newWinner}} ahora prevalece sobre {{previousWinner}}: un orden de grupo necesita que se cargue después.",
+        "placement": "{{newWinner}} ahora prevalece sobre {{previousWinner}}: una posición de grupo necesita que se cargue después."
+      }
+    },
+    "issuesTitle_one": "{{count}} regla no se puede cumplir",
+    "issuesTitle_many": "{{count}} reglas no se pueden cumplir",
+    "issuesTitle_other": "{{count}} reglas no se pueden cumplir",
+    "moreIssues": "+{{count}} más",
+    "movesTo": "se mueve a",
+    "otherMods": "Otros mods",
+    "groupMoves_one": "{{count}} movido",
+    "groupMoves_many": "{{count}} movidos",
+    "groupMoves_other": "{{count}} movidos"
   }
 }
