@@ -6,6 +6,12 @@
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
+                vNEXT Changes:
+                - Remove: the server no longer listens for client commands.
+                    Its only one, teleportAck, let any connected player fill
+                    a table with whatever they sent, and nothing read it.
+                    The teleport itself is unchanged.
+
                 v1.7.77 Changes:
                 - Add: bounded per-player kill-counter audit events to
                     leaderboard diagnostics, including before/after totals.
@@ -2268,9 +2274,6 @@ local function onLeaderboardZombieDead(zombie)
 end
 
 PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq or 0
-PanelBridge.teleportAcks = PanelBridge.teleportAcks or {}
-PanelBridge.teleportAckOrder = PanelBridge.teleportAckOrder or {}
-local MAX_TELEPORT_ACKS = 200
 
 local function requestClientTeleport(player, x, y, z)
     PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq + 1
@@ -2288,26 +2291,10 @@ local function requestClientTeleport(player, x, y, z)
     return true, requestId, nil
 end
 
-function PanelBridge.onClientCommand(module, command, player, args)
-    if module ~= "PanelBridge" or command ~= "teleportAck" or not player then return end
-    args = args or {}
-    local requestId = tostring(args.requestId or "")
-    if requestId == "" then return end
-    PanelBridge.teleportAcks[requestId] = {
-        status = tostring(args.status or "unknown"),
-        username = PanelBridge.tryGet(player, "getUsername"),
-        x = tonumber(args.x),
-        y = tonumber(args.y),
-        z = tonumber(args.z),
-        error = args.error,
-        receivedAt = getTimestampMs()
-    }
-    table.insert(PanelBridge.teleportAckOrder, requestId)
-    while #PanelBridge.teleportAckOrder > MAX_TELEPORT_ACKS do
-        local oldest = table.remove(PanelBridge.teleportAckOrder, 1)
-        if oldest then PanelBridge.teleportAcks[oldest] = nil end
-    end
-end
+-- The client companion (PanelBridgeClient.lua) still answers each teleport
+-- with a "teleportAck" client command. The server registers no
+-- OnClientCommand handler: that command came unauthenticated from any
+-- connected player, and nothing used what it said.
 
 -- ============================================
 -- FILE OPERATIONS
@@ -11354,9 +11341,6 @@ if Events.OnCharacterDeath and Events.OnCharacterDeath.Add then
 end
 if Events.OnZombieDead and Events.OnZombieDead.Add then
     Events.OnZombieDead.Add(onLeaderboardZombieDead)
-end
-if Events.OnClientCommand and Events.OnClientCommand.Add then
-    Events.OnClientCommand.Add(PanelBridge.onClientCommand)
 end
 
 -- Exposes the handler table for the JS test harness (fengari) to call

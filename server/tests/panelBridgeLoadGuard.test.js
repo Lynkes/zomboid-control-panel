@@ -66,9 +66,10 @@ describe("PanelBridge.lua load guard", () => {
 
     const module = bridge.getGlobal("PanelBridgeModule");
     expect(module).toMatchObject({ MOD_ID: "ZCPB", PROTOCOL_VERSION: "queue-v1" });
+    // No OnClientCommand: the server takes no commands from game clients
+    // (panelBridgeClientCommandIgnored.test.js).
     expect(asList(bridge.getGlobal("EVENT_ADDS")).sort()).toEqual([
       "OnCharacterDeath",
-      "OnClientCommand",
       "OnServerStarted",
       "OnTickEvenPaused",
       "OnZombieDead",

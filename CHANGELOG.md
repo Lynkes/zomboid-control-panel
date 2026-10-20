@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Steam Sync extension:** sends the panel password and Steam cookies over plain HTTP only to a panel on your own network (or one address you explicitly allow); anything else needs HTTPS, and a URL typed without a scheme defaults to HTTPS.
 - **Docker images:** base images are pinned by digest and the all-in-one image takes Node.js from the official Node image instead of running NodeSource's setup script as root.
 - **All-in-one installer:** the install command now fetches `bootstrap.sh` from the latest release (attached to it and listed in `checksums.txt`) instead of `main`, and the `.env` holding the updater token is created owner-only.
+- **PanelBridge ignores client commands:** the server-side bridge no longer stores the unused teleport acknowledgement any connected player could send.
 - **PanelBridge Workshop download check:** Settings › PanelBridge warns when the Workshop item a server downloaded holds server Lua other than the published file for its version.
 
 ## [1.4.17] - 2026-10-18
