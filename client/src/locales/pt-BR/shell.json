@@ -35,9 +35,6 @@
       "discord": "Discord",
       "panelSettings": "Configurações do painel",
       "debugLogs": "Logs de depuração",
-      "panelUsers": "Usuários do painel",
-      "rolesPermissions": "Cargos e permissões",
-      "singleSignOn": "Login único (SSO)",
       "leaderboard": "Placar"
     },
     "notAvailableRemote": "Indisponível para servidores remotos (somente RCON)",

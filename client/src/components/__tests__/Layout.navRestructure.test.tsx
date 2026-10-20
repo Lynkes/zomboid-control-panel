@@ -200,45 +200,6 @@ describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', ()
     expect(linkNames[debugIdx + 1]).not.toBe('Browse Public Servers')
   })
 
-  it('hides Panel Users, Roles & Permissions and Single Sign-On when the role lacks their capability, shows them (linking into the matching Settings tab) when it has it', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
-    mockCommonFetches()
-
-    mockCan.mockReturnValue(false)
-    const { unmount } = renderLayout()
-    await screen.findByText('the-only-server')
-    expect(screen.queryByRole('link', { name: 'Panel Users' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Roles & Permissions' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Single Sign-On' })).not.toBeInTheDocument()
-    unmount()
-
-    mockCan.mockReturnValue(true)
-    renderLayout()
-    await screen.findByText('the-only-server')
-    expect(screen.getByRole('link', { name: 'Panel Users' })).toHaveAttribute('href', '/settings?tab=users')
-    expect(screen.getByRole('link', { name: 'Roles & Permissions' })).toHaveAttribute('href', '/settings?tab=roles')
-    expect(screen.getByRole('link', { name: 'Single Sign-On' })).toHaveAttribute('href', '/settings?tab=sso')
-  })
-
-  it('gates each new USERS entry on the exact capability its Settings tab already requires, not on a shared/broader one', async () => {
-    getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
-    getStatus.mockResolvedValue({ running: true } as never)
-    mockCommonFetches()
-
-    // Only roles.manage is granted -- Panel Users (users.manage) and Single
-    // Sign-On (panel.settings) must stay hidden; a shared/OR'd gate would
-    // wrongly show all three once any one capability is true.
-    mockCan.mockImplementation((capability: string) => capability === 'roles.manage')
-
-    renderLayout()
-    await screen.findByText('the-only-server')
-
-    expect(screen.queryByRole('link', { name: 'Panel Users' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Roles & Permissions' })).toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: 'Single Sign-On' })).not.toBeInTheDocument()
-  })
-
   it('item-level requiresServer: My Servers/Server Setup stay usable at zero servers while Server Console/Mod Manager/Scheduled Tasks (same SERVER section) show the requires-a-server disabled state', async () => {
     getAll.mockResolvedValue({ servers: [] } as never)
     mockCommonFetches()
@@ -258,19 +219,22 @@ describe('Layout.tsx: nav restructured by object (SERVER/WORLD/USERS/PANEL)', ()
     expect(disabledConsole).toHaveAttribute('aria-label', expect.stringContaining('Add a server first'))
   })
 
-  it('a ?tab= USERS entry (Panel Users) highlights as active on its own settings sub-tab without also lighting up the plain Panel Settings row', async () => {
+  it('Panel Users, Roles & Permissions and Single Sign-On have no sidebar entry (they are Panel Settings tabs), and Panel Settings stays lit on those tabs', async () => {
     getAll.mockResolvedValue({ servers: [NATIVE_ACTIVE_SERVER] } as never)
     getStatus.mockResolvedValue({ running: true } as never)
     mockCommonFetches()
+    mockCan.mockReturnValue(true) // every capability: nothing is hidden by a missing one
 
     renderLayout(['/settings?tab=users'])
     await screen.findByText('the-only-server')
 
-    const panelUsersLink = screen.getByRole('link', { name: 'Panel Users' })
-    const panelSettingsLink = screen.getByRole('link', { name: 'Panel Settings' })
-
-    expect(panelUsersLink.className).toMatch(/font-medium/)
-    expect(panelSettingsLink.className).not.toMatch(/font-medium/)
+    for (const name of ['Panel Users', 'Roles & Permissions', 'Single Sign-On']) {
+      expect(screen.queryByRole('link', { name })).not.toBeInTheDocument()
+    }
+    expect(screen.getByRole('link', { name: 'Panel Settings' }).className).toMatch(/font-medium/)
+    // Nothing in the sidebar points at one of those tabs.
+    const hrefs = screen.getAllByRole('link').map((el) => el.getAttribute('href') ?? '')
+    expect(hrefs.filter((href) => /^\/settings\?tab=/.test(href))).toEqual([])
   })
 
   it('v1.4.1: Server Files sits right after Server Configuration and is hidden without files.manage', async () => {

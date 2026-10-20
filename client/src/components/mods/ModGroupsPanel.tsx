@@ -38,7 +38,15 @@ import { ModGroupDialog } from './ModGroupDialog'
 const LISTED_IDS = 3
 const LISTED_MOVES = 12
 
-type Editor = { group: ModGroup | null }
+type Editor = { group: ModGroup | null; initialModIds?: readonly string[] }
+
+/** A request from the Load order tab: create a group from the mods picked there. */
+export interface CreateGroupRequest {
+  /** The picked mods, in load order. */
+  modIds: readonly string[]
+  /** Changes with every request, so asking twice with the same mods opens the dialog twice. */
+  nonce: number
+}
 
 export interface ModGroupsPanelProps {
   /** mods.manage. Without it the panel only lists and exports. */
@@ -58,6 +66,10 @@ export interface ModGroupsPanelProps {
   orderSaving: boolean
   /** Called after Apply wrote a new order, so the page reloads the list. */
   onOrderApplied: () => void | Promise<void>
+  /** Opens the create dialog with these members when it changes ("Create group from selection"). */
+  createRequest?: CreateGroupRequest | null
+  /** Called once a group created from `createRequest` was saved. */
+  onCreatedFromRequest?: () => void
 }
 
 /**
@@ -75,6 +87,8 @@ export function ModGroupsPanel({
   orderDirty,
   orderSaving,
   onOrderApplied,
+  createRequest,
+  onCreatedFromRequest,
 }: ModGroupsPanelProps) {
   const { t } = useTranslation('modGroups')
   const { toast } = useToast()
@@ -98,6 +112,15 @@ export function ModGroupsPanel({
     aliveRef.current = true
     return () => { aliveRef.current = false }
   }, [])
+
+  const handledRequestNonce = useRef<number | null>(null)
+  useEffect(() => {
+    if (!createRequest || handledRequestNonce.current === createRequest.nonce) return
+    handledRequestNonce.current = createRequest.nonce
+    if (!canManage) return
+    setOpen(true)
+    setEditor({ group: null, initialModIds: createRequest.modIds })
+  }, [createRequest, canManage, setOpen])
 
   const loadGroups = useCallback(async () => {
     const seq = ++groupsSeq.current
@@ -167,6 +190,7 @@ export function ModGroupsPanel({
     } else {
       await modsApi.createGroup(values)
       toast({ title: t('toast.createdTitle'), description: t('toast.createdDesc', { name: values.name }) })
+      if (editor?.initialModIds) onCreatedFromRequest?.()
     }
     setEditor(null)
     await refreshAll()
@@ -556,6 +580,7 @@ export function ModGroupsPanel({
       {editor && (
         <ModGroupDialog
           group={editor.group}
+          initialModIds={editor.initialModIds}
           serverModIds={serverModIds}
           modNames={modNames}
           onClose={() => setEditor(null)}
