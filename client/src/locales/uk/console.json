@@ -144,7 +144,6 @@
   "broadcast": {
     "toggleLabel": "Розсилка",
     "toggleSubtitle": "Надішліть повідомлення всім гравцям онлайн.",
-    "editPresets": "Редагувати шаблони в чаті",
     "templates": {
       "restart15": {
         "label": "Перезапуск 15хв",
