@@ -870,24 +870,32 @@ input[type="number"] {
   background: linear-gradient(120deg, hsl(var(--primary) / 0.05), transparent 45%);
 }
 
-.page-header-shell[data-tone='ops']::before {
+/* Accent wash per sidebar section (lib/navigation.ts): the header carries
+   the same colour as the section its page sits in. */
+.page-header-shell[data-tone='home']::before,
+.page-header-shell[data-tone='server']::before {
   background: linear-gradient(120deg, hsl(var(--primary) / 0.06), transparent 45%);
+}
+
+.page-header-shell[data-tone='players']::before {
+  background: linear-gradient(120deg, hsl(var(--success) / 0.06), transparent 48%);
 }
 
 .page-header-shell[data-tone='world']::before {
   background: linear-gradient(120deg, hsl(var(--warning) / 0.07), transparent 48%);
 }
 
-.page-header-shell[data-tone='maintain']::before {
-  background: linear-gradient(120deg, hsl(var(--info) / 0.06), transparent 48%);
+.page-header-shell[data-tone='panel']::before {
+  background: linear-gradient(120deg, hsl(var(--muted-foreground) / 0.06), transparent 50%);
 }
 
-.page-header-shell[data-tone='config']::before {
-  background: linear-gradient(120deg, hsl(var(--accent) / 0.08), transparent 52%);
-}
-
-.page-header-shell[data-tone='servers']::before {
-  background: linear-gradient(120deg, hsl(var(--success) / 0.06), transparent 50%);
+/* The one small uppercase label: sub-nav group labels, stat labels, field
+   group captions. Sans, never mono. In the components layer so a utility
+   on the same element (text-warning, say) still wins. */
+@layer components {
+  .label-micro {
+    @apply text-micro font-semibold uppercase text-muted-foreground;
+  }
 }
 
 .theme-survival .page-eyebrow {

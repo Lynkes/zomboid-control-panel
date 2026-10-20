@@ -1,0 +1,21 @@
+{
+  "title": "Palette de commandes",
+  "description": "Tapez pour trouver une page, une section de page ou un serveur sur lequel basculer.",
+  "inputLabel": "Rechercher des pages, des sections et des serveurs",
+  "placeholder": "Aller à une page, une section ou un serveur…",
+  "resultsLabel": "Résultats",
+  "noResults": "Aucun résultat pour « {{query}} ».",
+  "switchServer": "Basculer sur {{name}}",
+  "showShortcuts": "Afficher les raccourcis clavier",
+  "groups": {
+    "pages": "Pages",
+    "sections": "Sections",
+    "servers": "Serveurs",
+    "actions": "Actions"
+  },
+  "hints": {
+    "move": "↑ ↓ pour se déplacer",
+    "open": "Entrée pour ouvrir",
+    "close": "Échap pour fermer"
+  }
+}

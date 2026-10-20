@@ -1,7 +1,5 @@
-import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router-dom'
-import { cn } from '@/lib/utils'
+import { StatusPill, type StatusTone } from '@/components/ui/status-pill'
 
 type BridgeState = 'connected' | 'waiting' | 'offline' | 'loading'
 
@@ -18,33 +16,22 @@ interface BridgeStatusBadgeProps {
   interactive?: boolean
 }
 
+const TONE: Record<BridgeState, StatusTone> = {
+  connected: 'ok',
+  waiting: 'warn',
+  offline: 'error',
+  loading: 'busy',
+}
+
 export function BridgeStatusBadge({ connected, running, loading, bridgePath, summary, className, interactive = true }: BridgeStatusBadgeProps) {
   const { t } = useTranslation('bridgeStatusBadge')
   const state: BridgeState = loading ? 'loading' : connected ? 'connected' : running ? 'waiting' : 'offline'
 
-  const config: Record<BridgeState, { surface: string; dot: string; label: string; hint?: string }> = {
-    connected: {
-      surface: 'border-primary/15 bg-primary/8',
-      dot: 'bg-primary',
-      label: t('connected.label'),
-    },
-    waiting: {
-      surface: 'border-warning/20 bg-warning/8',
-      dot: 'bg-warning animate-pulse',
-      label: t('waiting.label'),
-      hint: t('waiting.hint'),
-    },
-    offline: {
-      surface: 'border-destructive/20 bg-destructive/8',
-      dot: 'bg-destructive',
-      label: t('offline.label'),
-      hint: t('offline.hint'),
-    },
-    loading: {
-      surface: 'border-border/40 bg-muted/30',
-      dot: '',
-      label: t('loading.label'),
-    },
+  const config: Record<BridgeState, { label: string; hint?: string }> = {
+    connected: { label: t('connected.label') },
+    waiting: { label: t('waiting.label'), hint: t('waiting.hint') },
+    offline: { label: t('offline.label'), hint: t('offline.hint') },
+    loading: { label: t('loading.label') },
   }
 
   const c = config[state]
@@ -60,44 +47,16 @@ export function BridgeStatusBadge({ connected, running, loading, bridgePath, sum
   // state word. Building the name explicitly covers every state the same way.
   const accessibleName = [c.label, tooltip].filter(Boolean).join('\n')
 
-  const content = (
-    <>
-      {state === 'loading' ? (
-        <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-      ) : (
-        <div className={cn('w-2 h-2 rounded-full shrink-0', c.dot)} aria-hidden="true" />
-      )}
-      <span className="text-sm font-medium text-foreground">{c.label}</span>
-    </>
-  )
-
-  if (!interactive) {
-    return (
-      <div
-        role="status"
-        aria-live="polite"
-        aria-label={accessibleName}
-        title={tooltip || undefined}
-        className={cn('flex items-center gap-2 rounded-lg border px-3 py-1.5 cursor-default', c.surface, className)}
-      >
-        {content}
-      </div>
-    )
-  }
-
   return (
-    <Link
-      to="/settings?tab=bridge"
+    <StatusPill
+      tone={TONE[state]}
+      pulse={state === 'waiting'}
+      label={c.label}
+      title={tooltip || undefined}
       aria-live="polite"
       aria-label={accessibleName}
-      title={tooltip || undefined}
-      className={cn(
-        'flex items-center gap-2 rounded-lg border px-3 py-1.5 cursor-pointer transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-        c.surface,
-        className
-      )}
-    >
-      {content}
-    </Link>
+      className={className}
+      {...(interactive ? { to: '/settings?tab=bridge' } : { role: 'status' })}
+    />
   )
 }

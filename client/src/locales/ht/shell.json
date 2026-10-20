@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Panèl Kontwòl",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Panèl Kontwòl"
+    "shortSubtitle": "Panèl Kontwòl",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navigasyon prensipal",
@@ -13,28 +14,28 @@
     "sections": {
       "server": "Sèvè",
       "world": "Mond",
-      "users": "Itilizatè",
+      "players": "Jwè",
       "panel": "Panèl"
     },
     "items": {
-      "serverConsole": "Konsòl Sèvè",
-      "onlinePlayers": "Jwè Anliy",
-      "inGameChat": "Chat nan jwèt la",
+      "serverConsole": "Konsòl",
+      "onlinePlayers": "Jwè",
+      "inGameChat": "Chat",
       "eventsWeather": "Evènman ak Move Tan",
       "worldMap": "Kat Mond",
-      "serverConfiguration": "Konfigirasyon Sèvè",
-      "serverFiles": "Fichye Sèvè",
-      "modManager": "Jesyon Mods",
+      "serverConfiguration": "Konfigirasyon",
+      "serverFiles": "Fichye",
+      "modManager": "Mods",
       "templates": "Modèl",
-      "scheduledTasks": "Tach Pwograme",
-      "worldBackups": "Kopi Sovgad Mond",
+      "scheduledTasks": "Planifikatè",
+      "worldBackups": "Kopi sovgad",
       "mapCleanup": "Netwayaj Kat",
-      "myServers": "Sèvè m yo",
-      "serverSetup": "Konfigirasyon Enstalasyon",
-      "browsePublic": "Gade Sèvè Piblik",
+      "myServers": "Sèvè yo",
+      "serverSetup": "Ajoute yon Sèvè",
+      "browsePublic": "Sèvè Piblik",
       "discord": "Discord",
-      "panelSettings": "Paramèt Panèl",
-      "debugLogs": "Jounal Debogaj",
+      "panelSettings": "Paramèt",
+      "debugLogs": "Dyagnostik",
       "leaderboard": "Klasman"
     },
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
@@ -43,7 +44,7 @@
     "noServerBanner": {
       "title": "Poko gen sèvè",
       "description": "Pifò nan panèl la debloke depi ou ajoute youn.",
-      "cta": "Konfigire yon sèvè"
+      "cta": "Ajoute yon sèvè"
     }
   },
   "mobileMenu": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Aleka",
     "remoteTitle": "Sèvè aleka (RCON sèlman)",
     "activeBadge": "Aktif",
+    "addServer": "Ajoute yon sèvè…",
     "manageServers": "Jere Sèvè",
     "playersOnline_one": "{{count}} jwè anliy",
     "playersOnline_other": "{{count}} jwè anliy",
@@ -75,8 +77,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Mizajou panèl disponib: v{{version}}",
     "titleNoVersion": "Mizajou panèl disponib",
-    "titleWithVersionOpenSettings": "Mizajou panèl disponib: v{{version}}. Ouvri Paramèt Panèl.",
-    "titleNoVersionOpenSettings": "Mizajou panèl disponib. Ouvri Paramèt Panèl.",
+    "titleWithVersionOpenSettings": "Mizajou panèl disponib: v{{version}}. Ouvri Paramèt.",
+    "titleNoVersionOpenSettings": "Mizajou panèl disponib. Ouvri Paramèt.",
     "update": "Mete ajou"
   },
   "footer": {
@@ -135,12 +137,6 @@
   "pageSkeleton": {
     "defaultTitle": "Paj la ap chaje",
     "defaultDescription": "N ap prepare done ak kontwòl panèl la.",
-    "defaultEyebrow": "// PANÈL · AP CHAJE",
-    "metrics": {
-      "route": "wout",
-      "auth": "otantifikasyon",
-      "socket": "sokèt"
-    },
     "labels": {
       "dashboard": "Tablo a ap chaje",
       "named": "{{title}} ap chaje",
@@ -160,5 +156,52 @@
     "backend": "Backend",
     "unknown": "enkoni",
     "checkAgain": "Verifye ankò"
+  },
+  "serverHeader": {
+    "more": "Lòt aksyon pou {{name}}"
+  },
+  "subNav": {
+    "unsaved": "chanjman ki pa anrejistre"
+  },
+  "toolbar": {
+    "clearSearch": "Efase rechèch la"
+  },
+  "stepper": {
+    "ariaLabel": "Pwogrè",
+    "position": "Etap {{current}} sou {{total}}",
+    "status": {
+      "done": "fini",
+      "current": "etap kounye a",
+      "upcoming": "poko kòmanse",
+      "locked": "bloke"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Kache",
+    "showMore": "Montre {{count}} lòt",
+    "showFewer": "Montre mwens"
+  },
+  "saveBar": {
+    "unsaved": "Chanjman ki pa anrejistre",
+    "changeCount": "Chanjman ki pa anrejistre: {{count}}",
+    "saving": "Ap anrejistre…",
+    "discard": "Jete chanjman yo",
+    "save": "Anrejistre chanjman yo"
+  },
+  "unsavedChanges": {
+    "title": "Kite san anrejistre?",
+    "description": "Paj sa a gen chanjman ki poko anrejistre. Si w kite kounye a, w ap pèdi yo.",
+    "leave": "Jete epi kite",
+    "stay": "Kontinye modifye"
+  },
+  "search": {
+    "label": "Chèche paj ak seksyon",
+    "placeholder": "Chèche…"
+  },
+  "routes": {
+    "dashboardDescription": "Eta sèvè a an dirèk, jwè yo, ak sa ki bezwen atansyon w apre."
+  },
+  "pageHeader": {
+    "breadcrumb": "Chemen navigasyon"
   }
 }

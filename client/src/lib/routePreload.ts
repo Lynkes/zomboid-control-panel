@@ -1,40 +1,15 @@
-const routeLoaders: Record<string, () => Promise<unknown>> = {
-  '/': () => import('../pages/Dashboard'),
-  '/players': () => import('../pages/Players'),
-  '/console': () => import('../pages/Console'),
-  '/scheduler': () => import('../pages/Scheduler'),
-  '/mods': () => import('../pages/Mods'),
-  '/chunks': () => import('../pages/ChunkCleaner'),
-  '/discord': () => import('../pages/Discord'),
-  '/settings': () => import('../pages/Settings'),
-  '/server-setup': () => import('../pages/ServerSetup'),
-  '/servers': () => import('../pages/Servers'),
-  '/server-config': () => import('../pages/ServerConfig'),
-  '/files': () => import('../pages/Files'),
-  '/server-finder': () => import('../pages/ServerFinder'),
-  '/debug': () => import('../pages/Debug'),
-  '/events': () => import('../pages/Events'),
-  '/world-map': () => import('../pages/WorldMap'),
-  '/chat': () => import('../pages/Chat'),
-  '/backups': () => import('../pages/Backups'),
-  '/templates': () => import('../pages/Templates'),
-}
+import { getRouteMeta } from './navigation'
 
-const routeAliases: Record<string, string> = {
-  '/dashboard': '/',
-  '/chunk-cleaner': '/chunks',
-  '/serverconfig': '/server-config',
-}
-
+// Warms a page's module on hover/focus of a link to it, so the click lands
+// on code that is already loaded. The loaders come from the route registry.
 const preloadedRoutes = new Set<string>()
 
 export function preloadRouteModule(pathname: string) {
-  const normalizedPath = routeAliases[pathname] || pathname
-  const loader = routeLoaders[normalizedPath]
-  if (!loader || preloadedRoutes.has(normalizedPath)) return
+  const route = getRouteMeta(pathname.split(/[?#]/)[0])
+  if (!route || preloadedRoutes.has(route.path)) return
 
-  preloadedRoutes.add(normalizedPath)
-  void loader().catch(() => {
-    preloadedRoutes.delete(normalizedPath)
+  preloadedRoutes.add(route.path)
+  void route.load().catch(() => {
+    preloadedRoutes.delete(route.path)
   })
 }

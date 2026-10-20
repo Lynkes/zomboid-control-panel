@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils'
+import { StatusPill, type StatusTone } from '@/components/ui/status-pill'
 
 type StatusState = 'online' | 'offline' | 'connecting' | 'unknown'
 
@@ -8,31 +8,22 @@ interface StatusIndicatorProps {
   className?: string
 }
 
-const stateStyles: Record<StatusState, { dot: string; text: string }> = {
-  online: {
-    dot: 'bg-[hsl(var(--success))] shadow-[0_0_6px_hsl(var(--success)/0.5)]',
-    text: 'text-foreground',
-  },
-  offline: {
-    dot: 'bg-destructive',
-    text: 'text-muted-foreground',
-  },
-  connecting: {
-    dot: 'bg-warning animate-pulse',
-    text: 'text-muted-foreground',
-  },
-  unknown: {
-    dot: 'bg-muted-foreground/50',
-    text: 'text-muted-foreground',
-  },
+const TONE: Record<StatusState, StatusTone> = {
+  online: 'ok',
+  offline: 'error',
+  connecting: 'warn',
+  unknown: 'idle',
 }
 
 export function StatusIndicator({ state, label, className }: StatusIndicatorProps) {
-  const styles = stateStyles[state]
   return (
-    <div role="status" aria-live="polite" className={cn('flex items-center gap-1.5', className)}>
-      <div className={cn('h-2 w-2 rounded-full shrink-0', styles.dot)} aria-hidden="true" />
-      <span className={cn('text-sm', styles.text)}>{label}</span>
-    </div>
+    <StatusPill
+      role="status"
+      aria-live="polite"
+      tone={TONE[state]}
+      pulse={state === 'connecting'}
+      label={label}
+      className={className}
+    />
   )
 }

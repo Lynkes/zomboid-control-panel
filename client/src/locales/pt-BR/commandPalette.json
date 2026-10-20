@@ -1,0 +1,21 @@
+{
+  "title": "Paleta de comandos",
+  "description": "Digite para encontrar uma página, uma seção de uma página ou um servidor para o qual trocar.",
+  "inputLabel": "Pesquisar páginas, seções e servidores",
+  "placeholder": "Ir para uma página, uma seção ou um servidor…",
+  "resultsLabel": "Resultados",
+  "noResults": "Nada corresponde a “{{query}}”.",
+  "switchServer": "Trocar para {{name}}",
+  "showShortcuts": "Mostrar atalhos de teclado",
+  "groups": {
+    "pages": "Páginas",
+    "sections": "Seções",
+    "servers": "Servidores",
+    "actions": "Ações"
+  },
+  "hints": {
+    "move": "↑ ↓ para mover",
+    "open": "Enter para abrir",
+    "close": "Esc para fechar"
+  }
+}
