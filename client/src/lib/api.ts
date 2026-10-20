@@ -1373,6 +1373,9 @@ export interface AddToIniBulkResult {
 
 // Mod Groups (server/routes/mods.js, /mods/groups...). `modIds` is ordered:
 // the list order is the load order those mods must keep.
+export type ModGroupColorName =
+  | "slate" | "red" | "orange" | "amber" | "lime" | "green" | "teal" | "sky" | "blue" | "violet" | "pink";
+
 export interface ModGroup {
   id: string;
   name: string;
@@ -1380,12 +1383,18 @@ export interface ModGroup {
   modIds: string[];
   createdAt: string;
   updatedAt: string;
+  // A group saved before these existed reads back as null / false.
+  color?: ModGroupColorName | null;
+  // The members also load as one contiguous block.
+  keepTogether?: boolean;
 }
 
 export interface ModGroupInput {
   name: string;
   description?: string;
   modIds: string[];
+  color?: ModGroupColorName | null;
+  keepTogether?: boolean;
 }
 
 // The export / import file: a group without its id and dates, so it can be
@@ -1396,6 +1405,48 @@ export interface ModGroupDocument {
   name: string;
   description?: string;
   modIds: string[];
+  color?: ModGroupColorName | null;
+  keepTogether?: boolean;
+}
+
+// POST /mods/groups/:id/enable
+export interface ModGroupEnableResult {
+  enabled: string[];
+  alreadyEnabled: string[];
+  // Members found in no Workshop item on disk: they could not be enabled.
+  missing: string[];
+  workshopItemsAdded: string[];
+  groupsAdjusted: string[];
+  backupWarning?: string;
+}
+
+// POST /mods/groups/:id/disable
+export interface ModGroupDisableResult {
+  disabled: string[];
+  // Also in another group whose mods are all enabled, so they stay.
+  keptShared: string[];
+  notEnabled: string[];
+  // PanelBridge's own mod while its Workshop delivery manages it.
+  keptManaged?: string[];
+  backupWarning?: string;
+}
+
+// GET /mods/groups/suggestions. `reason` is an English machine phrase the
+// client does not show: it words its own text from `kind` and the counts.
+export interface ModGroupSuggestion {
+  key: string;
+  kind: "dependency" | "prefix" | "workshop-item";
+  name: string;
+  modIds: string[];
+  reason?: string;
+}
+
+// GET /mods/notes, PUT /mods/notes/:workshopId. One note per Workshop item,
+// shared by every admin of the panel.
+export interface ModNote {
+  text: string;
+  updatedAt: string;
+  updatedBy: string | null;
 }
 
 export interface ModGroupStatusEntry {
@@ -1923,6 +1974,21 @@ export const modsApi = {
     apiPost<ModGroupsApplyResult>("/mods/groups/apply", { preview }),
   setGroupsEnforce: (enforce: boolean) =>
     apiPut<{ enforce: boolean }>("/mods/groups/enforce", { enforce }),
+  // Enable / disable every member mod of a group on the active server, in one
+  // ini write each (the server keeps the group's order when enabling).
+  enableGroup: (id: string) =>
+    apiPost<ModGroupEnableResult>(`/mods/groups/${encodeURIComponent(id)}/enable`, {}),
+  disableGroup: (id: string, keepShared = true) =>
+    apiPost<ModGroupDisableResult>(`/mods/groups/${encodeURIComponent(id)}/disable`, { keepShared }),
+  getGroupSuggestions: () =>
+    apiGet<{ suggestions: ModGroupSuggestion[] }>("/mods/groups/suggestions"),
+  dismissGroupSuggestion: (key: string) =>
+    apiPost<{ success: boolean }>("/mods/groups/suggestions/dismiss", { key }),
+  // Mod notes, keyed by Workshop item id. An empty text deletes the note.
+  getNotes: () =>
+    apiGet<{ notes: Record<string, ModNote> }>("/mods/notes"),
+  setNote: (workshopId: string, text: string) =>
+    apiPut<{ note: ModNote | null }>(`/mods/notes/${encodeURIComponent(workshopId)}`, { text }),
 
   // Mod Load Order
   saveModOrder: (modIds: string[]) =>
