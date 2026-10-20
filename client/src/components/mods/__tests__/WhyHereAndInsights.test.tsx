@@ -84,7 +84,7 @@ describe('WhyHerePopover', () => {
     expect(screen.getByText('Why is KI5 Library here?')).toBeInTheDocument()
     expect(screen.getByText('#2 of 2')).toBeInTheDocument()
     expect(screen.getByText('Smart sort would move it to #1')).toBeInTheDocument()
-    expect(screen.getAllByText('Loads before KI5 Blazer, which requires it')).toHaveLength(2)
+    expect(screen.getByText('Loads before KI5 Blazer, which requires it')).toBeInTheDocument()
     expect(screen.getByText('Pinned to load after Base')).toBeInTheDocument()
     expect(screen.getByText('Needed by 2 mods')).toBeInTheDocument()
     expect(screen.getByText('Always loads after Base')).toBeInTheDocument()
