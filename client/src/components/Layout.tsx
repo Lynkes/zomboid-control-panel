@@ -974,11 +974,13 @@ export default function Layout({ children }: LayoutProps) {
         ref={mobileMenuAsideRef}
         aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
-        "fixed inset-y-0 left-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
+        // start-0 and the rtl: translate: in Arabic the drawer slides in
+        // from the right, beside the menu button, where the sidebar sits.
+        "fixed inset-y-0 start-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
         sidebarCollapsed ? "lg:w-[60px]" : "lg:w-64",
         "w-72",
-        "lg:translate-x-0",
-        mobileMenuOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0 lg:rtl:translate-x-0",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full rtl:translate-x-full",
         "pt-16 lg:pt-0" // Add padding for mobile header
       )}>
       <TooltipProvider delayDuration={150}>
