@@ -16,6 +16,11 @@ import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting, trustProxyHopCountWarning } from "./utils/trustProxy.js";
+import {
+  createHandshakeRateLimiter,
+  handshakeClientKey,
+  SOCKET_HANDSHAKE_RATE_MESSAGE,
+} from "./utils/handshakeRateLimit.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
 import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
@@ -789,6 +794,25 @@ export async function isRequestHostAllowed(hostHeader) {
 const HOST_DENY_MESSAGE =
   "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).";
 
+// Per-address Socket.IO handshake limit (utils/handshakeRateLimit.js).
+// The address is the one Express would give req.ip, so TRUST_PROXY applies
+// the same way it does to the /api/ limiter.
+const socketHandshakeLimiter = createHandshakeRateLimiter();
+export function _resetSocketHandshakeLimiterForTests() {
+  socketHandshakeLimiter.reset();
+}
+function socketHandshakeAddress(req) {
+  try {
+    return Object.create(app.request, {
+      headers: { value: req.headers },
+      socket: { value: req.socket },
+      connection: { value: req.socket },
+    }).ip;
+  } catch {
+    return req.socket?.remoteAddress;
+  }
+}
+
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
@@ -805,7 +829,12 @@ const io = new Server(httpServer, {
   // Same Host-header guard as the /api middleware below (a rebinding page
   // can open a socket to the panel too). Runs on every handshake, polling
   // or WebSocket; io.attach() for HTTPS reuses these options.
+  // A new connection only: polls and upgrades of an open one skip this.
   allowRequest: (req, callback) => {
+    if (!socketHandshakeLimiter.allow(handshakeClientKey(socketHandshakeAddress(req)))) {
+      callback(SOCKET_HANDSHAKE_RATE_MESSAGE, false);
+      return;
+    }
     isRequestHostAllowed(req.headers.host).then(
       (allowed) => callback(allowed ? null : HOST_DENY_MESSAGE, allowed),
       () => callback(HOST_DENY_MESSAGE, false),
@@ -1069,7 +1098,9 @@ app.use(
     }
     callback(null, {
       origin: true,
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      // PATCH: PATCH /api/auth/users/:id/role. Without it a cross-origin
+      // client the operator allowed (Remote Access) failed its preflight.
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       credentials: access === "credentialed" || isSameOriginRequest(req, origin),
     });
   }),
@@ -1086,13 +1117,22 @@ app.use(
 app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 
 // Server Files text saves carry a whole file (up to 2 MiB) as a JSON
-// string; 6mb covers the worst-case JSON escaping of that. Same ordering
-// rule as the client-errors parser above: it must run before the app-wide
-// 1mb parser below, or that one reads the body first and refuses it.
-app.put("/api/files/profiles/:profileId/text", express.json({ limit: "6mb" }));
+// string; 6mb covers the worst-case JSON escaping of that. The app-wide
+// 1mb parser below must not read that body first (it would refuse it), so
+// this route is only marked here, and its own 6mb parser runs after the
+// login check (FILES_TEXT_SAVE_ROUTE below).
+// SECURITY (2026-10-20): that parser used to be registered here, before
+// authService.middleware(), so anyone who could reach the panel had up to
+// 6 MB of JSON parsed per request without signing in.
+const FILES_TEXT_SAVE_ROUTE = "/api/files/profiles/:profileId/text";
+app.put(FILES_TEXT_SAVE_ROUTE, (req, _res, next) => {
+  req.deferLargeJsonBody = true;
+  next();
+});
 
 // Body parser with explicit size limit
-app.use(express.json({ limit: "1mb" }));
+const appJsonParser = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.deferLargeJsonBody ? next() : appJsonParser(req, res, next)));
 app.use(cookieParser());
 
 // Compress all HTTP responses (gzip/deflate) EXCEPT the <img>-tag-loaded
@@ -1257,6 +1297,13 @@ app.post("/api/files/profiles/:profileId/upload", fmUploadLimiter);
 app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
 app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);
 app.post("/api/files/profiles/:profileId/zip", fmTransferLimiter);
+// The Server Files text save's own body parser (see FILES_TEXT_SAVE_ROUTE
+// above): after the login check and the route's rate limit, and only for a
+// request the app-wide parser left alone.
+const filesTextSaveJsonParser = express.json({ limit: "6mb" });
+app.put(FILES_TEXT_SAVE_ROUTE, (req, res, next) =>
+  req.deferLargeJsonBody ? filesTextSaveJsonParser(req, res, next) : next(),
+);
 
 // Per-item collection mutations are cheap to the panel, but each one writes
 // to Steam. Do not share their bucket with cookie extraction: a normal sync
