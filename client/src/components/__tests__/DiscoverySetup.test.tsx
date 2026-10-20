@@ -31,6 +31,11 @@ vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ can: canMock }),
 }))
 
+const toastSpy = vi.hoisted(() => vi.fn())
+vi.mock('@/components/ui/use-toast', () => ({
+  useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
+}))
+
 const createFromDiscovery = vi.mocked(serversApi.createFromDiscovery)
 const activate = vi.mocked(serversApi.activate)
 
@@ -47,6 +52,7 @@ beforeEach(() => {
   createFromDiscovery.mockReset()
   activate.mockReset()
   canMock.mockReset().mockReturnValue(true)
+  toastSpy.mockClear()
 })
 
 describe('DiscoverySetup', () => {
@@ -91,6 +97,32 @@ describe('DiscoverySetup', () => {
     await waitFor(() => expect(activate).toHaveBeenCalledWith(7))
     expect(onCreated).toHaveBeenCalledWith({ id: 7, name: 'x' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // Only activating failed (e.g. 409 while another lifecycle action holds the
+  // lock): the server was added. This used to show "Failed to create server"
+  // and keep the dialog open, and a retry got SERVER_ALREADY_EXISTS.
+  it('a failed activation after a successful create reports "added, not active", refreshes the list and closes', async () => {
+    createFromDiscovery.mockResolvedValue({ server: { id: 7, name: 'Main' } as any, message: 'ok' })
+    activate.mockRejectedValue(new Error('A restart is already in progress'))
+    const onCreated = vi.fn()
+    const onOpenChange = vi.fn()
+    renderDiscoverySetup({ open: true, onOpenChange, mount, onCreated })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add server' }))
+
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
+    expect(onCreated).toHaveBeenCalledWith({ id: 7, name: 'Main' })
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Server added, not active yet',
+        description: expect.stringContaining('A restart is already in progress'),
+        variant: 'warning',
+      }),
+    )
+    expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: 'Server added' }))
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(createFromDiscovery).toHaveBeenCalledTimes(1)
   })
 
   it('a failed create surfaces the real error and does not close the dialog or call onCreated', async () => {

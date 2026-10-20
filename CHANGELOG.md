@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
 - **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
 - **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
+- **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
 
 ## [1.4.17] - 2026-10-18
 
