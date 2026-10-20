@@ -16,6 +16,11 @@ import {
   createModPreset,
   updateModPreset,
   deleteModPreset,
+  getModGroups,
+  createModGroup,
+  updateModGroup,
+  deleteModGroup,
+  setSetting,
   addIgnoredMod,
   getIgnoredMods,
   removeIgnoredMod,
@@ -65,7 +70,15 @@ import {
   stripBom,
   splitIniList,
   splitModIdList,
+  splitModIdTokens,
 } from "../utils/modIni.js";
+import {
+  MOD_GROUP_LIMITS,
+  applyModGroups,
+  groupsInOrder,
+  validateGroupFields,
+  validateGroupDocument,
+} from "../utils/modGroups.js";
 import {
   getWorkshopPaths,
   getModDetailsFromWorkshop,
@@ -5233,6 +5246,260 @@ router.post("/presets/:id/apply", async (req, res) => {
   }
 });
 
+// ===== MOD GROUPS =====
+//
+// A group is a named, ordered list of mod IDs shared by every admin of the
+// panel (stored in the panel database like the presets above, not per
+// server): the list order is the load order those mods must keep in Mods=.
+// utils/modGroups.js holds the rules; POST /save-order enforces them.
+
+const MOD_GROUP_FIELD_ERRORS = {
+  name: `Group name must be 1-${MOD_GROUP_LIMITS.nameMax} characters`,
+  description: `Group description must be at most ${MOD_GROUP_LIMITS.descriptionMax} characters`,
+  modIds: `modIds must list 1-${MOD_GROUP_LIMITS.modIdsMax} mod IDs of at most ${MOD_GROUP_LIMITS.modIdMax} characters`,
+  enforce: "enforce must be true or false",
+};
+
+function respondModGroupInvalid(res, field) {
+  return res.status(400).json({
+    error: MOD_GROUP_FIELD_ERRORS[field] || "Invalid mod group",
+    code: ErrorCode.MODS_GROUP_INVALID,
+    params: sanitizeErrorParams({ field }),
+  });
+}
+
+function respondModGroupLimitReached(res) {
+  return res.status(409).json({
+    error: `At most ${MOD_GROUP_LIMITS.maxGroups} mod groups can be kept`,
+    code: ErrorCode.MODS_GROUP_LIMIT_REACHED,
+    params: sanitizeErrorParams({ max: MOD_GROUP_LIMITS.maxGroups }),
+  });
+}
+
+function respondModGroupNotFound(res) {
+  return res.status(404).json({
+    error: "Mod group not found",
+    code: ErrorCode.MODS_GROUP_NOT_FOUND,
+  });
+}
+
+// On unless an admin turned it off, so a panel that never saved the setting
+// enforces groups.
+async function isModGroupEnforcementOn() {
+  return (await getSetting("modGroupsEnforce")) !== false;
+}
+
+// The active server's ini, resolved like the preset routes do. Answers with
+// the coded error itself and returns null when there is none to read.
+async function resolveActiveIniPathOrRespond(res) {
+  const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
+  const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
+
+  if (!iniPath) {
+    res.status(400).json(
+      withConfigRefusal(configRefusal, {
+        error: "Invalid server name",
+        code: ErrorCode.MODS_INVALID_SERVER_NAME,
+      }),
+    );
+    return null;
+  }
+
+  if (!fs.existsSync(iniPath)) {
+    res.status(400).json({
+      error: "Server INI not found",
+      code: ErrorCode.MODS_SERVER_INI_NOT_FOUND,
+    });
+    return null;
+  }
+  return iniPath;
+}
+
+// The Mods= entries of an ini text, in load order, as { raw, id } (raw is the
+// token as written, id what the game reads).
+function modTokensOf(iniText) {
+  return splitModIdTokens(iniText.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m)?.[1]);
+}
+
+// Lists the groups with the panel-wide enforcement setting.
+router.get("/groups", async (req, res) => {
+  try {
+    res.json({ groups: await getModGroups(), enforce: await isModGroupEnforcementOn() });
+  } catch (error) {
+    log.error(`Failed to get mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Create a group.
+router.post("/groups", async (req, res) => {
+  try {
+    const parsed = validateGroupFields(req.body);
+    if (!parsed.ok) return respondModGroupInvalid(res, parsed.field);
+
+    const group = await createModGroup(parsed.value, { maxGroups: MOD_GROUP_LIMITS.maxGroups });
+    if (!group) return respondModGroupLimitReached(res);
+
+    log.info(`Created mod group "${group.name}" with ${group.modIds.length} mods`);
+    res.status(201).json({ group });
+  } catch (error) {
+    log.error(`Failed to create mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Create a group from a shared file. A name that is taken becomes "name (2)".
+// Registered before /groups/:id (and the other literal /groups/* paths below)
+// so a literal path is never read as a group id.
+router.post("/groups/import", async (req, res) => {
+  try {
+    const parsed = validateGroupDocument(req.body?.document);
+    if (!parsed.ok) {
+      return res.status(400).json({
+        error: "Not a valid mod group export",
+        code: ErrorCode.MODS_GROUP_IMPORT_INVALID,
+      });
+    }
+
+    const group = await createModGroup(parsed.value, {
+      maxGroups: MOD_GROUP_LIMITS.maxGroups,
+      uniqueName: true,
+    });
+    if (!group) return respondModGroupLimitReached(res);
+
+    log.info(`Imported mod group "${group.name}" with ${group.modIds.length} mods`);
+    res.status(201).json({ group });
+  } catch (error) {
+    log.error(`Failed to import mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Which groups the CURRENT Mods= order already respects.
+router.get("/groups/status", async (req, res) => {
+  try {
+    const iniPath = await resolveActiveIniPathOrRespond(res);
+    if (!iniPath) return;
+
+    const order = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
+    const groups = await getModGroups();
+    const statuses = groupsInOrder(order, groups);
+    res.json({
+      groups: statuses,
+      inOrder: statuses.every((status) => status.inOrder),
+      conflicts: applyModGroups(order, groups).conflicts,
+    });
+  } catch (error) {
+    log.error(`Failed to get mod group status: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Put the groups' order into the current Mods= line. `preview: true` only
+// reports what would move. The write goes through the same lock and backup as
+// POST /save-order and only happens when something changes.
+router.post("/groups/apply", async (req, res) => {
+  try {
+    const preview = req.body?.preview === true;
+    const iniPath = await resolveActiveIniPathOrRespond(res);
+    if (!iniPath) return;
+
+    const groups = await getModGroups();
+    let result = { order: [], moved: [], conflicts: [] };
+    let written = false;
+    let backupWarning = null;
+
+    if (preview) {
+      const ids = modTokensOf(readTextFile(iniPath)).map((token) => token.id);
+      result = applyModGroups(ids, groups);
+    } else {
+      await withIniLock(iniPath, async () => {
+        let content = readTextFile(iniPath);
+        const tokens = modTokensOf(content);
+        result = applyModGroups(
+          tokens.map((token) => token.id),
+          groups,
+        );
+        if (result.moved.length === 0) return;
+
+        // Write the entries as they were written (backslashes kept), only in
+        // the new order. Equal ids are interchangeable, so each takes the
+        // next unused token of its own.
+        const unused = new Map();
+        for (const token of tokens) {
+          if (!unused.has(token.id)) unused.set(token.id, []);
+          unused.get(token.id).push(token.raw);
+        }
+        const modsLine = `Mods=${sanitizeIniList(result.order.map((id) => unused.get(id).shift()))}`;
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
+
+        backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+        written = true;
+      });
+    }
+
+    if (written) {
+      log.info(`Applied mod groups to the load order: ${result.moved.length} mods moved`);
+    }
+    res.json({
+      changed: result.moved.length > 0,
+      moved: result.moved,
+      order: result.order,
+      written,
+      conflicts: result.conflicts,
+      ...(backupWarning ? { backupWarning } : {}),
+    });
+  } catch (error) {
+    log.error(`Failed to apply mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Turn the enforcement in POST /save-order on or off, panel-wide.
+router.put("/groups/enforce", async (req, res) => {
+  try {
+    const enforce = req.body?.enforce;
+    if (typeof enforce !== "boolean") return respondModGroupInvalid(res, "enforce");
+
+    await setSetting("modGroupsEnforce", enforce);
+    log.info(`Mod group enforcement ${enforce ? "enabled" : "disabled"}`);
+    res.json({ enforce });
+  } catch (error) {
+    log.error(`Failed to set mod group enforcement: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Change the given fields of a group.
+router.put("/groups/:id", async (req, res) => {
+  try {
+    const parsed = validateGroupFields(req.body, { partial: true });
+    if (!parsed.ok) return respondModGroupInvalid(res, parsed.field);
+
+    const group = await updateModGroup(req.params.id, parsed.value);
+    if (!group) return respondModGroupNotFound(res);
+
+    log.info(`Updated mod group "${group.name}"`);
+    res.json({ group });
+  } catch (error) {
+    log.error(`Failed to update mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Delete a group.
+router.delete("/groups/:id", async (req, res) => {
+  try {
+    if (!(await deleteModGroup(req.params.id))) return respondModGroupNotFound(res);
+
+    log.info(`Deleted mod group: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    log.error(`Failed to delete mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Save mod load order
 router.post("/save-order", async (req, res) => {
   try {
@@ -5278,6 +5545,27 @@ router.post("/save-order", async (req, res) => {
       });
     }
 
+    // Mod groups: with enforcement on (the default) the order of every group
+    // is put into the list before it is written, so a drag in the Mod Manager
+    // cannot break a group's load order. Only the members of a group change
+    // places; the response says which mods moved and which groups cannot
+    // be satisfied together.
+    let orderToWrite = modIds;
+    let groupsAdjusted = [];
+    let groupConflicts = [];
+    try {
+      if (await isModGroupEnforcementOn()) {
+        const applied = applyModGroups(modIds, await getModGroups());
+        orderToWrite = applied.order;
+        groupsAdjusted = applied.moved;
+        groupConflicts = applied.conflicts;
+      }
+    } catch (error) {
+      // Groups are an aid on top of the load order: failing to read them must
+      // never stop the admin's own order from being saved.
+      log.warn(`Mod groups not enforced for this save: ${error.message}`);
+    }
+
     let backupWarning = null;
     await withIniLock(iniPath, async () => {
       let content = readTextFile(iniPath);
@@ -5289,7 +5577,7 @@ router.post("/save-order", async (req, res) => {
       // 5-15 digit number (e.g. "Tear All Clothes" 3519629457, see this
       // file's enable-disk-mod handler) on every reorder. Character-only
       // sanitization here, same bypass already used for disk-verified IDs.
-      const modsLine = `Mods=${sanitizeIniList(modIds)}`;
+      const modsLine = `Mods=${sanitizeIniList(orderToWrite)}`;
       // Same fix as this file's first ini-write site: check the anchored
       // regex, not a plain .includes().
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
@@ -5303,10 +5591,15 @@ router.post("/save-order", async (req, res) => {
       );
     });
 
-    log.info(`Saved mod load order: ${modIds.length} mods`);
+    log.info(
+      `Saved mod load order: ${modIds.length} mods` +
+        (groupsAdjusted.length ? ` (${groupsAdjusted.length} moved to keep mod groups in order)` : ""),
+    );
     res.json({
       message: "Mod load order saved successfully",
       modCount: modIds.length,
+      groupsAdjusted,
+      groupConflicts,
       ...(backupWarning ? { backupWarning } : {}),
     });
   } catch (error) {

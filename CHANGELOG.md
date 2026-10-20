@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+- **Mod Manager, mod groups:** group mods that belong together (e.g. KI5 vehicles: library, core, add-ons, fixes) and the panel keeps their order within the load order whenever you save it, shared by every admin and exportable as a file.
 
 ### Fixed
 

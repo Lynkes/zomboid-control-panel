@@ -1214,6 +1214,17 @@ export const ErrorCode = Object.freeze({
   MODS_EXTENSION_FILES_MISSING: "MODS_EXTENSION_FILES_MISSING",
   /** server/routes/mods.js -- POST /get-mod-info, Steam's GetPublishedFileDetails returned result !== 1. */
   MODS_GET_MOD_INFO_NOT_FOUND: "MODS_GET_MOD_INFO_NOT_FOUND",
+  /** server/routes/mods.js -- POST /groups/import, the document is not a mod group export (wrong
+   * kind or schema, or a name/description/modIds outside the limits). */
+  MODS_GROUP_IMPORT_INVALID: "MODS_GROUP_IMPORT_INVALID",
+  /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce) -- a field is missing or
+   * outside its limits. Sends `{ field }`: "name", "description", "modIds" or "enforce". */
+  MODS_GROUP_INVALID: "MODS_GROUP_INVALID",
+  /** server/routes/mods.js -- (sites: POST /groups, POST /groups/import) -- the panel already holds
+   * the most mod groups it keeps. Sends `{ max }`. */
+  MODS_GROUP_LIMIT_REACHED: "MODS_GROUP_LIMIT_REACHED",
+  /** server/routes/mods.js -- PUT/DELETE /groups/:id, no stored mod group with that id. */
+  MODS_GROUP_NOT_FOUND: "MODS_GROUP_NOT_FOUND",
   /** server/routes/mods.js -- DELETE /ignored-pairs, modIdA/modIdB missing or fail MOD_ID_RE. Own
    * wording from MODS_IGNORED_PAIR_INVALID_IDS above (POST route's fuller
    * message) -- kept separate. */
