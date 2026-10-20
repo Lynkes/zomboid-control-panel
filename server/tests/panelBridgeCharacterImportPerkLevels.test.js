@@ -91,6 +91,16 @@ describe("POST /character/import refuses perk levels the game can't have", () =>
     const noPerks = await post("/character/import", { username: "Vet", data: { inventory: [] } });
     expect(noPerks.status).not.toHaveBeenCalled();
   });
+
+  it("imports an export whose skills could not be read: the bridge writes empty tables as []", async () => {
+    bridgeAnswers();
+    const res = await post("/character/import", { username: "Vet", data: { perks: [], inventory: [] } });
+    expect(res.status).not.toHaveBeenCalled();
+
+    bridgeAnswers();
+    const emptyEntry = await post("/character/import", { username: "Vet", data: { perks: { Fitness: [] } } });
+    expect(emptyEntry.status).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /command importPlayerData gets the same check", () => {

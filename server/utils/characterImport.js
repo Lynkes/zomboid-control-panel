@@ -19,10 +19,14 @@ export const CHARACTER_PERK_LEVEL_MAX = 10;
 export function characterImportRefusal(data) {
   const perks = data?.perks;
   if (perks === undefined || perks === null) return null;
+  // The bridge's JSON encoder writes every EMPTY Lua table as [] (an export whose
+  // skills could not be read has "perks": []): that is "no skills", not bad data.
+  if (Array.isArray(perks) && perks.length === 0) return null;
   const refuse = (where) =>
     `Each skill in the character data must have a whole-number level from 0 to ${CHARACTER_PERK_LEVEL_MAX} (${JSON.stringify(String(where).slice(0, 64))}).`;
   if (typeof perks !== "object" || Array.isArray(perks)) return refuse("perks");
   for (const [name, entry] of Object.entries(perks)) {
+    if (Array.isArray(entry) && entry.length === 0) continue; // an empty skill entry, same encoder rule
     if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return refuse(name);
     const level = entry.level;
     if (level === undefined || level === null) continue;
