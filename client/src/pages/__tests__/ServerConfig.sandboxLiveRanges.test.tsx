@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import ServerConfig from '../ServerConfig'
 import { serverFilesApi, serversApi, panelBridgeApi } from '@/lib/api'
@@ -140,11 +140,11 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     // unlike the INI tab, a sandbox write has no RCON live-reload path and
     // always needs a server restart -- see ServerConfig.tsx's
     // handleSaveSandbox comment.
+    // Save sits in the SaveBar, which shows once there is an edit: one
+    // still above the stale schema's 5000 but inside the live 10000 saves.
+    fireEvent.change(await screen.findByDisplayValue('6000'), { target: { value: '6001' } })
     const saveButton = await screen.findByRole('button', { name: /^save$/i })
-    // No local edit was made (hasSandboxChanges is false), so this alone
-    // doesn't prove the range fix -- the companion "still blocks with a
-    // stale/unavailable range" test below is the contrast case.
-    expect(saveButton).toBeDisabled()
+    expect(saveButton).not.toBeDisabled()
     // The blocking reason must not be "600 is out of range" -- that alert
     // only renders when invalidSandboxSettings is non-empty.
     expect(screen.queryByText(/fix invalid values before saving/i)).not.toBeInTheDocument()
@@ -155,7 +155,7 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     getSandbox.mockResolvedValue({ sandbox: sandboxDataWithZombieDeleteCount(6000) } as never)
     sendCommand.mockRejectedValue(new Error('network error'))
 
-    renderServerConfigOnSandboxTab()
+    renderServerConfigOnSandboxTabSearchingZombieDeleteCount()
 
     await waitFor(() => expect(sendCommand).toHaveBeenCalled())
 
@@ -163,7 +163,10 @@ describe('ServerConfig.tsx: Sandbox tab prefers a live PanelBridge range over th
     await waitFor(() => expect(screen.getByText(/showing built-in ranges/i)).toBeInTheDocument())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
 
-    const saveButton = screen.getAllByRole('button', { name: /^save$/i })[0]
+    // An edit that is still out of the built-in range: the SaveBar shows,
+    // its Save stays disabled.
+    fireEvent.change(await screen.findByDisplayValue('6000'), { target: { value: '6001' } })
+    const saveButton = await screen.findByRole('button', { name: /^save$/i })
     expect(saveButton).toBeDisabled()
   })
 })

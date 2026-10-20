@@ -13,20 +13,21 @@
     "title": "Active server changed",
     "desc": "The active server changed while this page was open. The settings below are still from the previous server -- reload before saving, or the save would overwrite the new active server's config."
   },
-  "loading": "ap chaje konfigirasyon…",
+  "loading": "Ap chaje konfigirasyon…",
   "loadErrorTitle": "Done konfigirasyon pa t kapab chaje nèt",
   "retry": "Eseye ankò",
   "pageHeader": {
     "title": "Konfigirasyon Sèvè",
     "description": "Modifye paramèt INI, sandbox, spawn, ak mod k ap fonksyone kounye a pou sèvè sa a.",
-    "eyebrow": "config",
     "unsavedChanges": "Chanjman ki pa sove",
-    "templates": "Konfigirasyon Sove",
-    "backups": "Kopi Sovgad",
-    "refresh": "Aktyalize"
+    "templates": "Foto konfigirasyon",
+    "backups": "Kopi sovgad fichye konfigirasyon",
+    "refresh": "Aktyalize",
+    "more": "Plis aksyon",
+    "templatesPage": "Modèl",
+    "openInFiles": "Louvri dosye a nan Fichye Sèvè"
   },
   "activeServerStrip": {
-    "label": "Sèvè aktif",
     "noServerSelected": "Pa gen sèvè chwazi",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -55,7 +56,8 @@
     "removeConfirm": "Retire \"{{modId}}\" nan Mods=? Sa a sèlman prepare chanjman an isit la — anyen pa ekri sou disk jiskaske ou anrejistre.",
     "removeConfirmButton": "Retire",
     "removedTitle": "Antre Mods= retire",
-    "removedToast": "Retire \"{{modId}}\" nan Mods=. Pa anrejistre — verifye epi anrejistre anba a."
+    "removedToast": "Retire \"{{modId}}\" nan Mods=. Pa anrejistre — verifye epi anrejistre anba a.",
+    "openActiveMods": "Louvri mod aktif yo"
   },
   "tabs": {
     "serverSettings": "Paramèt Sèvè",
@@ -64,7 +66,8 @@
     "spawnRegions": "Rejyon Spawn",
     "modSettings": "Paramèt Mod",
     "unsavedChangesAria": "chanjman ki pa sove",
-    "fileMissingAria": "fichye manke"
+    "fileMissingAria": "fichye manke",
+    "listAria": "Fichye konfigirasyon"
   },
   "stopServerAlert": {
     "title": "Sèvè a ap fonksyone",
@@ -80,17 +83,13 @@
     "form": "Fòm",
     "raw": "Bri",
     "downloadIniAria": "Telechaje kopi sovgad INI",
-    "downloadIniTooltip": "Telechaje kopi sovgad INI",
     "downloadSandboxAria": "Telechaje kopi sovgad Sandbox",
-    "downloadSandboxTooltip": "Telechaje kopi sovgad Sandbox",
     "downloadSpawnPointsAria": "Telechaje kopi sovgad Pwen Spawn",
-    "downloadSpawnPointsTooltip": "Telechaje kopi sovgad Spawnpoints",
     "downloadSpawnRegionsAria": "Telechaje kopi sovgad Rejyon Spawn",
-    "downloadSpawnRegionsTooltip": "Telechaje kopi sovgad Spawnregions",
     "wiki": "Wiki",
-    "map": "kat",
+    "map": "Kat",
     "saveAndReload": "Sove & rechaje",
-    "save": "sove",
+    "save": "Sove",
     "copied": "Kopye!",
     "copyToClipboard": "Kopye nan clipboard"
   },
@@ -99,31 +98,20 @@
     "sandboxPlaceholder": "Chèche paramèt sandbox…",
     "aria": "Chèche paramèt sèvè",
     "sandboxAria": "Chèche paramèt sandbox",
-    "clearAria": "Efase rechèch",
     "filterAria": "Filtre paramèt",
-    "filterAll": "tout",
-    "filterModified": "modifye",
-    "filterUnsaved": "pa sove",
+    "filterAll": "Tout",
+    "filterModified": "Modifye",
+    "filterUnsaved": "Pa sove",
     "noMatches": "Pa gen paramèt ki koresponn ak “{{query}}”."
   },
   "categoriesNav": {
     "iniAria": "Kategori paramèt sèvè",
     "sandboxAria": "Kategori sandbox",
-    "categoriesLabel": "Kategori",
-    "expandAllAria": "Louvri tout gwoup kategori",
-    "collapseAllAria": "Fèmen tout gwoup kategori",
-    "expandAll": "Louvri tout",
-    "collapseAll": "Fèmen tout",
-    "modifiedCountTitle_one": "{{count}} chanjman ki pa sove",
-    "modifiedCountTitle_other": "{{count}} chanjman ki pa sove",
-    "modifiedCountTitle_many": "{{count}} chanjman ki pa sove",
     "matchCount_one": "{{count}} rezilta",
     "matchCount_other": "{{count}} rezilta",
     "matchCount_many": "{{count}} rezilta",
     "uncategorizedIniLabel": "San Kategori / Enkoni",
-    "uncategorizedIniTitle": "Kle ki nan fichye INI ou a men ki pa nan schema a (kle vanil pi resan, kle mod ajoute, oswa pèsonalize)",
-    "uncategorizedSandboxLabel": "Paramèt Anplis",
-    "uncategorizedSandboxTitle": "Paramèt sandbox editè a poko gwoupe"
+    "uncategorizedSandboxLabel": "Paramèt Anplis"
   },
   "uncategorizedIni": {
     "empty": "Pa gen kle san kategori.",
@@ -159,12 +147,10 @@
     "luaChecksumBody": "PanelBridge panèl la enstale a ajoute fichye Lua bò sèvè a ke jwè yo pa genyen, kidonk lè <1>DoLuaChecksum</1> aktive, yo pa ka konekte. Dezaktive l, oswa pase PanelBridge sou distribisyon atravè Steam Workshop nan Paramèt › PanelBridge pou kenbe l aktive.",
     "luaChecksumWorkshopNote": "PanelBridge soti nan Steam Workshop, kidonk ou ka aktive sa. Paramèt › PanelBridge ap gide w etap pa etap.",
     "luaChecksumWorkshopUnconfirmed": "Si PanelBridge toujou ap chaje nan dosye jwèt la, jwè yo pa ka antre pandan sa a aktive.",
-    "disableNow": "dezaktive kounye a"
+    "disableNow": "Dezaktive kounye a"
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "mond, zonbi, siviv",
-    "build42Title": "Optimize pou Build 42",
     "build42Body": "Valè sandbox ak fòmilasyon opsyon nan editè sa a aliyen ak valè pa defo Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -173,11 +159,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Pwen spawn",
-    "sectionSublabel": "jere pa mod · kote jwè kòmanse",
-    "infoTab": "enfo",
+    "sectionSublabel": "Kote jwè yo kòmanse, anjeneral se yon mod ki jere yo",
     "modManagedTitle": "Pwen spawn jere pa mod",
     "modManagedBody": "Kote spawn yo anjeneral jere pa mod tankou “Spawn Select.” Chanje pou <1>bri</1> pou enspekte oswa modifye fichye a dirèkteman.",
-    "openRawFile": "louvri fichye bri"
+    "openRawFile": "Louvri fichye bri"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Rejyon spawn",
@@ -205,17 +190,16 @@
     "sectionSublabelLoaded_one": "{{count}} mod · dirèk soti nan bridge",
     "sectionSublabelLoaded_other": "{{count}} mod · dirèk soti nan bridge",
     "sectionSublabelLoaded_many": "{{count}} mod · dirèk soti nan bridge",
-    "sectionSublabelIdle": "panelbridge · dirèk",
+    "sectionSublabelIdle": "Dirèk nan PanelBridge",
     "modifiedBadge": "{{count}} modifye",
-    "refresh": "aktyalize",
-    "load": "chaje",
+    "refresh": "Aktyalize",
+    "load": "Chaje",
     "searchPlaceholder": "Chèche paramèt mod…  (peze /)",
-    "clearSearchAria": "Efase rechèch",
     "modifiedFilterNoneTitle": "Pa gen opsyon ki diferan de defo",
     "modifiedFilterTitle": "Montre sèlman opsyon ki chanje de defo",
-    "modifiedFilter": "modifye",
+    "modifiedFilter": "Modifye",
     "collapseAll": "Fèmen tout",
-    "expandAll": "louvri tout",
+    "expandAll": "Louvri tout",
     "notLoadedTitle": "Paramèt mod pa chaje",
     "notLoadedDescPrefix": "Klike chaje pou jwenn opsyon sandbox nan tout mod enstale atravè PanelBridge",
     "notLoadedDescSuffix": ". Sèvè PZ a dwe ap fonksyone ak PanelBridge aktif.",
@@ -241,7 +225,7 @@
     "offCaps": "OFF",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Remèt defo: {{value}}",
-    "resetToDefaultLabel": "defo: {{value}}",
+    "resetToDefaultLabel": "Remete {{value}}",
     "resetToDefaultTooltip": "Remèt defo: {{value}}",
     "noModifiedOptions": "Pa gen okenn opsyon ki modifye de valè pa defo yo.",
     "showAllOptions": "Montre tout opsyon",
@@ -252,21 +236,11 @@
     "enumBridgeOutdatedDesc": "Vèsyon sa a sove dènye chwa yon paramèt ki gen lis tankou chwa ki anvan l la, kidonk panèl la p ap voye yon dènye chwa jiskaske yo mete PanelBridge ajou epi sèvè a redemare. Paramèt › PanelBridge montre sa sèvè sa a bezwen. Si chwa yon paramèt pa ka parèt nan yon lis, tape nimewo chwa a (1 se premye a).",
     "enumLastChoiceHeldBack": "Ou pa ka chwazi dènye chwa a ({{max}}) isit la jiskaske yo mete PanelBridge ajou.",
     "enumLastChoiceItem": "Chwa {{value}}",
-    "enumTooManyChoices": "Twòp chwa pou mete nan yon lis. Tape nimewo chwa a (1 se premye a)."
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} chanjman ki pa sove",
-    "unsavedChange_other": "{{count}} chanjman ki pa sove",
-    "unsavedChange_many": "{{count}} chanjman ki pa sove",
-    "iniScope": "server ini",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s pou sove · aplike lè rechaje",
-    "discard": "jete",
-    "save": "sove",
-    "saveAndReload": "sove & rechaje"
+    "enumTooManyChoices": "Twòp chwa pou mete nan yon lis. Tape nimewo chwa a (1 se premye a).",
+    "manageMods": "Jere mod yo"
   },
   "backupsDialog": {
-    "title": "Kopi Sovgad Konfigirasyon",
+    "title": "Kopi sovgad fichye konfigirasyon",
     "description": "Retabli yon ansyen vèsyon fichye konfigirasyon ou yo. Kopi sovgad kreye otomatikman lè ou sove.",
     "filterLabel": "Filtre:",
     "filterAll": "Tout Fichye",
@@ -288,9 +262,9 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "Konfigirasyon Sove",
+    "title": "Foto konfigirasyon",
     "applyTip": "Aplike yon konfigirasyon sove ranplase TOUT paramèt aktyèl ou yo — li pa fusion ak sa ki la kounye a. Panèl la fè kopi sovgad sa k ap fonksyone anvan li aplike, pou Retabli ka anile li, men sèvè a dwe sispann anvan.",
-    "description": "Sove konfigirasyon aktyèl ou, oswa chaje youn ou te sove anvan.",
+    "description": "Sove paramèt aktyèl yo kòm yon foto, oswa aplike youn ou te sove anvan.",
     "savedCount_one": "{{count}} konfigirasyon sove",
     "savedCount_other": "{{count}} konfigirasyon sove",
     "savedCount_many": "{{count}} konfigirasyon sove",
@@ -378,7 +352,7 @@
   "toasts": {
     "error": "Erè",
     "loadConfigFailed": "Pa t kapab chaje konfigirasyon sèvè a.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "Sèvè aktif la chanje depi paj sa a te chaje. Rechaje anvan ou sove pou ou pa ekraze move sèvè a.",
     "invalidIniTitle": "Paramèt sèvè envalid",
     "invalidSandboxTitle": "Valè Sandbox envalid",
     "fixSettings": "Korije: {{settings}}",

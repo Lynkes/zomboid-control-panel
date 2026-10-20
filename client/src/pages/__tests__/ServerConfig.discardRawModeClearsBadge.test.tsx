@@ -88,13 +88,14 @@ describe('ServerConfig.tsx: Discard in raw mode clears the raw textarea and the 
       fireEvent.change(textarea, { target: { value: 'PVP=true\nedited=true' } })
     })
 
-    await screen.findByText('Unsaved changes')
+    // The header's status pill and the SaveBar both say so.
+    await screen.findAllByText('Unsaved changes')
 
     const discardButton = await screen.findByRole('button', { name: /discard/i })
     fireEvent.click(discardButton)
 
     await waitFor(() => expect(textarea).toHaveValue('PVP=false'))
-    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
+    expect(screen.queryAllByText('Unsaved changes')).toHaveLength(0)
     expect(saveIni).not.toHaveBeenCalled()
   })
 })

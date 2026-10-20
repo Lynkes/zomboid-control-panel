@@ -13,20 +13,21 @@
     "title": "Active server changed",
     "desc": "The active server changed while this page was open. The settings below are still from the previous server -- reload before saving, or the save would overwrite the new active server's config."
   },
-  "loading": "cargando configuración…",
+  "loading": "Cargando configuración…",
   "loadErrorTitle": "No se pudieron cargar todos los datos de configuración",
   "retry": "Reintentar",
   "pageHeader": {
     "title": "Configuración del servidor",
     "description": "Edita en tiempo real los ajustes de INI, sandbox, aparición y mods de este servidor.",
-    "eyebrow": "config",
     "unsavedChanges": "Cambios sin guardar",
-    "templates": "Configs guardadas",
-    "backups": "Copias de seguridad",
-    "refresh": "Actualizar"
+    "templates": "Instantáneas de configuración",
+    "backups": "Copias de los archivos de configuración",
+    "refresh": "Actualizar",
+    "more": "Más acciones",
+    "templatesPage": "Plantillas",
+    "openInFiles": "Abrir la carpeta en Archivos del servidor"
   },
   "activeServerStrip": {
-    "label": "Servidor activo",
     "noServerSelected": "Ningún servidor seleccionado",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -55,7 +56,8 @@
     "removeConfirm": "¿Eliminar \"{{modId}}\" de Mods=? Esto solo prepara el cambio aquí — no se escribe nada en el disco hasta que guardes.",
     "removeConfirmButton": "Eliminar",
     "removedTitle": "Entrada de Mods= eliminada",
-    "removedToast": "Se eliminó \"{{modId}}\" de Mods=. Sin guardar — revisa y guarda abajo."
+    "removedToast": "Se eliminó \"{{modId}}\" de Mods=. Sin guardar — revisa y guarda abajo.",
+    "openActiveMods": "Abrir mods activos"
   },
   "tabs": {
     "serverSettings": "Ajustes del servidor",
@@ -64,7 +66,8 @@
     "spawnRegions": "Regiones de aparición",
     "modSettings": "Ajustes de mods",
     "unsavedChangesAria": "cambios sin guardar",
-    "fileMissingAria": "archivo no encontrado"
+    "fileMissingAria": "archivo no encontrado",
+    "listAria": "Archivos de configuración"
   },
   "stopServerAlert": {
     "title": "El servidor está en ejecución",
@@ -80,17 +83,13 @@
     "form": "Formulario",
     "raw": "Texto plano",
     "downloadIniAria": "Descargar copia de seguridad de INI",
-    "downloadIniTooltip": "Descargar copia de seguridad de INI",
     "downloadSandboxAria": "Descargar copia de seguridad de Sandbox",
-    "downloadSandboxTooltip": "Descargar copia de seguridad de Sandbox",
     "downloadSpawnPointsAria": "Descargar copia de seguridad de puntos de aparición",
-    "downloadSpawnPointsTooltip": "Descargar copia de seguridad de Spawnpoints",
     "downloadSpawnRegionsAria": "Descargar copia de seguridad de regiones de aparición",
-    "downloadSpawnRegionsTooltip": "Descargar copia de seguridad de Spawnregions",
     "wiki": "Wiki",
-    "map": "mapa",
+    "map": "Mapa",
     "saveAndReload": "Guardar y recargar",
-    "save": "guardar",
+    "save": "Guardar",
     "copied": "¡Copiado!",
     "copyToClipboard": "Copiar al portapapeles"
   },
@@ -99,30 +98,19 @@
     "sandboxPlaceholder": "Buscar ajustes de sandbox…",
     "aria": "Buscar ajustes del servidor",
     "sandboxAria": "Buscar ajustes de sandbox",
-    "clearAria": "Borrar búsqueda",
     "filterAria": "Filtrar ajustes",
-    "filterAll": "todos",
-    "filterModified": "modificados",
-    "filterUnsaved": "sin guardar",
+    "filterAll": "Todos",
+    "filterModified": "Modificados",
+    "filterUnsaved": "Sin guardar",
     "noMatches": "Ningún ajuste coincide con «{{query}}»."
   },
   "categoriesNav": {
     "iniAria": "Categorías de ajustes del servidor",
     "sandboxAria": "Categorías de Sandbox",
-    "categoriesLabel": "Categorías",
-    "expandAllAria": "Expandir todos los grupos de categorías",
-    "collapseAllAria": "Contraer todos los grupos de categorías",
-    "expandAll": "Expandir todo",
-    "collapseAll": "Contraer todo",
-    "modifiedCountTitle_one": "{{count}} cambio sin guardar",
-    "modifiedCountTitle_other": "{{count}} cambios sin guardar",
     "matchCount_one": "{{count}} coincidencia",
     "matchCount_other": "{{count}} coincidencias",
     "uncategorizedIniLabel": "Sin categorizar / Desconocido",
-    "uncategorizedIniTitle": "Claves presentes en el archivo INI pero ausentes del esquema (claves nuevas del juego base, añadidas por mods, o personalizadas)",
     "uncategorizedSandboxLabel": "Ajustes adicionales",
-    "uncategorizedSandboxTitle": "Ajustes de Sandbox aún no agrupados por el editor",
-    "modifiedCountTitle_many": "{{count}} cambios sin guardar",
     "matchCount_many": "{{count}} coincidencias"
   },
   "uncategorizedIni": {
@@ -159,12 +147,10 @@
     "luaChecksumBody": "PanelBridge instalado por el panel añade en el servidor archivos de Lua que los jugadores no tienen, así que con <1>DoLuaChecksum</1> activado no pueden conectarse. Desactívalo, o cambia PanelBridge a la entrega por Steam Workshop en Ajustes › PanelBridge para mantenerlo activado.",
     "luaChecksumWorkshopNote": "PanelBridge viene de Steam Workshop, así que puedes activar esta opción. Ajustes › PanelBridge te guía paso a paso.",
     "luaChecksumWorkshopUnconfirmed": "Si PanelBridge todavía se carga desde la carpeta del juego, los jugadores no pueden entrar con esta opción activada.",
-    "disableNow": "desactivar ahora"
+    "disableNow": "Desactivar ahora"
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "mundo, zombis, supervivencia",
-    "build42Title": "Optimizado para Build 42",
     "build42Body": "Los valores de Sandbox y la redacción de las opciones en este editor están alineados con los valores predeterminados de Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -173,11 +159,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Puntos de aparición",
-    "sectionSublabel": "gestionado por mods · ubicaciones iniciales de jugadores",
-    "infoTab": "info",
+    "sectionSublabel": "Ubicaciones iniciales de los jugadores, normalmente gestionadas por un mod",
     "modManagedTitle": "Los puntos de aparición son gestionados por mods",
     "modManagedBody": "Las ubicaciones de aparición normalmente las gestionan mods como «Spawn Select». Cambia a <1>texto plano</1> para inspeccionar o editar el archivo directamente.",
-    "openRawFile": "abrir archivo en texto plano"
+    "openRawFile": "Abrir archivo en texto plano"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Regiones de aparición",
@@ -204,17 +189,16 @@
     "sectionLabel": "Opciones de sandbox de mods",
     "sectionSublabelLoaded_one": "{{count}} mod · en vivo desde puente",
     "sectionSublabelLoaded_other": "{{count}} mods · en vivo desde puente",
-    "sectionSublabelIdle": "panelbridge · en vivo",
+    "sectionSublabelIdle": "En vivo desde PanelBridge",
     "modifiedBadge": "{{count}} modificados",
-    "refresh": "actualizar",
-    "load": "cargar",
+    "refresh": "Actualizar",
+    "load": "Cargar",
     "searchPlaceholder": "Buscar ajustes de mods…  (pulsar /)",
-    "clearSearchAria": "Borrar búsqueda",
     "modifiedFilterNoneTitle": "Ninguna opción difiere del valor predeterminado",
     "modifiedFilterTitle": "Mostrar solo las opciones modificadas respecto al valor predeterminado",
-    "modifiedFilter": "modificados",
+    "modifiedFilter": "Modificados",
     "collapseAll": "Contraer todo",
-    "expandAll": "expandir todo",
+    "expandAll": "Expandir todo",
     "notLoadedTitle": "Ajustes de mods no cargados",
     "notLoadedDescPrefix": "Pulsa «cargar» para obtener las opciones de sandbox de todos los mods instalados mediante PanelBridge",
     "notLoadedDescSuffix": ". El servidor de PZ debe estar en ejecución con PanelBridge activo.",
@@ -239,7 +223,7 @@
     "offCaps": "DESACTIVADO",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Restablecer al valor predeterminado: {{value}}",
-    "resetToDefaultLabel": "pred.: {{value}}",
+    "resetToDefaultLabel": "Restablecer a {{value}}",
     "resetToDefaultTooltip": "Restablecer al valor predeterminado: {{value}}",
     "noModifiedOptions": "No se ha modificado ninguna opción respecto a sus valores predeterminados.",
     "showAllOptions": "Mostrar todas las opciones",
@@ -252,21 +236,11 @@
     "enumLastChoiceItem": "Opción {{value}}",
     "enumTooManyChoices": "Hay demasiadas opciones para listarlas. Escribe el número de la opción (1 es la primera).",
     "sectionSublabelLoaded_many": "{{count}} mods · en vivo desde puente",
-    "groupModifiedTitle_many": "{{count}} opciones difieren del valor predeterminado"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} cambio sin guardar",
-    "unsavedChange_other": "{{count}} cambios sin guardar",
-    "iniScope": "ini del servidor",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s para guardar · se aplica al recargar",
-    "discard": "descartar",
-    "save": "guardar",
-    "saveAndReload": "guardar y recargar",
-    "unsavedChange_many": "{{count}} cambios sin guardar"
+    "groupModifiedTitle_many": "{{count}} opciones difieren del valor predeterminado",
+    "manageMods": "Gestionar mods"
   },
   "backupsDialog": {
-    "title": "Copias de seguridad de configuración",
+    "title": "Copias de los archivos de configuración",
     "description": "Restaura una versión anterior de los archivos de configuración. Las copias de seguridad se crean automáticamente al guardar.",
     "filterLabel": "Filtro:",
     "filterAll": "Todos los archivos",
@@ -288,9 +262,9 @@
     "totalCount_many": "{{count}} copias de seguridad en total"
   },
   "templatesDialog": {
-    "title": "Configs guardadas",
+    "title": "Instantáneas de configuración",
     "applyTip": "Aplicar una config guardada reemplaza TODOS tus ajustes actuales; no se combina con los que ya están. El panel hace una copia de seguridad de lo que está activo antes de aplicarla, así que Restaurar puede deshacerlo, pero primero hay que detener el servidor.",
-    "description": "Guarda la configuración actual o carga una que hayas guardado antes.",
+    "description": "Guarda los ajustes actuales como instantánea o aplica una que guardaste antes.",
     "savedCount_one": "{{count}} config guardada",
     "savedCount_other": "{{count}} configs guardadas",
     "saveCurrentAsTemplate": "Guardar configuración actual",
@@ -365,7 +339,7 @@
   "toasts": {
     "error": "Error",
     "loadConfigFailed": "No se pudo cargar la configuración del servidor.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "El servidor activo cambió desde que se cargó esta página. Recarga antes de guardar para no sobrescribir el servidor equivocado.",
     "invalidIniTitle": "Ajustes del servidor no válidos",
     "invalidSandboxTitle": "Valores de Sandbox no válidos",
     "fixSettings": "Corregir: {{settings}}",
