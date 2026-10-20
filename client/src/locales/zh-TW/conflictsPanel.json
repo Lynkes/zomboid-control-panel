@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "兩個模組都包含此檔案；只會使用最後載入的模組的副本。",
+    "mapFileOverride": "兩個模組都包含此地圖檔案；只會使用最後載入的模組的副本。",
+    "dataFileOverride": "兩個模組都包含此資料檔案；只會使用最後載入的模組的副本。",
+    "luaFileOverride": "相同的 Lua 檔案：只有最後載入的模組的副本會執行，另一個永遠不會執行。",
+    "scriptFileReplaced": "相同的腳本檔案：遊戲只讀取最後一個模組的副本，因此只在另一份副本中定義的物品和配方會遺失。",
+    "scriptFileOverride": "相同的腳本檔案：最後載入的模組重新定義了這些項目。",
+    "scriptDefinitionOverride": "兩個模組都定義了這些項目；最後載入的定義會取代另一個。",
+    "scriptDefinitionMerge": "兩個模組都修改了這些載具或外觀；遊戲會將它們疊加，最後一個模組的數值生效。",
+    "translationKeyOverride": "兩個模組對這些文字的翻譯不同；最後載入的模組生效。",
+    "translationUnreadable": "有一個翻譯檔案無法讀取，因此無法比較其中的文字。",
+    "clothingOutfitOverride": "兩個模組都定義了這些服裝組合；最後載入的模組會取代它們。",
+    "clothingItemOverride": "兩個模組都包含這件衣物；只會使用最後載入的模組的副本。",
+    "luaGlobalRedefined": "兩個模組在不同檔案中定義了這些 Lua 名稱；最後執行的那個可能會取代另一個。",
+    "luaVariantClash": "同一個創意工坊項目中的兩個模組重新定義了相同的 Lua 名稱；它們通常是一次只應啟用一個的變體。",
+    "declaredIncompatible": "其中一個模組宣告另一個與其不相容。",
+    "intendedPatch": "刻意為之：此模組宣告它以另一個模組為基礎，並在其之後載入。",
+    "patchLoadsBeforeTarget": "此模組以另一個模組為基礎，卻在其之前載入，因此它的修改會被覆寫。請將它移到後面載入。",
+    "order": {
+      "requireCycle": "{{modId}} 處於 require= 循環中；遊戲無法載入這些模組。",
+      "requireNotFound": "{{modId}} 不會載入：它需要 {{missing}}，但伺服器上沒有。",
+      "requireUnavailable": "{{modId}} 不會載入：它需要的模組 {{missing}} 無法載入。",
+      "requireEntryInvalid": "{{modId}} 不會載入：遊戲無法辨識其 mod.info 中的 require= 項目「{{entry}}」。",
+      "requireAutoLoaded": "{{dependency}} 雖然不在 Mods= 中也會載入，因為 {{modId}} 需要它。",
+      "requireReordered": "無論 Mods= 中的順序如何，{{dependency}} 都會在需要它的 {{modId}} 之前載入。",
+      "loadAfterViolated": "{{modId}} 要求在 {{other}} 之後載入，但實際上在其之前載入。",
+      "loadBeforeViolated": "{{modId}} 要求在 {{other}} 之前載入，但實際上在其之後載入。",
+      "declaredIncompatible": "{{modId}} 和 {{other}} 被宣告為不相容，但兩者都會載入。",
+      "modInfoListIssue": "{{modId}}：遊戲無法辨識 mod.info 中的項目「{{entry}}」。",
+      "modNotFound": "{{modId}} 不在伺服器已下載的創意工坊模組中。"
+    }
+  },
+  "severity": {
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "info": "刻意為之"
+  },
   "title": "模組衝突掃描器",
   "subtitle": "檢查是否有多個模組修改了相同的檔案——如果有，只有載入順序中最後的模組會生效",
   "lastScan": "上次掃描：{{time}}",

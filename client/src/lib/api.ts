@@ -1433,6 +1433,123 @@ export interface SaveModOrderResult {
   groupConflicts?: string[];
 }
 
+// Load order as Build 42 really applies it (server/utils/modLoadOrder.js):
+// optional fields of GET /mods/current-config and of the conflict scan.
+export type ModInfoListField = "require" | "loadModAfter" | "loadModBefore" | "incompatible";
+
+// A mod.info list entry the game cannot match (it splits on "," only and
+// keeps spaces). In require= it keeps the mod from loading.
+export interface ModInfoIssue {
+  field: ModInfoListField;
+  entry: string;
+  code: "emptyEntry" | "blankEntry" | "whitespace" | "semicolon";
+}
+
+// Extra fields of each GET /mods/current-config workshopModMap entry.
+export interface ModOrderingFields {
+  loadAfter?: string[];
+  loadBefore?: string[];
+  incompatible?: string[];
+  modInfoIssues?: ModInfoIssue[];
+}
+
+export type OrderingConstraintReason = "require" | "loadAfter" | "loadBefore" | "patch" | "conflictWinner";
+
+// `before` must load before `after`. require is enforced by the game;
+// loadAfter/loadBefore are declared by the mods; patch (named like a patch
+// for the other mod) and conflictWinner (keeps the current winner) are soft.
+export interface OrderingConstraint {
+  before: string;
+  after: string;
+  reason: OrderingConstraintReason;
+  reasons?: OrderingConstraintReason[];
+  declaredBy?: string;
+}
+
+export type OrderWarningCode =
+  | "requireCycle"
+  | "requireNotFound"
+  | "requireUnavailable"
+  | "requireEntryInvalid"
+  | "requireAutoLoaded"
+  | "requireReordered"
+  | "loadAfterViolated"
+  | "loadBeforeViolated"
+  | "declaredIncompatible"
+  | "modInfoListIssue"
+  | "modNotFound";
+
+export interface OrderWarning {
+  code: OrderWarningCode;
+  severity: "high" | "medium" | "low" | "info";
+  modId: string;
+  via?: string;
+  missing?: string;
+  caseMatch?: string;
+  dependency?: string;
+  other?: string;
+  cycle?: string[];
+  field?: ModInfoListField;
+  entry?: string;
+  issue?: ModInfoIssue["code"];
+}
+
+export interface ModOrderAnalysis {
+  // The order the dedicated server loads Mods= in (required mods first).
+  effectiveModOrder?: string[];
+  orderWarnings?: OrderWarning[];
+  orderingConstraints?: OrderingConstraint[];
+}
+
+export type ConflictRuleSeverity = "high" | "medium" | "low" | "info";
+
+export type ConflictKind =
+  | "file-override"
+  | "lua-override"
+  | "script-file-override"
+  | "script-override"
+  | "translation-override"
+  | "clothing-override"
+  | "lua-global-clash"
+  | "declared-incompatible";
+
+// Translated in the conflictsPanel namespace under reasons.<code>.
+export type ConflictReason =
+  | "assetOverride"
+  | "mapFileOverride"
+  | "dataFileOverride"
+  | "luaFileOverride"
+  | "scriptFileReplaced"
+  | "scriptFileOverride"
+  | "scriptDefinitionOverride"
+  | "scriptDefinitionMerge"
+  | "translationKeyOverride"
+  | "translationUnreadable"
+  | "clothingOutfitOverride"
+  | "clothingItemOverride"
+  | "luaGlobalRedefined"
+  | "luaVariantClash"
+  | "declaredIncompatible"
+  | "intendedPatch"
+  | "patchLoadsBeforeTarget";
+
+// Extra fields of each scan pairs[].files[] entry (its severity may also be
+// "info": an intended override by a declared patch).
+export interface ConflictFileRuleFields {
+  kind?: ConflictKind;
+  reason?: ConflictReason;
+  // The file-level reason an intendedPatch / patchLoadsBeforeTarget replaced.
+  baseReason?: ConflictReason;
+  intended?: boolean;
+  files?: { modId: string; file: string }[];
+}
+
+// Extra fields of the conflict scan result (pairs also carry infoCount).
+export interface ConflictScanRuleFields extends ModOrderAnalysis {
+  benignSkipped?: { nonGameplay: number; notLoaded: number; sameDefinitions: number };
+  severityCounts?: Record<ConflictRuleSeverity, number>;
+}
+
 export const modsApi = {
   getStatus: (options?: { retries?: number }) =>
     apiGet("/mods/status", undefined, options?.retries),
@@ -1930,10 +2047,10 @@ export const modsApi = {
 
   // Mod Conflict Scanner
   getConflicts: (options?: RequestInit) =>
-    apiGet<import("@/types").ConflictScanResult>("/mods/conflicts", options),
+    apiGet<import("@/types").ConflictScanResult & ConflictScanRuleFields>("/mods/conflicts", options),
   getCachedConflicts: () =>
     apiGet<
-      | (import("@/types").ConflictScanResult & {
+      | (import("@/types").ConflictScanResult & ConflictScanRuleFields & {
           stale?: boolean;
           _workshopIdsSnapshot?: string[];
           _modIdsSnapshot?: string[];
