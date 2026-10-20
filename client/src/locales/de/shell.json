@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Kontrollpanel",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Kontrollpanel"
+    "shortSubtitle": "Kontrollpanel",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Hauptnavigation",
@@ -13,7 +14,7 @@
     "sections": {
       "server": "Server",
       "world": "Welt",
-      "users": "Benutzer",
+      "players": "Spieler",
       "panel": "Panel"
     },
     "items": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Remote",
     "remoteTitle": "Remote-Server (nur RCON)",
     "activeBadge": "Aktiv",
+    "addServer": "Server hinzufügen…",
     "manageServers": "Server verwalten",
     "playersOnline_one": "{{count}} Spieler online",
     "playersOnline_other": "{{count}} Spieler online",
@@ -133,12 +135,6 @@
   "pageSkeleton": {
     "defaultTitle": "Seite wird geladen",
     "defaultDescription": "Paneldaten und Bedienelemente werden vorbereitet.",
-    "defaultEyebrow": "// PANEL · LÄDT",
-    "metrics": {
-      "route": "Route",
-      "auth": "Auth",
-      "socket": "Socket"
-    },
     "labels": {
       "dashboard": "Dashboard wird geladen",
       "named": "{{title}} wird geladen",
@@ -195,5 +191,15 @@
     "description": "Auf dieser Seite gibt es noch nicht gespeicherte Änderungen. Wenn du sie jetzt verlässt, gehen sie verloren.",
     "leave": "Verwerfen und verlassen",
     "stay": "Weiter bearbeiten"
+  },
+  "search": {
+    "label": "Seiten und Bereiche durchsuchen",
+    "placeholder": "Suchen…"
+  },
+  "routes": {
+    "dashboardDescription": "Live-Zustand des Servers, Spieler und was als Nächstes deine Aufmerksamkeit braucht."
+  },
+  "pageHeader": {
+    "breadcrumb": "Pfadnavigation"
   }
 }

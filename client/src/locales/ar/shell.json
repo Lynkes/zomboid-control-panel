@@ -14,7 +14,8 @@
     "title": "Project Zomboid",
     "subtitle": "لوحة التحكم",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "لوحة التحكم"
+    "shortSubtitle": "لوحة التحكم",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "التنقل الرئيسي",
@@ -23,7 +24,7 @@
     "sections": {
       "server": "الخادم",
       "world": "العالم",
-      "users": "المستخدمون",
+      "players": "اللاعبون",
       "panel": "اللوحة"
     },
     "items": {
@@ -67,6 +68,7 @@
     "remoteBadgeFull": "عن بُعد",
     "remoteTitle": "خادم بعيد (RCON فقط)",
     "activeBadge": "نشط",
+    "addServer": "إضافة خادم…",
     "manageServers": "إدارة الخوادم",
     "playersOnline_one": "{{count}} لاعب متصل",
     "playersOnline_other": "لاعبون متصلون: {{count}}",
@@ -151,12 +153,6 @@
   "pageSkeleton": {
     "defaultTitle": "جارٍ تحميل الصفحة",
     "defaultDescription": "جارٍ تجهيز بيانات اللوحة وعناصر التحكم.",
-    "defaultEyebrow": "// اللوحة · جارٍ التحميل",
-    "metrics": {
-      "route": "المسار",
-      "auth": "المصادقة",
-      "socket": "المقبس"
-    },
     "labels": {
       "dashboard": "جارٍ تحميل لوحة المعلومات",
       "named": "جارٍ تحميل {{title}}",
@@ -213,5 +209,15 @@
     "description": "في هذه الصفحة تغييرات لم تُحفظ بعد. إذا غادرت الآن فستضيع.",
     "leave": "تجاهل ومغادرة",
     "stay": "متابعة التعديل"
+  },
+  "search": {
+    "label": "البحث في الصفحات والأقسام",
+    "placeholder": "بحث…"
+  },
+  "routes": {
+    "dashboardDescription": "حالة الخادم المباشرة واللاعبون وما يحتاج إلى انتباهك بعد ذلك."
+  },
+  "pageHeader": {
+    "breadcrumb": "مسار التنقل"
   }
 }

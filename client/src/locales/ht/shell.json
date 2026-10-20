@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Panèl Kontwòl",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Panèl Kontwòl"
+    "shortSubtitle": "Panèl Kontwòl",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navigasyon prensipal",
@@ -13,7 +14,7 @@
     "sections": {
       "server": "Sèvè",
       "world": "Mond",
-      "users": "Itilizatè",
+      "players": "Jwè",
       "panel": "Panèl"
     },
     "items": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Aleka",
     "remoteTitle": "Sèvè aleka (RCON sèlman)",
     "activeBadge": "Aktif",
+    "addServer": "Ajoute yon sèvè…",
     "manageServers": "Jere Sèvè",
     "playersOnline_one": "{{count}} jwè anliy",
     "playersOnline_other": "{{count}} jwè anliy",
@@ -135,12 +137,6 @@
   "pageSkeleton": {
     "defaultTitle": "Paj la ap chaje",
     "defaultDescription": "N ap prepare done ak kontwòl panèl la.",
-    "defaultEyebrow": "// PANÈL · AP CHAJE",
-    "metrics": {
-      "route": "wout",
-      "auth": "otantifikasyon",
-      "socket": "sokèt"
-    },
     "labels": {
       "dashboard": "Tablo a ap chaje",
       "named": "{{title}} ap chaje",
@@ -197,5 +193,15 @@
     "description": "Paj sa a gen chanjman ki poko anrejistre. Si w kite kounye a, w ap pèdi yo.",
     "leave": "Jete epi kite",
     "stay": "Kontinye modifye"
+  },
+  "search": {
+    "label": "Chèche paj ak seksyon",
+    "placeholder": "Chèche…"
+  },
+  "routes": {
+    "dashboardDescription": "Eta sèvè a an dirèk, jwè yo, ak sa ki bezwen atansyon w apre."
+  },
+  "pageHeader": {
+    "breadcrumb": "Chemen navigasyon"
   }
 }

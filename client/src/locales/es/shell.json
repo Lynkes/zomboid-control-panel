@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Control Panel",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Control Panel"
+    "shortSubtitle": "Control Panel",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navegación principal",
@@ -13,7 +14,7 @@
     "sections": {
       "server": "Servidor",
       "world": "Mundo",
-      "users": "Usuarios",
+      "players": "Jugadores",
       "panel": "Panel"
     },
     "items": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Remoto",
     "remoteTitle": "Servidor remoto (solo RCON)",
     "activeBadge": "Activo",
+    "addServer": "Añadir un servidor…",
     "manageServers": "Administrar servidores",
     "playersOnline_one": "{{count}} jugador conectado",
     "playersOnline_other": "{{count}} jugadores conectados",
@@ -135,12 +137,6 @@
   "pageSkeleton": {
     "defaultTitle": "Cargando la página",
     "defaultDescription": "Preparando los datos y controles del panel.",
-    "defaultEyebrow": "// PANEL · CARGANDO",
-    "metrics": {
-      "route": "ruta",
-      "auth": "auth",
-      "socket": "socket"
-    },
     "labels": {
       "dashboard": "Cargando el tablero",
       "named": "Cargando {{title}}",
@@ -197,5 +193,15 @@
     "description": "Esta página tiene cambios que aún no se han guardado. Si sales ahora, se perderán.",
     "leave": "Descartar y salir",
     "stay": "Seguir editando"
+  },
+  "search": {
+    "label": "Buscar páginas y secciones",
+    "placeholder": "Buscar…"
+  },
+  "routes": {
+    "dashboardDescription": "Estado del servidor en vivo, jugadores y lo próximo que necesita tu atención."
+  },
+  "pageHeader": {
+    "breadcrumb": "Ruta de navegación"
   }
 }

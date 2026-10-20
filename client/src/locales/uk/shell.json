@@ -10,7 +10,8 @@
     "title": "Project Zomboid",
     "subtitle": "Панель керування",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Панель керування"
+    "shortSubtitle": "Панель керування",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Основна навігація",
@@ -19,7 +20,7 @@
     "sections": {
       "server": "Сервер",
       "world": "Світ",
-      "users": "Користувачі",
+      "players": "Гравці",
       "panel": "Панель"
     },
     "items": {
@@ -63,6 +64,7 @@
     "remoteBadgeFull": "Віддалений",
     "remoteTitle": "Віддалений сервер (лише RCON)",
     "activeBadge": "Активний",
+    "addServer": "Додати сервер…",
     "manageServers": "Керувати серверами",
     "playersOnline_one": "{{count}} гравець онлайн",
     "playersOnline_other": "{{count}} гравців онлайн",
@@ -143,12 +145,6 @@
   "pageSkeleton": {
     "defaultTitle": "Завантаження сторінки",
     "defaultDescription": "Підготовка даних і елементів керування панелі.",
-    "defaultEyebrow": "// ПАНЕЛЬ · ЗАВАНТАЖЕННЯ",
-    "metrics": {
-      "route": "маршрут",
-      "auth": "автентифікація",
-      "socket": "сокет"
-    },
     "labels": {
       "dashboard": "Завантаження інформаційної панелі",
       "named": "Завантаження: {{title}}",
@@ -205,5 +201,15 @@
     "description": "На цій сторінці є ще не збережені зміни. Якщо вийти зараз, вони будуть втрачені.",
     "leave": "Відкинути й вийти",
     "stay": "Продовжити редагування"
+  },
+  "search": {
+    "label": "Пошук сторінок і розділів",
+    "placeholder": "Пошук…"
+  },
+  "routes": {
+    "dashboardDescription": "Стан сервера наживо, гравці та те, що далі потребує вашої уваги."
+  },
+  "pageHeader": {
+    "breadcrumb": "Навігаційний ланцюжок"
   }
 }

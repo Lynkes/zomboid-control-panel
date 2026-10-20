@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "控制面板",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "控制面板"
+    "shortSubtitle": "控制面板",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "主要導覽",
@@ -13,7 +14,7 @@
     "sections": {
       "server": "伺服器",
       "world": "世界",
-      "users": "使用者",
+      "players": "玩家",
       "panel": "面板"
     },
     "items": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "遠端",
     "remoteTitle": "遠端（僅 RCON）伺服器",
     "activeBadge": "活動",
+    "addServer": "新增伺服器…",
     "manageServers": "管理伺服器",
     "playersOnline_one": "{{count}} 名玩家線上",
     "playersOnline_other": "{{count}} 名玩家線上",
@@ -133,12 +135,6 @@
   "pageSkeleton": {
     "defaultTitle": "正在載入頁面",
     "defaultDescription": "正在準備面板資料與控制項。",
-    "defaultEyebrow": "// 面板 · 載入中",
-    "metrics": {
-      "route": "路由",
-      "auth": "驗證",
-      "socket": "Socket"
-    },
     "labels": {
       "dashboard": "正在載入儀表板",
       "named": "正在載入：{{title}}",
@@ -195,5 +191,15 @@
     "description": "此頁面有尚未儲存的變更。現在離開會失去這些變更。",
     "leave": "捨棄並離開",
     "stay": "繼續編輯"
+  },
+  "search": {
+    "label": "搜尋頁面與分區",
+    "placeholder": "搜尋…"
+  },
+  "routes": {
+    "dashboardDescription": "伺服器即時狀態、玩家，以及接下來需要你處理的事項。"
+  },
+  "pageHeader": {
+    "breadcrumb": "導覽路徑"
   }
 }

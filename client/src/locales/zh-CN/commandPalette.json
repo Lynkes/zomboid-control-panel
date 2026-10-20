@@ -1,0 +1,21 @@
+{
+  "title": "命令面板",
+  "description": "输入以查找页面、页面中的分区，或要切换到的服务器。",
+  "inputLabel": "搜索页面、分区和服务器",
+  "placeholder": "前往页面、分区或服务器…",
+  "resultsLabel": "结果",
+  "noResults": "没有与“{{query}}”匹配的结果。",
+  "switchServer": "切换到 {{name}}",
+  "showShortcuts": "显示键盘快捷键",
+  "groups": {
+    "pages": "页面",
+    "sections": "分区",
+    "servers": "服务器",
+    "actions": "操作"
+  },
+  "hints": {
+    "move": "↑ ↓ 移动",
+    "open": "Enter 打开",
+    "close": "Esc 关闭"
+  }
+}

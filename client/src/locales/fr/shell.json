@@ -4,7 +4,8 @@
     "title": "Project Zomboid",
     "subtitle": "Panneau de contrôle",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Panneau de contrôle"
+    "shortSubtitle": "Panneau de contrôle",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navigation principale",
@@ -13,7 +14,7 @@
     "sections": {
       "server": "Serveur",
       "world": "Monde",
-      "users": "Utilisateurs",
+      "players": "Joueurs",
       "panel": "Panneau"
     },
     "items": {
@@ -57,6 +58,7 @@
     "remoteBadgeFull": "Distant",
     "remoteTitle": "Serveur distant (RCON uniquement)",
     "activeBadge": "Actif",
+    "addServer": "Ajouter un serveur…",
     "manageServers": "Gérer les serveurs",
     "playersOnline_one": "{{count}} joueur en ligne",
     "playersOnline_other": "{{count}} joueurs en ligne",
@@ -135,12 +137,6 @@
   "pageSkeleton": {
     "defaultTitle": "Chargement de la page",
     "defaultDescription": "Préparation des données et des commandes du panneau.",
-    "defaultEyebrow": "// PANNEAU · CHARGEMENT",
-    "metrics": {
-      "route": "route",
-      "auth": "auth",
-      "socket": "socket"
-    },
     "labels": {
       "dashboard": "Chargement du tableau de bord",
       "named": "Chargement : {{title}}",
@@ -197,5 +193,15 @@
     "description": "Cette page contient des modifications qui ne sont pas encore enregistrées. Si vous la quittez maintenant, elles seront perdues.",
     "leave": "Abandonner et quitter",
     "stay": "Continuer la modification"
+  },
+  "search": {
+    "label": "Rechercher des pages et des sections",
+    "placeholder": "Rechercher…"
+  },
+  "routes": {
+    "dashboardDescription": "État du serveur en direct, joueurs, et ce qui demande votre attention ensuite."
+  },
+  "pageHeader": {
+    "breadcrumb": "Fil d'Ariane"
   }
 }
