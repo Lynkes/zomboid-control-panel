@@ -371,7 +371,10 @@ export default function OidcSettings({
                     disabled={envOverrides?.providerName}
                   />
                   <p className="text-xs text-muted-foreground">
-                    {envOverrides?.providerName ? t('envPinnedNote') : t('fields.providerNameHelp')}
+                    {/* "SSO" is the sign-in button's own fallback (Login.tsx) when no name is set. */}
+                    {envOverrides?.providerName
+                      ? t('envPinnedNote')
+                      : t('fields.providerNameHelp', { name: form.providerName.trim() || 'SSO' })}
                   </p>
                 </div>
               </div>

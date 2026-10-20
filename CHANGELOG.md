@@ -106,6 +106,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
 - **SSO link confirmation:** after you link a sign-in identity to a panel account, Settings › Users now says which address was linked; the message never appeared.
 - **Single Sign-On edits kept across Settings tabs:** unsaved Single Sign-On fields no longer vanish when you open another Settings tab before saving.
+- **Single Sign-On display name help:** it now shows the button text ("Continue with Keycloak") instead of a raw `{{name}}`.
 
 ## [1.4.17] - 2026-10-18
 
