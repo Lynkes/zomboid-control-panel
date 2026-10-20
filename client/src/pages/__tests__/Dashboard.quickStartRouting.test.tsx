@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
@@ -166,7 +166,7 @@ describe('Dashboard.tsx Quick-Start card: routes toward discovery instead of alw
     expect(screen.getByRole('link', { name: /Review & Connect/i })).toHaveAttribute('href', '/servers')
     // The generic 3-step layout and its 3-button choice must be GONE, not
     // just supplemented -- one decision per screen.
-    expect(screen.queryByRole('link', { name: /Add Remote Server/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Connect a remote server/i })).not.toBeInTheDocument()
   })
 
   it('two ready candidates (genuine ambiguity) keep the generic layout instead of guessing which one', async () => {
@@ -189,45 +189,67 @@ describe('Dashboard.tsx Quick-Start card: routes toward discovery instead of alw
 
     renderDashboard()
 
-    expect(await screen.findByRole('link', { name: /Add Remote Server/i })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: /Connect a remote server/i })).toBeInTheDocument()
     expect(screen.queryByText('We found an existing Project Zomboid server')).not.toBeInTheDocument()
   })
 
-  it('the two buttons are labelled by what the user HAS, not what the panel DOES (rule 5) -- the old internals-framed labels are gone', async () => {
+  // UX restructure (2026-10): one way to say "add a server" everywhere. The
+  // Dashboard, the Servers page and the Add a Server page list the same three
+  // choices (AddServerChoices); "Use existing server files" still names what
+  // the operator HAS (rule 5), and each goes straight to its own flow.
+  it('lists the three standard choices, each linking straight to its flow -- the older labels are gone', async () => {
     await setUpCommon()
 
     renderDashboard()
 
-    expect(await screen.findByRole('link', { name: /I don't have a server yet/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /I already have server files/i })).toBeInTheDocument()
+    const list = await screen.findByRole('list', { name: 'Ways to add a server' })
+    expect(within(list).getByRole('link', { name: /Install a new server/i })).toHaveAttribute('href', '/server-setup?mode=fresh')
+    expect(within(list).getByRole('link', { name: /Use existing server files/i })).toHaveAttribute('href', '/servers?add=existing')
+    expect(within(list).getByRole('link', { name: /Connect a remote server/i })).toHaveAttribute('href', '/servers?add=remote')
+    expect(screen.queryByText("I don't have a server yet")).not.toBeInTheDocument()
+    expect(screen.queryByText('I already have server files')).not.toBeInTheDocument()
     expect(screen.queryByText('Install New Server')).not.toBeInTheDocument()
     expect(screen.queryByText('Add Existing Server')).not.toBeInTheDocument()
   })
 
-  it('containerized with no ready candidate: "I already have server files" becomes the visually primary button, not "I don\'t have a server yet"', async () => {
+  it('containerized with no ready candidate: "Use existing server files" is the recommended choice, not "Install a new server"', async () => {
     mockServiceManager = 'container'
     await setUpCommon()
 
     renderDashboard()
 
-    const needNew = await screen.findByRole('link', { name: /I don't have a server yet/i })
-    const haveExisting = screen.getByRole('link', { name: /I already have server files/i })
+    const fresh = await screen.findByRole('link', { name: /Install a new server/i })
+    const existing = screen.getByRole('link', { name: /Use existing server files/i })
     await waitFor(() => expect(discoverMounts).toHaveBeenCalled())
 
-    expect(haveExisting.className).toContain('bg-primary')
-    expect(needNew.className).not.toContain('bg-primary')
+    expect(within(existing).getByText('Recommended')).toBeInTheDocument()
+    expect(within(fresh).queryByText('Recommended')).not.toBeInTheDocument()
   })
 
-  it('NOT containerized: "I don\'t have a server yet" stays the primary button, unchanged from before this fix', async () => {
+  it('NOT containerized: "Install a new server" stays the recommended choice', async () => {
     mockServiceManager = 'none'
     await setUpCommon()
 
     renderDashboard()
 
-    const needNew = await screen.findByRole('link', { name: /I don't have a server yet/i })
-    const haveExisting = screen.getByRole('link', { name: /I already have server files/i })
+    const fresh = await screen.findByRole('link', { name: /Install a new server/i })
+    const existing = screen.getByRole('link', { name: /Use existing server files/i })
 
-    expect(needNew.className).toContain('bg-primary')
-    expect(haveExisting.className).not.toContain('bg-primary')
+    expect(within(fresh).getByText('Recommended')).toBeInTheDocument()
+    expect(within(existing).queryByText('Recommended')).not.toBeInTheDocument()
+  })
+
+  it('the block can be dismissed, and with it gone the header offers "Add a server" instead', async () => {
+    await setUpCommon()
+
+    renderDashboard()
+
+    await screen.findByRole('list', { name: 'Ways to add a server' })
+    // While the choices are on screen they are the action: no second one in the header.
+    expect(screen.queryByRole('link', { name: 'Add a server' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss quick start guide' }))
+    expect(screen.queryByRole('list', { name: 'Ways to add a server' })).not.toBeInTheDocument()
+    const addLinks = await screen.findAllByRole('link', { name: 'Add a server' })
+    for (const link of addLinks) expect(link).toHaveAttribute('href', '/server-setup')
   })
 })

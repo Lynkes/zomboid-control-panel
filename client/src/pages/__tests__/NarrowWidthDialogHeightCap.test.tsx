@@ -171,8 +171,12 @@ describe('Dashboard -- Wipe Server dialog fits a short mobile viewport', () => {
       </MemoryRouter>,
     )
 
-    const wipeButton = await screen.findByRole('button', { name: /wipe server/i })
-    fireEvent.click(wipeButton)
+    // Wipe lives in the Dashboard header's More menu.
+    const trigger = await screen.findByRole('button', { name: /more actions for/i })
+    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: /wipe server/i }))
 
     const dialog = await screen.findByRole('alertdialog')
     const body = assertPinnedBody(dialog, [/^preview$/i, /^cancel$/i])

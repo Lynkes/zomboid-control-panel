@@ -1,5 +1,7 @@
 {
   "noUpdateYet": "ainda sem dados",
+  "verdictAria": "Situação do servidor",
+  "workListAria": "Seções do servidor",
   "updatedJustNow": "recarregado agora mesmo",
   "updatedSecondsAgo": "recarregado há {{count}}s",
   "updatedMinutesAgo": "recarregado há {{count}} min",
