@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Wie PanelBridge installiert wird",
   "appliesTo": "Gilt für {{server}}. Um einen anderen Server zu ändern, mache ihn auf der Seite „Meine Server“ aktiv.",
+  "serverChangedTitle": "Aktiver Server gewechselt",
+  "serverChangedBody": "Der geöffnete PanelBridge-Dialog galt dem vorherigen Server und wurde deshalb geschlossen.",
   "current": "Aktiv",
   "recommended": "Empfohlen",
   "preview": "Vorschau",

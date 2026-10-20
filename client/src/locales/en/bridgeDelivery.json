@@ -1,6 +1,8 @@
 {
   "sectionTitle": "How PanelBridge is installed",
   "appliesTo": "Applies to {{server}}. To change another server, make it active on the Servers page.",
+  "serverChangedTitle": "Active server changed",
+  "serverChangedBody": "The open PanelBridge dialog was for the previous server, so it was closed.",
   "current": "Current",
   "recommended": "Recommended",
   "preview": "Preview",

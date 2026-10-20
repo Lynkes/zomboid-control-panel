@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Mode d'installation de PanelBridge",
   "appliesTo": "S'applique à {{server}}. Pour modifier un autre serveur, rendez-le actif sur la page Mes serveurs.",
+  "serverChangedTitle": "Serveur actif changé",
+  "serverChangedBody": "La fenêtre PanelBridge ouverte concernait le serveur précédent ; elle a donc été fermée.",
   "current": "Actuel",
   "recommended": "Recommandé",
   "preview": "Préversion",

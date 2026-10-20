@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Kijan PanelBridge enstale",
   "appliesTo": "Sa aplike pou {{server}}. Pou chanje yon lòt sèvè, fè l aktif nan paj Sèvè m yo.",
+  "serverChangedTitle": "Sèvè aktif la chanje",
+  "serverChangedBody": "Fenèt PanelBridge ki te louvri a te pou sèvè anvan an, kidonk li fèmen.",
   "current": "Aktyèl",
   "recommended": "Rekòmande",
   "preview": "Previzyon",

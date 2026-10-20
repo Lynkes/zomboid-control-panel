@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Cómo se instala PanelBridge",
   "appliesTo": "Se aplica a {{server}}. Para cambiar otro servidor, actívalo en la página Mis servidores.",
+  "serverChangedTitle": "Cambió el servidor activo",
+  "serverChangedBody": "El diálogo de PanelBridge abierto era para el servidor anterior, así que se cerró.",
   "current": "Actual",
   "recommended": "Recomendado",
   "preview": "Versión preliminar",

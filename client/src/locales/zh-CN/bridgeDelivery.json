@@ -1,6 +1,8 @@
 {
   "sectionTitle": "PanelBridge 安装方式",
   "appliesTo": "适用于 {{server}}。要更改其他服务器，请先在「我的服务器」页面将其设为活动服务器。",
+  "serverChangedTitle": "活动服务器已更改",
+  "serverChangedBody": "打开的 PanelBridge 对话框属于之前的服务器，因此已关闭。",
   "current": "当前",
   "recommended": "推荐",
   "preview": "预览版",
