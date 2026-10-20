@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
+import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Server,
   Link,
@@ -70,7 +70,7 @@ import { SubNav, SubNavLayout } from "@/components/ui/sub-nav";
 import { StatusPill } from "@/components/ui/status-pill";
 import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
 import { SaveBar } from "@/components/SaveBar";
-import { useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
+import { useGuardedNavigate, useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -737,7 +737,9 @@ export default function Settings() {
     return validTabs.includes(resolved) ? resolved : null;
   };
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
+  // Asks first while a tab holds unsaved edits (the update toast's "Open
+  // Dashboard" leaves the page).
+  const navigate = useGuardedNavigate();
   // The selected tab lives in ?tab=: a reload, a link from another page
   // (Diagnostics' fixes, the command palette) or an in-page
   // <Link to="/settings?tab=roles"> opens it. An unknown tab, or one this
@@ -1467,7 +1469,7 @@ export default function Settings() {
           getUserErrorMessage(error, t("toasts.downloadFailed.fallback")),
         variant: "destructive",
         action: failure === "serverNotStopped" ? (
-          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => navigate("/")}>
+          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => void navigate("/")}>
             {t("toasts.updateNotApplied.openDashboard")}
           </ToastAction>
         ) : undefined,

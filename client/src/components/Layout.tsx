@@ -25,7 +25,7 @@ import {
   type NavSection,
   type RouteMeta,
 } from '@/lib/navigation'
-import { useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
+import { useConfirmLeave, useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
 import { CommandPalette } from './CommandPalette'
 import { ConnectionStatus, ConnectionAnnouncer } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
@@ -93,9 +93,9 @@ const DASHBOARD_ROUTE = getRouteMeta('/') as RouteMeta
 const FOOTER_ICON_BUTTON =
   'grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-function AuthFooter() {
+function AuthFooter({ onSignOut }: { onSignOut: () => void }) {
   const { t } = useTranslation('shell')
-  const { user, authEnabled, logout } = useAuth()
+  const { user, authEnabled } = useAuth()
 
   if (!authEnabled || !user) return null
 
@@ -115,7 +115,7 @@ function AuthFooter() {
       </span>
       <button
         type="button"
-        onClick={logout}
+        onClick={onSignOut}
         className={FOOTER_ICON_BUTTON}
         aria-label={t('footer.signOut')}
         title={t('footer.signOut')}
@@ -216,7 +216,16 @@ export default function Layout({ children }: LayoutProps) {
   const { toast } = useToast()
   const { helpOpen, setHelpOpen, paletteOpen, setPaletteOpen, shortcuts } = useKeyboardShortcuts()
   const guardedNavigate = useGuardedNavigate()
+  const confirmLeave = useConfirmLeave()
   const navRef = useRef<HTMLElement>(null)
+
+  // Signing out drops the page as surely as leaving it (the sign-in screen
+  // replaces the app without a reload, so no beforeunload either): ask
+  // first when a page holds unsaved edits, like a sidebar link does.
+  const handleSignOut = useCallback(async () => {
+    if (!(await confirmLeave())) return
+    await logout()
+  }, [confirmLeave, logout])
 
   // Fetch panel version
   useEffect(() => {
@@ -1108,7 +1117,7 @@ export default function Layout({ children }: LayoutProps) {
                 <span className="sr-only"> {t('footer.opensInNewTab')}</span>
               </a>
               <div className="space-y-2">
-                <AuthFooter />
+                <AuthFooter onSignOut={() => void handleSignOut()} />
                 <div className="flex items-center gap-1.5">
                   {/* With an update waiting, the version itself becomes the
                       amber link to Settings > Updates: a separate badge does
@@ -1178,7 +1187,7 @@ export default function Layout({ children }: LayoutProps) {
                   <TooltipTrigger asChild>
                     <button
                       type="button"
-                      onClick={logout}
+                      onClick={() => void handleSignOut()}
                       className={FOOTER_ICON_BUTTON}
                       aria-label={t('footer.signOut')}
                     >
