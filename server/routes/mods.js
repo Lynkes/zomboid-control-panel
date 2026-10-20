@@ -90,11 +90,29 @@ import {
 } from "../services/workshopModInfo.js";
 import { addWorkshopItemToIni } from "../services/modIniEdit.js";
 import {
-  extractClothingDefinitions,
+  extractClothingOutfits,
+  extractLuaGlobals,
   extractLuaSymbols,
-  extractScriptDefinitions,
-  extractTranslationKeys,
+  extractScriptDefinitionBodies,
+  extractTranslationEntries,
 } from "../utils/modDefinitionExtractors.js";
+import {
+  analyzeModOrder,
+  computeOrderingConstraints,
+  createDependencyRelation,
+  findIncompatiblePairs,
+} from "../utils/modLoadOrder.js";
+import {
+  cachedFileHash,
+  cachedParse,
+  compareScriptFileCopies,
+  compareTranslationEntries,
+  expireConflictFileCacheAfter,
+  gameMediaDirs,
+  isNonGameplayMediaFile,
+  statFile,
+  translationPathInfo,
+} from "../utils/modConflictRules.js";
 import { downloadWorkshopItem } from "../services/workshopDownload.js";
 
 // The workshop readers live in services/workshopModInfo.js; the route file
@@ -2435,18 +2453,31 @@ router.get("/current-config", async (req, res) => {
 
     // Build workshop → modId mapping from disk
     const modIdSet = new Set(modIds);
-    const workshopModMap = {}; // workshopId -> [{ id, name, enabled, require }]
+    const workshopModMap = {}; // workshopId -> [{ id, name, enabled, require, loadAfter, loadBefore, incompatible, modInfoIssues }]
+    const knownMods = [];
     if (serverPath) {
       for (const wsId of workshopIds) {
         const details = getModDetailsFromWorkshop(wsId, serverPath);
+        knownMods.push(...details);
         workshopModMap[wsId] = details.map((m) => ({
           id: m.id,
           name: m.name || m.id,
           enabled: modIdSet.has(m.id),
           require: m.require?.length ? m.require : undefined,
+          loadAfter: m.loadAfter?.length ? m.loadAfter : undefined,
+          loadBefore: m.loadBefore?.length ? m.loadBefore : undefined,
+          incompatible: m.incompatible?.length ? m.incompatible : undefined,
+          modInfoIssues: m.modInfoIssues?.length ? m.modInfoIssues : undefined,
         }));
       }
     }
+    // The order the server really loads Mods= in, what is wrong with it, and
+    // the ordering rules a sort should keep (utils/modLoadOrder.js).
+    const { effectiveModOrder, orderWarnings, orderingConstraints } = analyzeModOrder(
+      modIds,
+      knownMods,
+      { conflictWinners: cachedConflictWinners(workshopIds, modIds, serverPath) },
+    );
 
     res.json({
       configured: true,
@@ -2456,6 +2487,9 @@ router.get("/current-config", async (req, res) => {
       totalMods: modIds.length,
       iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       workshopModMap,
+      effectiveModOrder,
+      orderWarnings,
+      orderingConstraints,
       duplicateKeys,
       // { modId, workshopId } when those entries are PanelBridge's own
       // Steam Workshop delivery (the Mods page badges and locks them).
@@ -6422,14 +6456,19 @@ function classifyFile(relPath) {
   // ─── Top-level media files (at media/ root) ───
   // sandbox-options.txt: PZ merges option blocks by name — always additive.
   if (basename === "sandbox-options.txt") return "sandbox-options";
-  // fileGuidTable.xml: PZ mod editor metadata, never loaded at runtime.
+  // fileGuidTable.xml: read from every mod's own folder and merged GUID by
+  // GUID (ZomboidFileSystem.loadFileGuidTable) — additive.
   if (basename === "fileguidtable.xml") return "fileguidtable";
 
   // ─── Lua scripts ───
   if (lower.startsWith("lua/")) {
     if (lower.startsWith("lua/server/")) return "lua-server";
     if (lower.startsWith("lua/client/")) return "lua-client";
-    if (lower.startsWith("lua/shared/translate/")) return "translate";
+    // A .lua file under Translate/ is Lua like any other (LoadDirBase runs
+    // every .lua under shared/); the rest there are translations.
+    if (lower.startsWith("lua/shared/translate/")) {
+      return lower.endsWith(".lua") ? "lua-shared" : "translate";
+    }
     if (lower.startsWith("lua/shared/")) return "lua-shared";
     return "lua-other";
   }
@@ -6488,8 +6527,10 @@ const CATEGORY_LABELS = {
   "lua-shared": "Shared Lua Scripts",
   "lua-client": "Client Lua Scripts",
   "lua-other": "Lua Scripts",
-  "lua-cross-file": "Lua Symbol Clash (same workshop, different files)",
+  "lua-cross-file": "Lua Global Redefined (different files)",
   scripts: "Item/Recipe/Vehicle Scripts",
+  "scripts-cross-file": "Item/Recipe/Vehicle Definitions (different files)",
+  "mod-info": "Declared Incompatible",
   clothing: "Clothing Definitions",
   "sandbox-options": "Sandbox Options",
   fileguidtable: "Mod Editor Metadata",
@@ -6545,27 +6586,9 @@ export function compareDefinitionSets(modEntries, extract) {
   return { disjoint: !inconclusive, overlapping: [], inconclusive };
 }
 
-// Compare keys from multiple mod versions of the same translation file.
-// Returns { disjoint: true } if no keys overlap (additive — not a real conflict),
-// or { disjoint: false, overlapping: [...] } if keys collide or cannot be read.
-function compareTranslationKeys(modEntries) {
-  return compareDefinitionSets(modEntries, extractTranslationKeys);
-}
-
-// Compare script definitions from multiple mod versions of the same file.
-// Returns { disjoint: true } if no definitions overlap (additive),
-// or { disjoint: false, overlapping: [...] } if definitions collide.
-function compareScriptDefinitions(modEntries) {
-  return compareDefinitionSets(modEntries, extractScriptDefinitions);
-}
-
-function compareClothingDefinitions(modEntries) {
-  return compareDefinitionSets(modEntries, extractClothingDefinitions);
-}
-
-// Lua files are read by both the per-path pass and the cross-file pass. The
-// scan mutex guarantees one scan at a time, so a module-level cache is safe and
-// halves the Lua parsing work. Cleared at the end of every scan.
+// Lua symbols (what two same-path copies both define, shown for a Lua
+// override). The scan mutex guarantees one scan at a time, so a module-level
+// cache is safe. Cleared at the end of every scan.
 const LUA_SYMBOL_CACHE_MAX = 20_000;
 const luaSymbolCache = new Map();
 
@@ -6580,6 +6603,9 @@ function getLuaSymbols(filePath) {
 
 function resetScanCaches() {
   luaSymbolCache.clear();
+  // Hashes and parses (validated by size + mtime) are kept for a rescan, then
+  // dropped once the scan results themselves would be stale.
+  expireConflictFileCacheAfter(SCAN_CACHE_TTL_MS);
 }
 
 // Compare Lua files at the same path across multiple mods.
@@ -6614,29 +6640,13 @@ const LUA_CATEGORIES = new Set([
   "lua-other",
 ]);
 
-// One mod can ship the same relative path twice (media/ plus a B42 42/ folder).
-// Pairing and reporting must run on distinct mods or a mod ends up listed as
-// conflicting with itself.
+// buildFileIndex keeps one entry per mod and path, but two Workshop items can
+// declare the same mod id. Pairing and reporting must run on distinct mods or
+// a mod ends up listed as conflicting with itself.
 function dedupeByModId(entries) {
   const byId = new Map();
   for (const entry of entries) if (!byId.has(entry.modId)) byId.set(entry.modId, entry);
   return [...byId.values()];
-}
-
-// Hash a single file for content comparison. Streamed so one large asset never
-// lands in memory whole: a path shared by 30 mods previously allocated 30 full
-// file buffers at once.
-function hashFileStreaming(filePath) {
-  return new Promise((resolve) => {
-    const hash = crypto.createHash("md5");
-    const stream = fs.createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
-    stream.on("error", (e) => {
-      log.debug(`Error hashing file ${filePath}: ${e.message}`);
-      resolve(null);
-    });
-  });
 }
 
 // Decide whether every mod's copy of one relative path holds the same bytes.
@@ -6645,15 +6655,17 @@ function hashFileStreaming(filePath) {
 // Returns "identical", "differs" (also used whenever the answer cannot be
 // verified, so a real conflict is never hidden), or "unknown" when fewer than
 // two copies could be read.
+// Hashes are cached by path + size + mtime (utils/modConflictRules.js), so a
+// rescan of unchanged mods reads no file twice.
 async function compareFileContents(entries) {
   const sized = await Promise.all(
     entries.map(async (entry) => {
-      try {
-        return { entry, size: (await fsp.stat(entry.absPath)).size };
-      } catch (e) {
-        log.debug(`Error reading file size ${entry.absPath}: ${e.message}`);
+      const stat = await statFile(entry.absPath);
+      if (!stat) {
+        log.debug(`Error reading file size ${entry.absPath}`);
         return null;
       }
+      return { entry, size: stat.size, stat };
     }),
   );
   const readable = sized.filter(Boolean);
@@ -6662,7 +6674,7 @@ async function compareFileContents(entries) {
   if (new Set(readable.map((r) => r.size)).size > 1) return "differs";
   if (readable[0].size > HASH_MAX_BYTES) return "differs";
   const hashes = await Promise.all(
-    readable.map((r) => hashFileStreaming(r.entry.absPath)),
+    readable.map((r) => cachedFileHash(r.entry.absPath, r.stat)),
   );
   if (hashes.some((h) => h == null)) return "differs";
   if (new Set(hashes).size > 1) return "differs";
@@ -6710,18 +6722,32 @@ async function readIniModLists() {
   return { workshopIds, modIdsFromIni };
 }
 
+// How many mods' folders are walked at once. One walk is a chain of small
+// awaited readdir calls; overlapping a few keeps the fs thread pool busy
+// instead of waiting on one round trip at a time. Results are still indexed
+// strictly in mod order, so the index (and every winner) is unchanged.
+const WALK_CONCURRENCY = 6;
+
 // Build the file index and collect per-mod metadata.
 // Calls `onModScanned(modId, modName, wsId, fileCount)` for each mod.
 // If `activeModIds` is provided, only mod directories whose ID is in that set are scanned.
 // `maxEntries` defaults to the real production cap; tests override it with a
 // small value (same pattern as server.js's countDir(dir, budget)) so the cap
 // mechanism is provable without a fixture at the real 300,000-entry scale.
+//
+// Only the folders B42 loads are read (gameMediaDirs: common/ then the newest
+// 42.x folder, a root media/ only for the old layout), and each mod gets ONE
+// entry per path: the copy the game uses (the version folder's beats
+// common/'s), so a mod is never compared with a copy the game never loads.
+// `modDetailsByWorkshop` (wsId -> getModDetailsFromWorkshop()) skips reading
+// the mod.info files again when the caller already has them.
 export async function buildFileIndex(
   workshopIds,
   serverPath,
   onModScanned,
   activeModIds,
   maxEntries = FILE_INDEX_MAX_ENTRIES,
+  modDetailsByWorkshop = null,
 ) {
   const fileIndex = {};
   const modInfoMap = {};
@@ -6734,8 +6760,10 @@ export async function buildFileIndex(
   const totalWorkshopIds = workshopIds.length;
   const activeSet = activeModIds ? new Set(activeModIds) : null;
 
-  outer: for (let wsIdx = 0; wsIdx < totalWorkshopIds; wsIdx++) {
-    if (indexTruncated) break;
+  // 1. The mod folders to read, in order (synchronous and cheap: mod.info
+  // files and folder listings only).
+  const jobs = [];
+  for (let wsIdx = 0; wsIdx < totalWorkshopIds; wsIdx++) {
     const wsId = workshopIds[wsIdx];
     if (!/^\d{1,15}$/.test(wsId)) {
       warnings.push(`Skipped invalid workshop ID: ${wsId.slice(0, 20)}`);
@@ -6754,7 +6782,8 @@ export async function buildFileIndex(
       modsNotFound++;
       continue;
     }
-    const modDetails = getModDetailsFromWorkshop(wsId, serverPath);
+    const modDetails =
+      modDetailsByWorkshop?.[wsId] || getModDetailsFromWorkshop(wsId, serverPath);
     modInfoMap[wsId] = modDetails;
     const modsFolder = path.join(workshopPath, "mods");
     const searchBase = fs.existsSync(modsFolder) ? modsFolder : workshopPath;
@@ -6765,34 +6794,12 @@ export async function buildFileIndex(
       log.debug(`Could not read mod directory ${searchBase}: ${e.message}`);
       continue;
     }
-    let modsFoundInThisWs = 0;
+    const firstJob = jobs.length;
     for (const modDir of modEntries) {
-      if (indexTruncated) break;
       if (!modDir.isDirectory()) continue;
       const modDirPath = path.join(searchBase, modDir.name);
-      // Collect all media paths — direct + B42 versioned subfolders (42/, 42.X/, common/)
-      const mediaPaths = [];
-      const directMedia = path.join(modDirPath, "media");
-      if (fs.existsSync(directMedia)) {
-        mediaPaths.push(directMedia);
-      } else {
-        // B42 mods may have versioned subfolders instead of a direct media/ folder
-        try {
-          const subDirs = fs.readdirSync(modDirPath, { withFileTypes: true });
-          for (const sub of subDirs) {
-            if (!sub.isDirectory()) continue;
-            // Match: 42, 42.0, 42.13, common (versioned B42 subfolder patterns)
-            if (/^(42(\.\d+)?|common)$/i.test(sub.name)) {
-              const subMedia = path.join(modDirPath, sub.name, "media");
-              if (fs.existsSync(subMedia)) mediaPaths.push(subMedia);
-            }
-          }
-        } catch (e) {
-          log.debug(
-            `Could not scan B42 subfolders for ${modDirPath}: ${e.message}`,
-          );
-        }
-      }
+      // The media folders B42 loads, in the order it applies them.
+      const mediaPaths = gameMediaDirs(modDirPath).dirs;
       if (mediaPaths.length === 0) continue;
       const matchingMod = findModForFolder(modDetails, modDir.name);
       const modId = matchingMod?.id || modDir.name;
@@ -6802,76 +6809,100 @@ export async function buildFileIndex(
         modsSkippedInactive++;
         continue;
       }
-      modsScanned++;
-      modsFoundInThisWs++;
-      let totalFileCount = 0;
-      for (const mediaPath of mediaPaths) {
-        if (indexTruncated) break;
-        const { files, truncated } = await walkDir(mediaPath);
-        if (truncated) {
-          warnings.push(
-            `${modName} (${wsId}): file scan hit the 50,000 file limit — some files were skipped`,
-          );
+      jobs.push({ wsIdx, wsId, modId, modName, mediaPaths, modsInWorkshop: 0 });
+    }
+    if (jobs.length > firstJob) jobs[jobs.length - 1].modsInWorkshop = jobs.length - firstJob;
+  }
+
+  // 2. Walk a few mods ahead, index them one by one in order.
+  const walks = new Array(jobs.length);
+  let started = 0;
+  outer: for (let i = 0; i < jobs.length; i++) {
+    while (started < jobs.length && started < i + WALK_CONCURRENCY) {
+      const job = jobs[started];
+      walks[started] = Promise.all(job.mediaPaths.map((mediaPath) => walkDir(mediaPath)));
+      started++;
+    }
+    const job = jobs[i];
+    const { wsId, modId, modName } = job;
+    const results = await walks[i];
+    walks[i] = null;
+    modsScanned++;
+    let totalFileCount = 0;
+    // One entry per path for this mod: the copy the game loads. A later
+    // media folder (the version folder) replaces common/'s entry in place.
+    const ownEntries = new Map();
+    for (let k = 0; k < job.mediaPaths.length; k++) {
+      const mediaPath = job.mediaPaths[k];
+      const { files, truncated } = results[k];
+      if (truncated) {
+        warnings.push(
+          `${modName} (${wsId}): file scan hit the 50,000 file limit — some files were skipped`,
+        );
+      }
+      totalFileCount += files.length;
+      // Measured (mods-conflict-scan-unmeasured-at-scale): this loop, not
+      // walkDir() itself, was the real event-loop-blocking cost. A mod at
+      // the WALK_MAX_FILES ceiling (50,000 files -- a real, code-enforced
+      // case, see the truncation branch above) blocked here for ~316ms in
+      // one unbroken synchronous burst, because this loop had no yield of
+      // its own; the outer per-mod loop only yields once ALL of a mod's
+      // media paths are fully indexed. Same WALK_YIELD_EVERY cadence as
+      // walkDir(), so one giant mod can't freeze every other request on
+      // the panel for the length of its own indexing.
+      let sinceYield = 0;
+      for (const relFile of files) {
+        // Global cap (panel-oom-buildfileindex-unbounded): WALK_MAX_FILES
+        // only bounds ONE mod's walk. Without this, fileIndex keeps
+        // accumulating entries across every mod combined, unbounded by mod
+        // count — this is the check that actually stops the OOM. Bail out
+        // of the whole scan (not just this mod) the moment the cap is hit;
+        // continuing to walk further mods after the index is already full
+        // just burns more CPU and memory building `files` arrays nothing
+        // will use (at most WALK_CONCURRENCY walks are already under way).
+        if (indexedEntries >= maxEntries) {
+          indexTruncated = true;
+          break outer;
         }
-        totalFileCount += files.length;
-        // Measured (mods-conflict-scan-unmeasured-at-scale): this loop, not
-        // walkDir() itself, was the real event-loop-blocking cost. A mod at
-        // the WALK_MAX_FILES ceiling (50,000 files -- a real, code-enforced
-        // case, see the truncation branch above) blocked here for ~316ms in
-        // one unbroken synchronous burst, because this loop had no yield of
-        // its own; the outer per-mod loop only yields once ALL of a mod's
-        // media paths are fully indexed. Same WALK_YIELD_EVERY cadence as
-        // walkDir(), so one giant mod can't freeze every other request on
-        // the panel for the length of its own indexing.
-        let sinceYield = 0;
-        for (const relFile of files) {
-          // Global cap (panel-oom-buildfileindex-unbounded): WALK_MAX_FILES
-          // only bounds ONE mod's walk. Without this, fileIndex keeps
-          // accumulating entries across every mod combined, unbounded by mod
-          // count — this is the check that actually stops the OOM. Bail out
-          // of the whole scan (not just this mod) the moment the cap is hit;
-          // continuing to walk further mods after the index is already full
-          // just burns more CPU and memory building `files` arrays nothing
-          // will use.
-          if (indexedEntries >= maxEntries) {
-            indexTruncated = true;
-            break outer;
-          }
-          const normalizedPath = relFile.replace(/\\/g, "/").toLowerCase();
-          if (!fileIndex[normalizedPath]) {
-            fileIndex[normalizedPath] = [];
-          }
-          fileIndex[normalizedPath].push({
-            workshopId: wsId,
-            modId,
-            modName,
-            absPath: path.join(mediaPath, relFile),
-          });
-          indexedEntries++;
-          if (++sinceYield >= WALK_YIELD_EVERY) {
-            sinceYield = 0;
-            await yieldTick();
-          }
+        const normalizedPath = relFile.replace(/\\/g, "/").toLowerCase();
+        const absPath = path.join(mediaPath, relFile);
+        const own = ownEntries.get(normalizedPath);
+        if (own) {
+          own.absPath = absPath;
+          continue;
+        }
+        if (!fileIndex[normalizedPath]) {
+          fileIndex[normalizedPath] = [];
+        }
+        const entry = { workshopId: wsId, modId, modName, absPath };
+        ownEntries.set(normalizedPath, entry);
+        fileIndex[normalizedPath].push(entry);
+        indexedEntries++;
+        if (++sinceYield >= WALK_YIELD_EVERY) {
+          sinceYield = 0;
+          await yieldTick();
         }
       }
-      if (onModScanned)
-        onModScanned({
-          modId,
-          modName,
-          workshopId: wsId,
-          fileCount: totalFileCount,
-          modsScanned,
-          totalWorkshopIds,
-          wsIdx,
-        });
     }
-    if (modsFoundInThisWs > 1) {
-      log.debug(
-        `Workshop ${wsId}: contains ${modsFoundInThisWs} mod dirs (${modInfoMap[wsId]?.map((m) => m.id).join(", ") || "unknown"})`,
-      );
+    if (onModScanned)
+      onModScanned({
+        modId,
+        modName,
+        workshopId: wsId,
+        fileCount: totalFileCount,
+        modsScanned,
+        totalWorkshopIds,
+        wsIdx: job.wsIdx,
+      });
+    if (job.modsInWorkshop > 0) {
+      if (job.modsInWorkshop > 1) {
+        log.debug(
+          `Workshop ${wsId}: contains ${job.modsInWorkshop} mod dirs (${modInfoMap[wsId]?.map((m) => m.id).join(", ") || "unknown"})`,
+        );
+      }
+      // Yield after each workshop item so SSE writes and incoming requests aren't starved
+      await yieldTick();
     }
-    // Yield after each workshop item so SSE writes and incoming requests aren't starved
-    await yieldTick();
   }
   if (indexTruncated) {
     // A truncated scan is a wrong answer presented as a complete one unless
@@ -6892,9 +6923,155 @@ export async function buildFileIndex(
   };
 }
 
+// ─── Conflict rules ──────────────────────────────────────────────────────
+// Each conflict carries, besides file/category/severity/mods/overlap/winner:
+//   kind    file-override | lua-override | script-file-override |
+//           script-override | translation-override | clothing-override |
+//           lua-global-clash | declared-incompatible
+//   reason  a stable code the client translates (conflictsPanel reasons.*):
+//           assetOverride, mapFileOverride, dataFileOverride, luaFileOverride,
+//           scriptFileReplaced, scriptFileOverride, scriptDefinitionOverride,
+//           scriptDefinitionMerge, translationKeyOverride,
+//           translationUnreadable, clothingOutfitOverride,
+//           clothingItemOverride, luaGlobalRedefined, luaVariantClash,
+//           declaredIncompatible, intendedPatch, patchLoadsBeforeTarget
+//   severity high | medium | low | info (info: an intended override, e.g. a
+//           patch that require=s the mod it overrides and loads after it)
+//   intended true when the override is a declared patch's (see above);
+//           baseReason then keeps the file-level reason it replaced
+//   files   [{ modId, file }] for conflicts across different files
+// The rules follow what the game loads (utils/modLoadOrder.js header).
+
+const REASON_SEVERITY = {
+  assetOverride: null, // per category (SEVERITY_MAP)
+  mapFileOverride: "medium",
+  dataFileOverride: null,
+  luaFileOverride: "high",
+  scriptFileReplaced: "high",
+  scriptFileOverride: "medium",
+  scriptDefinitionOverride: "medium",
+  scriptDefinitionMerge: "medium",
+  translationKeyOverride: "low",
+  translationUnreadable: "low",
+  clothingOutfitOverride: "medium",
+  clothingItemOverride: "medium",
+  luaGlobalRedefined: "medium",
+  luaVariantClash: "high",
+  declaredIncompatible: "high",
+};
+
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2, info: 3 };
+
+function fileOverrideReason(category) {
+  if (category === "maps") return "mapFileOverride";
+  if (
+    category === "data" ||
+    category === "other" ||
+    category === "clothing" ||
+    LUA_CATEGORIES.has(category)
+  ) {
+    return "dataFileOverride";
+  }
+  return "assetOverride";
+}
+
+// Position of each mod in the order the game loads them; -1 when unknown.
+function loadPosition(orderIndex, modId) {
+  const pos = orderIndex?.get(modId);
+  return pos == null ? -1 : pos;
+}
+
+// Entries sorted by load order, earliest first (unknown positions first:
+// they cannot be shown to win).
+function byLoadOrder(entries, orderIndex) {
+  return entries
+    .map((entry, i) => ({ entry, i, pos: loadPosition(orderIndex, entry.modId) }))
+    .sort((a, b) => a.pos - b.pos || a.i - b.i)
+    .map((x) => x.entry);
+}
+
+function modRef(m) {
+  return { workshopId: m.workshopId, modId: m.modId, modName: m.modName };
+}
+
+function overlapOf(kind, items) {
+  const unique = [...new Set(items)];
+  return unique.length > 0
+    ? { kind, items: unique.slice(0, 50), total: unique.length }
+    : undefined;
+}
+
+// The winner of a conflict: the mod among it that loads last in the order the
+// game really uses (the effective order: Mods= with required mods loaded
+// first). null when no mod has a known position.
+function winnerOf(conflict, orderIndex) {
+  let best = -1;
+  let winner = null;
+  for (const m of conflict.mods) {
+    const pos = loadPosition(orderIndex, m.modId);
+    if (pos > best) {
+      best = pos;
+      winner = m;
+    }
+  }
+  return winner ? modRef(winner) : null;
+}
+
+/**
+ * Re-rates one pair of a conflict when one mod declares it builds on the
+ * other (require=, loadModAfter=, the other's loadModBefore=, directly or
+ * through other mods): overriding the target is then the point of the patch
+ * (severity info, reason intendedPatch) -- as long as the patch loads after
+ * its target, otherwise its changes are lost (high, patchLoadsBeforeTarget).
+ * Returns null when the pair is unrelated.
+ */
+export function classifyConflictPair(conflict, idA, idB, dependsOn, orderIndex) {
+  if (!dependsOn || conflict.kind === "declared-incompatible") return null;
+  const aOnB = dependsOn(idA, idB);
+  const bOnA = dependsOn(idB, idA);
+  if (!aOnB && !bOnA) return null;
+  const patch = aOnB ? idA : idB;
+  const target = patch === idA ? idB : idA;
+  const patchPos = loadPosition(orderIndex, patch);
+  const targetPos = loadPosition(orderIndex, target);
+  if (patchPos < 0 || targetPos < 0) return null; // one of them does not load
+  if (patchPos > targetPos) {
+    return { severity: "info", reason: "intendedPatch", intended: true, patch, target };
+  }
+  return { severity: "high", reason: "patchLoadsBeforeTarget", intended: false, patch, target };
+}
+
+// Sets the winner (unless the detector already knows it) and re-rates a
+// two-mod conflict that is a declared patch's override.
+function makeFinalizer(orderIndex, dependsOn) {
+  return (conflict) => {
+    if (conflict.winner === undefined) conflict.winner = winnerOf(conflict, orderIndex);
+    const ids = [...new Set(conflict.mods.map((m) => m.modId))];
+    if (ids.length !== 2) return conflict;
+    const rated = classifyConflictPair(conflict, ids[0], ids[1], dependsOn, orderIndex);
+    if (rated) {
+      conflict.baseSeverity = conflict.severity;
+      conflict.baseReason = conflict.reason;
+      conflict.severity = rated.severity;
+      conflict.reason = rated.reason;
+      conflict.intended = rated.intended;
+    }
+    return conflict;
+  };
+}
+
+// The copy of a shared path the game loads: the last mod's.
+function loadedCopy(entries, orderIndex) {
+  const ordered = byLoadOrder(entries, orderIndex);
+  return ordered[ordered.length - 1];
+}
+
 // Detect conflicts from a file index. Calls `onConflictFound(conflict)` for each.
+// options: shouldAbort, onProgress, orderIndex (Map modId -> load position,
+// the effective order), dependsOn (createDependencyRelation()).
 async function detectConflicts(fileIndex, onConflictFound, options = {}) {
-  const { shouldAbort, onProgress } = options;
+  const { shouldAbort, onProgress, orderIndex = new Map(), dependsOn = null } = options;
+  const finalize = makeFinalizer(orderIndex, dependsOn);
   const conflicts = [];
   let identicalSkipped = 0;
   let additiveSkipped = 0;
@@ -6906,6 +7083,15 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     fileguidtable: 0,
     translate: 0,
   };
+  // Shared paths that are not conflicts for another reason than identical
+  // bytes: never read by the game, or the same definitions written
+  // differently.
+  const benignSkipped = { nonGameplay: 0, notLoaded: 0, sameDefinitions: 0 };
+  const emit = (conflict) => {
+    finalize(conflict);
+    conflicts.push(conflict);
+    if (onConflictFound) onConflictFound(conflict);
+  };
   let processed = 0;
   const indexEntries = Object.entries(fileIndex);
   for (const [filePath, mods] of indexEntries) {
@@ -6913,12 +7099,18 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     if (mods.length < 2) continue;
     const distinctMods = dedupeByModId(mods);
     if (distinctMods.length < 2) continue;
+
+    // Workshop metadata, documentation, VCS files: the game never reads them.
+    if (isNonGameplayMediaFile(filePath)) {
+      benignSkipped.nonGameplay++;
+      continue;
+    }
     const category = classifyFile(filePath);
 
-    // sandbox-options.txt lives at the media root and PZ merges it by named
-    // option block; fileGuidTable.xml is mod-editor metadata never loaded at
-    // runtime. Both are additive whatever they contain, so skip them before
-    // comparing rather than reading 34+ copies only to discard the answer.
+    // sandbox-options.txt and fileGuidTable.xml are read from each mod's own
+    // folder and merged entry by entry (CustomSandboxOptions,
+    // ZomboidFileSystem.loadFileGuidTable): additive whatever they contain,
+    // so skip them before reading 34+ copies only to discard the answer.
     if (category === "sandbox-options" || category === "fileguidtable") {
       pzAdditiveSkipped++;
       pzAdditiveBreakdown[
@@ -6926,8 +7118,18 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
       ]++;
       continue;
     }
+    // B42 reads translations from Translate/<LANG>/*.json only; the B41 .txt
+    // files are never loaded. Script files outside .txt are never parsed.
+    const translation = category === "translate" ? translationPathInfo(filePath) : null;
+    if (
+      (category === "translate" && !translation?.json) ||
+      (category === "scripts" && !filePath.endsWith(".txt"))
+    ) {
+      benignSkipped.notLoaded++;
+      continue;
+    }
 
-    const contentState = await compareFileContents(mods);
+    const contentState = await compareFileContents(distinctMods);
     if (++processed % 25 === 0) {
       if (onProgress) onProgress({ processed, total: indexEntries.length });
       await yieldTick();
@@ -6939,116 +7141,164 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
       continue;
     }
 
-    const conflictMods = distinctMods.map((m) => ({
-      workshopId: m.workshopId,
-      modId: m.modId,
-      modName: m.modName,
-    }));
+    const ordered = byLoadOrder(distinctMods, orderIndex);
+    const base = {
+      file: filePath,
+      category,
+      categoryLabel: CATEGORY_LABELS[category] || category,
+      identical: false,
+      mods: distinctMods.map(modRef),
+    };
 
-    // ─── PZ additive files: these are NOT real conflicts ───
-
-    // Translation files: mods add their own keys to shared filenames.
-    // Only flag as a real conflict when keys actually overlap.
+    // Translations merge key by key (Translator.tryFillMapFromMods): two
+    // mods shipping the same file is harmless, only the same key with a
+    // different non-empty value is a conflict. Unreadable: fail closed.
     if (category === "translate") {
-      const comparison = compareTranslationKeys(mods);
-      if (comparison.disjoint) {
+      const comparison = compareTranslationEntries(
+        ordered.map((m) => ({
+          modId: m.modId,
+          entries: cachedParse("translation", m.absPath, extractTranslationEntries) ?? null,
+        })),
+      );
+      if (!comparison.unreadable && comparison.conflicting.length === 0) {
         additiveSkipped++;
         pzAdditiveBreakdown.translate++;
         continue;
       }
-      // Keys overlap, or the file could not be parsed — surface as a
-      // low-severity conflict with whatever keys were identified.
-      const conflict = {
-        file: filePath,
-        category,
-        categoryLabel: CATEGORY_LABELS[category] || category,
+      // Only the mods that give a clashing key a value are in the conflict;
+      // the others shipping this file just add their own keys.
+      const involved = new Set(comparison.unreadable ? distinctMods.map((m) => m.modId) : comparison.modIds);
+      emit({
+        ...base,
+        mods: distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
         severity: "low",
-        identical: false,
-        mods: conflictMods,
-      };
-      if (comparison.overlapping.length > 0) {
-        conflict.overlap = {
-          kind: "translation-keys",
-          items: comparison.overlapping.slice(0, 50),
-          total: comparison.overlapping.length,
-        };
-      }
-      conflicts.push(conflict);
-      if (onConflictFound) onConflictFound(conflict);
+        kind: "translation-override",
+        reason: comparison.conflicting.length > 0 ? "translationKeyOverride" : "translationUnreadable",
+        overlap: overlapOf("translation-keys", comparison.conflicting),
+      });
       continue;
     }
 
-    // PZ script files: parse for overlapping module.type.name definitions.
-    // PZ loads ALL .txt from every mod's scripts/ and merges them.
-    let scriptOverlap = null;
+    // Scripts: only the winner's copy of a shared path is parsed
+    // (ScriptManager.Load). What the other copies define is gone unless the
+    // winner defines it too.
     if (category === "scripts") {
-      const comparison = compareScriptDefinitions(mods);
-      if (comparison.disjoint) {
-        pzAdditiveSkipped++;
-        pzAdditiveBreakdown.scripts++;
+      const winner = ordered[ordered.length - 1];
+      const winnerDefs = cachedParse("scriptDefs", winner.absPath, extractScriptDefinitionBodies);
+      let unreadable = !winnerDefs;
+      const lost = [];
+      const overridden = [];
+      // The winner, plus every copy that loses something by being dropped
+      // (a copy defining exactly what the winner defines loses nothing).
+      const involved = new Set([winner.modId]);
+      for (const loser of ordered.slice(0, -1)) {
+        const loserDefs = cachedParse("scriptDefs", loser.absPath, extractScriptDefinitionBodies);
+        if (!loserDefs || !winnerDefs) {
+          unreadable = true;
+          involved.add(loser.modId);
+          continue;
+        }
+        const comparison = compareScriptFileCopies(winnerDefs, loserDefs);
+        if (comparison.lost.length > 0 || comparison.overridden.length > 0) involved.add(loser.modId);
+        lost.push(...comparison.lost);
+        overridden.push(...comparison.overridden);
+      }
+      if (!unreadable && lost.length === 0 && overridden.length === 0) {
+        benignSkipped.sameDefinitions++;
         continue;
       }
-      scriptOverlap = comparison.overlapping;
-      // Has overlapping defs — this IS a real conflict
+      const replaced = unreadable || lost.length > 0;
+      emit({
+        ...base,
+        mods: distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
+        severity: replaced ? "high" : "medium",
+        kind: "script-file-override",
+        reason: replaced ? "scriptFileReplaced" : "scriptFileOverride",
+        overlap: overlapOf("script-defs", lost.length > 0 ? lost : overridden),
+      });
+      continue;
     }
 
-    // Clothing XMLs: PZ merges all clothing definitions from all mods.
-    // Only flag if clothing item IDs actually overlap.
-    let clothingOverlap = null;
+    // clothing.xml is read from each mod and merged outfit by outfit
+    // (OutfitManager); clothingItems/*.xml load through the path map, so a
+    // shared path is the same item replaced.
     if (category === "clothing") {
-      const comparison = compareClothingDefinitions(mods);
-      if (comparison.disjoint) {
-        pzAdditiveSkipped++;
-        pzAdditiveBreakdown.clothing++;
+      if (filePath === "clothing/clothing.xml") {
+        const byOutfit = new Map(); // outfit -> Map(modId -> digest)
+        let unreadable = false;
+        for (const m of ordered) {
+          const outfits = cachedParse("outfits", m.absPath, extractClothingOutfits);
+          if (!outfits) {
+            unreadable = true;
+            continue;
+          }
+          for (const [name, hash] of outfits) {
+            if (!byOutfit.has(name)) byOutfit.set(name, new Map());
+            byOutfit.get(name).set(m.modId, hash);
+          }
+        }
+        const clashing = [];
+        const involved = new Set();
+        for (const [name, byMod] of byOutfit) {
+          if (new Set(byMod.values()).size < 2) continue;
+          clashing.push(name);
+          for (const modId of byMod.keys()) involved.add(modId);
+        }
+        if (!unreadable && clashing.length === 0) {
+          pzAdditiveSkipped++;
+          pzAdditiveBreakdown.clothing++;
+          continue;
+        }
+        emit({
+          ...base,
+          mods: unreadable ? base.mods : distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
+          severity: "medium",
+          kind: "clothing-override",
+          reason: "clothingOutfitOverride",
+          overlap: overlapOf("clothing-items", clashing),
+        });
         continue;
       }
-      clothingOverlap = comparison.overlapping;
-      // Has overlapping clothing IDs — real conflict
-    }
-
-    // Lua: not merged — last-loaded wins. Parse symbol names so the UI can show
-    // exactly which functions/events/classes clash vs which are silently shadowed.
-    let luaOverlap = null;
-    if (LUA_CATEGORIES.has(category)) {
-      luaOverlap = compareLuaSymbols(mods); // null when files unparsable / no symbols
-    }
-
-    const conflict = {
-      file: filePath,
-      category,
-      categoryLabel: CATEGORY_LABELS[category] || category,
-      severity: SEVERITY_MAP[category] || "low",
-      identical: false,
-      mods: conflictMods,
-    };
-    if (scriptOverlap && scriptOverlap.length > 0) {
-      conflict.overlap = {
-        kind: "script-defs",
-        items: scriptOverlap.slice(0, 50),
-        total: scriptOverlap.length,
-      };
-    } else if (clothingOverlap && clothingOverlap.length > 0) {
-      conflict.overlap = {
-        kind: "clothing-items",
-        items: clothingOverlap.slice(0, 50),
-        total: clothingOverlap.length,
-      };
-    } else if (luaOverlap) {
-      if (luaOverlap.overlapping.length > 0) {
-        conflict.overlap = {
-          kind: "lua-symbols",
-          items: luaOverlap.overlapping.slice(0, 50),
-          total: luaOverlap.overlapping.length,
-        };
-      } else {
-        // Lua files at the same path with no overlapping named symbols — one fully
-        // shadows the other but they don't fight for the same names. Demote severity.
-        conflict.severity = "medium";
-        conflict.overlap = { kind: "lua-shadow", items: [], total: 0 };
+      if (filePath.startsWith("clothing/clothingitems/")) {
+        emit({
+          ...base,
+          severity: "medium",
+          kind: "clothing-override",
+          reason: "clothingItemOverride",
+        });
+        continue;
       }
     }
-    conflicts.push(conflict);
-    if (onConflictFound) onConflictFound(conflict);
+
+    // Lua: one copy of a path runs, the winner's (LuaManager.LoadDirBase);
+    // every other copy is never executed. Always a real override.
+    if (LUA_CATEGORIES.has(category) && filePath.endsWith(".lua")) {
+      const luaOverlap = compareLuaSymbols(distinctMods);
+      emit({
+        ...base,
+        severity: "high",
+        kind: "lua-override",
+        reason: "luaFileOverride",
+        overlap:
+          luaOverlap && luaOverlap.overlapping.length > 0
+            ? overlapOf("lua-symbols", luaOverlap.overlapping)
+            : { kind: "lua-shadow", items: [], total: 0 },
+      });
+      continue;
+    }
+
+    // Any other file: the path map keeps the last mod's copy. A non-Lua file
+    // under lua/ is never executed, only possibly read as data.
+    const reason = fileOverrideReason(category);
+    emit({
+      ...base,
+      severity:
+        REASON_SEVERITY[reason] ||
+        (LUA_CATEGORIES.has(category) ? "medium" : SEVERITY_MAP[category]) ||
+        "low",
+      kind: "file-override",
+      reason,
+    });
   }
   return {
     conflicts,
@@ -7056,139 +7306,204 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     additiveSkipped,
     pzAdditiveSkipped,
     pzAdditiveBreakdown,
+    benignSkipped,
   };
 }
 
-// Detect Lua symbol clashes across DIFFERENT files between mod IDs that ship
-// inside the SAME workshop item. The per-file scanner above only catches
-// collisions when two mods place a file at the same relative path. Many
-// "variant bundles" (e.g. TombBodyTexNUDE / TombBodyTexDOLL, Backpacks+
-// "Lite" vs "Full") use unique filenames but redefine the same Lua names,
-// which would silently overwrite each other at runtime. This pass surfaces
-// those so the existing same-workshop "File conflict — pick one" UI fires.
-//
-// Skips pairs that already produced a same-path conflict in the per-file
-// pass (avoids duplicate UI rows). Only Lua categories are considered.
-async function detectSameWorkshopLuaSymbolConflicts(
-  fileIndex,
-  existingConflicts,
-  onConflictFound,
-  options = {},
-) {
-  const { shouldAbort } = options;
-  // Build set of (modId|modId) pairs already covered by the per-file pass.
+function crossFileLabel(files) {
+  const unique = [...new Set(files)];
+  if (unique.length <= 3) return unique.join(" ↔ ");
+  return `${unique.slice(0, 2).join(" ↔ ")} ↔ … (+${unique.length - 2})`;
+}
+
+// Script definitions across DIFFERENT files: the game merges every script
+// file it parses by module + type + name, a later body replacing the earlier
+// (vehicle / xuiSkin bodies are layered). Only the copies the game parses
+// count (a shared path's winner). Same name and same body: harmless; a name
+// only one mod defines: an addition, not a conflict.
+async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options = {}) {
+  const { shouldAbort, orderIndex = new Map() } = options;
+  const defsByName = new Map();
+  let parsed = 0;
+  for (const [relPath, entries] of Object.entries(fileIndex)) {
+    if (shouldAbort && shouldAbort()) break;
+    if (!relPath.startsWith("scripts/") || !relPath.endsWith(".txt")) continue;
+    const copy = loadedCopy(dedupeByModId(entries), orderIndex);
+    if (++parsed % 50 === 0) await yieldTick();
+    const defs = cachedParse("scriptDefs", copy.absPath, extractScriptDefinitionBodies);
+    if (!defs) continue;
+    for (const [name, def] of defs) {
+      if (!defsByName.has(name)) defsByName.set(name, new Map());
+      // Within one mod the later file (game order: sorted path) wins.
+      defsByName.get(name).set(copy.modId, { entry: copy, file: relPath, hash: def.hash, merged: def.merged });
+    }
+  }
+  // One conflict per pair of mods (and files) whose bodies of a name differ;
+  // two mods writing the same body agree and are no conflict. The winner is
+  // the mod whose body the game ends up with (the last of ALL that define
+  // the name), so a third mod can win a pair.
+  let sameDefinitions = 0;
+  const pairs = new Map();
+  for (const [name, byMod] of defsByName) {
+    if (byMod.size < 2) continue;
+    const defs = byLoadOrder([...byMod.values()].map((d) => ({ ...d, modId: d.entry.modId })), orderIndex);
+    if (new Set(defs.map((d) => d.hash)).size === 1) {
+      sameDefinitions++;
+      continue;
+    }
+    const finalDef = defs[defs.length - 1];
+    for (let i = 0; i < defs.length; i++) {
+      for (let j = i + 1; j < defs.length; j++) {
+        if (defs[i].hash === defs[j].hash) continue;
+        const [a, b] = defs[i].modId < defs[j].modId ? [defs[i], defs[j]] : [defs[j], defs[i]];
+        const key = `${a.modId}\u0000${a.file}\u0001${b.modId}\u0000${b.file}`;
+        if (!pairs.has(key)) pairs.set(key, { a, b, items: [], merged: true, winner: finalDef.entry });
+        const pair = pairs.get(key);
+        pair.items.push(name);
+        if (!a.merged || !b.merged) pair.merged = false;
+      }
+    }
+  }
+  let emitted = 0;
+  for (const pair of pairs.values()) {
+    if (shouldAbort && shouldAbort()) break;
+    const files = [
+      { modId: pair.a.modId, file: pair.a.file },
+      { modId: pair.b.modId, file: pair.b.file },
+    ];
+    emitConflict({
+      file: crossFileLabel(files.map((f) => f.file)),
+      category: "scripts-cross-file",
+      categoryLabel: CATEGORY_LABELS["scripts-cross-file"],
+      severity: "medium",
+      identical: false,
+      crossFile: true,
+      kind: "script-override",
+      reason: pair.merged ? "scriptDefinitionMerge" : "scriptDefinitionOverride",
+      overlap: overlapOf("script-defs", pair.items),
+      files,
+      mods: [modRef(pair.a.entry), modRef(pair.b.entry)],
+      winner: modRef(pair.winner),
+    });
+    if (++emitted % 20 === 0) await yieldTick();
+  }
+  return { sameDefinitions };
+}
+
+// A global name defined by more mods than this is reported for the first ones
+// only, so one name every mod touches cannot explode into N² pairs.
+const LUA_GLOBAL_MAX_MODS = 64;
+
+// Global Lua names redefined from DIFFERENT files by different mods: whichever
+// file runs last replaces the other's function or table (possible clobbering;
+// chained hooks that keep the original are not counted, see
+// extractLuaGlobals). Two mod ids from the SAME Workshop item doing it are
+// usually variants meant to be picked one at a time (TombBodyTexNUDE /
+// TombBodyTexDOLL): high. Pairs that already clash on a same-path Lua file
+// are skipped (that file is the bigger problem).
+async function detectLuaGlobalClashes(fileIndex, existingConflicts, emitConflict, options = {}) {
+  const { shouldAbort, orderIndex = new Map() } = options;
   const coveredPairs = new Set();
   for (const c of existingConflicts) {
+    if (c.kind !== "lua-override") continue;
     const ids = [...new Set(c.mods.map((m) => m.modId))].sort();
     for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        coveredPairs.add(`${ids[i]}|${ids[j]}`);
-      }
+      for (let j = i + 1; j < ids.length; j++) coveredPairs.add(`${ids[i]}|${ids[j]}`);
     }
   }
-
-  // Group lua files by workshopId → modId.
-  // { wsId: { modId: [{relPath, absPath, modName}] } }
-  const wsModFiles = {};
-  for (const [relPath, mods] of Object.entries(fileIndex)) {
-    if (!LUA_CATEGORIES.has(classifyFile(relPath))) continue;
-    for (const m of mods) {
-      if (!wsModFiles[m.workshopId]) wsModFiles[m.workshopId] = {};
-      if (!wsModFiles[m.workshopId][m.modId])
-        wsModFiles[m.workshopId][m.modId] = [];
-      wsModFiles[m.workshopId][m.modId].push({
-        relPath,
-        absPath: m.absPath,
-        modName: m.modName,
-      });
-    }
-  }
-
-  const conflicts = [];
-  let scanned = 0;
+  // symbol -> Map(modId -> { entry, file })
+  const bySymbol = new Map();
   let parsed = 0;
-  for (const [wsId, modFilesMap] of Object.entries(wsModFiles)) {
+  for (const [relPath, entries] of Object.entries(fileIndex)) {
     if (shouldAbort && shouldAbort()) break;
-    const modIds = Object.keys(modFilesMap);
-    if (modIds.length < 2) continue;
-
-    // Build per-modId symbol union with first-seen file per symbol (for display).
-    // modId → Map<symbol, { relPath, modName }>
-    const symsByMod = {};
-    for (const modId of modIds) {
-      const symMap = new Map();
-      for (const f of modFilesMap[modId]) {
-        // Reads and parses are the expensive part of this pass, so yield here
-        // too — yielding only in the pair loop below left the event loop
-        // blocked for the whole extraction phase.
-        if (++parsed % 50 === 0) await yieldTick();
-        const syms = getLuaSymbols(f.absPath);
-        if (!syms || syms.size === 0) continue;
-        for (const s of syms) {
-          if (!symMap.has(s))
-            symMap.set(s, { relPath: f.relPath, modName: f.modName });
-        }
-      }
-      symsByMod[modId] = symMap;
-    }
-
-    // Pairwise overlap detection.
-    for (let i = 0; i < modIds.length; i++) {
-      for (let j = i + 1; j < modIds.length; j++) {
-        const idA = modIds[i],
-          idB = modIds[j];
-        const pairKey = [idA, idB].sort().join("|");
-        if (coveredPairs.has(pairKey)) continue;
-        const symsA = symsByMod[idA];
-        const symsB = symsByMod[idB];
-        if (!symsA || !symsB || symsA.size === 0 || symsB.size === 0) continue;
-
-        const overlap = [];
-        for (const s of symsA.keys()) {
-          if (symsB.has(s)) overlap.push(s);
-        }
-        if (overlap.length === 0) continue;
-
-        const firstSym = overlap[0];
-        const fileA = symsA.get(firstSym);
-        const fileB = symsB.get(firstSym);
-        const conflict = {
-          // Synthetic file label that shows BOTH source files so the UI
-          // makes the situation legible. groupIntoPairs treats this as one
-          // "file" entry for the pair.
-          file:
-            fileA.relPath === fileB.relPath
-              ? fileA.relPath
-              : `${fileA.relPath} ↔ ${fileB.relPath}`,
-          category: "lua-cross-file",
-          categoryLabel: CATEGORY_LABELS["lua-cross-file"],
-          severity: "high",
-          identical: false,
-          crossFile: true,
-          overlap: {
-            kind: "lua-symbols",
-            items: overlap.slice(0, 50),
-            total: overlap.length,
-          },
-          mods: [
-            { workshopId: wsId, modId: idA, modName: fileA.modName },
-            { workshopId: wsId, modId: idB, modName: fileB.modName },
-          ],
-        };
-        conflicts.push(conflict);
-        if (onConflictFound) onConflictFound(conflict);
-        if (++scanned % 20 === 0) await yieldTick();
+    if (!LUA_CATEGORIES.has(classifyFile(relPath)) || !relPath.endsWith(".lua")) continue;
+    const copy = loadedCopy(dedupeByModId(entries), orderIndex);
+    if (++parsed % 50 === 0) await yieldTick();
+    const globals = cachedParse("luaGlobals", copy.absPath, extractLuaGlobals);
+    if (!globals) continue;
+    for (const symbol of globals) {
+      if (!bySymbol.has(symbol)) bySymbol.set(symbol, new Map());
+      const byMod = bySymbol.get(symbol);
+      if (!byMod.has(copy.modId) && byMod.size < LUA_GLOBAL_MAX_MODS) {
+        byMod.set(copy.modId, { entry: copy, file: relPath });
       }
     }
   }
-  return conflicts;
+  const pairs = new Map();
+  for (const [symbol, byMod] of bySymbol) {
+    if (byMod.size < 2) continue;
+    const defs = [...byMod.values()];
+    for (let i = 0; i < defs.length; i++) {
+      for (let j = i + 1; j < defs.length; j++) {
+        const [a, b] = defs[i].entry.modId < defs[j].entry.modId ? [defs[i], defs[j]] : [defs[j], defs[i]];
+        const pairKey = `${a.entry.modId}|${b.entry.modId}`;
+        if (coveredPairs.has(pairKey)) continue;
+        if (!pairs.has(pairKey)) pairs.set(pairKey, { a, b, items: [] });
+        pairs.get(pairKey).items.push(symbol);
+      }
+    }
+  }
+  let emitted = 0;
+  for (const { a, b, items } of pairs.values()) {
+    if (shouldAbort && shouldAbort()) break;
+    const sameWorkshop = a.entry.workshopId === b.entry.workshopId;
+    emitConflict({
+      file: a.file === b.file ? a.file : `${a.file} ↔ ${b.file}`,
+      category: "lua-cross-file",
+      categoryLabel: CATEGORY_LABELS["lua-cross-file"],
+      severity: sameWorkshop ? "high" : "medium",
+      identical: false,
+      crossFile: true,
+      kind: "lua-global-clash",
+      reason: sameWorkshop ? "luaVariantClash" : "luaGlobalRedefined",
+      overlap: overlapOf("lua-symbols", items),
+      files: [
+        { modId: a.entry.modId, file: a.file },
+        { modId: b.entry.modId, file: b.file },
+      ],
+      mods: [modRef(a.entry), modRef(b.entry)],
+    });
+    if (++emitted % 20 === 0) await yieldTick();
+  }
+}
+
+// Mods that declare each other incompatible= and both load (the main menu
+// refuses the pair; the server loads both).
+function detectDeclaredIncompatibilities(effectiveOrder, modInfoMap, emitConflict) {
+  const refs = new Map();
+  const mods = [];
+  for (const [wsId, details] of Object.entries(modInfoMap)) {
+    for (const mod of details) {
+      if (refs.has(mod.id)) continue;
+      refs.set(mod.id, { workshopId: wsId, modId: mod.id, modName: mod.name || mod.id });
+      mods.push(mod);
+    }
+  }
+  for (const pair of findIncompatiblePairs(effectiveOrder, mods)) {
+    if (!refs.has(pair.a) || !refs.has(pair.b)) continue;
+    emitConflict({
+      file: "mod.info",
+      category: "mod-info",
+      categoryLabel: CATEGORY_LABELS["mod-info"],
+      severity: "high",
+      identical: false,
+      kind: "declared-incompatible",
+      reason: "declaredIncompatible",
+      declaredBy: pair.declaredBy,
+      mods: [refs.get(pair.a), refs.get(pair.b)],
+    });
+  }
 }
 
 // Group flat conflict list into mod pairs with a global output budget.
+// options.classifyPair(conflict, idA, idB) may re-rate one pair's entry
+// ({ severity, reason, intended } or null), e.g. an intended patch.
 export function groupIntoPairs(
   conflicts,
   maxFileEntries = CONFLICT_PAIR_FILE_MAX_ENTRIES,
+  options = {},
 ) {
+  const { classifyPair } = options;
   const pairConflicts = {};
   let groupedFileEntries = 0;
   let truncated = false;
@@ -7211,22 +7526,46 @@ export function groupIntoPairs(
             highCount: 0,
             mediumCount: 0,
             lowCount: 0,
+            infoCount: 0,
             aWins: 0,
             bWins: 0,
             thirdPartyWins: 0,
             unknownWins: 0,
           };
         }
-        pairConflicts[pairKey].files.push({
+        let severity = conflict.severity;
+        let reason = conflict.reason;
+        let intended = conflict.intended;
+        let baseReason = conflict.baseReason;
+        if (classifyPair && modIds.length > 2) {
+          const rated = classifyPair(conflict, modIds[i], modIds[j]);
+          if (rated) {
+            ({ severity, reason, intended } = rated);
+            baseReason = conflict.reason;
+          }
+        }
+        const fileEntry = {
           file: conflict.file,
           category: conflict.category,
           categoryLabel: conflict.categoryLabel,
-          severity: conflict.severity,
+          severity,
           winner: conflict.winner || null,
           overlap: conflict.overlap || null,
-        });
+        };
+        if (conflict.kind) fileEntry.kind = conflict.kind;
+        if (reason) fileEntry.reason = reason;
+        // The file-level reason a patch re-rating replaced (intendedPatch /
+        // patchLoadsBeforeTarget), e.g. luaFileOverride.
+        if (baseReason && baseReason !== reason) fileEntry.baseReason = baseReason;
+        if (intended != null) fileEntry.intended = intended;
+        if (conflict.files) {
+          fileEntry.files = conflict.files.filter(
+            (f) => f.modId === modIds[i] || f.modId === modIds[j],
+          );
+        }
+        pairConflicts[pairKey].files.push(fileEntry);
         groupedFileEntries++;
-        const severityKey = `${conflict.severity}Count`;
+        const severityKey = `${severity}Count`;
         if (severityKey in pairConflicts[pairKey])
           pairConflicts[pairKey][severityKey]++;
         // Per-file winner tally for the pair card
@@ -7251,31 +7590,151 @@ export function groupIntoPairs(
   };
 }
 
-// Annotate each conflict with the winning mod, based on the `Mods=` load order.
-// PZ loads mods left-to-right; later entries override earlier ones, so the highest
-// index in modLoadOrder wins. Conflicts where neither mod is in the list (rare,
-// e.g., the multi-mod-id workshop case) get `winner: null`.
-function annotateWinners(conflicts, modLoadOrder) {
-  const order = new Map(modLoadOrder.map((id, i) => [id, i]));
-  for (const c of conflicts) {
-    let bestIdx = -1;
-    let winner = null;
-    for (const m of c.mods) {
-      const idx = order.get(m.modId);
-      if (idx == null) continue;
-      if (idx > bestIdx) {
-        bestIdx = idx;
-        winner = m;
-      }
-    }
-    c.winner = winner
-      ? {
-          modId: winner.modId,
-          modName: winner.modName,
-          workshopId: winner.workshopId,
-        }
-      : null;
+// Winners of the last scan's pairs, as { winner, loser } for the "keep the
+// current winner" ordering rule; only while that scan matches the config.
+function cachedConflictWinners(workshopIds, modIds, serverPath) {
+  if (!lastScanResult || Date.now() - lastScanTimestamp > SCAN_CACHE_TTL_MS) return [];
+  const snapshot = createConflictScanSnapshots(workshopIds, modIds);
+  if (
+    snapshot.workshop !== lastScanWorkshopSnapshot ||
+    snapshot.mods !== lastScanModSnapshot ||
+    serverPath !== lastScanServerPath
+  ) {
+    return [];
   }
+  return conflictWinnersFromPairs(lastScanResult.pairs);
+}
+
+export function conflictWinnersFromPairs(pairs) {
+  const winners = [];
+  for (const pair of pairs || []) {
+    const a = pair.modA?.modId;
+    const b = pair.modB?.modId;
+    if (!a || !b) continue;
+    const real = pair.files.filter((f) => f.severity !== "info");
+    const aWins = real.some((f) => f.winner?.modId === a);
+    const bWins = real.some((f) => f.winner?.modId === b);
+    if (aWins && !bWins) winners.push({ winner: a, loser: b });
+    else if (bWins && !aWins) winners.push({ winner: b, loser: a });
+  }
+  return winners;
+}
+
+// Everything a scan computes after the file index: the conflicts (per path,
+// across script files, across Lua files, declared incompatible), winners on
+// the effective order, intended patches re-rated, pairs. Shared by GET
+// /conflicts and /conflicts/stream.
+async function analyzeConflicts(fileIndex, modInfoMap, order, callbacks = {}) {
+  const { onConflictFound, onProgress, shouldAbort, onPhase } = callbacks;
+  const knownMods = Object.values(modInfoMap).flat();
+  const dependsOn = createDependencyRelation(knownMods);
+  const orderIndex = new Map(order.effectiveModOrder.map((id, i) => [id, i]));
+  const finalize = makeFinalizer(orderIndex, dependsOn);
+  const detected = await detectConflicts(fileIndex, onConflictFound, {
+    shouldAbort,
+    onProgress,
+    orderIndex,
+    dependsOn,
+  });
+  const { conflicts } = detected;
+  if (shouldAbort && shouldAbort()) {
+    return { ...detected, pairs: [], truncated: false, groupedFileEntries: 0, knownMods };
+  }
+  if (onPhase) onPhase("grouping");
+  const emit = (conflict) => {
+    finalize(conflict);
+    conflicts.push(conflict);
+    if (onConflictFound) onConflictFound(conflict);
+  };
+  const { sameDefinitions } = await detectScriptDefinitionConflicts(fileIndex, emit, {
+    shouldAbort,
+    orderIndex,
+  });
+  detected.benignSkipped.sameDefinitions += sameDefinitions;
+  await detectLuaGlobalClashes(fileIndex, [...conflicts], emit, { shouldAbort, orderIndex });
+  detectDeclaredIncompatibilities(order.effectiveModOrder, modInfoMap, emit);
+  conflicts.sort(
+    (a, b) =>
+      (SEVERITY_RANK[a.severity] ?? 4) - (SEVERITY_RANK[b.severity] ?? 4) ||
+      a.file.localeCompare(b.file),
+  );
+  const grouped = groupIntoPairs(conflicts, CONFLICT_PAIR_FILE_MAX_ENTRIES, {
+    classifyPair: (conflict, idA, idB) =>
+      classifyConflictPair(conflict, idA, idB, dependsOn, orderIndex),
+  });
+  return { ...detected, ...grouped, knownMods };
+}
+
+// Reads every configured Workshop item's mod.info once and works out the
+// order the server really loads Mods= in. The scan covers every Mods= entry
+// plus the required mods the game loads although Mods= does not list them.
+function prepareScanOrder(workshopIds, modIdsFromIni, serverPath) {
+  const modDetailsByWorkshop = {};
+  const knownMods = [];
+  for (const wsId of workshopIds) {
+    if (!/^\d{1,15}$/.test(wsId)) continue;
+    const details = getModDetailsFromWorkshop(wsId, serverPath);
+    modDetailsByWorkshop[wsId] = details;
+    knownMods.push(...details);
+  }
+  const order = analyzeModOrder(modIdsFromIni, knownMods);
+  const activeModIds = [...new Set([...modIdsFromIni, ...order.effectiveModOrder])];
+  return { modDetailsByWorkshop, order, activeModIds };
+}
+
+// The scan response. Existing fields keep their meaning (modLoadOrder is
+// still the Mods= line); the rule fields are new:
+//   effectiveModOrder, orderWarnings, orderingConstraints (see
+//   utils/modLoadOrder.js analyzeModOrder), benignSkipped
+//   { nonGameplay, notLoaded, sameDefinitions }, severityCounts
+//   { high, medium, low, info } over all conflicts.
+function buildScanResult({
+  analysis,
+  modsScanned,
+  modsNotFound,
+  modsSkippedInactive,
+  workshopIds,
+  missingDeps,
+  steamDeps,
+  idCollisions,
+  modIdsFromIni,
+  order,
+  truncated,
+  warnings,
+  scanStart,
+}) {
+  const { conflicts, pairs } = analysis;
+  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  for (const c of conflicts) {
+    if (c.severity in severityCounts) severityCounts[c.severity]++;
+  }
+  return {
+    totalConflicts: conflicts.length,
+    identicalSkipped: analysis.identicalSkipped,
+    additiveSkipped: analysis.additiveSkipped,
+    pzAdditiveSkipped: analysis.pzAdditiveSkipped,
+    pzAdditiveBreakdown: analysis.pzAdditiveBreakdown,
+    benignSkipped: analysis.benignSkipped,
+    severityCounts,
+    pairs,
+    totalPairs: pairs.length,
+    modsScanned,
+    modsNotFound,
+    modsSkippedInactive,
+    totalWorkshopIds: workshopIds.length,
+    missingDeps,
+    steamDeps,
+    idCollisions,
+    modLoadOrder: modIdsFromIni,
+    effectiveModOrder: order.effectiveModOrder,
+    orderWarnings: order.orderWarnings,
+    orderingConstraints: computeOrderingConstraints(analysis.knownMods, {
+      conflictWinners: conflictWinnersFromPairs(pairs),
+    }),
+    truncated,
+    warnings,
+    scanDurationMs: Date.now() - scanStart,
+  };
 }
 
 // Detect cases where multiple workshop items declare the same internal mod id.
@@ -7640,6 +8099,11 @@ router.get("/conflicts", async (req, res) => {
         scanDurationMs: Date.now() - scanStart,
       });
     }
+    const { modDetailsByWorkshop, order, activeModIds } = prepareScanOrder(
+      workshopIds,
+      modIdsFromIni,
+      serverPath,
+    );
     const {
       fileIndex,
       modInfoMap,
@@ -7648,33 +8112,17 @@ router.get("/conflicts", async (req, res) => {
       modsSkippedInactive,
       truncated,
       warnings,
-    } = await buildFileIndex(workshopIds, serverPath, null, modIdsFromIni);
-    const {
-      conflicts,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-    } = await detectConflicts(fileIndex);
-    // Second pass: catch variant-bundle clashes (NUDE/DOLL/Tex etc.) where
-    // two mod IDs in the same workshop redefine the same Lua names from
-    // different filenames. These slip past the per-file pass.
-    const crossFileConflicts = await detectSameWorkshopLuaSymbolConflicts(
-      fileIndex,
-      conflicts,
+    } = await buildFileIndex(
+      workshopIds,
+      serverPath,
+      null,
+      activeModIds,
+      FILE_INDEX_MAX_ENTRIES,
+      modDetailsByWorkshop,
     );
-    if (crossFileConflicts.length > 0) conflicts.push(...crossFileConflicts);
-    annotateWinners(conflicts, modIdsFromIni);
+    const analysis = await analyzeConflicts(fileIndex, modInfoMap, order);
     const idCollisions = findIdCollisions(modInfoMap, modIdsFromIni);
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    conflicts.sort(
-      (a, b) =>
-        (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3) ||
-        a.file.localeCompare(b.file),
-    );
-    const { pairs, truncated: pairOutputTruncated } =
-      groupIntoPairs(conflicts);
-    if (pairOutputTruncated) {
+    if (analysis.truncated) {
       warnings.push(
         `Conflict output reached the global ${CONFLICT_PAIR_FILE_MAX_ENTRIES.toLocaleString()} pair-file limit — the conflict scan is incomplete. Scan fewer mods at once or remove unused ones and retry.`,
       );
@@ -7690,26 +8138,21 @@ router.get("/conflicts", async (req, res) => {
         `Steam deps lookup failed during batch scan (non-fatal): ${e.message}`,
       );
     }
-    const result = {
-      totalConflicts: conflicts.length,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-      pairs,
-      totalPairs: pairs.length,
+    const result = buildScanResult({
+      analysis,
       modsScanned,
       modsNotFound,
       modsSkippedInactive,
-      totalWorkshopIds: workshopIds.length,
+      workshopIds,
       missingDeps,
       steamDeps,
       idCollisions,
-      modLoadOrder: modIdsFromIni,
-      truncated: truncated || pairOutputTruncated,
+      modIdsFromIni,
+      order,
+      truncated: truncated || analysis.truncated,
       warnings,
-      scanDurationMs: Date.now() - scanStart,
-    };
+      scanStart,
+    });
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
     lastScanWorkshopSnapshot = snapshots.workshop;
     lastScanModSnapshot = snapshots.mods;
@@ -7822,6 +8265,11 @@ router.get("/conflicts/stream", async (req, res) => {
     }
 
     // Phase 1: scan mods — emit progress per mod
+    const { modDetailsByWorkshop, order, activeModIds } = prepareScanOrder(
+      workshopIds,
+      modIdsFromIni,
+      serverPath,
+    );
     const {
       fileIndex,
       modInfoMap,
@@ -7845,7 +8293,9 @@ router.get("/conflicts/stream", async (req, res) => {
           progress: Math.round(((info.wsIdx + 1) / info.totalWorkshopIds) * 60), // 0-60%
         });
       },
-      modIdsFromIni,
+      activeModIds,
+      FILE_INDEX_MAX_ENTRIES,
+      modDetailsByWorkshop,
     );
 
     if (aborted) {
@@ -7854,17 +8304,11 @@ router.get("/conflicts/stream", async (req, res) => {
     }
     send("phase", { phase: "hashing", progress: 60 });
 
-    // Phase 2: detect conflicts (hashing happens here)
+    // Phase 2: detect conflicts (hashing happens here), then the passes
+    // across files and the grouping.
     let conflictCount = 0;
-    const {
-      conflicts,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-    } = await detectConflicts(
-      fileIndex,
-      (conflict) => {
+    const analysis = await analyzeConflicts(fileIndex, modInfoMap, order, {
+      onConflictFound: (conflict) => {
         if (aborted) return;
         conflictCount++;
         // Stream each conflict as it's found (every 3rd to avoid flooding, or always for high severity)
@@ -7879,62 +8323,33 @@ router.get("/conflicts/stream", async (req, res) => {
             categoryLabel: conflict.categoryLabel,
             mods: conflict.mods.map((m) => m.modName),
             conflictsSoFar: conflictCount,
+            kind: conflict.kind,
+            reason: conflict.reason,
           });
         }
       },
-      {
-        // Stop the scan when the client has gone: comparing files for a
-        // browser that closed the tab is pure wasted I/O.
-        shouldAbort: () => aborted,
-        // Comparison used to be a silent gap between 60% and 85%.
-        onProgress: ({ processed, total }) => {
-          if (aborted || total === 0) return;
-          send("phase", {
-            phase: "hashing",
-            progress: 60 + Math.round((processed / total) * 25),
-          });
-        },
+      // Stop the scan when the client has gone: comparing files for a
+      // browser that closed the tab is pure wasted I/O.
+      shouldAbort: () => aborted,
+      // Comparison used to be a silent gap between 60% and 85%.
+      onProgress: ({ processed, total }) => {
+        if (aborted || total === 0) return;
+        send("phase", {
+          phase: "hashing",
+          progress: 60 + Math.round((processed / total) * 25),
+        });
       },
-    );
+      onPhase: (phase) => {
+        if (!aborted) send("phase", { phase, progress: 85 });
+      },
+    });
 
     if (aborted) {
       res.end();
       return;
     }
-    send("phase", { phase: "grouping", progress: 85 });
-
-    // Second pass: catch variant-bundle clashes within the same workshop
-    // where mod IDs redefine the same Lua names from different filenames.
-    const crossFileConflicts = await detectSameWorkshopLuaSymbolConflicts(
-      fileIndex,
-      conflicts,
-      (conflict) => {
-        if (aborted) return;
-        conflictCount++;
-        send("conflict-found", {
-          file: conflict.file,
-          severity: conflict.severity,
-          categoryLabel: conflict.categoryLabel,
-          mods: conflict.mods.map((m) => m.modName),
-          conflictsSoFar: conflictCount,
-        });
-      },
-      { shouldAbort: () => aborted },
-    );
-    if (crossFileConflicts.length > 0) conflicts.push(...crossFileConflicts);
-
-    // Phase 3: group & sort
-    annotateWinners(conflicts, modIdsFromIni);
     const idCollisions = findIdCollisions(modInfoMap, modIdsFromIni);
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    conflicts.sort(
-      (a, b) =>
-        (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3) ||
-        a.file.localeCompare(b.file),
-    );
-    const { pairs, truncated: pairOutputTruncated } =
-      groupIntoPairs(conflicts);
-    if (pairOutputTruncated) {
+    if (analysis.truncated) {
       warnings.push(
         `Conflict output reached the global ${CONFLICT_PAIR_FILE_MAX_ENTRIES.toLocaleString()} pair-file limit — the conflict scan is incomplete. Scan fewer mods at once or remove unused ones and retry.`,
       );
@@ -7956,26 +8371,21 @@ router.get("/conflicts/stream", async (req, res) => {
       );
     }
 
-    const result = {
-      totalConflicts: conflicts.length,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-      pairs,
-      totalPairs: pairs.length,
+    const result = buildScanResult({
+      analysis,
       modsScanned,
       modsNotFound,
       modsSkippedInactive,
-      totalWorkshopIds: workshopIds.length,
+      workshopIds,
       missingDeps,
       steamDeps,
       idCollisions,
-      modLoadOrder: modIdsFromIni,
-      truncated: truncated || pairOutputTruncated,
+      modIdsFromIni,
+      order,
+      truncated: truncated || analysis.truncated,
       warnings,
-      scanDurationMs: Date.now() - scanStart,
-    };
+      scanStart,
+    });
     lastScanResult = result;
     lastScanTimestamp = Date.now();
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
@@ -8081,24 +8491,10 @@ router.get("/conflicts/diff", async (req, res) => {
         const modId = matchingMod?.id || modDir.name;
         const modDirPath = path.join(searchBase, modDir.name);
 
-        // Collect media paths: direct media/ + B42 versioned subfolders (42/, 42.X/, common/)
-        const mediaCandidates = [path.join(modDirPath, "media")];
-        if (!fs.existsSync(mediaCandidates[0])) {
-          mediaCandidates.length = 0;
-          try {
-            const subDirs = fs.readdirSync(modDirPath, { withFileTypes: true });
-            for (const sub of subDirs) {
-              if (
-                sub.isDirectory() &&
-                /^(42(\.\d+)?|common)$/i.test(sub.name)
-              ) {
-                mediaCandidates.push(path.join(modDirPath, sub.name, "media"));
-              }
-            }
-          } catch (e) {
-            /* skip unreadable */
-          }
-        }
+        // The media folders the game loads, in the order it applies them:
+        // a later folder's copy (the version folder's) replaces common/'s,
+        // exactly the copy the scan compared.
+        const mediaCandidates = gameMediaDirs(modDirPath).dirs;
 
         for (const mediaDir of mediaCandidates) {
           const candidate = path.join(mediaDir, normalizedFile);

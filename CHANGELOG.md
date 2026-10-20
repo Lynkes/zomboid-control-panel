@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
 - **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
 - **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+- **Load order the way the game sees it:** the Mods page data now includes loadModAfter=, loadModBefore= and incompatible= (read like Build 42 reads them), the order the server really loads, what keeps a mod from loading (an empty or spaced require= entry, a require= loop, a missing dependency) and every ordering rule for sorting.
 
 ### Changed
 
@@ -81,6 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
 - **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
 - **Non-Latin chat and player names:** a Cyrillic, Chinese or other multi-byte character the game was still writing when the panel read the log no longer turns into garbled characters in chat relays and death notices.
+- **Mod conflict scan follows what Build 42 loads:** it compares only common/ and the newest 42.x folder (not a B41 media/ or older version folders), and winners follow the order the server really loads, required mods first, including ones missing from Mods=.
+- **Fewer false mod conflicts:** readme, license and Workshop art files, B41 .txt translations and script files that define the same things are no longer conflicts; a translation conflicts only on the same text key with a different value.
+- **Missed mod conflicts now found:** a shared script file that drops another mod's items, an item or recipe redefined from another file, a Lua global redefined by another mod, and mods declared incompatible; a patch overriding the mod it require=s shows as intended.
 - **Changing a user's role from an allowed remote origin:** the panel's CORS settings now allow PATCH, so that request's preflight no longer fails.
 
 ## [1.4.17] - 2026-10-18

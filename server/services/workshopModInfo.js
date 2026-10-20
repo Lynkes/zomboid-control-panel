@@ -4,6 +4,7 @@ import os from "os";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeIniValue, looksLikeWorkshopId } from "../utils/sanitize.js";
 import { readTextFile } from "../utils/modIni.js";
+import { orderingFieldsFromModInfo, parseModInfoForGame } from "../utils/modLoadOrder.js";
 
 // Readers for a downloaded Workshop item's folders: where the item lives on
 // disk, which mods (mod.info ids) and map folders it holds. Moved verbatim out
@@ -381,10 +382,12 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
     try {
       content = readTextFile(modInfoPath);
     } catch {
-      return { id, meta };
+      return { id, meta, game: null };
     }
-    if (!content) return { id, meta };
+    if (!content) return { id, meta, game: null };
     if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+    // The ordering lists exactly as the game reads them (utils/modLoadOrder.js).
+    const game = parseModInfoForGame(content);
     for (const rawLine of content.split(/\r?\n/)) {
       if (rawLine.startsWith("id=")) {
         // The game does line.replace("id=", "").trim() (every "id=" goes).
@@ -404,7 +407,7 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
         meta[key] = val;
       }
     }
-    return { id, meta };
+    return { id, meta, game };
   }
 
   for (const workshopPath of possiblePaths) {
@@ -461,10 +464,11 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
           // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
           .filter((item) => fs.existsSync(item.path))
           .sort(compareModInfoCandidatePaths)) {
-          const { id, meta } = parseModInfoFile(candidate.path);
+          const { id, meta, game } = parseModInfoFile(candidate.path);
           if (!id) continue;
           if (!seenIds.has(id)) {
             seenIds.add(id);
+            const ordering = orderingFieldsFromModInfo(game);
             mods.push({
               id,
               // The mod folder the id came from. Not necessarily named after
@@ -481,6 +485,15 @@ export function getModDetailsFromWorkshop(workshopId, serverPath) {
                     .map((s) => s.trim().replace(/^\\+/, ""))
                     .filter(Boolean)
                 : [],
+              // What the game itself reads (utils/modLoadOrder.js): the raw
+              // require= entries it loads (null: no require= line), the
+              // ordering lists the main menu uses, and every entry the game
+              // cannot match.
+              requireRaw: game?.require ?? null,
+              loadAfter: ordering.loadAfter,
+              loadBefore: ordering.loadBefore,
+              incompatible: ordering.incompatible,
+              modInfoIssues: ordering.modInfoIssues,
             });
           }
           break;
