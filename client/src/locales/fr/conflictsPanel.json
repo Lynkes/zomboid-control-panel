@@ -236,5 +236,8 @@
   "showMoreFiles_many": "Afficher {{count}} fichiers de plus",
   "possibleMatchesHint_many": "{{count}} correspondances possibles — choisissez la bonne et cliquez sur Ajouter. La recherche Steam est approximative, donc vérifiez le titre avant d'ajouter.",
   "subsCount_many": "{{formatted}} abonnés",
-  "filesCount_many": "{{count}} fichiers"
+  "filesCount_many": "{{count}} fichiers",
+  "subTabsAria": "Listes de conflits",
+  "focusChip": "Mods de {{name}}",
+  "focusClearAria": "Afficher de nouveau tous les conflits (ne plus filtrer sur {{name}})"
 }

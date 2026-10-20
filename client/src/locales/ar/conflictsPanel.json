@@ -462,5 +462,8 @@
   "filesCount_zero": "{{count}} من الملفات",
   "filesCount_two": "{{count}} من الملفات",
   "filesCount_few": "{{count}} من الملفات",
-  "filesCount_many": "{{count}} من الملفات"
+  "filesCount_many": "{{count}} من الملفات",
+  "subTabsAria": "قوائم التعارضات",
+  "focusChip": "مودات {{name}}",
+  "focusClearAria": "إظهار كل التعارضات مجددًا (إيقاف التصفية حسب {{name}})"
 }

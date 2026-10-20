@@ -334,5 +334,8 @@
   "subsCount_few": "{{formatted}} підписок",
   "subsCount_many": "{{formatted}} підписок",
   "filesCount_few": "{{count}} файлів",
-  "filesCount_many": "{{count}} файлів"
+  "filesCount_many": "{{count}} файлів",
+  "subTabsAria": "Списки конфліктів",
+  "focusChip": "Моди групи {{name}}",
+  "focusClearAria": "Знову показати всі конфлікти (прибрати фільтр за групою {{name}})"
 }

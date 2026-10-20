@@ -204,5 +204,8 @@
   "loses": "loses",
   "winIt": "Win it",
   "view": "View",
-  "close": "Close"
+  "close": "Close",
+  "subTabsAria": "Conflict lists",
+  "focusChip": "Mods of {{name}}",
+  "focusClearAria": "Show every conflict again (stop filtering on {{name}})"
 }

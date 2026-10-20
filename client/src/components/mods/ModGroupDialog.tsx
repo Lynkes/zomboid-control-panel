@@ -1,6 +1,6 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ChevronUp, Loader2, Plus, Search, X } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, Loader2, Plus, Search, Undo2, Wand2, X } from 'lucide-react'
 import {
   Dialog,
   DialogBody,
@@ -15,9 +15,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { ModGroup, ModGroupInput } from '@/lib/api'
+import { Segmented } from '@/components/ui/segmented'
+import { Switch } from '@/components/ui/switch'
+import type { ModGroup, ModGroupColorName, ModGroupInput } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { GROUP_DESCRIPTION_MAX, GROUP_NAME_MAX, moveListEntry } from '@/lib/modGroups'
+import { MOD_GROUP_COLORS, autoOrderMembers, groupDotClass } from '@/lib/modGroupTools'
+import type { GroupPlacement } from '@/lib/loadOrderAutoSort'
+import { cn } from '@/lib/utils'
 
 const MEMBER_BUTTON_CLASS =
   'inline-flex h-9 w-9 items-center justify-center rounded text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-30'
@@ -30,42 +35,73 @@ const MAX_CANDIDATES = 50
 export const MIN_GROUP_MEMBERS = 2
 
 type MemberAction = 'up' | 'down' | 'remove'
+type PlacementChoice = 'anywhere' | GroupPlacement
+
+/** What the dialog saves: the group itself, plus where Auto-sort places it (kept in this browser). */
+export interface ModGroupDialogValues extends ModGroupInput {
+  color: ModGroupColorName | null
+  keepTogether: boolean
+  placement: GroupPlacement | null
+}
 
 export interface ModGroupDialogProps {
   /** The group being edited, or null to create one. */
   group: ModGroup | null
-  /** Creating only: the members to start with (the mods picked on the Load order tab), in load order. */
+  /** Creating only: the members to start with (the mods picked on the Load order tab, a suggestion), in load order. */
   initialModIds?: readonly string[]
+  /** Creating only: a name to start with (a suggestion's). */
+  initialName?: string
+  /** The group's Auto-sort placement (kept in this browser). */
+  placement?: GroupPlacement | null
   /** The mods enabled on the active server: what "Add mods" offers. */
   serverModIds: readonly string[]
   /** Mod ID to display name. */
   modNames: Readonly<Record<string, string>>
+  /** Mod ID to its `require=` entries, for "Auto-order members". */
+  requires?: ReadonlyMap<string, readonly string[]>
   onClose: () => void
   /** Saves the group. A rejection is shown in the dialog and keeps it open. */
-  onSubmit: (values: ModGroupInput) => Promise<void>
+  onSubmit: (values: ModGroupDialogValues) => Promise<void>
 }
 
 /**
- * Create / edit one mod group: its name, an optional description and the
- * ordered member list. The list order is the load order the members must keep.
- * Mount it only while it is open (the Mod groups panel does): its fields start
- * from `group` each time.
+ * Create / edit one mod group: its name, description, colour, whether its mods
+ * load as one block, where Auto-sort places it, and the ordered member list.
+ * The list order is the load order the members must keep. Mount it only while
+ * it is open (the Mod groups panel does): its fields start from `group` each time.
  */
-export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, onClose, onSubmit }: ModGroupDialogProps) {
+export function ModGroupDialog({
+  group,
+  initialModIds,
+  initialName,
+  placement: initialPlacement = null,
+  serverModIds,
+  modNames,
+  requires,
+  onClose,
+  onSubmit,
+}: ModGroupDialogProps) {
   const { t } = useTranslation('modGroups')
-  const [name, setName] = useState(group?.name ?? '')
+  const [name, setName] = useState(group?.name ?? initialName ?? '')
   const [description, setDescription] = useState(group?.description ?? '')
   const [members, setMembers] = useState<string[]>(() => group?.modIds ?? [...(initialModIds ?? [])])
+  const [color, setColor] = useState<ModGroupColorName | null>(group?.color ?? null)
+  const [keepTogether, setKeepTogether] = useState(group?.keepTogether === true)
+  const [placement, setPlacement] = useState<PlacementChoice>(initialPlacement ?? 'anywhere')
   const [query, setQuery] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [beforeAutoOrder, setBeforeAutoOrder] = useState<string[] | null>(null)
+  const [autoOrderNote, setAutoOrderNote] = useState<string | null>(null)
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
   const listRef = useRef<HTMLOListElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const pendingFocus = useRef<{ id: string | null; action: MemberAction } | null>(null)
 
   const onServer = useMemo(() => new Set(serverModIds), [serverModIds])
   const memberSet = useMemo(() => new Set(members), [members])
+  const absentCount = members.filter((id) => !onServer.has(id)).length
 
   const candidates = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -82,12 +118,16 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
 
   const trimmedName = name.trim()
   const valid = trimmedName !== '' && members.length >= MIN_GROUP_MEMBERS
+  const placementValue = placement === 'anywhere' ? null : placement
   const changed =
     !group ||
     trimmedName !== group.name ||
     description.trim() !== (group.description ?? '').trim() ||
     members.length !== group.modIds.length ||
-    members.some((id, i) => id !== group.modIds[i])
+    members.some((id, i) => id !== group.modIds[i]) ||
+    color !== (group.color ?? null) ||
+    keepTogether !== (group.keepTogether === true) ||
+    placementValue !== (initialPlacement ?? null)
 
   // After a move or a remove, the row (or the control that was pressed) has
   // been re-rendered in a new place: put keyboard focus back where the user
@@ -115,25 +155,60 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
     }
   }, [members])
 
+  const editMembers = (next: string[]) => {
+    setMembers(next)
+    // A manual edit replaces the auto-order the Undo would bring back.
+    setBeforeAutoOrder(null)
+    setAutoOrderNote(null)
+  }
+
   const move = (index: number, delta: -1 | 1) => {
     const next = moveListEntry(members, index, index + delta)
     if (next === members) return
     const id = members[index]
     pendingFocus.current = { id, action: delta < 0 ? 'up' : 'down' }
-    setMembers(next)
+    editMembers(next)
     setAnnouncement(t('dialog.movedAnnouncement', { id, position: index + delta + 1, total: members.length }))
   }
 
   const remove = (index: number) => {
     const neighbour = members[index + 1] ?? members[index - 1] ?? null
     pendingFocus.current = { id: neighbour, action: 'remove' }
-    setMembers(members.filter((_, i) => i !== index))
+    editMembers(members.filter((_, i) => i !== index))
   }
 
   const add = (id: string) => {
     if (memberSet.has(id)) return
-    setMembers([...members, id])
+    editMembers([...members, id])
     searchRef.current?.focus()
+  }
+
+  const autoOrder = () => {
+    const result = autoOrderMembers(members, { requires, names: modNames })
+    if (!result.changed) {
+      setAutoOrderNote(t('dialog.autoOrderUnchanged'))
+      return
+    }
+    setBeforeAutoOrder(members)
+    setMembers(result.order)
+    setAutoOrderNote(t('dialog.autoOrderDone'))
+    setAnnouncement(t('dialog.autoOrderDone'))
+  }
+
+  const undoAutoOrder = () => {
+    if (!beforeAutoOrder) return
+    setMembers(beforeAutoOrder)
+    setBeforeAutoOrder(null)
+    setAutoOrderNote(null)
+  }
+
+  // Drag a member row by its handle; the arrow buttons stay the keyboard path.
+  const dragOver = (index: number) => {
+    if (dragIndex === null || dragIndex === index) return
+    setMembers((current) => moveListEntry(current, dragIndex, index))
+    setBeforeAutoOrder(null)
+    setAutoOrderNote(null)
+    setDragIndex(index)
   }
 
   const submit = async () => {
@@ -141,7 +216,7 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
     setSaving(true)
     setError(null)
     try {
-      await onSubmit({ name: trimmedName, description: description.trim(), modIds: members })
+      await onSubmit({ name: trimmedName, description: description.trim(), modIds: members, color, keepTogether, placement: placementValue })
     } catch (err) {
       setError(getUserErrorMessage(err, t('dialog.saveFailedFallback')))
       setSaving(false)
@@ -158,7 +233,7 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
           <DialogDescription>{t('dialog.description')}</DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-4">
+        <DialogBody className="space-y-5">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="mod-group-name">{t('dialog.nameLabel')}</Label>
@@ -185,12 +260,66 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <Label id="mod-group-members-label">{t('dialog.membersLabel')}</Label>
-              <span className="text-[11px] tabular-nums text-muted-foreground">{members.length}</span>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <p id="mod-group-color-label" className="text-sm font-medium leading-none">{t('dialog.colorLabel')}</p>
+              <ColorPicker value={color} onChange={setColor} labelledBy="mod-group-color-label" />
             </div>
-            <p className="text-xs text-muted-foreground">{t('dialog.membersHint')}</p>
+            <div className="space-y-1.5">
+              <p id="mod-group-placement-label" className="text-sm font-medium leading-none">{t('dialog.placementLabel')}</p>
+              <Segmented<PlacementChoice>
+                value={placement}
+                onValueChange={setPlacement}
+                ariaLabel={t('dialog.placementLabel')}
+                items={[
+                  { value: 'anywhere', label: t('dialog.placementAnywhere') },
+                  { value: 'first', label: t('dialog.placementFirst') },
+                  { value: 'last', label: t('dialog.placementLast') },
+                ]}
+              />
+              <p className="text-xs text-muted-foreground">{t('dialog.placementHint')}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="min-w-0 space-y-1">
+              <Label htmlFor="mod-group-keep-together">{t('dialog.keepTogetherLabel')}</Label>
+              <p id="mod-group-keep-together-desc" className="text-xs text-muted-foreground">{t('dialog.keepTogetherHint')}</p>
+            </div>
+            <Switch
+              id="mod-group-keep-together"
+              checked={keepTogether}
+              onCheckedChange={setKeepTogether}
+              aria-describedby="mod-group-keep-together-desc"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-baseline gap-2">
+                <Label id="mod-group-members-label">{t('dialog.membersLabel')}</Label>
+                <span className="text-xs tabular-nums text-muted-foreground">{t('dialog.memberCount', { count: members.length })}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                {beforeAutoOrder && (
+                  <Button type="button" variant="ghost" size="sm" onClick={undoAutoOrder} disabled={saving}>
+                    <Undo2 aria-hidden="true" />
+                    {t('dialog.autoOrderUndo')}
+                  </Button>
+                )}
+                <Button type="button" variant="outline" size="sm" onClick={autoOrder} disabled={saving || members.length < 2}>
+                  <Wand2 aria-hidden="true" />
+                  {t('dialog.autoOrder')}
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{autoOrderNote ?? t('dialog.membersHint')}</p>
+            {absentCount > 0 && (
+              <p className="flex items-start gap-1.5 text-xs text-warning">
+                <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {t('dialog.absentWarning', { count: absentCount })}
+              </p>
+            )}
             {members.length === 0 ? (
               <p className="rounded-md border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
                 {t('dialog.membersEmpty')}
@@ -200,6 +329,7 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
                 ref={listRef}
                 aria-labelledby="mod-group-members-label"
                 className="max-h-64 divide-y divide-border/50 overflow-y-auto rounded-md border border-border/60 bg-muted/30"
+                onDrop={(e) => { e.preventDefault(); setDragIndex(null) }}
               >
                 {members.map((id, index) => {
                   const displayName = modNames[id]
@@ -208,8 +338,16 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
                     <li
                       key={id}
                       data-member-id={id}
-                      className="flex items-center gap-2 py-0.5 ps-2.5 pe-1"
+                      draggable={!saving}
+                      onDragStart={(e) => {
+                        if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
+                        setDragIndex(index)
+                      }}
+                      onDragOver={(e) => { e.preventDefault(); dragOver(index) }}
+                      onDragEnd={() => setDragIndex(null)}
+                      className={cn('flex items-center gap-2 py-0.5 ps-1.5 pe-1', dragIndex === index && 'opacity-40')}
                     >
+                      <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-muted-foreground/60" aria-hidden="true" />
                       <span className="w-5 shrink-0 text-end text-[11px] tabular-nums text-muted-foreground">{index + 1}</span>
                       <div className={`min-w-0 flex-1 ${absent ? 'opacity-60' : ''}`}>
                         <div className="flex min-w-0 items-center gap-2">
@@ -331,5 +469,55 @@ export function ModGroupDialog({ group, initialModIds, serverModIds, modNames, o
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The 11 group colours plus "none", as one radio group (arrow keys move and pick). */
+function ColorPicker({ value, onChange, labelledBy }: { value: ModGroupColorName | null; onChange: (color: ModGroupColorName | null) => void; labelledBy: string }) {
+  const { t } = useTranslation('modGroups')
+  const options: Array<ModGroupColorName | null> = [null, ...MOD_GROUP_COLORS]
+  const refs = useRef<(HTMLButtonElement | null)[]>([])
+  const selected = Math.max(0, options.indexOf(value))
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const rtl = event.currentTarget.closest('[dir]')?.getAttribute('dir') === 'rtl'
+    const forward = rtl ? 'ArrowLeft' : 'ArrowRight'
+    const back = rtl ? 'ArrowRight' : 'ArrowLeft'
+    let next: number | null = null
+    if (event.key === forward || event.key === 'ArrowDown') next = (index + 1) % options.length
+    else if (event.key === back || event.key === 'ArrowUp') next = (index - 1 + options.length) % options.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = options.length - 1
+    if (next === null) return
+    event.preventDefault()
+    onChange(options[next])
+    refs.current[next]?.focus()
+  }
+  return (
+    <div role="radiogroup" aria-labelledby={labelledBy} className="flex flex-wrap gap-1">
+      {options.map((option, index) => {
+        const checked = index === selected
+        const label = t(`colors.${option ?? 'none'}`)
+        return (
+          <button
+            key={option ?? 'none'}
+            ref={(el) => { refs.current[index] = el }}
+            type="button"
+            role="radio"
+            aria-checked={checked}
+            aria-label={label}
+            title={label}
+            tabIndex={checked ? 0 : -1}
+            onClick={() => onChange(option)}
+            onKeyDown={(event) => onKeyDown(event, index)}
+            className={cn(
+              'grid h-8 w-8 place-items-center rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
+              checked ? 'border-foreground/70 bg-accent/40' : 'border-transparent hover:bg-accent/30',
+            )}
+          >
+            <span className={cn('h-4 w-4 rounded-full', groupDotClass(option))} aria-hidden="true" />
+          </button>
+        )
+      })}
+    </div>
   )
 }

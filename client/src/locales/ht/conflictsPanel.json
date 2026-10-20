@@ -236,5 +236,8 @@
   "loses": "pèdi",
   "winIt": "Fè l Genyen",
   "view": "Wè",
-  "close": "Fèmen"
+  "close": "Fèmen",
+  "subTabsAria": "Lis konfli",
+  "focusChip": "Mods {{name}}",
+  "focusClearAria": "Montre tout konfli yo ankò (sispann filtre sou {{name}})"
 }

@@ -27,7 +27,14 @@
     "delete": "Efase",
     "deleteAria": "Efase gwoup {{name}}",
     "enforceLabel": "Kenbe òd gwoup yo lè w ap sove òd chajman an",
-    "enforceDesc": "Lè sa a limen, sove òd chajman an remete manm gwoup yo nan òd gwoup yo."
+    "enforceDesc": "Lè sa a limen, sove òd chajman an remete manm gwoup yo nan òd gwoup yo.",
+    "keepsTogether": "Kenbe ansanm",
+    "loadsFirst": "Chaje an premye",
+    "loadsLast": "Chaje an dènye",
+    "conflictsBadge_one": "{{count}} konfli",
+    "conflictsBadge_other": "{{count}} konfli",
+    "conflictsBadgeAria_one": "{{count}} konfli fichye gen rapò ak {{name}}. Montre l",
+    "conflictsBadgeAria_other": "{{count}} konfli fichye gen rapò ak {{name}}. Montre yo"
   },
   "dialog": {
     "createTitle": "Nouvo gwoup mods",
@@ -56,7 +63,23 @@
     "create": "Kreye gwoup la",
     "saveChanges": "Sove chanjman yo",
     "saveFailedTitle": "Gwoup la pa sove",
-    "saveFailedFallback": "Pa t kapab sove gwoup la."
+    "saveFailedFallback": "Pa t kapab sove gwoup la.",
+    "colorLabel": "Koulè",
+    "placementLabel": "Ki kote Klase otomatikman mete l",
+    "placementAnywhere": "Nenpòt kote",
+    "placementFirst": "An premye",
+    "placementLast": "An dènye",
+    "placementHint": "Bibliyotèk ak framework an premye, patch ak koreksyon an dènye. Sove nan navigatè sa a sèlman.",
+    "keepTogetherLabel": "Kenbe ansanm nan òd chajman an",
+    "keepTogetherHint": "Mods yo chaje kòm yon sèl blòk, kote premye nan yo ye kounye a. Mods ki nan mitan yo deplase apre blòk la.",
+    "memberCount_one": "{{count}} mod",
+    "memberCount_other": "{{count}} mods",
+    "autoOrder": "Òdone manm yo otomatikman",
+    "autoOrderDone": "Òdone: depandans yo an premye, answit bibliyotèk, mods prensipal, adisyon ak koreksyon. Verifye l, epi sove.",
+    "autoOrderUnchanged": "Manm yo deja nan òd sa a.",
+    "autoOrderUndo": "Defèt",
+    "absentWarning_one": "{{count}} manm pa sou sèvè sa a. Li kenbe plas li epi l ap chaje lè yo aktive l.",
+    "absentWarning_other": "{{count}} manm pa sou sèvè sa a. Yo kenbe plas yo epi y ap chaje lè yo aktive yo."
   },
   "apply": {
     "confirmTitle": "Aplike òd gwoup yo?",
@@ -115,5 +138,112 @@
     "orderKeptWithConflicts": "Sovgad la te remete kèk mods nan òd gwoup yo. Gen gwoup ki kontredi youn lòt: {{items}}",
     "conflictsTitle": "Gwoup mods yo kontredi youn lòt",
     "conflictsDesc": "Pa gen okenn òd chajman ki ka satisfè tout gwoup yo. Revize òd sa yo: {{items}}"
+  },
+  "dots": {
+    "inGroups": "Nan gwoup: {{names}}"
+  },
+  "colors": {
+    "none": "San koulè",
+    "slate": "Gri ardwaz",
+    "red": "Wouj",
+    "orange": "Zoranj",
+    "amber": "Jòn anb",
+    "lime": "Vèt sitwon",
+    "green": "Vèt",
+    "teal": "Ble vèt",
+    "sky": "Ble syèl",
+    "blue": "Ble",
+    "violet": "Vyolèt",
+    "pink": "Wòz"
+  },
+  "addTo": {
+    "menuItem": "Ajoute nan gwoup…",
+    "selected": "Ajoute sa ki chwazi yo nan gwoup",
+    "title": "Ajoute nan yon gwoup",
+    "descriptionOne": "Chwazi gwoup pou {{name}}. Li antre nan fen òd gwoup la.",
+    "descriptionMany_one": "Chwazi gwoup pou {{count}} mod. Li antre nan fen òd gwoup la.",
+    "descriptionMany_other": "Chwazi gwoup pou {{count}} mods. Yo antre nan fen òd gwoup la.",
+    "search": "Chèche gwoup",
+    "listAria": "Gwoup",
+    "members_one": "{{count}} mod",
+    "members_other": "{{count}} mods",
+    "alreadyIn": "Deja nan gwoup sa a",
+    "newGroup": "Nouvo gwoup…",
+    "cancel": "Anile",
+    "noGroups": "Poko gen gwoup. Kreye youn ak Nouvo gwoup.",
+    "noMatches": "Pa gen okenn gwoup ki koresponn ak rechèch ou a.",
+    "failedFallback": "Pa t kapab ajoute mods yo nan gwoup la.",
+    "doneTitle": "Ajoute nan {{name}}",
+    "doneDesc_one": "{{count}} mod antre nan gwoup la.",
+    "doneDesc_other": "{{count}} mods antre nan gwoup la.",
+    "noModIds": "ID mod li yo konnen sèlman lè l sou sèvè a.",
+    "pickFirst": "Tcheke mods pou ajoute yo anvan."
+  },
+  "removeFrom": {
+    "menuItem": "Retire nan {{name}}",
+    "doneTitle": "Retire nan {{name}}",
+    "failedTitle": "Pa t kapab retire nan gwoup la",
+    "failedFallback": "Pa t kapab chanje gwoup la.",
+    "tooFew": "Yon gwoup bezwen omwen de mods. Efase gwoup la pito."
+  },
+  "sections": {
+    "enableAll": "Aktive tout",
+    "enableAllAria": "Aktive chak mod nan {{name}}",
+    "disableAll": "Dezaktive tout",
+    "edit": "Modifye gwoup",
+    "actionsAria": "Aksyon pou gwoup {{name}}",
+    "enabledOf": "{{enabled}} sou {{total}} aktive",
+    "allEnabled": "Chak mod nan gwoup la ki sou sèvè sa a aktive.",
+    "noneEnabled": "Okenn nan mods gwoup la pa aktive.",
+    "notOnServer": "Pa sou sèvè sa a: {{ids}}",
+    "ungrouped": "Pa nan okenn gwoup"
+  },
+  "suggestions": {
+    "title": "Gwoup sijere ({{count}})",
+    "listAria": "Gwoup sijere",
+    "create": "Kreye",
+    "createAria": "Kreye gwoup {{name}}",
+    "dismiss": "Ekate",
+    "dismissAria": "Ekate sijesyon {{name}}",
+    "kind": {
+      "dependency_one": "{{name}} ak mod ki bezwen l",
+      "dependency_other": "{{name}} ak {{count}} mods ki bezwen l",
+      "prefix_one": "{{count}} mod ki rele \"{{name}}…\"",
+      "prefix_other": "{{count}} mods ki rele \"{{name}}…\"",
+      "workshop-item_one": "{{count}} mod ki soti nan yon sèl atik Workshop",
+      "workshop-item_other": "{{count}} mods ki soti nan yon sèl atik Workshop"
+    },
+    "dismissFailedTitle": "Pa t kapab ekate sijesyon an",
+    "dismissFailedFallback": "Pa t kapab ekate sijesyon an. Eseye ankò."
+  },
+  "enable": {
+    "doneTitle": "{{name}} aktive",
+    "doneDesc_one": "{{count}} mod ajoute nan konfig sèvè a. Redemare sèvè a pou chaje l.",
+    "doneDesc_other": "{{count}} mods ajoute nan konfig sèvè a. Redemare sèvè a pou chaje yo.",
+    "nothingTitle": "Pa gen anyen pou aktive",
+    "nothingDesc": "Chak mod nan {{name}} ki sou sèvè sa a deja aktive.",
+    "missingNote_one": "{{count}} mod pa sou sèvè sa a, kidonk yo sote l: {{ids}}.",
+    "missingNote_other": "{{count}} mods pa sou sèvè sa a, kidonk yo sote yo: {{ids}}.",
+    "failedTitle": "Pa t kapab aktive gwoup la",
+    "failedFallback": "Pa t kapab aktive mods gwoup la.",
+    "unsavedOrder": "Sove oswa anile chanjman òd chajman ou yo anvan: aksyon sa a chanje òd chajman an."
+  },
+  "disable": {
+    "title": "Dezaktive {{name}}?",
+    "description_one": "{{count}} mod soti nan konfig sèvè a (Mods=). Fichye li yo rete sou disk, kidonk reaktive gwoup la ap enstantane.",
+    "description_other": "{{count}} mods soti nan konfig sèvè a (Mods=). Fichye yo rete sou disk, kidonk reaktive gwoup la ap enstantane.",
+    "sharedNote": "Kenbe, paske yon lòt gwoup ki aktive nèt bezwen yo: {{items}}",
+    "confirm": "Dezaktive mods yo",
+    "doneTitle": "{{name}} dezaktive",
+    "doneDesc_one": "{{count}} mod soti nan konfig sèvè a.",
+    "doneDesc_other": "{{count}} mods soti nan konfig sèvè a.",
+    "keptNote_one": "{{count}} mod pataje rete.",
+    "keptNote_other": "{{count}} mods pataje rete.",
+    "failedTitle": "Pa t kapab dezaktive gwoup la",
+    "failedFallback": "Pa t kapab dezaktive mods gwoup la."
+  },
+  "inspector": {
+    "title": "Gwoup",
+    "none": "Pa nan okenn gwoup."
   }
 }
