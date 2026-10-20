@@ -555,6 +555,17 @@ export default function Scheduler() {
       setTasks(tasksData.tasks || [])
       setPresets(presetsData.presets || [])
       setStatus(statusData)
+      // Seed the settings fields in the same render as the status they are
+      // compared with: filled by an effect a render later, the SaveBar flashed
+      // "Unsaved changes" on every load.
+      if (statusData?.configuredTimezone) {
+        const saved = statusData.configuredTimezone
+        setTimezoneInput((prev) => (prev === '' ? saved : prev))
+      }
+      if (statusData?.restartWarning && !restartWarningDirtyRef.current) {
+        setRestartWarningLocale(statusData.restartWarning.locale)
+        setRestartWarningTemplate(statusData.restartWarning.template)
+      }
       setHistory(historyData.history || [])
       setBackupStatus(backupStatusData)
       const serverList: ServerInstance[] = serversData.servers || []
@@ -1165,8 +1176,10 @@ export default function Scheduler() {
           title={t('pageHeader.title')}
           description={t('pageHeader.description')}
           actions={
+            // The form defaults its target server once the list loads: opened
+            // before that, an untouched dialog claimed unsaved edits.
             <DialogTrigger asChild>
-              <Button variant="command" size="sm" onClick={resetTaskForm}>
+              <Button variant="command" size="sm" onClick={resetTaskForm} disabled={initialLoading}>
                 <Plus aria-hidden="true" />
                 {t('pageHeader.newTask')}
               </Button>

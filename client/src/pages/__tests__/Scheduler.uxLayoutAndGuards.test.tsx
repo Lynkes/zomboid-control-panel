@@ -128,6 +128,9 @@ describe('Scheduler: one header in every state, tasks first', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: enScheduler.pageHeader.title })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: enScheduler.pageHeader.newTask })).toBeInTheDocument()
+    // Bug pass: opened before the server list loads, the form got its default
+    // target server afterwards and an untouched dialog claimed unsaved edits.
+    expect(screen.getByRole('button', { name: enScheduler.pageHeader.newTask })).toBeDisabled()
     expect(screen.queryByRole('heading', { level: 2, name: enScheduler.scheduledTasks.title })).not.toBeInTheDocument()
   })
 
@@ -159,6 +162,25 @@ describe('Scheduler: one header in every state, tasks first', () => {
 })
 
 describe('Scheduler settings: one Save in the SaveBar', () => {
+  // Bug pass: the settings fields were filled by an effect a render after the
+  // status arrived, so the SaveBar flashed on every load.
+  it('never shows the SaveBar while the page loads', async () => {
+    baseMocks()
+    let flashed = false
+    const observer = new MutationObserver(() => {
+      if (screen.queryByRole('button', { name: enScheduler.timezone.saveButton })) flashed = true
+    })
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    try {
+      renderScheduler()
+      const template = await screen.findByLabelText(enScheduler.restartWarning.templateLabel)
+      await waitFor(() => expect(template).toHaveValue('Restart in {count} {unit}'))
+    } finally {
+      observer.disconnect()
+    }
+    expect(flashed).toBe(false)
+  })
+
   it('shows no Save until something changes, then saves only what changed', async () => {
     baseMocks()
     setRestartWarning.mockResolvedValue({ success: true, restartWarning: { locale: 'en', template: 'Going down in {count} {unit}' } } as unknown as Awaited<ReturnType<typeof schedulerApi.setRestartWarning>>)
