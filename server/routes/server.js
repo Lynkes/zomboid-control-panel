@@ -5650,7 +5650,14 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
             fs.existsSync(path.join(p, "steamcmd.sh")) ||
             fs.existsSync(path.join(p, "steamcmd")),
         ) || path.join(os.homedir(), "steamcmd");
-    const { installPath = defaultPath } = req.body || {};
+    // An empty or blank field means "the default location" (the setup
+    // wizard sends "" when the SteamCMD path box is left empty); a
+    // destructuring default only applied to undefined, so "" was refused.
+    const requestedInstallPath = req.body?.installPath;
+    const installPath =
+      (typeof requestedInstallPath === "string"
+        ? requestedInstallPath.trim()
+        : requestedInstallPath) || defaultPath;
 
     if (!isValidPath(installPath)) {
       return res.status(400).json({ error: "Invalid installation path", code: ErrorCode.STEAMCMD_DOWNLOAD_INVALID_PATH });
