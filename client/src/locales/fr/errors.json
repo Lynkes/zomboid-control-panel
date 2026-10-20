@@ -136,6 +136,7 @@
   "BACKUP_UPLOAD_INVALID_EXTENSION": "Seules les sauvegardes .zip sont acceptées.",
   "BACKUP_UPLOAD_NAME_CONFLICT": "Une sauvegarde nommée « {{name}} » existe déjà. Supprimez-la d'abord ou renommez l'import.",
   "BACKUP_UPLOAD_TOO_LARGE": "L'import dépasse la limite de 4 Go.",
+  "BACKUP_SNAPSHOT_TOO_LARGE": "L'instantané du serveur de cette sauvegarde dépasse 1 Mo ; il n'a donc pas été ouvert.",
   "BACKUPS_FOLDER_UNAVAILABLE": "Dossier de sauvegardes indisponible. Configurez d'abord le serveur.",
   "USER_SELF_DELETE_REFUSED": "Vous ne pouvez pas supprimer votre propre compte. Demandez à un autre administrateur de le faire.",
   "USER_SELF_ROLE_CHANGE_REFUSED": "Vous ne pouvez pas modifier votre propre rôle. Demandez à un autre administrateur de le faire.",

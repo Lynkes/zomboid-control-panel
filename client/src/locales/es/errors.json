@@ -136,6 +136,7 @@
   "BACKUP_UPLOAD_INVALID_EXTENSION": "Solo se aceptan copias de seguridad .zip.",
   "BACKUP_UPLOAD_NAME_CONFLICT": "Ya existe una copia de seguridad llamada \"{{name}}\". Elimínala primero o cambia el nombre de la subida.",
   "BACKUP_UPLOAD_TOO_LARGE": "La subida supera el límite de 4 GB.",
+  "BACKUP_SNAPSHOT_TOO_LARGE": "La instantánea del servidor de esta copia de seguridad supera 1 MB, así que no se abrió.",
   "BACKUPS_FOLDER_UNAVAILABLE": "La carpeta de copias de seguridad no está disponible. Configura primero el servidor.",
   "USER_SELF_DELETE_REFUSED": "No puedes eliminar tu propia cuenta. Pide a otro administrador que lo haga.",
   "USER_SELF_ROLE_CHANGE_REFUSED": "No puedes cambiar tu propio rol. Pide a otro administrador que lo haga.",

@@ -524,6 +524,10 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- GET /api/backup/download/:name, no file at
    * the resolved path. */
   BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND",
+  /** server/services/backupService.js -- GET /api/backup/:name/snapshot, the
+   * archive's panel-server-snapshot.json inflates past the 1 MiB read cap
+   * (counted on the real bytes, not the size the zip records). */
+  BACKUP_SNAPSHOT_TOO_LARGE: "BACKUP_SNAPSHOT_TOO_LARGE",
   /** server/services/backupService.js -- POST /api/backup/create (and the
    * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
    * missing and no other folder can safely be taken for it. */

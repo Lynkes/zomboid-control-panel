@@ -291,7 +291,7 @@ router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, r
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
     if (result.success) return res.json(result);
-    return res.status(404).json(result);
+    return res.status(result.code === ErrorCode.BACKUP_SNAPSHOT_TOO_LARGE ? 422 : 404).json(result);
   } catch (error) {
     log.error(`Failed to read backup snapshot: ${error.message}`);
     return res.status(500).json({ error: sanitizeError(error.message) });

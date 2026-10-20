@@ -86,6 +86,83 @@ async function getUnzipper() {
 // one. It is echoed back in GET /backup/status, so it stays short and plain.
 const RESTORE_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,64}$/;
 
+// "View snapshot" reads panel-server-snapshot.json, a few KB in a real
+// backup; an uploaded zip can hold anything under that name.
+export const SNAPSHOT_MAX_BYTES = 1024 * 1024;
+export const ZIP_ENTRY_TOO_LARGE = "ZIP_ENTRY_TOO_LARGE";
+
+/**
+ * One entry of a zip on disk, read into memory only up to `maxBytes`: the
+ * inflated bytes are counted as they arrive (the sizes in the zip's directory
+ * are whatever the archive says) and the read stops past the cap with an
+ * error whose code is ZIP_ENTRY_TOO_LARGE. Resolves null when there is no
+ * such entry. Every read stream it opens is closed when it settles (unzipper's
+ * Open.file() leaves the ones it opens behind, holding the file open).
+ */
+export async function readZipEntryCapped(unzip, filePath, entryPath, maxBytes) {
+  const streams = new Set();
+  let onSourceError = null;
+  const source = {
+    stream(start, length) {
+      const end = length ? start + length : undefined;
+      const stream = fs.createReadStream(filePath, { start, end });
+      streams.add(stream);
+      stream.on("close", () => streams.delete(stream));
+      // pipe() does not forward a source's errors: without this an
+      // unreadable file would be an uncaught 'error'.
+      stream.on("error", (error) => onSourceError?.(error));
+      return stream;
+    },
+    size: async () => (await fs.promises.stat(filePath)).size,
+  };
+  const tooLarge = () =>
+    Object.assign(new Error(`${entryPath} is larger than ${maxBytes} bytes`), {
+      code: ZIP_ENTRY_TOO_LARGE,
+    });
+  try {
+    const archive = await new Promise((resolve, reject) => {
+      onSourceError = reject;
+      unzip.Open.custom(source).then(resolve, reject);
+    });
+    const entry = archive.files.find((file) => file.path === entryPath);
+    if (!entry) return null;
+    if (Number.isFinite(entry.uncompressedSize) && entry.uncompressedSize > maxBytes) {
+      throw tooLarge();
+    }
+    return await new Promise((resolve, reject) => {
+      const chunks = [];
+      let total = 0;
+      let done = false;
+      const stream = entry.stream();
+      const finish = (error, value) => {
+        if (done) return;
+        done = true;
+        if (error) {
+          stream.destroy();
+          reject(error);
+        } else {
+          resolve(value);
+        }
+      };
+      onSourceError = (error) => finish(error);
+      stream.on("data", (chunk) => {
+        if (done) return;
+        total += chunk.length;
+        if (total > maxBytes) {
+          finish(tooLarge());
+          return;
+        }
+        chunks.push(chunk);
+      });
+      stream.on("end", () => finish(null, Buffer.concat(chunks, total)));
+      stream.on("error", (error) => finish(error));
+    });
+  } finally {
+    onSourceError = null;
+    for (const stream of streams) stream.destroy();
+  }
+}
+
 // Orphan temp sweep, hunt-wave11-2026-08-29 follow-up. Dwight found this
 // while copying this function as the model for fileWriteQueue.js's own
 // sweep (531dfd8d) -- his copy came out stronger than the original.
@@ -1553,16 +1630,26 @@ export class BackupService {
 
     try {
       const unzip = await getUnzipper();
-      const archive = await unzip.Open.file(backupPath);
-      const entry = archive.files.find(
-        (file) => file.path === "panel-server-snapshot.json",
+      const raw = await readZipEntryCapped(
+        unzip,
+        backupPath,
+        "panel-server-snapshot.json",
+        SNAPSHOT_MAX_BYTES,
       );
-      if (!entry) {
+      if (!raw) {
         return { success: false, message: "This backup has no panel snapshot" };
       }
-      const snapshot = JSON.parse((await entry.buffer()).toString("utf-8"));
+      const snapshot = JSON.parse(raw.toString("utf-8"));
       return { success: true, snapshot };
     } catch (error) {
+      if (error.code === ZIP_ENTRY_TOO_LARGE) {
+        log.warn(`Backup snapshot in ${safeName} is larger than ${formatBytes(SNAPSHOT_MAX_BYTES)}: not read`);
+        return {
+          success: false,
+          message: `This backup's panel snapshot is larger than ${formatBytes(SNAPSHOT_MAX_BYTES)}, so it was not read.`,
+          code: ErrorCode.BACKUP_SNAPSHOT_TOO_LARGE,
+        };
+      }
       log.warn(`Could not read backup snapshot from ${safeName}: ${error.message}`);
       return { success: false, message: "Could not read backup snapshot" };
     }

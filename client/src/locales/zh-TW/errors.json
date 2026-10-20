@@ -136,6 +136,7 @@
   "BACKUP_UPLOAD_INVALID_EXTENSION": "僅接受 .zip 格式的備份。",
   "BACKUP_UPLOAD_NAME_CONFLICT": "名為「{{name}}」的備份已存在。請先刪除它，或為上傳檔案重新命名。",
   "BACKUP_UPLOAD_TOO_LARGE": "上傳檔案超過 4 GB 限制。",
+  "BACKUP_SNAPSHOT_TOO_LARGE": "此備份中的伺服器快照大於 1 MB，因此未開啟。",
   "BACKUPS_FOLDER_UNAVAILABLE": "備份資料夾無法使用，請先設定伺服器。",
   "USER_SELF_DELETE_REFUSED": "無法刪除自己的帳號，請讓另一位管理員代為操作。",
   "USER_SELF_ROLE_CHANGE_REFUSED": "無法更改自己的角色，請讓另一位管理員代為操作。",

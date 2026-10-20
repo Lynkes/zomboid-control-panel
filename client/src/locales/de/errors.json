@@ -136,6 +136,7 @@
   "BACKUP_UPLOAD_INVALID_EXTENSION": "Es werden nur .zip-Backups akzeptiert.",
   "BACKUP_UPLOAD_NAME_CONFLICT": "Ein Backup mit dem Namen „{{name}}“ existiert bereits. Lösche es zuerst oder benenne den Upload um.",
   "BACKUP_UPLOAD_TOO_LARGE": "Der Upload überschreitet das Limit von 4 GB.",
+  "BACKUP_SNAPSHOT_TOO_LARGE": "Der Server-Snapshot dieses Backups ist größer als 1 MB und wurde deshalb nicht geöffnet.",
   "BACKUPS_FOLDER_UNAVAILABLE": "Backup-Ordner nicht verfügbar. Konfiguriere zuerst den Server.",
   "USER_SELF_DELETE_REFUSED": "Du kannst dein eigenes Konto nicht löschen. Bitte stattdessen einen anderen Administrator darum.",
   "USER_SELF_ROLE_CHANGE_REFUSED": "Du kannst deine eigene Rolle nicht ändern. Bitte stattdessen einen anderen Administrator darum.",
