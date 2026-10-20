@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  MOD_GROUP_COLORS,
   MOD_GROUP_LIMITS,
   applyModGroups,
   cleanGroupModIds,
   groupsInOrder,
+  normalizeGroup,
   uniqueGroupName,
   validateGroupDocument,
   validateGroupFields,
@@ -142,7 +144,106 @@ describe("applyModGroups", () => {
   });
 });
 
+describe("applyModGroups with keepTogether", () => {
+  const together = (id, ...modIds) => ({ ...group(id, ...modIds), keepTogether: true });
+
+  it("makes one block at the first member's slot and moves the mods that were between right after it", () => {
+    const result = applyModGroups(["x", "c", "y", "a", "z", "b", "w"], [together("g", "a", "b", "c")]);
+    // c held the first slot (1): a, b, c fill 1-3, then y and z in their old order
+    expect(result.order).toEqual(["x", "a", "b", "c", "y", "z", "w"]);
+    expect(result.moved).toEqual(["a", "b", "c", "y", "z"]);
+    expect(result.conflicts).toEqual([]);
+  });
+
+  it("leaves a block that is already together and in order alone", () => {
+    const input = ["x", "a", "b", "c", "y"];
+    expect(applyModGroups(input, [together("g", "a", "b", "c")])).toEqual({ order: input, moved: [], conflicts: [] });
+  });
+
+  it("only gathers the members that are present and ignores a group with fewer than two", () => {
+    expect(applyModGroups(["a", "x", "c"], [together("g", "a", "missing", "c")]).order).toEqual(["a", "c", "x"]);
+    expect(applyModGroups(["a", "x"], [together("g", "a", "missing")]).order).toEqual(["a", "x"]);
+  });
+
+  it("keeps a repeated entry of a member, moving it after the block", () => {
+    const result = applyModGroups(["a", "x", "a", "b"], [together("g", "a", "b")]);
+    expect(result.order).toEqual(["a", "b", "x", "a"]);
+  });
+
+  it("is idempotent", () => {
+    const groups = [together("g1", "lib", "core", "addon"), group("g2", "core", "fix")];
+    const once = applyModGroups(["fix", "addon", "x", "core", "y", "lib"], groups);
+    expect(applyModGroups(once.order, groups)).toEqual({ order: once.order, moved: [], conflicts: [] });
+  });
+
+  it("keeps keepTogether: false exactly as before (members only trade slots)", () => {
+    const input = ["c", "x", "a", "y", "b", "z"];
+    const plain = applyModGroups(input, [group("g", "a", "b", "c")]);
+    const off = applyModGroups(input, [{ ...group("g", "a", "b", "c"), keepTogether: false }]);
+    expect(off).toEqual(plain);
+    expect(off.order).toEqual(["a", "x", "b", "y", "c", "z"]);
+  });
+
+  it("KI5 example: the pack kept together, a fixes group sharing a mod with it, a weapons group that is not", () => {
+    const groups = [
+      together("ki5", "KI5lib", "KI5core1", "KI5core2", "KI5addonA", "KI5fix"),
+      group("weapons", "Brita", "Arsenal"),
+      group("fixes", "KI5fix", "BritaFix"),
+    ];
+    const input = [
+      "Authentic",
+      "KI5fix",
+      "Arsenal",
+      "KI5core2",
+      "Hydrocraft",
+      "BritaFix",
+      "KI5lib",
+      "Brita",
+      "KI5core1",
+      "KI5addonA",
+      "Tail",
+    ];
+    const result = applyModGroups(input, groups);
+    expect(result.order).toEqual([
+      "Authentic",
+      // the KI5 block at the slot KI5fix held, in the group's order
+      "KI5lib",
+      "KI5core1",
+      "KI5core2",
+      "KI5addonA",
+      "KI5fix",
+      // what was between the KI5 mods, in its old order; Brita and Arsenal
+      // traded their slots (weapons is not kept together)
+      "Brita",
+      "Hydrocraft",
+      "BritaFix",
+      "Arsenal",
+      "Tail",
+    ]);
+    expect(result.conflicts).toEqual([]);
+    for (const status of groupsInOrder(result.order, groups)) expect(status.inOrder).toBe(true);
+    expect(result.order.indexOf("Authentic")).toBe(0);
+    expect(result.order.indexOf("Tail")).toBe(input.length - 1);
+  });
+
+  it("reports two groups kept together that cannot both be one block", () => {
+    const groups = [together("g1", "a", "b"), together("g2", "a", "c")];
+    const result = applyModGroups(["a", "x", "b", "c"], groups);
+    expect(result.conflicts.length).toBeGreaterThan(0);
+    expect(result.order).toHaveLength(4);
+    expect([...result.order].sort()).toEqual(["a", "b", "c", "x"]);
+  });
+});
+
 describe("groupsInOrder", () => {
+  it("calls a group kept together out of order while its members are apart, even in the right order", () => {
+    const kept = { ...group("g", "a", "b"), keepTogether: true };
+    expect(groupsInOrder(["a", "x", "b"], [kept])[0].inOrder).toBe(false);
+    expect(groupsInOrder(["x", "a", "b"], [kept])[0].inOrder).toBe(true);
+    expect(groupsInOrder(["a", "x"], [kept])[0].inOrder).toBe(true);
+    expect(groupsInOrder(["a", "x", "b"], [group("g", "a", "b")])[0].inOrder).toBe(true);
+  });
+
   it("reports in-order, present, total and the missing ids per group", () => {
     const groups = [group("ok", "a", "b"), group("bad", "b", "a", "gone"), group("solo", "a", "q")];
     expect(groupsInOrder(["a", "x", "b"], groups)).toEqual([
@@ -206,6 +307,29 @@ describe("validateGroupFields", () => {
     expect(result.value.modIds).toHaveLength(MOD_GROUP_LIMITS.modIdsMax);
   });
 
+  it("takes a colour from the palette (or null) and a keepTogether boolean, only when given", () => {
+    expect(MOD_GROUP_COLORS).toEqual(["slate", "red", "orange", "amber", "lime", "green", "teal", "sky", "blue", "violet", "pink"]);
+    for (const color of [...MOD_GROUP_COLORS, null]) {
+      expect(validateGroupFields({ ...good, color }).value.color).toBe(color);
+    }
+    expect(validateGroupFields({ ...good, keepTogether: true }).value.keepTogether).toBe(true);
+    expect(validateGroupFields({ ...good, keepTogether: false }).value.keepTogether).toBe(false);
+    expect(validateGroupFields(good).value).not.toHaveProperty("color");
+    expect(validateGroupFields(good).value).not.toHaveProperty("keepTogether");
+    expect(validateGroupFields({ color: "red" }, { partial: true })).toEqual({ ok: true, value: { color: "red" } });
+    expect(validateGroupFields({ keepTogether: true }, { partial: true })).toEqual({ ok: true, value: { keepTogether: true } });
+  });
+
+  it("refuses another colour or a keepTogether that is not a boolean", () => {
+    for (const color of ["purple", "Red", "", 3, true, ["red"], {}]) {
+      expect(validateGroupFields({ ...good, color })).toEqual({ ok: false, field: "color" });
+      expect(validateGroupFields({ color }, { partial: true })).toEqual({ ok: false, field: "color" });
+    }
+    for (const keepTogether of ["true", 1, 0, null, {}]) {
+      expect(validateGroupFields({ ...good, keepTogether })).toEqual({ ok: false, field: "keepTogether" });
+    }
+  });
+
   it("only checks the fields that are given for an update", () => {
     expect(validateGroupFields({}, { partial: true })).toEqual({ ok: true, value: {} });
     expect(validateGroupFields({ modIds: ["a"] }, { partial: true })).toEqual({
@@ -248,6 +372,23 @@ describe("validateGroupDocument", () => {
     expect(validateGroupDocument({ ...doc, description: undefined }).value.description).toBe("");
   });
 
+  it("carries a valid colour and keepTogether, and drops ones this version does not know", () => {
+    expect(validateGroupDocument({ ...doc, color: "teal", keepTogether: true }).value).toEqual({
+      name: "KI5",
+      description: "d",
+      modIds: ["a", "b"],
+      color: "teal",
+      keepTogether: true,
+    });
+    expect(validateGroupDocument({ ...doc, color: null, keepTogether: false }).value).toMatchObject({
+      color: null,
+      keepTogether: false,
+    });
+    const unknown = validateGroupDocument({ ...doc, color: "ultraviolet", keepTogether: "yes" });
+    expect(unknown.ok).toBe(true);
+    expect(unknown.value).toEqual({ name: "KI5", description: "d", modIds: ["a", "b"] });
+  });
+
   it("refuses anything else", () => {
     for (const bad of [
       null,
@@ -263,6 +404,19 @@ describe("validateGroupDocument", () => {
     ]) {
       expect(validateGroupDocument(bad)).toEqual({ ok: false });
     }
+  });
+});
+
+describe("normalizeGroup", () => {
+  it("reads a group saved before colours and keepTogether existed as color null, keepTogether false", () => {
+    const old = { id: "g", name: "Old", description: "", modIds: ["a"], createdAt: "t", updatedAt: "t" };
+    expect(normalizeGroup(old)).toEqual({ ...old, color: null, keepTogether: false });
+    expect(old).not.toHaveProperty("color");
+  });
+
+  it("keeps valid values and replaces unknown ones", () => {
+    expect(normalizeGroup({ id: "g", color: "sky", keepTogether: true })).toMatchObject({ color: "sky", keepTogether: true });
+    expect(normalizeGroup({ id: "g", color: "mauve", keepTogether: "yes" })).toMatchObject({ color: null, keepTogether: false });
   });
 });
 
