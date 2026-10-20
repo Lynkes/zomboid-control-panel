@@ -19,7 +19,8 @@
   "common": {
     "playersUnavailable": "список гравців недоступний",
     "playersUnavailableTitle": "Список гравців недоступний",
-    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі."
+    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі.",
+    "noPermissionRconExecute": "Ця дія виконує команду RCON і потребує дозволу rcon.execute, якого немає в цієї ролі."
   },
   "statusBar": {
     "eventTarget": "Ціль події",

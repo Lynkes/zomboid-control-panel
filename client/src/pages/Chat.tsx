@@ -155,8 +155,8 @@ export default function Chat() {
   // proportionate.
   const [nativeChatAvailable, setNativeChatAvailable] = useState<boolean | null>(null)
   // The same call says when PanelBridge isn't running at all (the route
-  // answers BRIDGE_NOT_RUNNING): server broadcasts then fail and the other
-  // two channels fall back to RCON, so the page says so and links to the fix.
+  // answers BRIDGE_NOT_RUNNING): all three channels then go out over RCON
+  // only, admin chat included, so the page says so and links to the fix.
   const [bridgeOffline, setBridgeOffline] = useState(false)
   // Re-read after an active-server switch: the new server's bridge can be in
   // a different state, and a stale "not running" would send the operator to
@@ -196,10 +196,15 @@ export default function Chat() {
     return () => root.removeEventListener('scroll', handleScroll)
   }, [handleScroll])
 
+  // Scrolls the message list only: scrollIntoView() also scrolled the page,
+  // so on a phone every new message pushed the message box and Send back
+  // below the fold.
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
+    if (!stickToBottomRef.current) return
+    const viewport = scrollViewportRef.current
+    if (!viewport) return
+    if (typeof viewport.scrollTo === 'function') viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+    else viewport.scrollTop = viewport.scrollHeight
   }, [chatHistory])
 
   // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
@@ -327,12 +332,19 @@ export default function Chat() {
       // the catch below.
       let localType: ChatMessage['type'] = 'server'
       let localAuthor = t('labels.server')
+      // Admin and general chat fall back to an RCON servermsg when the game's
+      // chat API or PanelBridge isn't there (server/routes/panelBridge.js
+      // answers method "RCON"): every player then sees the message, so the
+      // toast must not say "admins only".
+      let sentOverRcon = false
       if (channel === 'admin') {
-        await panelBridgeApi.sendToAdminChat(message)
+        const res = await panelBridgeApi.sendToAdminChat(message)
+        sentOverRcon = res?.data?.method === 'RCON'
         localType = 'admin'
         localAuthor = t('labels.admin')
       } else if (channel === 'general') {
-        await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
+        const res = await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
+        sentOverRcon = res?.data?.method === 'RCON'
         localType = 'general'
         localAuthor = GENERAL_CHAT_AUTHOR
       } else {
@@ -351,17 +363,25 @@ export default function Chat() {
       // posted, so they want to see the result.
       stickToBottomRef.current = true
       setMessage('')
-      toast({
-        title:
-          channel === 'admin' ? t('toasts.adminSentTitle')
-          : channel === 'general' ? t('toasts.generalSentTitle')
-          : t('toasts.broadcastSentTitle'),
-        description:
-          channel === 'admin' ? t('toasts.adminSentDesc')
-          : channel === 'general' ? t('toasts.generalSentDesc')
-          : t('toasts.broadcastSentDesc'),
-        variant: 'success' as const,
-      })
+      if (sentOverRcon) {
+        toast({
+          title: t('toasts.rconFallbackTitle'),
+          description: channel === 'admin' ? t('toasts.adminRconFallbackDesc') : t('toasts.generalRconFallbackDesc'),
+          variant: 'warning' as const,
+        })
+      } else {
+        toast({
+          title:
+            channel === 'admin' ? t('toasts.adminSentTitle')
+            : channel === 'general' ? t('toasts.generalSentTitle')
+            : t('toasts.broadcastSentTitle'),
+          description:
+            channel === 'admin' ? t('toasts.adminSentDesc')
+            : channel === 'general' ? t('toasts.generalSentDesc')
+            : t('toasts.broadcastSentDesc'),
+          variant: 'success' as const,
+        })
+      }
     } catch (error) {
       if (isBridgeNotRunning(error)) setBridgeOffline(true)
       toast({

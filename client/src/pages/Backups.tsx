@@ -169,6 +169,7 @@ export default function Backups() {
   const canManageBackups = can('backups.manage')
   const canRestoreBackups = can('backups.restore')
   const canDownloadBackups = can('backups.download')
+  const canOpenDiagnostics = can('diagnostics.manage')
 
   // Refs for cleanup
   const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -318,6 +319,12 @@ export default function Backups() {
   // Same rule for the other field in that form, Maximum Backups to Keep.
   const loadedMaxBackupsRef = useRef<number | null>(null)
   const [backupMaxCount, setBackupMaxCount] = useState(10)
+  // And the third: whether each backup carries a copy of the panel database
+  // (backupIncludeDb; backupService.createBackup() adds a redacted db.json).
+  // Up to v1.4.17 the Dashboard's and Diagnostics' backups always included
+  // it; now this setting alone decides, and it starts off on an upgrade.
+  const loadedIncludeDbRef = useRef<boolean | null>(null)
+  const [backupIncludeDb, setBackupIncludeDb] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
 
   // Dialog state
@@ -379,6 +386,11 @@ export default function Backups() {
       if (loadedMaxBackupsRef.current !== status.maxBackups) {
         loadedMaxBackupsRef.current = status.maxBackups
         setBackupMaxCount(status.maxBackups)
+      }
+      const includeDb = status.includeDb === true
+      if (loadedIncludeDbRef.current !== includeDb) {
+        loadedIncludeDbRef.current = includeDb
+        setBackupIncludeDb(includeDb)
       }
       setLoadError(null)
       setBackupStatusLoadError(false)
@@ -693,6 +705,11 @@ export default function Backups() {
     // assert the action is unreachable, don't just make the control look
     // disabled (Angela's Console.tsx Enter-key bypass finding).
     if (!canManageBackups) return
+    // One backup at a time: the empty state's Create Backup has no disabled
+    // state, and a double click sent a second POST /create whose refusal
+    // put an error card over the first backup's live progress and ended
+    // its "creating" state while it was still running.
+    if (ownBackupInFlightRef.current || creatingBackup) return
     if (serverChangedSinceLoad) {
       toast({
         title: t('toasts.serverChangedSinceLoadTitle'),
@@ -746,6 +763,20 @@ export default function Backups() {
     } finally {
       setCreatingBackup(false)
       ownBackupInFlightRef.current = false
+    }
+  }
+
+  // downloadBackup() throws on a refused or failed download (403, a backup
+  // gone from disk, another server's backup): say so instead of nothing.
+  const handleDownload = async (name: string) => {
+    try {
+      await backupApi.downloadBackup(name)
+    } catch (error) {
+      toast({
+        title: t('toasts.downloadFailedTitle'),
+        description: getUserErrorMessage(error, t('toasts.downloadFailedFallback')),
+        variant: 'destructive',
+      })
     }
   }
 
@@ -1102,6 +1133,7 @@ export default function Backups() {
         enabled: backupStatus?.enabled || false,
         schedule: scheduleToSave,
         maxBackups: backupMaxCount,
+        includeDb: backupIncludeDb,
       }, activeServerId)
       await fetchBackupStatus()
       toast({
@@ -1239,14 +1271,15 @@ export default function Backups() {
   const isAnySelected = selectedBackups.size > 0
   const allSelected = backups.length > 0 && selectedBackups.size === backups.length
 
-  // Unsaved edits in "Schedule & retention": the form against the schedule
-  // and limit GET /status last sent. Only those two fields; the on/off
+  // Unsaved edits in "Schedule & retention": the form against the schedule,
+  // limit and panel-database choice GET /status last sent. The on/off
   // switch saves the moment it's flipped. A role that can't save has its
   // fields locked, so it never holds edits it couldn't keep.
   const scheduleChanged = backupStatus !== null && scheduleToSave !== savedSchedule
   // Object.is: an emptied field is NaN, and NaN !== NaN.
   const maxBackupsChanged = backupStatus !== null && !Object.is(backupMaxCount, backupStatus.maxBackups)
-  const settingsDirty = canManageBackups && (scheduleChanged || maxBackupsChanged)
+  const includeDbChanged = backupStatus !== null && backupIncludeDb !== (backupStatus.includeDb === true)
+  const settingsDirty = canManageBackups && (scheduleChanged || maxBackupsChanged || includeDbChanged)
   const maxBackupsInvalid = maxBackupsChanged
     && !(Number.isInteger(backupMaxCount) && backupMaxCount >= 1 && backupMaxCount <= 100)
   const saveSettingsBlockedReason = !canManageBackups
@@ -1266,6 +1299,7 @@ export default function Backups() {
     setCustomSchedule(schedule !== '' && !isPreset)
     setCustomCron(isPreset ? '' : schedule)
     setBackupMaxCount(backupStatus.maxBackups)
+    setBackupIncludeDb(backupStatus.includeDb === true)
   }
 
   // Opening the card (the header button, the Auto-backup cell, or a link
@@ -1387,6 +1421,9 @@ export default function Backups() {
         description={t('pageHeader.description')}
         status={uploadingBackup ? (
           <StatusPill tone="busy" size="sm" label={t('pageHeader.uploading', { percent: uploadPercent })} />
+        ) : deletingOlder ? (
+          // "Delete older…" runs from the More menu, which is closed by then.
+          <StatusPill tone="busy" size="sm" label={t('pageHeader.deletingOlder')} />
         ) : undefined}
         meta={activeServerId != null && history.length > 0 ? (
           <>
@@ -1547,8 +1584,10 @@ export default function Backups() {
               </div>
             </div>
             <div className="ms-auto flex shrink-0 items-center gap-1">
-              {/* Where the answer is: the restore's entries in the activity log. */}
-              {restoreResult.status === 'unknown' && (
+              {/* Where the answer is: the restore's entries in the activity log.
+                  Diagnostics reads need diagnostics.manage; without it the
+                  text above already says to ask an administrator. */}
+              {restoreResult.status === 'unknown' && canOpenDiagnostics && (
                 <Button variant="outline" size="sm" asChild>
                   <Link to="/debug?tab=activity">{t('restoreResult.openActivity')}</Link>
                 </Button>
@@ -1723,6 +1762,23 @@ export default function Backups() {
               </p>
             </div>
           </div>
+          {/* Saved with the schedule and limit (the save bar), unlike the
+              on/off switch above. */}
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+            <div className="min-w-0 space-y-0.5">
+              <Label htmlFor="backup-include-db" className="text-sm font-medium">{t('settingsPanel.includeDbLabel')}</Label>
+              <p id="backup-include-db-help" className="text-xs text-muted-foreground">{t('settingsPanel.includeDbHelp')}</p>
+            </div>
+            <DisabledReason reason={!canManageBackups ? t('permissions.noManage') : null}>
+              <Switch
+                id="backup-include-db"
+                checked={backupIncludeDb}
+                onCheckedChange={setBackupIncludeDb}
+                disabled={!canManageBackups || backupStatus === null}
+                aria-describedby="backup-include-db-help"
+              />
+            </DisabledReason>
+          </div>
           {/* The timezone line is already on screen, in the next-run
               block above, whenever the card has a verdict to show it. */}
           <BackupRestartOverlapNotice
@@ -1783,7 +1839,16 @@ export default function Backups() {
           </ul>
         ) : backups.length === 0 ? (
           <div className="p-5">
-            <EmptyState type="noData" title={t('mainCard.emptyTitle')} description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')} action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined} />
+            {/* "Turn on scheduled backups above": that switch is in the
+                Schedule & retention card, closed unless ?panel=schedule, so
+                the second button opens it. */}
+            <EmptyState
+              type="noData"
+              title={t('mainCard.emptyTitle')}
+              description={backupStatus?.enabled ? t('mainCard.emptyDescScheduled') : t('mainCard.emptyDesc')}
+              action={canManageBackups ? { label: t('mainCard.emptyAction'), onClick: handleCreateBackup, variant: 'default' } : undefined}
+              secondaryAction={canManageBackups && !backupStatus?.enabled && !showSettings ? { label: t('settingsPanel.enabledLabel'), onClick: openSchedule } : undefined}
+            />
           </div>
         ) : (
           <>
@@ -1912,7 +1977,7 @@ export default function Backups() {
                         {
                           label: t('mainCard.downloadTitle'),
                           icon: Download,
-                          onSelect: () => { if (canDownloadBackups) backupApi.downloadBackup(backup.name) },
+                          onSelect: () => { if (canDownloadBackups) void handleDownload(backup.name) },
                           disabled: !canDownloadBackups,
                           reason: !canDownloadBackups ? t('permissions.noDownload') : undefined,
                         },

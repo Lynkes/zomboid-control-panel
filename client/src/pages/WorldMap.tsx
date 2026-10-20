@@ -78,6 +78,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 import { cn, copyText } from '@/lib/utils'
@@ -688,6 +689,7 @@ export default function WorldMap() {
   const canGmTools = can('players.gm_tools')
   // GET /map/vehicles (vehicles parked in the save) is players.view's.
   const canViewPlayers = can('players.view')
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
@@ -802,6 +804,10 @@ export default function WorldMap() {
   // fails) the page must not claim there is none.
   const [activeServerKnown, setActiveServerKnown] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A roster has arrived for the active server. `loading` goes false before
+  // that (no-server effect, the in-flight gate), so the ?player= deep link's
+  // "isn't on the map" alert waits for this instead.
+  const [playersFetched, setPlayersFetched] = useState(false)
   const [hoveredPlayer, setHoveredPlayer] = useState<string | null>(null)
   const [hoveredPoi, setHoveredPoi] = useState<string | null>(null)
   const [poiQuery, setPoiQuery] = useState('')
@@ -1055,6 +1061,7 @@ export default function WorldMap() {
     if (!socket) return
     const handleActiveServerChanged = () => {
       setPlayers([])
+      setPlayersFetched(false)
       setVehicles([])
       setSafehouses([])
       setSelectedPlayer(null)
@@ -1564,6 +1571,7 @@ export default function WorldMap() {
         : null
       if (rawPlayers) {
         setBridgeConnected(true)
+        setPlayersFetched(true)
         // isAlive/isInfected/accessLevel only exist on the wire from bridge
         // v1.7.39 onward -- an older bridge simply omits the keys. Gate on
         // the bridge's own reported version rather than defaulting/passing
@@ -1612,10 +1620,12 @@ export default function WorldMap() {
     const requestId = bridgeStatusGuard.next()
     setBridgeLoading(true)
     try {
-      const res = await panelBridgeApi.getStatus()
+      // A Moderator can't read GET /panel-bridge/status; readBridgeLiveness()
+      // then asks the status every role may read (no mod version in it).
+      const live = await readBridgeLiveness(canReadBridgeStatus)
       if (bridgeStatusGuard.isStale(requestId)) return
-      setBridgeConnected(res.modConnected === true)
-      setBridgeVersion(res.modStatus?.version || null)
+      setBridgeConnected(live.modConnected)
+      setBridgeVersion(live.full?.modStatus?.version || null)
     } catch {
       if (!bridgeStatusGuard.isStale(requestId)) {
         setBridgeConnected(false)
@@ -1624,7 +1634,7 @@ export default function WorldMap() {
     } finally {
       setBridgeLoading(false)
     }
-  }, [hasActiveServer, bridgeStatusGuard])
+  }, [hasActiveServer, bridgeStatusGuard, canReadBridgeStatus])
   useEffect(() => { checkBridgeStatusRef.current = checkBridgeStatus }, [checkBridgeStatus])
 
   // Fetch vehicles + safehouses from PanelBridge
@@ -3209,10 +3219,13 @@ export default function WorldMap() {
   useEffect(() => {
     if (!deepLinkPlayer || !deepLinkTarget || canvasSize.width === 0) return
     if (deepLinkPlayerDoneRef.current === deepLinkPlayer) return
+    // Like the square link below: wait for the map build, whose detection
+    // re-centres on its own default and would undo the pan.
+    if (mapVersionStatus === 'loading') return
     deepLinkPlayerDoneRef.current = deepLinkPlayer
     hasFittedRef.current = true
     panToPlayer(deepLinkTarget)
-  }, [deepLinkPlayer, deepLinkTarget, canvasSize.width, panToPlayer])
+  }, [deepLinkPlayer, deepLinkTarget, canvasSize.width, panToPlayer, mapVersionStatus])
 
   // ?x=&y=(&z=): centre on a square once the map build (B41/B42 geometry)
   // is known; detection re-centres on its own default otherwise.
@@ -3284,7 +3297,7 @@ export default function WorldMap() {
       action: { label: t('alerts.bridgeOfflineAction'), to: '/settings?tab=bridge' },
     })
   }
-  if (deepLinkPlayer && !deepLinkTarget && deepLinkPlayerDoneRef.current !== deepLinkPlayer && bridgeConnected && !loading) {
+  if (deepLinkPlayer && !deepLinkTarget && deepLinkPlayerDoneRef.current !== deepLinkPlayer && bridgeConnected && playersFetched) {
     pageAlerts.push({
       id: 'player-not-online',
       tone: 'info',

@@ -7,7 +7,8 @@
   "common": {
     "playersUnavailable": "lista de jugadores no disponible",
     "playersUnavailableTitle": "Lista de jugadores no disponible",
-    "noPermissionEndangerOrImpersonate": "Esta acción requiere el permiso players.endanger_or_impersonate, que este rol no tiene."
+    "noPermissionEndangerOrImpersonate": "Esta acción requiere el permiso players.endanger_or_impersonate, que este rol no tiene.",
+    "noPermissionRconExecute": "Esta acción ejecuta un comando RCON y requiere el permiso rcon.execute, que este rol no tiene."
   },
   "statusBar": {
     "eventTarget": "Objetivo del evento",

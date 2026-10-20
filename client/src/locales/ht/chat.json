@@ -51,7 +51,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge pa ap mache",
-    "description": "Ou pa ka voye anons sèvè. Chat admin ak chat jeneral ale pa RCON tankou yon mesaj nòmal tout jwè wè.",
+    "description": "Anons sèvè yo toujou ale pa RCON. Chat admin ak chat jeneral ale pa RCON tou, tankou yon mesaj nòmal tout jwè wè.",
     "action": "Paramèt PanelBridge"
   },
   "quickBroadcasts": {
@@ -77,6 +77,9 @@
     "adminSentDesc": "Vizib sèlman pou admin yo nan jwèt la.",
     "generalSentTitle": "Afiche nan Chat",
     "generalSentDesc": "Afiche nan flux chat piblik la.",
+    "rconFallbackTitle": "Voye bay tout jwè yo",
+    "adminRconFallbackDesc": "Chat admin pa t disponib, kidonk mesaj la ale pa RCON tankou yon mesaj [ADMIN] tout jwè wè.",
+    "generalRconFallbackDesc": "Chat jeneral pa t disponib, kidonk mesaj la ale pa RCON tankou yon mesaj sèvè tout jwè wè.",
     "broadcastSentTitle": "Anons Voye",
     "broadcastSentDesc": "Mesaj livre bay tout jwè ki konekte yo.",
     "errorTitle": "Erè",

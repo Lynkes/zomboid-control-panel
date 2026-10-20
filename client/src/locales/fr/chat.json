@@ -51,7 +51,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge n'est pas lancé",
-    "description": "Les annonces serveur ne peuvent pas être envoyées. Le chat admin et le chat général passent par RCON comme un message simple que tous les joueurs voient.",
+    "description": "Les annonces serveur passent toujours par RCON. Le chat admin et le chat général aussi, comme un message simple que tous les joueurs voient.",
     "action": "Réglages PanelBridge"
   },
   "quickBroadcasts": {
@@ -77,6 +77,9 @@
     "adminSentDesc": "Visible uniquement par les admins en jeu.",
     "generalSentTitle": "Publié dans le chat",
     "generalSentDesc": "Publié dans le flux de chat public.",
+    "rconFallbackTitle": "Envoyé à tous les joueurs",
+    "adminRconFallbackDesc": "Le chat admin n'était pas disponible : le message est parti par RCON comme message [ADMIN] que tous les joueurs voient.",
+    "generalRconFallbackDesc": "Le chat général n'était pas disponible : le message est parti par RCON comme message serveur que tous les joueurs voient.",
     "broadcastSentTitle": "Diffusion envoyée",
     "broadcastSentDesc": "Message envoyé à tous les joueurs connectés.",
     "errorTitle": "Erreur",

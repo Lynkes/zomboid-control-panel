@@ -38,6 +38,7 @@ vi.mock('@/components/ui/use-toast', () => ({
   useToast: () => ({ toast: toastSpy, dismiss: vi.fn(), toasts: [] }),
 }))
 
+const denied = vi.hoisted(() => new Set<string>())
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'u1', username: 'someone', role: 'admin', capabilities: [] },
@@ -47,7 +48,7 @@ vi.mock('@/contexts/AuthContext', () => ({
     needsSetup: false,
     logout: vi.fn(),
     getToken: () => 'fake-token',
-    can: () => true,
+    can: (capability: string) => !denied.has(capability),
   }),
 }))
 
@@ -196,6 +197,7 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   vi.useRealTimers()
+  denied.clear()
 })
 
 describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)', () => {
@@ -376,6 +378,28 @@ describe('Backups.tsx: the Restore card always reaches a finished state (GH#166)
     expect(screen.getByText(en.restoreResult.unknownDetail)).toBeInTheDocument()
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.unknownTitle, variant: 'warning' }))
     expect(toastSpy).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.restoreResult.successTitle }))
+    // Where the answer is.
+    expect(screen.getByRole('link', { name: en.restoreResult.openActivity })).toHaveAttribute('href', '/debug?tab=activity')
+  })
+
+  it("doesn't link a role that can't open Diagnostics there (the text says to ask an administrator)", async () => {
+    denied.add('diagnostics.manage')
+    const { socket } = makeMockSocket()
+    setUp()
+    restoreBackup.mockRejectedValue(new ApiError('Unable to reach the server.', {
+      code: 'NETWORK_ERROR',
+      isNetworkError: true,
+      isRetryable: true,
+    }))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+
+    renderBackups(socket)
+    await startRestoreFromTheRow()
+    expect(await screen.findByText(en.restoreProgress.responseLost)).toBeInTheDocument()
+    await act(async () => { await vi.advanceTimersByTimeAsync(4 * RESTORE_STATUS_POLL_MS) })
+
+    expect(await screen.findByText(en.restoreResult.unknownTitle)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: en.restoreResult.openActivity })).not.toBeInTheDocument()
   })
 
   it("replaces \"couldn't confirm\" with the real outcome once the panel, unreachable for too long, is back and has recorded it", async () => {

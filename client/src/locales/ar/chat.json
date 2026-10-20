@@ -67,7 +67,7 @@
   },
   "bridgeOffline": {
     "title": "PanelBridge لا يعمل",
-    "description": "لا يمكن إرسال بث الخادم. تُرسل دردشة المسؤولين والدردشة العامة عبر RCON كرسالة عادية يراها جميع اللاعبين.",
+    "description": "لا يزال بث الخادم يُرسل عبر RCON، وكذلك دردشة المسؤولين والدردشة العامة، كرسالة عادية يراها جميع اللاعبين.",
     "action": "إعدادات PanelBridge"
   },
   "quickBroadcasts": {
@@ -93,6 +93,9 @@
     "adminSentDesc": "مرئية للمسؤولين فقط داخل اللعبة.",
     "generalSentTitle": "تم النشر في الدردشة",
     "generalSentDesc": "نُشرت في بث الدردشة العام.",
+    "rconFallbackTitle": "أُرسلت إلى جميع اللاعبين",
+    "adminRconFallbackDesc": "لم تكن دردشة المسؤولين متاحة، لذا أُرسلت الرسالة عبر RCON كرسالة [ADMIN] يراها جميع اللاعبين.",
+    "generalRconFallbackDesc": "لم تكن الدردشة العامة متاحة، لذا أُرسلت الرسالة عبر RCON كرسالة خادم يراها جميع اللاعبين.",
     "broadcastSentTitle": "تم إرسال البث",
     "broadcastSentDesc": "وصلت الرسالة إلى جميع اللاعبين المتصلين.",
     "errorTitle": "خطأ",
