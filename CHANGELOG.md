@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
 - **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
 - **PanelBridge dialogs after a server switch:** an open delivery-switch or Lua-checksum dialog now closes (with a short notice) when the active server changes, instead of reopening by itself for the new server.
+- **Character import recovery copy in Saved Exports:** the Import/Export dialog now reloads Saved Exports when it opens and after an import, so the pre-import copy it promises (and recent login exports) show up.
 
 ## [1.4.17] - 2026-10-18
 
