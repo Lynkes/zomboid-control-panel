@@ -292,8 +292,9 @@ export function removeItemFromCollection(collectionId, childId) {
 }
 
 /**
- * Compute the diff between the tracked-mod list and the collection.
- * Does NOT mutate anything.
+ * Compute the diff between the mods the collection should mirror and the
+ * collection. The routes pass the server's WorkshopItems= (the tracked list
+ * only when the INI can't be read). Does NOT mutate anything.
  */
 export async function computeDiff(trackedWorkshopIds) {
   const collectionId = await getSetting('workshopCollectionId');

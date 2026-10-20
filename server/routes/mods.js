@@ -1228,39 +1228,58 @@ router.post("/clear-updates", async (req, res) => {
 // Reads are public; writes need the user's session cookies (settings).
 // ============================================
 
+// The workshop items the active server loads (WorkshopItems=). `read` is
+// false when the INI could not be read: callers then fall back to the
+// tracked list, so an unreadable INI is never reported as "every mod is
+// missing from the server".
+async function readCollectionServerMembership() {
+  const ids = new Set();
+  try {
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const sanitizedServerName = path.basename(serverName || "");
+    if (
+      serverConfigPath &&
+      sanitizedServerName === serverName &&
+      !serverName.includes("..")
+    ) {
+      const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+      if (fs.existsSync(iniPath)) {
+        const workshopMatch = readTextFile(iniPath).match(
+          /^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m,
+        );
+        for (const id of splitIniList(workshopMatch?.[1])) {
+          if (id) ids.add(id);
+        }
+        return { ids, read: true };
+      }
+    }
+  } catch (error) {
+    log.debug(`Collection server membership check skipped: ${error.message}`);
+  }
+  return { ids: new Set(), read: false };
+}
+
+// What the collection should mirror: the mods the server loads. Tracking
+// alone is not that (a deactivated mod stays tracked on purpose), so the
+// Mods page chip and Sync used to count it as missing and push it into the
+// public collection, unlike Settings' per-item view.
+function collectionMirrorIds(membership, trackedIds) {
+  return membership.read ? [...membership.ids] : trackedIds;
+}
+
 router.get("/collection/diff", async (req, res) => {
   try {
     const tracked = await getTrackedMods();
     const ids = tracked.map((m) => String(m.workshop_id));
-    const diff = await computeCollectionDiff(ids);
-    const configuredWorkshopIds = new Set();
     // Whether WorkshopItems= was actually read. Status below is derived from
     // server membership, so an unreadable INI must not be reported as "every
     // mod is missing from the server".
-    let serverConfigRead = false;
-    try {
-      const { serverConfigPath, serverName } = await getActiveServerPaths();
-      const sanitizedServerName = path.basename(serverName || "");
-      if (
-        serverConfigPath &&
-        sanitizedServerName === serverName &&
-        !serverName.includes("..")
-      ) {
-        const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
-        if (fs.existsSync(iniPath)) {
-          const workshopMatch = readTextFile(iniPath).match(
-            /^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m,
-          );
-          for (const id of splitIniList(workshopMatch?.[1])) {
-            if (id) configuredWorkshopIds.add(id);
-          }
-          serverConfigRead = true;
-        }
-      }
-    } catch (error) {
-      serverConfigRead = false;
-      log.debug(`Collection server membership check skipped: ${error.message}`);
-    }
+    const membership = await readCollectionServerMembership();
+    const configuredWorkshopIds = membership.ids;
+    const serverConfigRead = membership.read;
+    const diff = await computeCollectionDiff(
+      collectionMirrorIds(membership, ids),
+    );
 
     // Build a unified, name-enriched item list so the UI can show every
     // tracked + collection mod in one table with per-row actions. This is
@@ -1489,7 +1508,9 @@ router.post("/collection/sync", async (req, res) => {
     }
     const tracked = await getTrackedMods();
     const trackedIds = tracked.map((m) => String(m.workshop_id));
-    const diff = await computeCollectionDiff(trackedIds);
+    const diff = await computeCollectionDiff(
+      collectionMirrorIds(await readCollectionServerMembership(), trackedIds),
+    );
     if (!diff.ok) {
       return res
         .status(502)

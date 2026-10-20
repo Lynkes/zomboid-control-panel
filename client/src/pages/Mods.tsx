@@ -1017,11 +1017,13 @@ export default function Mods() {
         description: r.message,
         variant: r.success ? 'default' : 'destructive',
       })
-      fetchCollectionStatus()
     } catch (err: any) {
       toast({ variant: 'destructive', title: t('toasts.syncFailedTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')) })
     } finally {
       setCollectionSyncing(false)
+      // A partial sync (some items added, then Steam refused one) arrives as
+      // an error: the chip must still show what is left, not the old count.
+      void fetchCollectionStatus()
     }
   }, [collectionSyncing, fetchCollectionStatus, toast, t, canManageMods])
 
