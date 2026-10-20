@@ -1703,10 +1703,13 @@ router.post("/collection/extension-push", async (req, res) => {
 // to the install, but falls back to zipping `browser-extension/` on the fly —
 // Docker images and pkg builds ship the source folder, not the zip, so
 // relying on a prebuilt artifact made this endpoint 404 for most installs.
+// Every file popup.html loads must be listed: a missing urlPolicy.js would
+// leave the popup unable to send anything.
 const EXTENSION_SOURCE_FILES = [
   "manifest.json",
   "popup.html",
   "popup.css",
+  "urlPolicy.js",
   "popup.js",
   "README.md",
 ];
