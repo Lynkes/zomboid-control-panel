@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "Carte du monde",
-    "description": "Positions des joueurs en direct sur la carte du comté de Knox. Clic droit pour les actions."
+    "description": "Positions des joueurs en direct. Clic droit ou appui long sur la carte pour les actions."
   },
   "refresh": "Actualiser",
   "errorTitle": "Erreur",
@@ -18,12 +18,12 @@
     "zoomIn": "Zoom avant",
     "zoomOut": "Zoom arrière",
     "fitToPlayers": "Ajuster aux joueurs",
-    "floorHeader": "étage",
+    "floorHeader": "Étage",
     "floorUp": "Étage supérieur",
     "floorDown": "Étage inférieur",
     "currentFloorAria": "Étage actuel : {{floor}}",
     "currentFloorTitle": "{{floor}} — cliquer pour revenir au sol",
-    "layersHeader": "calques",
+    "layersHeader": "Calques de la carte",
     "vehiclesHideAria": "Masquer les véhicules ({{count}} chargés)",
     "vehiclesShowAria": "Afficher les véhicules ({{count}} chargés)",
     "vehiclesHideTitle": "Masquer les véhicules ({{count}}) — seuls les véhicules près des joueurs sont visibles",
@@ -39,8 +39,6 @@
     "basementN": "S{{n}}"
   },
   "tileFailure": {
-    "signalLost": "signal.perdu",
-    "tilesOffline": "tuiles hors ligne",
     "coverageTitle": "Aucune tuile de carte à ce niveau de zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> est joignable mais n'a pas encore rendu cette zone à ce niveau de détail. Dézoomez, ou réessayez plus tard avec Actualiser.",
     "networkTitle": "Les tuiles de carte ne se chargent pas",
@@ -63,42 +61,52 @@
     "unrecognizedTitle": "La tuile de carte est arrivée sous forme de données non reconnues",
     "unrecognizedDesc": "Les données de cette tuile ne correspondent à aucun format reconnu par le panneau. Octets bruts : {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge est hors ligne",
+    "bridgeOfflineDesc": "Les positions en direct, les véhicules et les actions sur la carte nécessitent le mod PanelBridge actif sur ce serveur.",
+    "bridgeOfflineAction": "Configurer PanelBridge",
+    "noServerTitle": "Aucun serveur actif",
+    "noServerDesc": "Choisissez ou ajoutez un serveur pour voir ses joueurs sur la carte.",
+    "noServerAction": "Ouvrir Serveurs",
+    "playerNotOnlineTitle": "{{name}} n'est pas sur la carte",
+    "playerNotOnlineDesc": "Ce joueur est hors ligne, ou PanelBridge ne l'a pas encore signalé.",
+    "openInPlayers": "Ouvrir dans Joueurs"
+  },
   "roster": {
-    "label": "effectif",
-    "live": "en direct",
-    "offline": "hors ligne",
+    "label": "Joueurs",
+    "live": "En direct",
+    "offline": "Hors ligne",
     "panToAria": "Se centrer sur {{name}}",
     "panToAriaWithHealth": "Se centrer sur {{name}}, santé {{health}} %",
-    "loading": "chargement…",
-    "noPlayersOnline": "aucun joueur en ligne",
-    "bridgeOffline": "bridge hors ligne",
+    "loading": "Chargement…",
+    "noPlayersOnline": "Aucun joueur en ligne",
+    "bridgeOffline": "PanelBridge hors ligne",
     "collapseAria": "Réduire l'effectif",
-    "expandAria": "Développer l'effectif"
+    "expandAria": "Développer l'effectif",
+    "toggleAria": "Joueurs sur la carte : {{count}}",
+    "closeSheet": "Fermer la liste des joueurs"
   },
   "hud": {
-    "hoverForCoords": "survolez pour les coordonnées"
+    "hoverForCoords": "Survolez la carte pour les coordonnées",
+    "zoomTitle": "Niveau de zoom"
   },
   "dossier": {
-    "label": "dossier",
-    "targetAcquired": "cible.acquise",
+    "targetAcquired": "En ligne",
     "closeAria": "Fermer le dossier",
-    "pos": "pos",
-    "floor": "étage",
-    "hp": "hp",
-    "hunger": "faim",
-    "thirst": "soif",
-    "fatigue": "fatigue",
-    "role": "rôle",
-    "status": "statut",
-    "infected": "infecté",
+    "pos": "Position",
+    "floor": "Étage",
+    "hp": "Santé",
+    "hunger": "Faim",
+    "thirst": "Soif",
+    "fatigue": "Fatigue",
+    "role": "Rôle",
+    "status": "Statut",
+    "infected": "Infecté",
     "heal": "Soigner",
-    "god": "Dieu",
-    "godTip": "Active toujours le Mode Dieu pour ce joueur — ce n'est pas un bouton bascule. Désactivez-le depuis Joueurs.",
     "openPlayerControls": "Ouvrir les contrôles du joueur",
     "healedTitle": "Soigné",
     "healedDesc": "{{username}} soigné",
-    "godModeEnabled": "Mode Dieu activé",
-    "offline": "hors ligne",
+    "offline": "Hors ligne",
     "offlineReason": "Ce joueur n'est plus en ligne."
   },
   "contextMenu": {

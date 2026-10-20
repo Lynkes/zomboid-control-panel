@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "World Map",
-    "description": "Live player positions on the Knox County map. Right-click for actions."
+    "description": "Live player positions. Right-click or long-press the map for actions."
   },
   "refresh": "Refresh",
   "errorTitle": "Error",
@@ -18,12 +18,12 @@
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "fitToPlayers": "Fit to players",
-    "floorHeader": "floor",
+    "floorHeader": "Floor",
     "floorUp": "Floor up",
     "floorDown": "Floor down",
     "currentFloorAria": "Current floor: {{floor}}",
     "currentFloorTitle": "{{floor}} — click to reset to ground",
-    "layersHeader": "layers",
+    "layersHeader": "Map layers",
     "vehiclesHideAria": "Hide vehicles ({{count}} loaded)",
     "vehiclesShowAria": "Show vehicles ({{count}} loaded)",
     "vehiclesHideTitle": "Hide vehicles ({{count}}) — only vehicles near players are visible",
@@ -39,8 +39,6 @@
     "basementN": "B{{n}}"
   },
   "tileFailure": {
-    "signalLost": "signal.lost",
-    "tilesOffline": "tiles offline",
     "coverageTitle": "No map tiles at this zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> is reachable but hasn't rendered this area at this detail level. Zoom out, or try Refresh later.",
     "networkTitle": "Map tiles aren't loading",
@@ -63,42 +61,52 @@
     "unrecognizedTitle": "Map tile arrived as unrecognized data",
     "unrecognizedDesc": "This tile's data doesn't match any known format the panel recognizes. Raw bytes: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge is offline",
+    "bridgeOfflineDesc": "Live positions, vehicles and map actions need the PanelBridge mod running on this server.",
+    "bridgeOfflineAction": "Set up PanelBridge",
+    "noServerTitle": "No active server",
+    "noServerDesc": "Choose or add a server to see its players on the map.",
+    "noServerAction": "Open Servers",
+    "playerNotOnlineTitle": "{{name}} isn't on the map",
+    "playerNotOnlineDesc": "This player is offline, or PanelBridge hasn't reported them yet.",
+    "openInPlayers": "Open in Players"
+  },
   "roster": {
-    "label": "roster",
-    "live": "live",
-    "offline": "offline",
+    "label": "Players",
+    "live": "Live",
+    "offline": "Offline",
     "panToAria": "Pan to {{name}}",
     "panToAriaWithHealth": "Pan to {{name}}, health {{health}}%",
-    "loading": "loading…",
-    "noPlayersOnline": "no players online",
-    "bridgeOffline": "bridge offline",
+    "loading": "Loading…",
+    "noPlayersOnline": "No players online",
+    "bridgeOffline": "PanelBridge offline",
     "collapseAria": "Collapse roster",
-    "expandAria": "Expand roster"
+    "expandAria": "Expand roster",
+    "toggleAria": "Players on the map: {{count}}",
+    "closeSheet": "Close player list"
   },
   "hud": {
-    "hoverForCoords": "hover for coords"
+    "hoverForCoords": "Hover the map for coordinates",
+    "zoomTitle": "Zoom level"
   },
   "dossier": {
-    "label": "dossier",
-    "targetAcquired": "target.acquired",
+    "targetAcquired": "Online",
     "closeAria": "Close dossier",
-    "pos": "pos",
-    "floor": "floor",
-    "hp": "hp",
-    "hunger": "hunger",
-    "thirst": "thirst",
-    "fatigue": "fatigue",
-    "role": "role",
-    "status": "status",
-    "infected": "infected",
+    "pos": "Position",
+    "floor": "Floor",
+    "hp": "Health",
+    "hunger": "Hunger",
+    "thirst": "Thirst",
+    "fatigue": "Fatigue",
+    "role": "Role",
+    "status": "Status",
+    "infected": "Infected",
     "heal": "Heal",
-    "god": "God",
-    "godTip": "Always turns God Mode on for this player — it doesn't toggle. Turn it back off from Players instead.",
     "openPlayerControls": "Open player controls",
     "healedTitle": "Healed",
     "healedDesc": "{{username}} healed",
-    "godModeEnabled": "God mode enabled",
-    "offline": "offline",
+    "offline": "Offline",
     "offlineReason": "This player is no longer online."
   },
   "contextMenu": {
