@@ -85,7 +85,8 @@ export function SubNav({ kind, groups, value, onValueChange, ariaLabel, mobile =
         {item.dirty && (
           <>
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden="true" />
-            <span className="sr-only"> ({t('subNav.unsaved')})</span>
+            {/* &nbsp;: a plain leading space is dropped from the tab's accessible name. */}
+            <span className="sr-only">&nbsp;({t('subNav.unsaved')})</span>
           </>
         )}
         {item.badge !== undefined && item.badge !== null && <span className="ms-auto shrink-0">{item.badge}</span>}
