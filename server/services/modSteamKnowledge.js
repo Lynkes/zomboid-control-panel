@@ -250,8 +250,8 @@ function decodeEntities(text) {
   );
 }
 
-function isWhitespaceCode(code) {
-  return code === 32 || code === 9 || code === 10 || code === 13 || code === 12;
+function isWhitespaceCode(charCode) {
+  return charCode === 32 || charCode === 9 || charCode === 10 || charCode === 13 || charCode === 12;
 }
 
 // "<div" + whitespace, ">" or "/" (case-insensitive).
