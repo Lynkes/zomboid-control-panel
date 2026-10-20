@@ -322,9 +322,18 @@ export default function Layout({ children }: LayoutProps) {
 
   // Keep the lit row on screen: the sidebar scrolls at 900px tall, and a
   // shortcut or the palette can land on a row below the fold.
+  // Again after the next frame and after the rail/drawer transition (300ms),
+  // which change the nav's height and rows under it.
   useEffect(() => {
-    const row = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]')
-    row?.scrollIntoView?.({ block: 'nearest' })
+    const scrollActiveRow = () =>
+      navRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest' })
+    scrollActiveRow()
+    const frame = requestAnimationFrame(scrollActiveRow)
+    const afterTransition = window.setTimeout(scrollActiveRow, 350)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(afterTransition)
+    }
   }, [activeRoutePath, sidebarCollapsed, mobileMenuOpen])
 
   // Toggle sidebar collapse
@@ -792,7 +801,7 @@ export default function Layout({ children }: LayoutProps) {
       >
         <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="flex-1 truncate text-start">{t('search.placeholder')}</span>
-        <kbd className="shrink-0 rounded border border-border/60 px-1 text-micro text-muted-foreground" aria-hidden>{modKey} K</kbd>
+        <kbd className="shrink-0 rounded border border-border/60 px-1 text-micro text-muted-foreground [@media(pointer:coarse)]:hidden" aria-hidden>{modKey} K</kbd>
       </button>
     </div>
   )

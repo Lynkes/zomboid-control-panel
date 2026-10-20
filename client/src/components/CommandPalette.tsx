@@ -220,7 +220,9 @@ export function CommandPalette({ open, onOpenChange, servers, activeServer, onSw
               onKeyDown={onInputKeyDown}
               autoComplete="off"
               spellCheck={false}
-              className="h-12 min-w-0 flex-1 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none sm:text-sm"
+              // The theme's input fill and focus halo would box a field that
+              // always has focus here; the open palette is the focus indicator.
+              className="h-12 min-w-0 flex-1 !bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:!shadow-none sm:text-sm"
             />
             <kbd className="hidden shrink-0 rounded border border-border/60 px-1.5 py-0.5 text-micro text-muted-foreground sm:inline-block">Esc</kbd>
           </div>
