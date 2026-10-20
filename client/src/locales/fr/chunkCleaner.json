@@ -64,7 +64,8 @@
     "all": "Tout",
     "clear": "Effacer",
     "invert": "Inverser",
-    "selectAllTip": "\"Tout\" sélectionne chaque chunk jamais généré par cette sauvegarde, pas seulement ceux visibles à l'écran. Supprimer cette sélection réinitialise la carte entière."
+    "selectAllTip": "\"Tout\" sélectionne chaque chunk jamais généré par cette sauvegarde, pas seulement ceux visibles à l'écran. Supprimer cette sélection réinitialise la carte entière.",
+    "title": "Outils de carte"
   },
   "deleteButton_one": "Supprimer {{count}} chunk",
   "deleteButton_other": "Supprimer {{count}} chunks",

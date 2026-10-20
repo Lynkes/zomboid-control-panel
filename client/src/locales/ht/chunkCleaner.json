@@ -64,7 +64,8 @@
     "all": "Tout",
     "clear": "Efase",
     "invert": "Envèse",
-    "selectAllTip": "\"Tout\" seleksyone chak chunk sovgard sa a te janm jenere, pa sèlman sa ou wè sou ekran an kounye a. Efase seleksyon sa a reyajiste tout kat la."
+    "selectAllTip": "\"Tout\" seleksyone chak chunk sovgard sa a te janm jenere, pa sèlman sa ou wè sou ekran an kounye a. Efase seleksyon sa a reyajiste tout kat la.",
+    "title": "Zouti kat"
   },
   "deleteButton_one": "Efase {{count}} Chunk",
   "deleteButton_other": "Efase {{count}} Chunk",

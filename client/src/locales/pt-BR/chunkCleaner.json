@@ -64,7 +64,8 @@
     "all": "Todos",
     "clear": "Limpar",
     "invert": "Inverter",
-    "selectAllTip": "\"Todos\" seleciona todos os chunks que este save já gerou, não só os que estão visíveis na tela agora. Excluir essa seleção redefine o mapa inteiro."
+    "selectAllTip": "\"Todos\" seleciona todos os chunks que este save já gerou, não só os que estão visíveis na tela agora. Excluir essa seleção redefine o mapa inteiro.",
+    "title": "Ferramentas do mapa"
   },
   "deleteButton_one": "Excluir {{count}} chunk",
   "deleteButton_other": "Excluir {{count}} chunks",

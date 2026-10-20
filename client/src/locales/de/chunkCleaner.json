@@ -64,7 +64,8 @@
     "all": "Alle",
     "clear": "Leeren",
     "invert": "Umkehren",
-    "selectAllTip": "\"Alle\" wählt jeden Chunk aus, den dieser Spielstand jemals erzeugt hat — nicht nur die gerade sichtbaren. Das Löschen dieser Auswahl setzt die gesamte Karte zurück."
+    "selectAllTip": "\"Alle\" wählt jeden Chunk aus, den dieser Spielstand jemals erzeugt hat — nicht nur die gerade sichtbaren. Das Löschen dieser Auswahl setzt die gesamte Karte zurück.",
+    "title": "Kartenwerkzeuge"
   },
   "deleteButton_one": "{{count}} Chunk unwiderruflich löschen",
   "deleteButton_other": "{{count}} Chunks unwiderruflich löschen",
