@@ -5283,31 +5283,6 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
     const needsSteamCmdSelfHeal = !steamcmdExe || !fs.existsSync(steamcmdExe);
 
-    try {
-      const recovery = recoverMismatchedSteamBranchManifest(
-        installPath,
-        selectedBranch,
-      );
-      if (recovery) {
-        log.warn(
-          `Reset stale SteamCMD branch manifest (${recovery.mountedBranch} -> ${recovery.targetBranch}); backup: ${recovery.backupPath}`,
-        );
-      }
-    } catch (error) {
-      log.warn(`Could not inspect SteamCMD branch manifest: ${error.message}`);
-    }
-
-    try {
-      const recovery = recoverBlockedSteamManifest(installPath);
-      if (recovery) {
-        log.warn(
-          `Reset SteamCMD manifest stuck in access-denied state 0x6; backup: ${recovery.backupPath}`,
-        );
-      }
-    } catch (error) {
-      log.warn(`Could not reset blocked SteamCMD manifest: ${error.message}`);
-    }
-
     // Prevent concurrent operations on the same install path. Deliberately
     // placed HERE -- before self-heal now, not after it (see
     // install-selfheal-background below for why) -- matching POST /install's
@@ -5354,6 +5329,34 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       branch: selectedBranch,
     });
     activeOperationPath = normalizedPath;
+
+    // Manifest recovery only once this request owns the path (same order as
+    // POST /install): run before the concurrency check above, a refused
+    // second request deleted the manifest of the update already running.
+    try {
+      const recovery = recoverMismatchedSteamBranchManifest(
+        installPath,
+        selectedBranch,
+      );
+      if (recovery) {
+        log.warn(
+          `Reset stale SteamCMD branch manifest (${recovery.mountedBranch} -> ${recovery.targetBranch}); backup: ${recovery.backupPath}`,
+        );
+      }
+    } catch (error) {
+      log.warn(`Could not inspect SteamCMD branch manifest: ${error.message}`);
+    }
+
+    try {
+      const recovery = recoverBlockedSteamManifest(installPath);
+      if (recovery) {
+        log.warn(
+          `Reset SteamCMD manifest stuck in access-denied state 0x6; backup: ${recovery.backupPath}`,
+        );
+      }
+    } catch (error) {
+      log.warn(`Could not reset blocked SteamCMD manifest: ${error.message}`);
+    }
 
     const io = req.app.get("io");
 

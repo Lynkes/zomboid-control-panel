@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
 - **Restart during a mod download:** the server now starts again instead of staying down because a Workshop item was still downloading.
 - **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
+- **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
 
 ## [1.4.17] - 2026-10-18
 
