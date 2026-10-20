@@ -741,6 +741,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "Список модів на сервері змінився",
+    "serverModsChangedDesc": "Відколи ця сторінка завантажила список, на сервері ввімкнули або вимкнули моди. Їх уже додано до твого порядку: перевір його і збережи ще раз.",
     "pendingAddServerChangedTitle": "Активний сервер змінено",
     "pendingAddServerChangedDesc": "Активний сервер змінився, поки моди очікували на додавання. Показані ідентифікатори та папки карт було знайдено для попереднього сервера — закрийте це вікно й почніть спочатку для сервера, який активний зараз.",
     "noActiveServerTitle": "Немає активного сервера",

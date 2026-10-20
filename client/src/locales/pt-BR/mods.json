@@ -632,6 +632,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "O servidor ativo mudou",
     "serverChangedSinceLoadDesc": "O servidor ativo mudou enquanto você tinha uma ordem de mods não salva. Descarte ou continue editando -- salvar agora gravaria a ordem no servidor errado.",
+    "serverModsChangedTitle": "A lista de mods do servidor mudou",
+    "serverModsChangedDesc": "Mods foram ativados ou desativados no servidor desde que esta página carregou a lista. Eles já foram incluídos na sua ordem: confira e salve novamente.",
     "pendingAddServerChangedTitle": "O servidor ativo mudou",
     "pendingAddServerChangedDesc": "O servidor ativo mudou enquanto você tinha mods na fila para adicionar. Os IDs e as pastas de mapa mostrados foram consultados para o servidor anterior -- feche esta caixa de diálogo e comece de novo para o servidor que está ativo agora.",
     "noActiveServerTitle": "Nenhum servidor ativo",

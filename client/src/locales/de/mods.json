@@ -605,6 +605,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "Die Mod-Liste des Servers hat sich geändert",
+    "serverModsChangedDesc": "Seit diese Seite die Liste geladen hat, wurden auf dem Server Mods aktiviert oder deaktiviert. Sie sind jetzt in deine Reihenfolge eingefügt: Prüfe sie und speichere dann erneut.",
     "pendingAddServerChangedTitle": "Aktiver Server wurde geändert",
     "pendingAddServerChangedDesc": "Der aktive Server hat sich geändert, während Mods zum Hinzufügen in der Warteschlange standen. Die angezeigten IDs und Kartenordner wurden für den vorherigen Server ermittelt — schließe diesen Dialog und beginne für den derzeit aktiven Server von vorn.",
     "noActiveServerTitle": "Kein aktiver Server",

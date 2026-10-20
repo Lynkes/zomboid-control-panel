@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
 - **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
 - **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Unsaved load order kept:** Load order moves are no longer thrown away when the Mods page reloads (an update check, a restart, a mod removed) or by "Make X win", and Save no longer undoes mods enabled or disabled elsewhere meanwhile.
+- **Mods page after a server switch:** an open Auto-sort proposal and the previous server's conflict scan are cleared, so the old server's mod list can no longer be applied and saved into the new one.
 - **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
 - **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
 - **Failed panel update download:** the Updates card no longer stays on "Downloading".
