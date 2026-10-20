@@ -5703,11 +5703,15 @@ router.post("/discover-mod-ids", async (req, res) => {
     // this), so the mod IDs and map folders come from the item's own files.
     // Without them a mod whose description does not state its mod IDs was added
     // to WorkshopItems= only; the server downloaded it on the next boot, after
-    // it had read Mods=, and the mod was never enabled. The server skips what
-    // is already downloaded and current. Skipped for a remote server and when
-    // SteamCMD is not set up (the description below is used as before).
+    // it had read Mods=, and the mod was never enabled. It is downloaded into
+    // the panel's own cache, not the server's Workshop folder: SteamCMD never
+    // writes the files (or appworkshop_108600.acf) the game server itself
+    // downloads into at start, so a start is neither blocked nor raced. The
+    // server downloads its own copy when it starts. Skipped for a remote server
+    // and when SteamCMD is not set up (the description below is used as before).
     let downloadedFromSteam = false;
     let downloadSkippedReason = null;
+    let downloadedMapFolders = [];
     if (discoveredModIds.length === 0 && serverPath && req.body?.download === true) {
       const activeServer = await getActiveServer();
       if (activeServer?.isRemote) {
@@ -5721,19 +5725,27 @@ router.post("/discover-mod-ids", async (req, res) => {
           process.platform === "win32"
             ? null
             : (await import("./server.js")).buildLinuxSteamCmdEnv;
+        const cacheRoot = path.join(getDataPaths().dataDir, "workshop-download-cache");
+        fs.mkdirSync(cacheRoot, { recursive: true });
         const download = await downloadWorkshopItem(String(wsId), {
-          serverPath,
+          serverPath: cacheRoot,
           signal: abort.signal,
           buildEnv,
         });
         if (download.success) {
           downloadedFromSteam = true;
-          for (const modId of findAllModIdsFromWorkshop(String(wsId), serverPath)) {
+          for (const modId of findAllModIdsFromWorkshop(String(wsId), cacheRoot)) {
             if (!discoveredModIds.includes(modId)) {
               discoveredModIds.push(modId);
               sources.push({ modId, source: "steamcmd-download" });
             }
           }
+          downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), cacheRoot);
+          // Only the IDs and map folder names were needed: drop the copy.
+          fs.rmSync(
+            path.join(cacheRoot, "steamapps", "workshop", "content", "108600", String(wsId)),
+            { recursive: true, force: true },
+          );
         } else {
           downloadSkippedReason = download.reason;
           log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
@@ -5816,6 +5828,9 @@ router.post("/discover-mod-ids", async (req, res) => {
     let mapFolders = [];
     if (serverPath) {
       mapFolders = findMapFoldersFromWorkshop(String(wsId), serverPath);
+    }
+    if (mapFolders.length === 0 && downloadedMapFolders.length > 0) {
+      mapFolders = downloadedMapFolders;
     }
 
     // Check if mod has map tag from Steam API

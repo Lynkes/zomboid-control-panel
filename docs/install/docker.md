@@ -588,14 +588,14 @@ same user-defined Docker network, then use PZ's Compose **service name**
 [Path D, Phase 2, step 5](#phase-2--import-and-configure) above for exactly
 where to set it for your path.
 
-One creation path already gets this right by itself: adding a server
-through Discover's confirmed match (the plain **Add** button, not
+Two creation paths get this right by themselves. Quick Setup and the
+full install wizard save the RCON host from your `RCON_HOST` setting, and so
+does adding a server through Discover's confirmed match (the plain **Add** button, not
 **Review & Add** — see [below](#adding-more-servers-later)) reads the RCON
 host straight out of your `RCON_HOST` setting instead of assuming
 `127.0.0.1`, provided you set `RCON_HOST` correctly *before* clicking it.
-**Quick Setup, the full install wizard, and a server added or edited by
-hand do not** — they still need the manual Settings fix above regardless
-of `RCON_HOST`.
+**A server added or edited by hand does not** — it still needs the manual
+Settings fix above regardless of `RCON_HOST`.
 
 ### "Server files not found" from Quick Setup
 

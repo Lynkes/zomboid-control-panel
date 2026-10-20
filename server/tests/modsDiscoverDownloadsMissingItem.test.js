@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import path from "path";
 import { createRouteRunner, makeServerFixture } from "./helpers/modsRouteHarness.js";
 
 // Adding a mod by URL: when the item is not on the server yet and its mod IDs
@@ -46,8 +48,11 @@ beforeEach(() => {
   getActiveServer.mockResolvedValue(fx.activeServer);
   // Steam's description gives nothing: the case that needs the download.
   vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ response: { publishedfiledetails: [{ publishedfileid: WS_ID, result: 9 }] } }) })));
-  downloadWorkshopItem.mockReset().mockImplementation(async () => {
-    fx.writeMod(WS_ID, "TearAllClothing", "id=TearAllClothing\nname=Tear All Clothing\n");
+  // SteamCMD downloads into the folder it is given (the panel's cache).
+  downloadWorkshopItem.mockReset().mockImplementation(async (id, opts) => {
+    const dir = path.join(opts.serverPath, "steamapps", "workshop", "content", "108600", String(id), "mods", "TearAllClothing");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "mod.info"), "id=TearAllClothing\nname=Tear All Clothing\n");
     return { success: true };
   });
 });
@@ -65,11 +70,18 @@ describe("POST /discover-mod-ids with download: true", () => {
 
     expect(downloadWorkshopItem).toHaveBeenCalledTimes(1);
     expect(downloadWorkshopItem.mock.calls[0][0]).toBe(WS_ID);
-    expect(downloadWorkshopItem.mock.calls[0][1].serverPath).toBe(fx.installPath);
+    // Into the panel's own cache, never the game server's Workshop folder
+    // (whose files and appworkshop_108600.acf the server writes when it starts).
+    const cacheRoot = downloadWorkshopItem.mock.calls[0][1].serverPath;
+    expect(cacheRoot).not.toBe(fx.installPath);
+    expect(cacheRoot).toMatch(/workshop-download-cache$/);
+    expect(fs.existsSync(path.join(fx.installPath, "steamapps", "workshop", "content", "108600", WS_ID))).toBe(false);
+    // The cached copy is dropped once its IDs are read.
+    expect(fs.existsSync(path.join(cacheRoot, "steamapps", "workshop", "content", "108600", WS_ID))).toBe(false);
     expect(res.getBody()).toMatchObject({
       success: true,
       modIds: ["TearAllClothing"],
-      isDownloaded: true,
+      isDownloaded: false,
       downloadedFromSteam: true,
       sources: [{ modId: "TearAllClothing", source: "steamcmd-download" }],
     });
