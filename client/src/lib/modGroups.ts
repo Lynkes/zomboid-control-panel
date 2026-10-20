@@ -12,8 +12,8 @@ export const MOD_GROUP_SCHEMA = 1 as const
 export const MAX_GROUP_FILE_BYTES = 1_000_000
 
 /** Same length limits the Save Preset dialog uses. */
-export const GROUP_NAME_MAX = 100
-export const GROUP_DESCRIPTION_MAX = 500
+export const GROUP_NAME_MAX = 60 // the server's limit (MOD_GROUP_LIMITS)
+export const GROUP_DESCRIPTION_MAX = 300 // the server's limit (MOD_GROUP_LIMITS)
 
 /** "KI5 Vehicles!" -> "ki5-vehicles". Keeps letters and digits of any script, so a Chinese name still names its file. */
 export function slugifyGroupName(name: string): string {
