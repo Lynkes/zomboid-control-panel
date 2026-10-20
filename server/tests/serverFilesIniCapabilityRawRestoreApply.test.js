@@ -141,6 +141,26 @@ describe("PUT /server-files/raw/ini -- the governed keys need server.configure h
     expect(res.getStatusCode()).toBe(403);
   });
 
+  // SECURITY (2026-10-20): the game trims every char up to U+0020 off a
+  // line, control chars too, so it reads "\u0001RCONPassword=x" as the RCON
+  // password; JavaScript's trim() keeps them, and this check let it through.
+  it.each(["\u0001", "\u0000", "\u001f", "\u000e", "\u0002 "])(
+    "refuses a governed line hidden behind %j, writes nothing",
+    async (prefix) => {
+      const res = await putRaw(
+        `${ini()}${prefix}RCONPassword=attacker-chosen\n${prefix}RCONPort=1\n`,
+        "serverfiles_only",
+      );
+
+      expect(res.getStatusCode()).toBe(403);
+      expect(res.getBody().missing).toEqual([
+        { key: "RCONPassword", requiredCapability: "server.configure" },
+        { key: "RCONPort", requiredCapability: "server.configure" },
+      ]);
+      expect(onDisk()).toBe(ini());
+    },
+  );
+
   it("allows the same RCONPassword change for a caller who also holds server.configure", async () => {
     const res = await putRaw(ini({ password: "chosen-by-admin" }), "admin");
 
@@ -195,6 +215,19 @@ describe("POST /server-files/restore/:filename -- restoring an .ini backup needs
     ]);
     expect(onDisk()).toBe(ini());
     expect(backupNames()).toEqual([backupName]);
+  });
+
+  it("refuses a backup whose RCON port line starts with a control char, which the game trims", async () => {
+    // The game reads the last RCONPort line: 27001.
+    writeBackup(ini().replace("RCONPort=27015", "RCONPort=27015\n\u0001RCONPort=27001"));
+
+    const res = await postRestore("serverfiles_only");
+
+    expect(res.getStatusCode()).toBe(403);
+    expect(res.getBody().missing).toEqual([
+      { key: "RCONPort", requiredCapability: "server.configure" },
+    ]);
+    expect(onDisk()).toBe(ini());
   });
 
   it("refuses a backup holding other ports", async () => {
