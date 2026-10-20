@@ -2533,8 +2533,11 @@ export class BackupService {
       fs.existsSync(path.join(dir, "map_meta.bin")) ||
       fs.existsSync(path.join(dir, "map_t.bin"));
 
+    // The folder named like the server counts only when it holds a world:
+    // an archive with just servertest/readme.txt used to replace the live
+    // world with that. Otherwise the search below looks for one.
     const expected = path.join(stagingPath, expectedFolderName);
-    if (fs.existsSync(expected) && fs.statSync(expected).isDirectory()) {
+    if (fs.existsSync(expected) && fs.statSync(expected).isDirectory() && looksLikeWorld(expected)) {
       return expected;
     }
 
