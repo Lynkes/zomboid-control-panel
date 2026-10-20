@@ -1792,7 +1792,9 @@ export async function getPlayerLogs(playerName = null, limit = 100, serverId = u
   const db = await getDb();
   let logs = db.data.player_logs;
   if (playerName) {
-    logs = logs.filter((l) => l.player_name === playerName);
+    // Case-insensitive, like notes and playtime: the game's names are.
+    const wanted = String(playerName).toLowerCase();
+    logs = logs.filter((l) => String(l.player_name ?? "").toLowerCase() === wanted);
   }
   if (serverId !== undefined) {
     logs = logs.filter((l) => l.server_id == null || l.server_id === serverId);

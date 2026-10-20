@@ -331,6 +331,13 @@ function isDossierTab(value: string | null): value is DossierTab {
   return value !== null && (DOSSIER_TABS as readonly string[]).includes(value)
 }
 
+// Notes are keyed by lower-cased name: the server matches a note's player
+// case-insensitively (upsertPlayerNote), so "bob" must show, and save on top
+// of, the note stored for "Bob" instead of an empty box that replaces it.
+function noteKey(playerName: string): string {
+  return playerName.toLowerCase()
+}
+
 export default function Players() {
   const { t } = useTranslation('players')
   const { formatDate, formatDateTime, formatTime } = useDateFormat()
@@ -735,7 +742,7 @@ export default function Players() {
       if (notesData.notes) {
         notesData.notes.forEach((n: PlayerNoteRow) => {
           const key = n.playerName ?? n.player_name
-          if (key) notesMap[key] = { ...n, playerName: key }
+          if (key) notesMap[noteKey(key)] = { ...n, playerName: key }
         })
       }
       const statsMap: Record<string, PlayerStat> = {}
@@ -776,7 +783,7 @@ export default function Players() {
       // Update local state
       setPlayerNotes(prev => ({
         ...prev,
-        [selectedPlayer]: {
+        [noteKey(selectedPlayer)]: {
           playerName: selectedPlayer,
           note: normalizedNote,
           tags: currentTags,
@@ -807,7 +814,7 @@ export default function Players() {
       // Update local state
       setPlayerNotes(prev => {
         const updated = { ...prev }
-        delete updated[selectedPlayer]
+        delete updated[noteKey(selectedPlayer)]
         return updated
       })
       setCurrentNote('')
@@ -1035,9 +1042,10 @@ export default function Players() {
 
   // Load note/tags when selected player changes
   useEffect(() => {
-    if (selectedPlayer && playerNotes[selectedPlayer]) {
-      setCurrentNote(playerNotes[selectedPlayer].note)
-      setCurrentTags(playerNotes[selectedPlayer].tags || [])
+    const existing = selectedPlayer ? playerNotes[noteKey(selectedPlayer)] : undefined
+    if (existing) {
+      setCurrentNote(existing.note)
+      setCurrentTags(existing.tags || [])
     } else {
       setCurrentNote('')
       setCurrentTags([])
@@ -1730,7 +1738,7 @@ export default function Players() {
                       const isSelected = selectedPlayer === player.name
                       const powers = playerPowers[player.name]
                       const hasPowers = powers && (powers.godMode || powers.invisible || powers.noclip)
-                      const note = playerNotes[player.name]
+                      const note = playerNotes[noteKey(player.name)]
                       const stat = playerStats[player.name]
                       const vitals = rosterVitals[player.name]
 
@@ -1834,7 +1842,7 @@ export default function Players() {
                     {offlineRoster.map((stat) => {
                       const name = stat.player_name || stat.playerName || ''
                       const isSelected = selectedPlayer === name
-                      const note = playerNotes[name]
+                      const note = playerNotes[noteKey(name)]
                       const lastSeen = stat.last_seen ? new Date(stat.last_seen) : null
                       return (
                         <button
@@ -2095,7 +2103,7 @@ export default function Players() {
                 {/* Dossier hero: identity + key stats */}
                 {(() => {
                   const isOnline = players.some(p => p.name === selectedPlayer)
-                  const note = playerNotes[selectedPlayer]
+                  const note = playerNotes[noteKey(selectedPlayer)]
                   const stat = playerStats[selectedPlayer]
                   return (
                     <div className="relative overflow-hidden rounded-md border border-border/50 bg-gradient-to-br from-muted/30 via-card to-card p-4">
@@ -3410,12 +3418,12 @@ export default function Players() {
                     {/* Actions */}
                     <div className="flex justify-between items-center pt-2">
                       <div className="text-xs text-muted-foreground">
-                        {playerNotes[selectedPlayer]?.updated_at && (
-                          <span>{t('notes.lastUpdated', { date: formatDateTime(playerNotes[selectedPlayer].updated_at, { seconds: true }) })}</span>
+                        {playerNotes[noteKey(selectedPlayer)]?.updated_at && (
+                          <span>{t('notes.lastUpdated', { date: formatDateTime(playerNotes[noteKey(selectedPlayer)].updated_at, { seconds: true }) })}</span>
                         )}
                       </div>
                       <div className="flex gap-2">
-                        {playerNotes[selectedPlayer] && (
+                        {playerNotes[noteKey(selectedPlayer)] && (
                           <DisabledReason reason={!canModerate ? t('permissions.noModerate') : null}>
                           <Button
                             variant="outline"
