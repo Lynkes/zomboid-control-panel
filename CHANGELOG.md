@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
 - **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
 - **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
+- **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
 
 ## [1.4.17] - 2026-10-18
 

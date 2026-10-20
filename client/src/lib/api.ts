@@ -2260,7 +2260,9 @@ export interface MountDiscoveryCandidate {
   installPath: string | null;
   dataPath: string | null;
   source: string;
-  status: "ready" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
+  // "no-config": install and save data found, but no Server/<name>.ini to
+  // read the name and RCON settings from -- handled like install-only.
+  status: "ready" | "no-config" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
   reason: string;
   serverNames: string[];
   hasStartScript: boolean;

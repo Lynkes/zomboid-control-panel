@@ -576,8 +576,10 @@ export default function Servers() {
   // path, not a signal worth a banner; permission-denied gets its own
   // distinct treatment (no Add action makes sense there at all).
   const readyCandidates = unclaimedCandidates.filter((c) => c.status === 'ready')
+  // 'no-config' (files and save data, but no Server/<name>.ini yet) goes to
+  // the manual form too: the automatic dialog has no config to read.
   const reviewCandidates = unclaimedCandidates.filter((c) =>
-    c.status === 'install-only' || c.status === 'data-only' || c.status === 'empty',
+    c.status === 'no-config' || c.status === 'install-only' || c.status === 'data-only' || c.status === 'empty',
   )
   const inaccessibleCandidates = unclaimedCandidates.filter((c) => c.status === 'permission-denied')
 

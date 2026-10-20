@@ -213,6 +213,33 @@ describe('Servers.tsx: mount-discovery banner reach and review-tier candidates (
     await waitFor(() => expect(screen.getByDisplayValue('/data')).toBeInTheDocument())
   })
 
+  // A 'ready' candidate with no server .ini used to open the automatic Add
+  // dialog with no config, an empty name and a disabled Add. The scan now
+  // reports it as 'no-config', which goes to the manual form with its reason.
+  it("a 'no-config' candidate (files and save data, no server .ini) shows its reason and hands off to the manual form", async () => {
+    await setUpFixtures()
+    getAll.mockResolvedValue({ servers: [] } as never)
+    discoverMounts.mockResolvedValue({
+      mounts: [], inaccessible: [],
+      candidates: [candidate({
+        installPath: '/pz-server',
+        dataPath: '/zomboid',
+        status: 'no-config',
+        reason: 'Server files and save data found here, but no server configuration yet.',
+        serverNames: [],
+      })],
+    } as never)
+
+    renderServers()
+
+    const reviewButton = await screen.findByRole('button', { name: 'Review & Add' })
+    expect(screen.getByText('Server files and save data found here, but no server configuration yet.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument()
+
+    fireEvent.click(reviewButton)
+    await waitFor(() => expect(screen.getByDisplayValue('/pz-server')).toBeInTheDocument())
+  })
+
   it('a not-mounted candidate is NOT shown -- a checked-and-clear common path is not a signal worth a banner', async () => {
     await setUpFixtures()
     getAll.mockResolvedValue({ servers: [] } as never)
