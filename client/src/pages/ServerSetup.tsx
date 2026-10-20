@@ -358,6 +358,8 @@ export default function ServerSetup() {
   const [serverPort, setServerPort] = useState(16261);
   const [useUpnp, setUseUpnp] = useState(true);
   const [adminPassword, setAdminPassword] = useState("");
+  // Something was typed or picked in a step (see the leave guard below).
+  const [formTouched, setFormTouched] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const missingAdminPassword = adminPassword.trim().length === 0;
   const [useNoSteam, setUseNoSteam] = useState(false);
@@ -2738,10 +2740,12 @@ export default function ServerSetup() {
   });
 
   // Leaving the wizard part-way loses what was typed (the admin password is
-  // never stored): ask first. Not during an install (the in-flight marker
-  // above brings it back) and not once it succeeded.
+  // never stored): ask first, once something was typed (a change event in a
+  // step; the detected defaults are filled in again next time), also from
+  // the choice screen. Not during an install (the in-flight marker above
+  // brings it back) and not once it succeeded.
   useUnsavedChangesGuard(
-    setupMode !== "select" && !installing && !installComplete && (currentStep > 1 || adminPassword.trim() !== ""),
+    !installing && !installComplete && (formTouched || adminPassword.trim() !== ""),
   );
 
   const installReason = !canInstall ? t("common.noPermissionInstall") : null;
@@ -2896,7 +2900,11 @@ export default function ServerSetup() {
         onStepClick={installing ? undefined : (id) => setCurrentStep(Number(id))}
       />
 
-      <SectionCard title={currentStepDef.title}>{currentStepDef.render()}</SectionCard>
+      <SectionCard title={currentStepDef.title}>
+        <div className="contents" onChangeCapture={() => setFormTouched(true)}>
+          {currentStepDef.render()}
+        </div>
+      </SectionCard>
 
       {/* The wizard's one footer: Back, why Next waits, Next / Install. */}
       {!installComplete && (
