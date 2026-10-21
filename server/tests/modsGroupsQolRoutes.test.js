@@ -301,12 +301,11 @@ describe("GET /groups/suggestions", () => {
     return res.getBody().suggestions;
   };
 
-  it("suggests a library with its dependents, a multi-mod Workshop item and a shared name prefix", async () => {
+  it("suggests a library with its dependents and a multi-mod Workshop item; the KI5 name family folds into the library's", async () => {
     const list = await suggestions();
     expect(list.map(({ kind, name, modIds }) => ({ kind, name, modIds }))).toEqual([
       { kind: "dependency", name: "DAMN Library", modIds: ["damnlib", "jeep", "bronco", "pierce"] },
       { kind: "workshop-item", name: "Vanilla Firearms part 1", modIds: ["vfe1", "vfe2", "vfe3", "vfe4"] },
-      { kind: "prefix", name: "KI5", modIds: ["jeep", "bronco", "pierce"] },
     ]);
     for (const s of list) {
       expect(s.key).toMatch(/^(dependency|workshop-item|prefix)-[0-9a-f]{16}$/);

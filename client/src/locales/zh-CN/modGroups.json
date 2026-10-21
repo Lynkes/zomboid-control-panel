@@ -203,6 +203,10 @@
     "createAria": "创建模组组 {{name}}",
     "dismiss": "忽略",
     "dismissAria": "忽略建议 {{name}}",
+    "usesTitle": "使用 {{library}} 的模组",
+    "showAll": "显示全部模组（{{n}}）",
+    "showFewer": "收起",
+    "membersAria": "{{name}} 中的模组",
     "kind": {
       "dependency_one": "{{name}} 及依赖它的模组",
       "dependency_other": "{{name}} 及依赖它的 {{count}} 个模组",

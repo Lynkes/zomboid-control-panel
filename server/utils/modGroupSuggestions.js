@@ -4,12 +4,23 @@
 //
 //   - dependency:    a library mod required by at least 2 other enabled mods,
 //                    plus those mods (library first, then the dependents in
-//                    load order); 3 to 60 mods.
+//                    load order); 3 to 60 mods. A clear majority of the
+//                    dependents must be related (a shared Workshop item or
+//                    distinctive name/ID word with the library or another
+//                    dependent, or a require= between dependents): sharing a
+//                    utility library alone is no family. A library with 5+
+//                    unrelated users is still offered, as "Mods that use
+//                    <library>" (`library` set), ranked last.
 //   - workshop-item: one Workshop item that ships 4 or more enabled mod IDs.
 //   - prefix:        3 or more enabled mods whose display name starts with
 //                    the same distinctive word or bracket tag ("KI5",
 //                    "[KI5]", "Brita's", "Authentic Z", ...), generic words
 //                    and build tags left out.
+//
+// Suggestions that cover mostly the same mods (most of the smaller inside
+// the bigger, or a Jaccard index of 1/2 or more), or carry the same name,
+// are merged into one: the union, under the stronger kind's name
+// (dependency > workshop-item > prefix).
 //
 // Pure and deterministic (same input, same suggestions in the same order),
 // and bounded: every loop is linear in the capped input, so a server with
@@ -27,6 +38,9 @@ export const MOD_GROUP_SUGGESTION_LIMITS = Object.freeze({
   maxNameLength: 200,
   dependencyMin: 3,
   dependencyMax: 60,
+  // A library whose users are not otherwise related: "Mods that use ...",
+  // only from this many users on.
+  dependencyLooseMin: 5,
   workshopItemMin: 4,
   prefixMin: 3,
   // Suggestions answered, after the exclusions.
@@ -192,30 +206,48 @@ export function computeGroupSuggestions({ enabled, mods, groups = [], dismissed 
   }
 
   const candidates = [];
-  const add = (kind, name, modIds, reason) => {
-    candidates.push({ kind, name, modIds: modIds.slice(0, MOD_GROUP_LIMITS.modIdsMax), reason });
+  const add = (kind, name, modIds, reason, extra = {}) => {
+    candidates.push({ kind, name, modIds: modIds.slice(0, MOD_GROUP_LIMITS.modIdsMax), reason, ...extra });
   };
 
   // dependency: library -> the enabled mods that require it.
   const requiredBy = new Map();
+  const requiresOf = new Map();
   for (const [id, mod] of info) {
     const requires = Array.isArray(mod.require) ? mod.require.slice(0, L.maxRequires) : [];
+    const libs = new Set();
     for (const lib of new Set(requires)) {
       if (typeof lib !== "string" || lib === id || !position.has(lib)) continue;
+      libs.add(lib);
       if (!requiredBy.has(lib)) requiredBy.set(lib, []);
       requiredBy.get(lib).push(id);
     }
+    requiresOf.set(id, libs);
   }
+  const tokenCache = new Map();
+  const tokensOf = (id) => {
+    if (!tokenCache.has(id)) tokenCache.set(id, distinctiveTokens(id, info.get(id)?.name));
+    return tokenCache.get(id);
+  };
   for (const lib of [...requiredBy.keys()].sort(byLoadOrder)) {
     const dependents = requiredBy.get(lib).sort(byLoadOrder);
     const size = dependents.length + 1;
     if (dependents.length < 2 || size < L.dependencyMin || size > L.dependencyMax) continue;
-    add(
-      "dependency",
-      groupName(info.get(lib)?.name, lib),
-      [lib, ...dependents],
-      `library required by ${dependents.length} enabled mods`,
-    );
+    // Sharing a library is not enough (an author's alert system that all his
+    // unrelated mods need): a clear majority of the dependents must be
+    // related to the library or to each other.
+    const related = dependents.filter((id) => isRelatedDependent(id, lib, dependents, { info, requiresOf, tokensOf })).length;
+    const libName = groupName(info.get(lib)?.name, lib);
+    if (related * 3 >= dependents.length * 2) {
+      add("dependency", libName, [lib, ...dependents], `library required by ${dependents.length} enabled mods`, {
+        dependents: dependents.length,
+      });
+    } else if (dependents.length >= L.dependencyLooseMin) {
+      add("dependency", groupName(`Mods that use ${libName}`, lib), [lib, ...dependents], `library required by ${dependents.length} enabled mods`, {
+        dependents: dependents.length,
+        library: libName,
+      });
+    }
   }
 
   // workshop-item: one item, 4+ enabled mod IDs.
@@ -254,8 +286,15 @@ export function computeGroupSuggestions({ enabled, mods, groups = [], dismissed 
     add("prefix", groupName(name, members[0].words[0]), members.map((m) => m.id), `${members.length} enabled mods named "${name}"`);
   }
 
-  // One suggestion per member set (dependency, then workshop-item, then
-  // prefix), none inside an existing group, none dismissed.
+  // Candidates that cover mostly the same mods become one (the stronger
+  // kind's name), and so do two with the same name. A merged suggestion is
+  // gone when its member set, or the set it started from, was dismissed
+  // under any kind.
+  const dismissedKeys = new Set(Array.isArray(dismissed) ? dismissed : []);
+  const wasDismissed = (modIds) => KIND_ORDER.some((kind) => dismissedKeys.has(suggestionKey(kind, modIds)));
+  const merged = mergeOverlapping(candidates, byLoadOrder).filter(({ own }) => !wasDismissed(own));
+
+  // One suggestion per member set, none inside an existing group, none dismissed.
   const groupsOf = new Map();
   (Array.isArray(groups) ? groups : []).forEach((group, index) => {
     for (const id of Array.isArray(group?.modIds) ? group.modIds : []) {
@@ -273,27 +312,117 @@ export function computeGroupSuggestions({ enabled, mods, groups = [], dismissed 
     }
     return true;
   };
-  const dismissedKeys = new Set(Array.isArray(dismissed) ? dismissed : []);
   const seenSets = new Set();
   const suggestions = [];
-  for (const kind of KIND_ORDER) {
-    for (const candidate of candidates.filter((c) => c.kind === kind)) {
-      const signature = [...candidate.modIds].sort().join("\n");
-      if (seenSets.has(signature)) continue;
-      seenSets.add(signature);
-      if (insideAGroup(candidate.modIds)) continue;
-      const key = suggestionKey(kind, candidate.modIds);
-      if (dismissedKeys.has(key)) continue;
-      suggestions.push({ key, ...candidate });
-    }
+  for (const { own: _own, ...candidate } of merged) {
+    const signature = [...candidate.modIds].sort().join("\n");
+    if (seenSets.has(signature)) continue;
+    seenSets.add(signature);
+    if (insideAGroup(candidate.modIds) || wasDismissed(candidate.modIds)) continue;
+    suggestions.push({ key: suggestionKey(candidate.kind, candidate.modIds), ...candidate });
   }
 
   suggestions.sort(
     (a, b) =>
-      KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) ||
+      strength(a) - strength(b) ||
       b.modIds.length - a.modIds.length ||
       (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) ||
       (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
   );
   return suggestions.slice(0, L.maxSuggestions);
+}
+
+// ───── Relatedness and merging ─────────────────────────────────────────────
+
+// Lower is stronger: a library with its family, a Workshop item, a name
+// prefix, then a library whose users are not otherwise related.
+function strength(candidate) {
+  if (candidate.kind === "dependency" && candidate.library) return KIND_ORDER.length;
+  return KIND_ORDER.indexOf(candidate.kind);
+}
+
+// The distinctive words of a mod's name and ID ("NeatUI_Framework" ->
+// neat, framework is generic), lower case, generic words, build tags and
+// numbers left out.
+export function distinctiveTokens(id, name) {
+  const out = new Set();
+  const addWords = (text) => {
+    const split = String(text || "")
+      .slice(0, MOD_GROUP_SUGGESTION_LIMITS.maxNameLength)
+      .replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, "$1 $2")
+      .replace(/(\p{Lu})(\p{Lu}\p{Ll})/gu, "$1 $2")
+      .split(/[^\p{L}\p{N}'’]+/u);
+    for (const word of split) {
+      const key = tokenKey(word);
+      if (key.length < 3 || isGenericToken(key)) continue;
+      out.add(key);
+    }
+  };
+  addWords(name);
+  addWords(id);
+  return out;
+}
+
+// Two tokens match when equal, or when one starts with the other and the
+// shorter has at least 4 letters ("neat" and "neatui").
+function tokensMatch(a, b) {
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  return short.length >= 4 && long.startsWith(short);
+}
+
+function shareToken(a, b) {
+  for (const x of a) for (const y of b) if (tokensMatch(x, y)) return true;
+  return false;
+}
+
+// A dependent belongs with its library's family when it shares a Workshop
+// item or a distinctive name/ID word with the library or another dependent,
+// or requires (or is required by) another dependent.
+function isRelatedDependent(id, lib, dependents, { info, requiresOf, tokensOf }) {
+  const ws = info.get(id)?.workshopId;
+  const mine = tokensOf(id);
+  for (const other of [lib, ...dependents]) {
+    if (other === id) continue;
+    if (ws && info.get(other)?.workshopId === ws) return true;
+    if (other !== lib && (requiresOf.get(id)?.has(other) || requiresOf.get(other)?.has(id))) return true;
+    if (shareToken(mine, tokensOf(other))) return true;
+  }
+  return false;
+}
+
+// "Mostly the same mods": most of the smaller set inside the bigger one, or
+// a Jaccard index of at least one half.
+function overlapsHeavily(a, b) {
+  const small = a.size <= b.size ? a : b;
+  const big = small === a ? b : a;
+  let common = 0;
+  for (const id of small) if (big.has(id)) common++;
+  if (common === 0) return false;
+  return common / small.size >= 0.8 || common / (a.size + b.size - common) >= 0.5;
+}
+
+const nameKey = (name) => String(name).normalize("NFKC").toLowerCase().trim();
+
+// Strongest first, each candidate folds into the first kept one it overlaps
+// heavily or shares its name with: the union of the mods (a library stays
+// first, the rest in load order), the kept one's kind and name.
+function mergeOverlapping(candidates, byLoadOrder) {
+  const ordered = [...candidates].sort(
+    (a, b) => strength(a) - strength(b) || b.modIds.length - a.modIds.length || byLoadOrder(a.modIds[0], b.modIds[0]),
+  );
+  const kept = [];
+  for (const candidate of ordered) {
+    const set = new Set(candidate.modIds);
+    const into = kept.find((k) => nameKey(k.name) === nameKey(candidate.name) || overlapsHeavily(k.set, set));
+    if (!into) {
+      kept.push({ ...candidate, set, own: candidate.modIds });
+      continue;
+    }
+    for (const id of candidate.modIds) into.set.add(id);
+    const all = [...into.set];
+    const union = into.kind === "dependency" ? [all[0], ...all.slice(1).sort(byLoadOrder)] : all.sort(byLoadOrder);
+    into.modIds = union.slice(0, MOD_GROUP_LIMITS.modIdsMax);
+  }
+  return kept.map(({ set: _set, ...candidate }) => candidate);
 }

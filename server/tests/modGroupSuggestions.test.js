@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MOD_GROUP_SUGGESTION_LIMITS,
   computeGroupSuggestions,
+  distinctiveTokens,
   isSuggestionKey,
   namePrefixWords,
   suggestionKey,
@@ -55,10 +56,12 @@ describe("dependency suggestions", () => {
   it("groups a library with the enabled mods that require it: library first, then load order", () => {
     const deps = ofKind(run(), "dependency");
     expect(deps.map(shape)).toEqual([
+      // Brita's Launchers joins from the "Brita's" name family (half the mods shared).
+      { kind: "dependency", name: "Arsenal(26) GunFighter", modIds: ["ArsenalGunFighter", "Brita", "Brita_2", "BritaLaunchers"] },
       { kind: "dependency", name: "DAMN Library", modIds: ["damnlib", "82jeepJ10", "93fordBronco", "90pierceArrow"] },
-      { kind: "dependency", name: "Arsenal(26) GunFighter", modIds: ["ArsenalGunFighter", "Brita", "Brita_2"] },
     ]);
-    expect(deps[0].reason).toBe("library required by 3 enabled mods");
+    expect(deps[1]).toMatchObject({ reason: "library required by 3 enabled mods", dependents: 3 });
+    expect(deps[0].dependents).toBe(2);
   });
 
   it("follows the load order for the dependents", () => {
@@ -78,9 +81,9 @@ describe("dependency suggestions", () => {
 
   it("ignores a mod requiring itself, repeated require= entries and require= of a mod that is not enabled", () => {
     const mods = [
-      mod("lib", "Lib", "1"),
-      mod("a", "A", "2", ["lib", "lib", "a", "ghost"]),
-      mod("b", "B", "3", ["lib"]),
+      mod("lib", "Foo Library", "1"),
+      mod("a", "Foo Alpha", "2", ["lib", "lib", "a", "ghost"]),
+      mod("b", "Foo Beta", "3", ["lib"]),
     ];
     const [dep] = computeGroupSuggestions({ enabled: ["lib", "a", "b"], mods });
     expect(dep).toMatchObject({ kind: "dependency", modIds: ["lib", "a", "b"] });
@@ -123,7 +126,9 @@ describe("workshop-item suggestions", () => {
 
 describe("prefix suggestions", () => {
   it("groups names that start with the same distinctive word or bracket tag", () => {
-    expect(ofKind(run(), "prefix").map(shape)).toEqual([
+    // Every mod on its own Workshop item, no require=: only name families.
+    const mods = MODS.map((m, i) => mod(m.id, m.name, String(9000 + i)));
+    expect(ofKind(run({ mods }), "prefix").map(shape)).toEqual([
       { kind: "prefix", name: "VFE", modIds: ["VFETweaks", "VFE_Brita", "VFE_Arsenal", "VFE_NoCraft"] },
       { kind: "prefix", name: "Authentic Z", modIds: ["AuthenticZCurrent", "AuthenticZBackpacks+", "AuthenticZLite"] },
       { kind: "prefix", name: "Brita's", modIds: ["Brita", "Brita_2", "BritaLaunchers"] },
@@ -206,15 +211,7 @@ describe("keys, exclusions and order", () => {
 
   it("orders by kind, then size, and is the same on every run", () => {
     const suggestions = run();
-    expect(suggestions.map((s) => s.kind)).toEqual([
-      "dependency",
-      "dependency",
-      "workshop-item",
-      "prefix",
-      "prefix",
-      "prefix",
-      "prefix",
-    ]);
+    expect(suggestions.map((s) => s.kind)).toEqual(["dependency", "dependency", "workshop-item", "prefix"]);
     expect(run()).toEqual(suggestions);
     expect(run({ mods: [...MODS].reverse() })).toEqual(suggestions);
   });
@@ -230,6 +227,116 @@ describe("keys, exclusions and order", () => {
     const mods = [1, 2, 3].map((i) => mod(`m${i}`, `${long} part ${i}`, String(i)));
     const [s] = computeGroupSuggestions({ enabled: mods.map((m) => m.id), mods });
     expect(s.name.length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("only related mods make a library family (real shapes)", () => {
+  const suggest = (mods) => computeGroupSuggestions({ enabled: mods.map((m) => m.id), mods });
+
+  it("a utility library every mod of one author needs is no group: Chuck's alert system with 2 unrelated mods", () => {
+    const mods = [
+      mod("ChuckleberryFinnAlertSystem", "Mod Update and Alert System", "2963329185"),
+      mod("errorMagnifier", "Error Magnifier", "2896041179", ["ChuckleberryFinnAlertSystem"]),
+      mod("SkillRecoveryJournal", "Skill Recovery Journal", "2503622437", ["ChuckleberryFinnAlertSystem"]),
+    ];
+    expect(suggest(mods)).toEqual([]);
+  });
+
+  it("5 or more unrelated users: \"Mods that use <library>\", ranked below the real families", () => {
+    const chuck = [
+      mod("ChuckleberryFinnAlertSystem", "Mod Update and Alert System", "2963329185"),
+      ...[
+        ["errorMagnifier", "Error Magnifier"],
+        ["SkillRecoveryJournal", "Skill Recovery Journal"],
+        ["ExpandedHelicopterEvents", "Expanded Helicopter Events"],
+        ["FancyHandwork", "Fancy Handwork"],
+        ["NamedLiterature", "Named Literature"],
+      ].map(([id, name], i) => mod(id, name, String(2896041100 + i), ["ChuckleberryFinnAlertSystem"])),
+    ];
+    const authentic = MODS.filter((m) => m.id.startsWith("AuthenticZ"));
+    const suggestions = suggest([...chuck, ...authentic]);
+    expect(suggestions.map((s) => s.name)).toEqual(["Authentic Z", "Mods that use Mod Update and Alert System"]);
+    expect(suggestions[1]).toMatchObject({ kind: "dependency", library: "Mod Update and Alert System", dependents: 5 });
+    expect(suggestions[1].modIds[0]).toBe("ChuckleberryFinnAlertSystem");
+  });
+
+  it("keeps DAMN Library and its 24 KI5 vehicles as one family", () => {
+    const vehicles = Array.from({ length: 24 }, (_, i) => mod(`ki5car${i}`, `[KI5] Vehicle ${String.fromCharCode(65 + i)}`, String(2525061300 + i), ["damnlib"]));
+    const [s, ...rest] = suggest([mod("damnlib", "DAMN Library", "3171167894"), ...vehicles]);
+    expect(rest).toEqual([]);
+    expect(s).toMatchObject({ kind: "dependency", name: "DAMN Library", dependents: 24 });
+    expect(s.modIds).toEqual(["damnlib", ...vehicles.map((v) => v.id)]);
+    expect(s.library).toBeUndefined();
+  });
+
+  it("keeps Tali's New Music and its packs (related to the library by name)", () => {
+    const mods = [
+      mod("TalisNewMusic", "Tali's New Music", "3401000000"),
+      mod("TaliRock", "Tali's Rock Collection", "3401000001", ["TalisNewMusic"]),
+      mod("TaliJazz", "Jazz Nights for Tali", "3401000002", ["TalisNewMusic"]),
+    ];
+    expect(suggest(mods).map(shape)).toEqual([{ kind: "dependency", name: "Tali's New Music", modIds: ["TalisNewMusic", "TaliRock", "TaliJazz"] }]);
+  });
+
+  it("keeps '86 Ford Econoline and its add-ons", () => {
+    const mods = [
+      mod("86fordE150", "'86 Ford Econoline", "2786499395"),
+      mod("86fordE150amb", "Econoline Ambulance", "2786499396", ["86fordE150"]),
+      mod("E150Camper", "Ford Econoline Camper", "2786499397", ["86fordE150"]),
+    ];
+    expect(suggest(mods).map(shape)).toEqual([{ kind: "dependency", name: "'86 Ford Econoline", modIds: ["86fordE150", "86fordE150amb", "E150Camper"] }]);
+  });
+
+  it("reads the distinctive words of a name and an ID", () => {
+    expect([...distinctiveTokens("NeatUI_Framework", "NeatUI_Framework")]).toEqual(["neat"]);
+    expect([...distinctiveTokens("ChuckleberryFinnAlertSystem", "Mod Update and Alert System")]).toEqual(["alert", "system", "chuckleberry", "finn"]);
+    expect([...distinctiveTokens("SkillRecoveryJournal", "Skill Recovery Journal")]).toEqual(["recovery", "journal"]);
+  });
+});
+
+describe("overlapping suggestions are merged", () => {
+  const suggest = (mods, extra = {}) => computeGroupSuggestions({ enabled: mods.map((m) => m.id), mods, ...extra });
+
+  it("NeatUI_Framework and 6 mods that need it + 7 mods named Neat: one suggestion, the union, the library's name", () => {
+    const neat = ["Crafting", "Building", "Tooltips", "Inventory", "Vehicles", "Fishing"].map((word, i) =>
+      mod(`Neat${word}`, `Neat ${word}`, String(3100000001 + i), ["NeatUI_Framework"]),
+    );
+    const mods = [mod("NeatUI_Framework", "NeatUI_Framework", "3100000000"), ...neat, mod("NeatHotbar", "Neat Hotbar", "3100000010")];
+    const suggestions = suggest(mods);
+    expect(suggestions.map(shape)).toEqual([
+      { kind: "dependency", name: "NeatUI_Framework", modIds: ["NeatUI_Framework", ...neat.map((m) => m.id), "NeatHotbar"] },
+    ]);
+    expect(suggestions[0].dependents).toBe(6);
+  });
+
+  it("Spongie's Character Customisation and 2 mods that need it + 3 mods named the same: one suggestion", () => {
+    const mods = [
+      mod("SPNCC", "Spongie's Character Customisation", "3001"),
+      mod("SPNCCDetails", "Spongie's Character Customisation - Details", "3002", ["SPNCC"]),
+      mod("SPNCCFaces", "Spongie's Character Customisation - Faces", "3003", ["SPNCC"]),
+      mod("SPNCCHair", "Spongie's Character Customisation - Hair", "3004"),
+    ];
+    expect(suggest(mods).map(shape)).toEqual([
+      { kind: "dependency", name: "Spongie's Character Customisation", modIds: ["SPNCC", "SPNCCDetails", "SPNCCFaces", "SPNCCHair"] },
+    ]);
+  });
+
+  it("never answers two suggestions with the same name", () => {
+    const items = ["A", "B"].flatMap((item, w) => [1, 2, 3, 4].map((i) => mod(`${item}${i}`, `The Thing ${item}${i}`, String(4000 + w))));
+    const suggestions = suggest(items, { workshopTitles: { 4000: "Zed Pack", 4001: "Zed Pack" } });
+    expect(suggestions.map((s) => s.name)).toEqual(["Zed Pack"]);
+    expect(suggestions[0].modIds).toHaveLength(8);
+  });
+
+  it("keeps separate families apart", () => {
+    const mods = MODS.filter((m) => m.id.startsWith("AuthenticZ") || m.id === "damnlib" || /^\d/.test(m.id));
+    expect(suggest(mods).map((s) => s.name)).toEqual(["DAMN Library", "Authentic Z"]);
+  });
+
+  it("a dismissed merged suggestion stays dismissed", () => {
+    const mods = MODS.filter((m) => ["damnlib", "82jeepJ10", "93fordBronco", "90pierceArrow"].includes(m.id));
+    const [s] = suggest(mods);
+    expect(suggest(mods, { dismissed: [s.key] })).toEqual([]);
   });
 });
 

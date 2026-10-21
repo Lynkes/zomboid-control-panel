@@ -223,6 +223,10 @@
     "createAria": "Створити групу {{name}}",
     "dismiss": "Відхилити",
     "dismissAria": "Відхилити пропозицію {{name}}",
+    "usesTitle": "Моди, що використовують {{library}}",
+    "showAll": "Показати всі моди ({{n}})",
+    "showFewer": "Показати менше",
+    "membersAria": "Моди в {{name}}",
     "kind": {
       "dependency_one": "{{name}} і мод, якому він потрібен",
       "dependency_few": "{{name}} і {{count}} моди, яким він потрібен",

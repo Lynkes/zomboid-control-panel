@@ -241,6 +241,10 @@
     "createAria": "إنشاء المجموعة {{name}}",
     "dismiss": "تجاهل",
     "dismissAria": "تجاهل الاقتراح {{name}}",
+    "usesTitle": "مودات تستخدم {{library}}",
+    "showAll": "عرض كل المودات ({{n}})",
+    "showFewer": "عرض أقل",
+    "membersAria": "المودات في {{name}}",
     "kind": {
       "dependency_zero": "{{name}} و{{count}} من المودات التي تحتاج إليه",
       "dependency_one": "{{name}} والمود الذي يحتاج إليه",
