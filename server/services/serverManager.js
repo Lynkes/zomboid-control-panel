@@ -819,7 +819,28 @@ export function classifyWin32ProcessRows(stdout) {
   return result;
 }
 
+// Single-flight: a caller asking while the same script already runs shares
+// that run's answer. The status poll, the watchdog, the Dashboard, the
+// Servers list and the restart wait each asked on their own: a 1.5.0 support
+// bundle showed up to 57 scans a minute, so on a 4-core PC also running the
+// game ~8 PowerShells ran at once, starved each other past the timeout, and
+// every one failed -- the root cause of "server state unknown". With this at
+// most one runs; a look that starts after it returns starts a fresh one.
+const windowsPowerShellInFlight = new Map();
+function abandonWindowsPowerShellRuns() {
+  windowsPowerShellInFlight.clear();
+}
 function runWindowsPowerShell(script, timeoutMs) {
+  const running = windowsPowerShellInFlight.get(script);
+  if (running) return running;
+  const run = spawnWindowsPowerShell(script, timeoutMs).finally(() => {
+    if (windowsPowerShellInFlight.get(script) === run) windowsPowerShellInFlight.delete(script);
+  });
+  windowsPowerShellInFlight.set(script, run);
+  return run;
+}
+
+function spawnWindowsPowerShell(script, timeoutMs) {
   return new Promise((resolve) => {
     execFile(
       windowsPowerShellPath(),
@@ -1732,6 +1753,9 @@ export class ServerManager {
         // supersession) so its own real callback, whenever it eventually
         // lands, sees a stale generation and skips the this.isRunning write.
         if (this._scanGeneration === scanGeneration) this._scanGeneration++;
+        // A run this late is abandoned: the next scan starts a fresh one
+        // instead of joining it (see runWindowsPowerShell()).
+        abandonWindowsPowerShellRuns();
         log.warn(
           "getServerProcessDetails: process detection timed out, cannot determine server state",
         );
