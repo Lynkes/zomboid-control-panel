@@ -60,6 +60,14 @@ export interface HealthText {
   fixLabel: (fix: ModHealthFix) => string
   /** What a destructive fix removes, one line per target (for the confirm dialog). */
   removedTargets: (fix: ModHealthFix) => string[]
+  /** The confirm dialog's explanation of a destructive fix. */
+  confirmDescription: (fix: ModHealthFix) => string
+  /**
+   * Workshop items that ship the same mods, in one sentence: which items,
+   * which mods, that the server loads one copy of each and which one is not
+   * defined, and to keep one item.
+   */
+  duplicateSentence: (workshopIds: readonly string[], modIds: readonly string[], titles?: Readonly<Record<string, unknown>>) => string
   mod: (modId: string) => string
   item: (workshopId: string, fallbackTitle?: string | null) => string
 }
@@ -97,6 +105,14 @@ export function useHealthText({ modName, itemTitle }: HealthTextOptions): Health
   const items = useCallback((ids: string[]) => list(ids.map((id) => item(id))), [list, item])
 
   const title = useCallback((issue: ModHealthIssue) => t(`kind.${issue.kind}.title`), [t])
+
+  const duplicateSentence = useCallback(
+    (workshopIds: readonly string[], modIds: readonly string[], titles: Readonly<Record<string, unknown>> = {}) => {
+      const names = list(workshopIds.map((ws) => item(ws, str(titles[ws]) || null)))
+      return t(workshopIds.length > 2 ? 'duplicates.many' : 'duplicates.pair', { items: names, mods: list([...modIds]) })
+    },
+    [t, list, item],
+  )
 
   const body = useCallback((issue: ModHealthIssue): string[] => {
     const p = issue.params ?? {}
@@ -138,8 +154,20 @@ export function useHealthText({ modName, itemTitle }: HealthTextOptions): Health
         return [t('kind.b41Only.body', { mod: mod(str(p.modId) || issue.modIds[0] || ''), item: item(str(p.workshopId) || issue.workshopIds[0] || '') })]
       case 'incompatibleEnabled':
         return [t('kind.incompatibleEnabled.body', { a: mod(str(p.modId)), b: mod(str(p.other)), declaredBy: mod(str(p.declaredBy) || str(p.modId)) })]
-      case 'duplicateModId':
-        return [t('kind.duplicateModId.body', { mod: str(p.modId) || issue.modIds[0] || '', items: items(strings(p.workshopIds).length ? strings(p.workshopIds) : issue.workshopIds) })]
+      case 'duplicateModId': {
+        const ids = strings(p.modIds).length ? strings(p.modIds) : str(p.modId) ? [str(p.modId)] : issue.modIds
+        const wsIds = strings(p.workshopIds).length ? strings(p.workshopIds) : issue.workshopIds
+        const titles = p.titles && typeof p.titles === 'object' ? (p.titles as Record<string, unknown>) : {}
+        const loads = p.loads && typeof p.loads === 'object' ? (p.loads as { source?: unknown; workshopId?: unknown }) : null
+        if (loads) {
+          const from = str(loads.workshopId)
+            ? item(str(loads.workshopId), str(titles[str(loads.workshopId)]) || null)
+            : t(loads.source === 'staged' ? 'duplicates.sourceStaged' : 'duplicates.sourceLocal')
+          return [t('duplicates.defined', { mods: list(ids), from })]
+        }
+        if (wsIds.length >= 2) return [duplicateSentence(wsIds, ids, titles)]
+        return [t('duplicates.local', { mods: list(ids) })]
+      }
       case 'mapNotInMapLine':
         return [t('kind.mapNotInMapLine.body', { mod: mod(str(p.modId)), folders: list(strings(p.folders)) })]
       case 'mapFolderWithoutMod': {
@@ -171,7 +199,7 @@ export function useHealthText({ modName, itemTitle }: HealthTextOptions): Health
       default:
         return []
     }
-  }, [t, mods, mod, items, item, list])
+  }, [t, mods, mod, items, item, list, duplicateSentence])
 
   const fixLabel = useCallback((fix: ModHealthFix): string => {
     const p = fix.params ?? {}
@@ -188,6 +216,7 @@ export function useHealthText({ modName, itemTitle }: HealthTextOptions): Health
           ? t('fix.addWorkshopItemsAndMods', { count: workshopIds.length, items: items(workshopIds), mods: mods(modIds) })
           : t('fix.addWorkshopItems', { count: workshopIds.length, items: items(workshopIds) })
       case 'removeWorkshopItems':
+        if (str(p.keep)) return t('duplicates.keep', { item: item(str(p.keep)) })
         return t('fix.removeWorkshopItems', { count: workshopIds.length, items: items(workshopIds) })
       case 'addMapFolders':
         return t('fix.addMapFolders', { folders: list(folders) })
@@ -198,21 +227,35 @@ export function useHealthText({ modName, itemTitle }: HealthTextOptions): Health
       default:
         return fix.label
     }
-  }, [t, mods, items, list])
+  }, [t, mods, items, item, list])
 
   const removedTargets = useCallback((fix: ModHealthFix): string[] => {
     const p = fix.params ?? {}
+    const modLine = (id: string) => (modName(id) && modName(id) !== id ? `${modName(id)} (${id})` : id)
+    const itemLine = (id: string) => (itemTitle(id) ? `${itemTitle(id)} (${id})` : id)
     switch (fix.action) {
       case 'removeMods':
-        return strings(p.modIds).map((id) => (modName(id) && modName(id) !== id ? `${modName(id)} (${id})` : id))
-      case 'removeWorkshopItems':
-        return strings(p.workshopIds).map((id) => (itemTitle(id) ? `${itemTitle(id)} (${id})` : id))
+        return strings(p.modIds).map(modLine)
+      case 'removeWorkshopItems': {
+        if (!str(p.keep)) return strings(p.workshopIds).map(itemLine)
+        // "Keep <item>": exactly what leaves each line of the ini.
+        const lines = strings(p.workshopIds).map((id) => t('duplicates.removedItem', { item: itemLine(id) }))
+        for (const id of strings(p.modIds)) lines.push(t('duplicates.removedMod', { mod: modLine(id) }))
+        for (const id of strings(p.dedupeModIds)) lines.push(t('duplicates.removedRepeat', { mod: id }))
+        return lines
+      }
       case 'removeMapFolders':
         return strings(p.folders)
       default:
         return []
     }
-  }, [modName, itemTitle])
+  }, [modName, itemTitle, t])
 
-  return { title, body, fixLabel, removedTargets, mod, item }
+  const confirmDescription = useCallback((fix: ModHealthFix): string => {
+    const keep = str(fix.params?.keep)
+    if (fix.action === 'removeWorkshopItems' && keep) return t('duplicates.confirmKeep', { item: item(keep) })
+    return t(`confirm.${fix.action}`)
+  }, [t, item])
+
+  return { title, body, fixLabel, removedTargets, confirmDescription, duplicateSentence, mod, item }
 }

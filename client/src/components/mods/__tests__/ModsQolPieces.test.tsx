@@ -197,7 +197,63 @@ describe('GroupSuggestions', () => {
     // A library suggestion counts the mods needing it, not the library.
     expect(list).toHaveTextContent('KI5 Library and 2 mods that need it')
     expect(list).toHaveTextContent('3 mods named "Brita…"')
-    expect(list).toHaveTextContent('KI5 Library, Car one, Car two')
+    const members = screen.getByRole('list', { name: 'Mods in KI5 Library' })
+    expect(within(members).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['KI5 Library', 'Car one', 'Car two'])
+  })
+
+  it('shows every member, one per line: "Show all mods (N)" past the first three', () => {
+    const names = [
+      'Generator Streetlights Restored [B42]',
+      'Generator Streetlights Restored - Rural Roads',
+      'Generator Streetlights Restored - Highways',
+      'Generator Streetlights Restored - Parking Lots',
+      'Generator Streetlights Restored - Louisville',
+    ]
+    const suggestion: ModGroupSuggestion = { key: 'workshop-item-0123456789abcdef', kind: 'workshop-item', name: 'Generator Streetlights Restored', modIds: names.map((_, i) => `GSR${i}`) }
+    const onCreate = vi.fn()
+    render(
+      <TooltipProvider>
+        <GroupSuggestions suggestions={[suggestion]} modNames={Object.fromEntries(names.map((n, i) => [`GSR${i}`, n]))} canManage onCreate={onCreate} onDismiss={vi.fn()} storageKey="test:suggestions-all" />
+      </TooltipProvider>,
+    )
+    const members = () => within(screen.getByRole('list', { name: 'Mods in Generator Streetlights Restored' })).getAllByRole('listitem').map((li) => li.textContent)
+    expect(members()).toEqual(names.slice(0, 3))
+
+    const toggle = screen.getByRole('button', { name: 'Show all mods (5)' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(members()).toEqual(names)
+    expect(screen.getByRole('button', { name: 'Show fewer' })).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create the group Generator Streetlights Restored' }))
+    expect(onCreate).toHaveBeenCalledWith(suggestion)
+    expect(onCreate.mock.calls[0][0].modIds).toHaveLength(5)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(members()).toEqual(names.slice(0, 3))
+  })
+
+  it('titles a library with unrelated users "Mods that use <library>", counts only the mods that need it, and creates the group under that name', () => {
+    const suggestion: ModGroupSuggestion = {
+      key: 'dependency-0123456789abcdef',
+      kind: 'dependency',
+      name: 'Mods that use Mod Update and Alert System',
+      library: 'Mod Update and Alert System',
+      dependents: 5,
+      // The last one joined from an overlapping suggestion: it does not need the library.
+      modIds: ['ChuckleberryFinnAlertSystem', 'errorMagnifier', 'SkillRecoveryJournal', 'FancyHandwork', 'NamedLiterature', 'ExpandedHelicopterEvents', 'SpiffoLetters'],
+    }
+    const onCreate = vi.fn()
+    render(
+      <TooltipProvider>
+        <GroupSuggestions suggestions={[suggestion]} modNames={{}} canManage onCreate={onCreate} onDismiss={vi.fn()} storageKey="test:suggestions-uses" />
+      </TooltipProvider>,
+    )
+    const list = screen.getByRole('list', { name: 'Suggested groups' })
+    expect(list).toHaveTextContent('Mods that use Mod Update and Alert System')
+    expect(list).toHaveTextContent('Mod Update and Alert System and 5 mods that need it')
+    fireEvent.click(screen.getByRole('button', { name: 'Create the group Mods that use Mod Update and Alert System' }))
+    expect(onCreate).toHaveBeenCalledWith({ ...suggestion, name: 'Mods that use Mod Update and Alert System' })
   })
 
   it('creates and dismisses', () => {

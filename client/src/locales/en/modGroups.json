@@ -205,6 +205,10 @@
     "createAria": "Create the group {{name}}",
     "dismiss": "Dismiss",
     "dismissAria": "Dismiss the suggestion {{name}}",
+    "usesTitle": "Mods that use {{library}}",
+    "showAll": "Show all mods ({{n}})",
+    "showFewer": "Show fewer",
+    "membersAria": "Mods in {{name}}",
     "kind": {
       "dependency_one": "{{name}} and the mod that needs it",
       "dependency_other": "{{name}} and {{count}} mods that need it",

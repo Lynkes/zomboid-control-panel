@@ -203,6 +203,10 @@
     "createAria": "建立群組 {{name}}",
     "dismiss": "略過",
     "dismissAria": "略過建議 {{name}}",
+    "usesTitle": "使用 {{library}} 的模組",
+    "showAll": "顯示全部模組（{{n}}）",
+    "showFewer": "收合",
+    "membersAria": "{{name}} 中的模組",
     "kind": {
       "dependency_one": "{{name}} 及依賴它的模組",
       "dependency_other": "{{name}} 及依賴它的 {{count}} 個模組",

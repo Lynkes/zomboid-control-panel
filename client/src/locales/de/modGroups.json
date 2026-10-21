@@ -205,6 +205,10 @@
     "createAria": "Gruppe {{name}} erstellen",
     "dismiss": "Verwerfen",
     "dismissAria": "Vorschlag {{name}} verwerfen",
+    "usesTitle": "Mods, die {{library}} nutzen",
+    "showAll": "Alle Mods zeigen ({{n}})",
+    "showFewer": "Weniger zeigen",
+    "membersAria": "Mods in {{name}}",
     "kind": {
       "dependency_one": "{{name}} und die davon abhängige Mod",
       "dependency_other": "{{name}} und {{count}} davon abhängige Mods",

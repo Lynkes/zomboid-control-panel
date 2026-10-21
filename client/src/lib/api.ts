@@ -1443,6 +1443,10 @@ export interface ModGroupSuggestion {
   name: string;
   modIds: string[];
   reason?: string;
+  /** dependency: how many of the mods require the library (the rest joined from an overlapping suggestion). */
+  dependents?: number;
+  /** dependency whose users are not otherwise related: the library's name; titled "Mods that use <library>". */
+  library?: string;
 }
 
 // GET /mods/notes, PUT /mods/notes/:workshopId. One note per Workshop item,
@@ -2351,9 +2355,11 @@ export type ModHealthFixAction =
 export interface ModHealthFix {
   action: ModHealthFixAction;
   // removeMods { modIds }, addMods { modIds, before? }, addWorkshopItems
-  // { workshopIds, modIds?, before? }, removeWorkshopItems { workshopIds },
-  // addMapFolders / removeMapFolders { folders }, applyPlan {}.
-  params: { modIds?: string[]; workshopIds?: string[]; folders?: string[]; before?: string };
+  // { workshopIds, modIds?, before? }, removeWorkshopItems { workshopIds,
+  // modIds?, dedupeModIds?, keep? } ("Keep <keep>" of a duplicate: the other
+  // items leave, with the Mods= entries only they ship), addMapFolders /
+  // removeMapFolders { folders }, applyPlan {}.
+  params: { modIds?: string[]; workshopIds?: string[]; folders?: string[]; before?: string; keep?: string; dedupeModIds?: string[] };
   // English fallback; translate by action and params.
   label: string;
 }

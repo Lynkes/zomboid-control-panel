@@ -214,6 +214,10 @@
     "createAria": "Créer le groupe {{name}}",
     "dismiss": "Ignorer",
     "dismissAria": "Ignorer la suggestion {{name}}",
+    "usesTitle": "Mods qui utilisent {{library}}",
+    "showAll": "Afficher tous les mods ({{n}})",
+    "showFewer": "Afficher moins",
+    "membersAria": "Mods de {{name}}",
     "kind": {
       "dependency_one": "{{name}} et le mod qui en dépend",
       "dependency_many": "{{name}} et {{count}} mods qui en dépendent",

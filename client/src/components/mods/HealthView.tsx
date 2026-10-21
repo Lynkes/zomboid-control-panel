@@ -88,7 +88,7 @@ export function HealthView({
     if (isDestructiveFix(fix)) {
       const ok = await confirm({
         title: t('confirm.title'),
-        description: t(`confirm.${fix.action}`),
+        description: text.confirmDescription(fix),
         items: text.removedTargets(fix),
         confirmLabel: t('confirm.remove'),
         destructive: true,

@@ -205,6 +205,10 @@
     "createAria": "Kreye gwoup {{name}}",
     "dismiss": "Ekate",
     "dismissAria": "Ekate sijesyon {{name}}",
+    "usesTitle": "Mod ki itilize {{library}}",
+    "showAll": "Montre tout mod yo ({{n}})",
+    "showFewer": "Montre mwens",
+    "membersAria": "Mod nan {{name}}",
     "kind": {
       "dependency_one": "{{name}} ak mod ki bezwen l",
       "dependency_other": "{{name}} ak {{count}} mods ki bezwen l",
