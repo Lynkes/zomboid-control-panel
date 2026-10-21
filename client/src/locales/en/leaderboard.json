@@ -1,8 +1,7 @@
 {
   "page": {
     "title": "Leaderboard",
-    "description": "A lightweight server scoreboard for survival, kills, deaths, and weapon mastery.",
-    "eyebrow": "// LIVE · SURVIVAL RANKINGS"
+    "description": "A lightweight server scoreboard for survival, kills, deaths, and weapon mastery."
   },
   "bridge": {
     "summary": "Reads the PanelBridge scoreboard kept on the server."
@@ -10,6 +9,7 @@
   "actions": {
     "refresh": "Refresh",
     "retry": "Retry",
+    "openBridgeSettings": "PanelBridge settings",
     "copyDiagnostics": "Copy diagnostics",
     "copyDiagnosticsTitle": "Copies a summary for a support request: usernames, read times, kills, days and deaths. No SteamIDs.",
     "copied": "Copied",
@@ -41,6 +41,7 @@
   "daysShort": "{{value}} d",
   "table": {
     "title": "All survivors",
+    "rank": "Rank",
     "updated": "Updated {{date}}",
     "waitingForUpdate": "Waiting for the first live read",
     "search": "Search survivors...",
@@ -58,7 +59,8 @@
     "noMatchesDescription": "Try another name or weapon.",
     "notReadYet": "Not read yet",
     "notReadYetTitle": "PanelBridge hasn't read this player's kills and days yet. It reads everyone online once a minute.",
-    "lastRead": "Last read {{date}}"
+    "lastRead": "Last read {{date}}",
+    "openPlayer": "Open {{name}} in Players"
   },
   "stale": {
     "title": "Showing the last known board"

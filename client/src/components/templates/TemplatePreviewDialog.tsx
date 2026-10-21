@@ -95,7 +95,10 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
         })
     }
 
-    if (active && !active.isRemote) {
+    // The comparison reads the server's live settings, so it is
+    // templates.manage's like Apply (POST /templates/:id/preview refuses
+    // anyone else); a role without it gets the note below instead.
+    if (active && !active.isRemote && canManage) {
       try {
         const result = await templatesApi.preview(tpl.meta.id, active.id)
         if (loadIdRef.current !== loadId) return
@@ -107,7 +110,7 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
       }
     }
     if (loadIdRef.current === loadId) setServerLoading(false)
-  }, [t])
+  }, [t, canManage])
 
   useEffect(() => {
     if (template) load(template)
@@ -205,6 +208,12 @@ export function TemplatePreviewDialog({ template, canManage, onClose, onApplied 
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>{t('remoteServerTitle')}</AlertTitle>
             <AlertDescription>{t('remoteServerDesc')}</AlertDescription>
+          </Alert>
+        ) : !canManage ? (
+          <Alert variant="warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>{t('previewNoAccessTitle')}</AlertTitle>
+            <AlertDescription>{t('previewNoAccessDesc')}</AlertDescription>
           </Alert>
         ) : diffError ? (
           <Alert variant="destructive">

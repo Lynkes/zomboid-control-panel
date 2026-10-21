@@ -12,7 +12,7 @@
     "retry": "Eseye ankò"
   },
   "pageHeader": {
-    "title": "Jesyon Mods",
+    "title": "Mods",
     "description": "Ajoute, mete ajou, ak konfigire mods Steam Workshop sou sèvè ou a",
     "eyebrow": "Workshop",
     "addMod": "Ajoute Mod"
@@ -41,7 +41,11 @@
     "importCollection": "Enpòte Koleksyon",
     "autoRestartSettings": "Paramèt Redemaraj Otomatik",
     "autoRestart": "Redemaraj otomatik",
-    "autoRestartAria": "Bakile redemaraj otomatik lè mod mete ajou"
+    "autoRestartAria": "Bakile redemaraj otomatik lè mod mete ajou",
+    "autoRestartOn": "Redemaraj otomatik: aktive",
+    "autoRestartOff": "Redemaraj otomatik: dezaktive",
+    "autoRestartOnAria": "Redemaraj otomatik aktive. Ouvri paramèt li yo",
+    "autoRestartOffAria": "Redemaraj otomatik dezaktive. Ouvri paramèt li yo"
   },
   "restartPending": {
     "title": "Redemaraj An Atant",
@@ -107,8 +111,8 @@
       "hint": "Ajoute pa Workshop ID oswa URL"
     },
     "collection": {
-      "label": "Enpòte koleksyon",
-      "hint": "Pran tout atik nan yon koleksyon Steam"
+      "label": "Koleksyon",
+      "hint": "Enpòte yon koleksyon, oswa kenbe pa w la senkwonize"
     },
     "order": {
       "label": "Òd chajman",
@@ -125,7 +129,10 @@
     "tools": {
       "label": "Zouti",
       "hint": "Repare, retire doublon, ak netwaye"
-    }
+    },
+    "groupLibrary": "Bibliyotèk",
+    "groupServer": "Sou sèvè a",
+    "groupTools": "Zouti"
   },
   "collectionDialog": {
     "title": "Enpòte Koleksyon Steam Workshop",
@@ -150,7 +157,8 @@
     "openWorkshopAria": "Ouvri paj workshop (louvri nan yon nouvo onglè)",
     "cancel": "Anile",
     "adding": "N ap ajoute...",
-    "addToServer": "Ajoute {{count}} Mods sou Sèvè a"
+    "addToServer": "Ajoute {{count}} Mods sou Sèvè a",
+    "fetchAria": "Chèche koleksyon an"
   },
   "addModDialog": {
     "title": "Ajoute Mod Workshop",
@@ -208,7 +216,8 @@
     "currentMaxDelay": "• Ranvwa maks: {{minutes}} minit",
     "cancel": "Anile",
     "saving": "N ap sove...",
-    "saveSettings": "Sove Paramèt"
+    "saveSettings": "Sove Paramèt",
+    "autoRestartHint": "Redemare sèvè a poukont li lè Steam pibliye yon mizajou pou youn nan mods li yo."
   },
   "installedTab": {
     "searchPlaceholder": "Chèche mods...",
@@ -226,6 +235,7 @@
     "collectionDrift": "{{count}} diferans",
     "collectionSyncTooltip": "Senkwonize mods swiv yo → koleksyon Steam Workshop",
     "collectionSync": "Senkwonize",
+    "collectionSyncAria": "Senkwonize koleksyon an",
     "collectionChecking": "N ap tcheke koleksyon an…",
     "selectedCount": "{{count}} chwazi",
     "deselect": "Dechwazi",
@@ -261,7 +271,12 @@
     "modFallback": "Mod {{id}}",
     "selectAria": "Chwazi {{name}}",
     "removeModAria": "Retire mod {{name}}",
-    "removeFromServer": "Retire nan sèvè a"
+    "removeFromServer": "Retire nan sèvè a",
+    "loading": "N ap chaje mods yo",
+    "selectionAria": "Mods ki chwazi yo",
+    "allDeactivatedTitle": "Pa gen okenn mod swiv sou sèvè a",
+    "allDeactivatedDesc_one": "{{count}} mod swiv dezaktive. Reaktive l nan Dezaktive.",
+    "allDeactivatedDesc_other": "{{count}} mods swiv dezaktive. Reaktive yo nan Dezaktive."
   },
   "disabledPanel": {
     "title": "Mods dezaktive sou disk",
@@ -274,7 +289,11 @@
     "scanFailedDesc": "Eskanaj dosye workshop la echwe. Eseye rafrechi ankò.",
     "openWorkshopPage": "Ouvri paj Workshop",
     "enable": "Aktive",
-    "deleteFromDisk": "Efase sou disk"
+    "deleteFromDisk": "Efase sou disk",
+    "sectionTitle": "Sou disk, men pa sou sèvè a",
+    "description": "Yo telechaje nan dosye Workshop la men yo pa nan WorkshopItems= sèvè a, kidonk sèvè a pa chaje yo.",
+    "notScanned": "Poko eskane.",
+    "deleteFromDiskAria": "Efase {{name}} sou disk"
   },
   "ignoredPanel": {
     "count_one": "{{count}} mod inyore",
@@ -289,7 +308,8 @@
     "selectAll": "Chwazi tout",
     "selectRow": "Chwazi {{name}}",
     "removeSelected": "Retire sa ki chwazi yo ({{n}})",
-    "reTrackHint": "Retire mod sa a nan lis inyore a pou senkwonizasyon ak enpòtasyon koleksyon ka ajoute l ankò. Konfigirasyon sèvè a ak fichye mod la pa chanje."
+    "reTrackHint": "Retire mod sa a nan lis inyore a pou senkwonizasyon ak enpòtasyon koleksyon ka ajoute l ankò. Konfigirasyon sèvè a ak fichye mod la pa chanje.",
+    "description": "Senkwonizasyon ak enpòtasyon koleksyon pap ajoute sa yo ankò."
   },
   "serverConfigTab": {
     "summaryMods": "mods",
@@ -299,12 +319,11 @@
     "summaryMaps_one": "kat",
     "summaryMaps_other": "kat",
     "summaryMaps_many": "kat",
-    "duplicateModIdsFound": "ID mod doublon jwenn: {{ids}}",
+    "duplicateModIdsFound": "Li parèt plis pase yon fwa nan Mods=: {{ids}}. Sèvè a chaje chak mod yon sèl fwa, kidonk antre an plis yo pa fè anyen.",
+    "removeExtraEntries": "Retire antre an plis yo",
     "workshopItemsNoModIds": "{{count}} atik workshop konfigire men pa gen ID mod. Fè \"Senkwonize ID Mod\" apre w fin telechaje mods yo.",
-    "duplicateModsTitle": "Mods Doublon",
     "missingModIdsTitle": "ID Mod Manke",
     "outdatedDependencyTitle": "Depandans Demode",
-    "fix": "Ranje",
     "deduplicateEndpointUnavailable": "Retire doublon echwe — endpoint sèvè a pa disponib",
     "deduplicateError": "Erè: {{message}}",
     "notConfiguredTitle": "Fichye konfig sèvè pa jwenn",
@@ -329,7 +348,6 @@
     "missingDep_one": "{{count}} depandans manke",
     "missingDep_other": "{{count}} depandans manke",
     "missingDep_many": "{{count}} depandans manke",
-    "duplicateIdTooltip": "Plizyè atik workshop deklare menm ID mod entèn lan. Se sèlman youn ki ap chaje — egzamine onglè Konfli a.",
     "duplicateId_one": "{{count}} ID doublon",
     "duplicateId_other": "{{count}} ID doublon",
     "duplicateId_many": "{{count}} ID doublon",
@@ -352,9 +370,6 @@
     "removeFromServer": "Retire nan sèvè a",
     "missingRequiredId": "ID obligatwa manke:",
     "missingRequiredTooltip": "{{dep}} pa aktive — mod sa a ka pa fonksyone",
-    "duplicateTooltip_one": "Bay tou pa atik workshop {{ids}}",
-    "duplicateTooltip_other": "Bay tou pa atik workshop {{ids}}",
-    "duplicateTooltip_many": "Bay tou pa atik workshop {{ids}}",
     "duplicate": "doublon",
     "enabled": "Aktive",
     "disabled": "Dezaktive",
@@ -366,7 +381,6 @@
     "enabledLabel": "aktive",
     "clickToEnable": "Klike pou aktive",
     "clickToDisable": "Klike pou dezaktive",
-    "chipTooltipDupe": "⚠ Egziste tou nan workshop {{ids}}",
     "chipTooltipClash": "⚠ Konfli ak {{names}} — tou de aktive epi pataje fichye. Sa ki chaje dènye a ap ekrase lòt la.",
     "chipTooltipOverlap": "Varyant de {{names}} — sa yo pataje fichye, kidonk se sèlman youn ki dwe aktive alafwa. Kounye a li san danje.",
     "clashWarning": "De varyant mod sa a aktive epi yo pataje fichye. Youn ap ekrase lòt la — dezaktive youn.",
@@ -421,12 +435,17 @@
     "addedButton": "Ajoute",
     "addButton": "Ajoute",
     "openFullWorkshopSearch": "Ouvri rechèch Workshop konplè",
-    "duplicateInternalIdsTitle": "ID entèn doublon",
     "showRawModsLine": "Montre liy <1>Mods=</1> bri",
     "removeWorkshopDialogTitle": "Retire atik workshop?",
     "removeWorkshopDialogDesc": "Sa a ap retire atik workshop la ak ID mod li yo nan INI sèvè a. Fichye Workshop yo sou disk pap efase.",
     "cancel": "Anile",
-    "remove": "Retire"
+    "remove": "Retire",
+    "hasNoteChip": "Ak yon nòt ({{count}})",
+    "updatesChip": "Mizajou disponib ({{count}})",
+    "noFilterMatches": "Pa gen okenn atik Workshop ki koresponn ak filtè sa yo.",
+    "select": "Chwazi",
+    "selectItemAria": "Chwazi {{name}}",
+    "selectionAria": "Atik Workshop ki chwazi yo"
   },
   "loadOrder": {
     "emptyTitle": "Pa gen mods nan òd chajman",
@@ -439,8 +458,8 @@
     "groupNeedsTwo": "Chwazi omwen 2 mod pou kreye yon gwoup.",
     "selectRowAria": "Chwazi {{name}}",
     "previewLockHint": "Aplike oswa anile òd pwopoze ki anba a anvan ou reòdone alamen.",
-    "filteredHint": "Se sèlman mods ki matche \"{{query}}\" ki parèt (filtè ki nan Aktif sou sèvè a). Ou pa ka trennen pandan filtè a aktif; bouton flèch yo toujou deplase mods yo nan tout òd chajman an.",
-    "autoSort": "Klase otomatikman pa depandans",
+    "filteredHint": "Se sèlman mods ki matche \"{{query}}\" ki parèt. Ou pa ka trennen pandan filtè a aktif; bouton flèch yo toujou deplase mods yo nan tout òd chajman an.",
+    "autoSort": "Klase otomatikman",
     "proposedOrder_one": "Òd pwopoze: {{count}} mod ap deplase",
     "proposedOrder_other": "Òd pwopoze: {{count}} mods ap deplase",
     "proposedOrder_many": "Òd pwopoze: {{count}} mods ap deplase",
@@ -466,7 +485,27 @@
     "movedAnnouncement": "{{name}} deplase nan pozisyon {{position}} sou {{total}}",
     "unsavedChanges": "Chanjman òd pa sove",
     "reset": "Reyinisyalize",
-    "saveOrder": "Sove Òd"
+    "saveOrder": "Sove Òd",
+    "searchPlaceholder": "Filtre pa ID mod oswa non...",
+    "searchAria": "Filtre òd chajman an",
+    "showGroups": "Montre gwoup yo",
+    "blockCount_one": "{{count}} mod",
+    "blockCount_other": "{{count}} mods",
+    "blockTogether": "Kenbe ansanm",
+    "blockApart": "Manm yo separe",
+    "gather": "Mete ansanm",
+    "gatheredAnnouncement": "{{name}} mete ansanm",
+    "blockToTopAria": "Deplase gwoup {{name}} anlè nèt",
+    "blockUpAria": "Monte gwoup {{name}}",
+    "blockDownAria": "Desann gwoup {{name}}",
+    "blockToBottomAria": "Deplase gwoup {{name}} anba nèt",
+    "blockAlreadyFirst": "Gwoup la deja chaje an premye",
+    "blockAlreadyLast": "Gwoup la deja chaje an dènye",
+    "blockMovedAnnouncement": "Gwoup {{name}} deplase nan pozisyon {{position}} sou {{total}}",
+    "collapseBlockAria": "Fèmen gwoup {{name}}",
+    "expandBlockAria": "Louvri gwoup {{name}}",
+    "blockConflictsAria_one": "{{count}} konfli fichye gen rapò ak {{name}}. Montre l",
+    "blockConflictsAria_other": "{{count}} konfli fichye gen rapò ak {{name}}. Montre yo"
   },
   "addModsTab": {
     "syncTitle": "Senkwonize ID Mod soti nan Telechajman",
@@ -506,7 +545,8 @@
     "applyPreset": "Aplike Preset",
     "deleteDialogTitle": "Efase preset \"{{name}}\"?",
     "deleteDialogDesc": "Preset sa a ap efase pou tout tan. Aksyon sa a pa ka anile.",
-    "deletePreset": "Efase Preset"
+    "deletePreset": "Efase Preset",
+    "actionsAria": "Aksyon pou preset {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -582,6 +622,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "Lis mod sèvè a chanje",
+    "serverModsChangedDesc": "Yo aktive oswa dezaktive mod sou sèvè a depi paj sa a te chaje lis la. Yo fin mete yo nan lòd ou a kounye a: verifye l, epi sove ankò.",
     "pendingAddServerChangedTitle": "Sèvè aktif la chanje",
     "pendingAddServerChangedDesc": "Sèvè aktif la chanje pandan ou te gen mòd nan lis datant pou ajoute. ID ak dosye kat yo montre yo te chache pou ansyen sèvè a — fèmen bwat dyalòg sa a epi rekòmanse pou sèvè ki aktif kounye a.",
     "noActiveServerTitle": "Pa gen sèvè aktif",
@@ -824,6 +866,110 @@
     "scanFailedGeneric": "Eskanaj echwe",
     "scanParseFailed": "Analize rezilta eskanaj la echwe",
     "comparingFileContents": "N ap konpare kontni fichye yo...",
-    "groupingResults": "N ap gwoupe rezilta yo..."
+    "groupingResults": "N ap gwoupe rezilta yo...",
+    "noSortRulesDesc": "Okenn mod aktive pa deklare yon depandans epi okenn gwoup pa fikse yon òd oswa yon plas, kidonk pa gen anyen pou klase pa li.",
+    "loadOrderRulesMetDesc": "Chak depandans, òd gwoup ak plasman gwoup deja respekte."
+  },
+  "listMode": {
+    "aria": "Montre lis la kòm",
+    "list": "Lis",
+    "groups": "Gwoup"
+  },
+  "sort": {
+    "aria": "Klase pa",
+    "status": "Klase: eta mizajou",
+    "name": "Klase: non",
+    "updated": "Klase: dènye mizajou",
+    "config": "Klase: òd konfig",
+    "loadOrder": "Klase: òd chajman"
+  },
+  "filters": {
+    "filteredBy": "Filtre pa:",
+    "activeAria": "Filtè aktif yo",
+    "removeAria": "Retire filtè: {{name}}",
+    "clearAll": "Efase filtè yo",
+    "updatesOnly": "Mizajou sèlman",
+    "updates": "Mizajou disponib",
+    "hasNote": "Gen yon nòt",
+    "ungrouped": "Pa nan okenn gwoup",
+    "allGroups": "Tout gwoup yo",
+    "inGroup": "Nan {{name}}",
+    "groupAria": "Filtre pa gwoup",
+    "multiId": "Multi-ID sèlman",
+    "needsAttention": "Bezwen atansyon",
+    "notEnabled": "Pa aktive",
+    "missingDep": "Depandans ki manke"
+  },
+  "whatChanged": {
+    "label": "Sa ki chanje",
+    "updateLabel": "Mizajou · sa ki chanje",
+    "aria": "Sa ki chanje nan {{name}}: nòt chanjman Steam (louvri nan yon nouvo onglè)"
+  },
+  "rowMenu": {
+    "actionsAria": "Aksyon pou {{name}}"
+  },
+  "notes": {
+    "addAction": "Ajoute nòt",
+    "editAction": "Modifye nòt",
+    "addTitle": "Ajoute yon nòt",
+    "editTitle": "Modifye nòt",
+    "dialogDesc": "Yon nòt sou {{name}}. Chak admin panèl sa a wè l.",
+    "label": "Nòt",
+    "placeholder": "Poukisa li la, yon vèsyon pou kenbe, ki moun pou mande anvan w retire l",
+    "counter": "{{count}} / {{max}}",
+    "save": "Sove nòt",
+    "delete": "Efase nòt",
+    "cancel": "Anile",
+    "close": "Fèmen",
+    "lastEdited": "Dènye modifikasyon pa {{name}} nan dat {{date}}",
+    "lastEditedNoName": "Dènye modifikasyon nan dat {{date}}",
+    "sharedHint": "Pataje ak chak admin panèl sa a.",
+    "savedTitle": "Nòt la sove",
+    "deletedTitle": "Nòt la efase",
+    "saveFailedFallback": "Pa t kapab sove nòt la.",
+    "indicatorAria": "Nòt: {{text}}",
+    "inspectorTitle": "Nòt",
+    "empty": "Poko gen nòt."
+  },
+  "collectionView": {
+    "importTitle": "Enpòte yon koleksyon",
+    "importDesc": "Ajoute tout mods yon koleksyon Steam Workshop sou sèvè sa a yon sèl kou."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "Depandans",
+      "groupOrder": "Òd gwoup",
+      "together": "Kenbe ansanm",
+      "placement": "Plasman",
+      "winners": "Genyan konfli ki kenbe"
+    },
+    "reason": {
+      "requires": "apre {{mod}}, paske li bezwen l",
+      "requiredBy": "anvan {{mod}}, ki bezwen l",
+      "groupOrder": "kenbe òd {{group}}",
+      "together": "kenbe ansanm ak {{group}}",
+      "placementFirst": "{{group}} chaje an premye",
+      "placementLast": "{{group}} chaje an dènye",
+      "winner": "toujou ekrase {{mod}}",
+      "keepsWinner": "rete anvan {{mod}}, ki ekrase l"
+    },
+    "issue": {
+      "groupVsDependency": "{{group}} mete {{before}} anvan {{after}}, men yon depandans bezwen opoze a: depandans lan genyen. Ranje gwoup la ak Òdone manm yo otomatikman.",
+      "groupVsGroup": "{{group}} mete {{before}} anvan {{after}}, men yon lòt gwoup bezwen opoze a: gwoup ki parèt an premye a genyen.",
+      "split": "{{groups}} pa ka chaje kòm yon sèl blòk: {{mods}} dwe chaje ant mods li yo.",
+      "placement": "{{mods}} dwe chaje anvan yon gwoup \"an premye\", kidonk li chaje an premye tou ({{groups}}).",
+      "winner": {
+        "dependency": "{{newWinner}} ekrase {{previousWinner}} kounye a: yon depandans bezwen l chaje pita.",
+        "group": "{{newWinner}} ekrase {{previousWinner}} kounye a: yon òd gwoup bezwen l chaje pita.",
+        "placement": "{{newWinner}} ekrase {{previousWinner}} kounye a: yon plasman gwoup bezwen l chaje pita."
+      }
+    },
+    "issuesTitle_one": "{{count}} règ pa ka respekte",
+    "issuesTitle_other": "{{count}} règ pa ka respekte",
+    "moreIssues": "+{{count}} anplis",
+    "movesTo": "ale nan",
+    "otherMods": "Lòt mods",
+    "groupMoves_one": "{{count}} deplase",
+    "groupMoves_other": "{{count}} deplase"
   }
 }

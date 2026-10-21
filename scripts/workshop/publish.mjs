@@ -25,7 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { getBridgeVersionStatus } from "../check-bridge-version.mjs";
-import { DEFAULT_OUT_DIR, WorkshopBuildError, buildWorkshopItem } from "./build-item.mjs";
+import { DEFAULT_OUT_DIR, ITEM_FILES, WorkshopBuildError, buildWorkshopItem } from "./build-item.mjs";
 import {
   BRIDGE_FILES,
   DEFAULT_STAGED_ITEM_DIR,
@@ -42,6 +42,7 @@ import {
   parseWorkshopTxt,
   readPublished,
   readRepoText,
+  sha256Hex,
   stagedCopyWarning,
   updatePublishedText,
 } from "./lib.mjs";
@@ -286,6 +287,10 @@ async function runRecord(options, { repoRoot, now, log, warn }) {
   let workshopId = options.id;
   let stagedVisibility = null;
   let stagedDir = null;
+  // The uploaded PanelBridge.lua is only known from a staged item. With
+  // --id it stays null (the panel then skips its download check), and a
+  // value recorded for an earlier version must not stay behind.
+  let serverLuaSha256 = null;
   if (options["from-staged"]) {
     stagedDir = path.resolve(expandHome(options["from-staged"]));
     const stagedTxtPath = path.join(stagedDir, "workshop.txt");
@@ -296,6 +301,8 @@ async function runRecord(options, { repoRoot, now, log, warn }) {
       throw new PublishError(`${stagedTxtPath} has no id= line yet; the game writes it after the first successful upload`);
     }
     stagedVisibility = staged.visibility?.trim() || null;
+    const stagedLua = path.join(stagedDir, ITEM_FILES.serverLua);
+    if (fs.existsSync(stagedLua)) serverLuaSha256 = sha256Hex(fs.readFileSync(stagedLua));
   }
   assertCanRecordId(published.doc, workshopId);
   const visibility = resolveVisibility(options.visibility, stagedVisibility ?? published.doc.visibility);
@@ -309,9 +316,16 @@ async function runRecord(options, { repoRoot, now, log, warn }) {
     workshopId,
     visibility,
     publishedVersion: status.version,
+    serverLuaSha256,
     publishedAt: now().toISOString(),
   });
   log(`Recorded Workshop item ${workshopId} (PanelBridge ${status.version}, ${visibility}) in ${BRIDGE_FILES.published}.`);
+  if (!serverLuaSha256) {
+    log(
+      `No PanelBridge.lua checksum recorded for ${status.version} (record --from-staged <folder> reads it from the ` +
+        "uploaded copy), so panels skip checking what servers downloaded for this version.",
+    );
+  }
   // The in-game uploader leaves the uploaded copy staged, where it replaces
   // the downloaded item on this machine (see stagedCopyWarning).
   warn(
@@ -395,6 +409,9 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
   }
 
   buildWorkshopItem({ repoRoot });
+  // Exactly the bytes steamcmd uploads; the panel compares what a server
+  // downloaded with it.
+  const serverLuaSha256 = sha256Hex(fs.readFileSync(path.join(itemDir, ITEM_FILES.serverLua)));
   fs.writeFileSync(vdfPath, vdf);
   log(
     `Publishing as ${steamUser}. Workshop items can't be transferred to another account later. Use the project's dedicated ` +
@@ -437,6 +454,7 @@ async function runPublish(options, { repoRoot, spawn, now, log, warn }) {
     workshopId,
     visibility,
     publishedVersion: status.version,
+    serverLuaSha256,
     publishedAt: now().toISOString(),
   });
   log(`Published PanelBridge ${status.version} as Workshop item ${workshopId} (${visibility}).`);

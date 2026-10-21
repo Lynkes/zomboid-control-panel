@@ -19,27 +19,33 @@
   ],
   "pageHeader": {
     "title": "وحدة التحكم",
-    "description": "مخرجات سجل الخادم وأوامر RCON"
+    "description": "تابع سجل الخادم النشط وشغّل أوامر RCON عليه.",
+    "target": "تُنفَّذ الأوامر على {{server}}"
   },
-  "checkingServerTarget": "جارٍ التحقق من الخادم الهدف",
+  "checkingServerTarget": "جارٍ التحقق من الخادم النشط…",
   "emptyState": {
     "title": "لا يوجد خادم نشط مُهيّأ",
-    "description": "أضف خادمًا أو اختر واحدًا من «خوادمي» قبل فتح وحدة التحكم."
+    "description": "أضف خادمًا، أو اختر واحدًا من صفحة «الخوادم»، لاستخدام وحدة التحكم.",
+    "action": "إضافة خادم"
   },
   "tabs": {
     "serverLog": "سجل الخادم",
-    "rconConsole": "وحدة rcon"
+    "rconConsole": "وحدة تحكم RCON"
+  },
+  "actions": {
+    "editServer": "تعديل الخادم",
+    "openRcon": "فتح وحدة تحكم RCON"
   },
   "unavailable": {
     "remoteTitle": "سجل الخادم غير متاح للخوادم البعيدة",
     "remoteDesc": "الخوادم البعيدة تتيح RCON فقط. استخدم تبويب RCON للأوامر المباشرة.",
     "notConfiguredTitle": "مسار سجل الخادم غير مُهيّأ",
-    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في «خوادمي» أولًا.",
+    "notConfiguredDesc": "حدّد مسار تثبيت الخادم أو مسار بيانات Zomboid في صفحة «الخوادم» أولًا.",
     "noPermissionTitle": "سجل الخادم غير متاح لهذا الدور",
     "noPermissionDesc": "تتطلب قراءة سجل الخادم صلاحية server.world_events، وهذا الدور لا يملكها. اطلب الوصول من أحد المسؤولين."
   },
   "serverLog": {
-    "pathLabel": "المسار",
+    "pathLabel": "ملف السجل",
     "loadingPath": "جارٍ التحميل…",
     "resumeAria": "استئناف التحديث التلقائي",
     "pauseAria": "إيقاف التحديث التلقائي مؤقتًا",
@@ -52,7 +58,7 @@
     "filterOffTooltip": "تصفية الرسائل المتكررة (الانضمام، نبضات الخمول، وما شابه)",
     "filterWithCount": "تصفية −{{count}}",
     "filter": "تصفية",
-    "all": "الكل",
+    "all": "كل الأسطر",
     "disableAutoScrollAria": "تعطيل التمرير التلقائي",
     "enableAutoScrollAria": "تفعيل التمرير التلقائي",
     "autoScrollOnTooltip": "التمرير التلقائي مُفعَّل — يتابع أحدث سطر",
@@ -60,7 +66,7 @@
     "followOn": "المتابعة مُفعَّلة",
     "followOff": "المتابعة مُعطَّلة",
     "refreshAria": "تحديث السجل",
-    "clear": "مسح",
+    "clear": "مسح السجل",
     "clearTooltip": "محو ملف سجل وحدة تحكم الخادم — لا يمكن التراجع عن هذا",
     "clearConfirmTitle": "محو سجل وحدة تحكم الخادم {{server}}؟",
     "clearConfirmDesc": "سيؤدي هذا إلى محو الملف server-console.txt نهائيًا من القرص، وليس هذا العرض فقط. لا يمكن التراجع.",
@@ -85,7 +91,7 @@
     "hidden": "مخفي",
     "loaded": "محمَّل",
     "updatesSuspended": "التحديثات معلَّقة",
-    "pollInterval": "استطلاع · كل ثانيتين",
+    "pollInterval": "كل ثانيتين",
     "hidingTooltip_zero": "أسطر متكررة مخفية: {{count}} — انقر لعرض الكل",
     "hidingTooltip_two": "أسطر متكررة مخفية: {{count}} — انقر لعرض الكل",
     "hidingTooltip_few": "أسطر متكررة مخفية: {{count}} — انقر لعرض الكل",
@@ -97,29 +103,30 @@
   },
   "rcon": {
     "linkLabel": "الوصلة",
-    "checking": "جارٍ التحقق…",
-    "notConfigured": "rcon غير مُهيّأ",
-    "unknown": "غير معروف",
-    "online": "rcon متصل",
-    "offline": "rcon غير متصل",
-    "recheck": "إعادة فحص",
-    "notConfiguredTitle": "rcon غير مُهيّأ",
-    "notConfiguredDesc": "حدّد المضيف والمنفذ وكلمة المرور في «خوادمي» قبل استخدام الأوامر المباشرة.",
-    "hostUnreachableTitle": "تعذّر الوصول إلى المضيف",
-    "hostUnreachableDesc": "شغّل الخادم، ثم تأكّد من مضيف RCON والمنفذ وكلمة المرور في إعدادات اللوحة.",
-    "authFailedTitle": "فشلت المصادقة",
-    "authFailedDesc": "يمكن الوصول إلى المضيف — تأكّد من كلمة مرور RCON في «خوادمي».",
-    "droppedTitle": "انقطع الاتصال",
+    "checking": "جارٍ فحص RCON…",
+    "notConfigured": "RCON غير مُهيّأ",
+    "unknown": "حالة RCON غير معروفة",
+    "online": "RCON متصل",
+    "offline": "RCON غير متصل",
+    "recheck": "إعادة فحص RCON",
+    "recheckAria": "إعادة فحص اتصال RCON",
+    "notConfiguredTitle": "لم يُهيّأ RCON لهذا الخادم",
+    "notConfiguredDesc": "حدّد مضيف RCON والمنفذ وكلمة المرور لهذا الخادم في صفحة «الخوادم» لتشغيل الأوامر.",
+    "hostUnreachableTitle": "تعذّر الوصول إلى مضيف RCON",
+    "hostUnreachableDesc": "شغّل الخادم، ثم تحقّق من مضيف RCON والمنفذ وكلمة المرور في صفحة «الخوادم».",
+    "authFailedTitle": "فشلت مصادقة RCON",
+    "authFailedDesc": "يستجيب المضيف لكنه رفض كلمة مرور RCON. تحقّق منها في صفحة «الخوادم».",
+    "droppedTitle": "انقطع اتصال RCON",
     "droppedDesc": "انقطع اتصال RCON أثناء تنفيذ أمر. وقد تأكّدت للتو صحة المضيف والمنفذ وكلمة المرور — اختر «إعادة فحص» أعلاه متى اعتقدت أن الاتصال عاد.",
-    "outputLabel": "مخرجات rcon",
+    "outputLabel": "المخرجات",
     "entries_one": "{{count}} إدخال",
     "entries_other": "الإدخالات: {{count}}",
-    "clear": "مسح",
+    "clear": "مسح المخرجات",
     "clearTooltip": "مسح المخرجات الظاهرة (لا يحذف السجل)",
     "outputAria": "مخرجات أمر RCON",
     "noCommandsTitle": "لا توجد أوامر بعد",
     "noCommandsDesc": "نفّذ أمر RCON لترى الرد هنا.",
-    "quickLabel": "سريع",
+    "quickLabel": "أوامر سريعة",
     "quickTip": "يملأ مربع الأمر أدناه بهذا الأمر — لا يُنفَّذ حتى تنقر «تنفيذ» (أو تضغط Enter).",
     "commandLabel": "الأمر",
     "commandTip": "تُنفَّذ الأوامر هنا فورًا على الخادم المباشر، دون أي خطوة تأكيد — حتى الأوامر التي توقف الخادم أو تطرد لاعبًا. إذا لم تكن متأكدًا مما يفعله أمر ما، فتحقّق منه قبل تنفيذه؛ فمعظم الأوامر لا يمكن التراجع عنها.",
@@ -128,7 +135,7 @@
     "inputAria": "إدخال أمر RCON",
     "executeAria": "تنفيذ الأمر",
     "run": "تنفيذ",
-    "keyboardHint": "// enter · تنفيذ · ↑↓ السجل",
+    "keyboardHint": "Enter يشغّل الأمر · ↑ ↓ لتصفّح السجل",
     "noResponseFallback": "لا يوجد رد",
     "noPermission": "دورك لا يملك صلاحية تنفيذ أوامر RCON.",
     "disconnectedUseRecheck": "تعذّر الوصول إلى RCON حاليًا — اختر «إعادة فحص» أعلاه قبل المحاولة مجددًا.",
@@ -150,7 +157,7 @@
   },
   "broadcast": {
     "toggleLabel": "بث",
-    "toggleSubtitle": "مراسلة كل المتصلين",
+    "toggleSubtitle": "أرسل رسالة إلى كل اللاعبين المتصلين.",
     "templates": {
       "restart15": {
         "label": "إعادة تشغيل بعد 15 د",
@@ -207,7 +214,7 @@
     "send": "إرسال"
   },
   "history": {
-    "toggleLabel": "السجل",
+    "toggleLabel": "سجل الأوامر",
     "entries_one": "{{count}} إدخال",
     "entries_other": "الإدخالات: {{count}}",
     "truncatedHint": "(الأحدث — قد لا تظهر الأوامر الأقدم)",

@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Cuenta",
+    "title": "Cuentas del panel",
     "role": "Rol",
     "created": "Creada",
     "lastSignIn": "Último inicio de sesión",
     "never": "Nunca",
     "actions": "Acciones",
+    "rowActions": "Acciones para {{username}}",
     "removeTooltip": "Eliminar a {{username}}",
     "linkSsoTooltip": "Vincular SSO a {{username}}",
     "unlinkSsoTooltip": "Desvincular SSO de {{username}}",
@@ -60,7 +62,7 @@
     "passwordRequired": "Introduce una contraseña.",
     "passwordsDontMatch": "Las contraseñas no coinciden.",
     "roleRequired": "Elige un rol.",
-    "passwordHint": "Usa al menos 6 caracteres."
+    "passwordHint": "Usa al menos 10 caracteres."
   },
   "toasts": {
     "userCreatedTitle": "Cuenta creada",

@@ -114,7 +114,12 @@ router.get("/:id/export", async (req, res) => {
   }
 });
 
-router.post("/:id/preview", async (req, res) => {
+// SECURITY (2026-10-20, access-control audit): a preview reads the live
+// values of the server's settings the template names, so it is
+// templates.manage's, like applying one -- it used to answer any signed-in
+// role. The diff never carries a secret-like setting (templateSchema.js's
+// isIniKeyExcluded()).
+router.post("/:id/preview", requirePermission("templates.manage"), async (req, res) => {
   try {
     const { serverId } = req.body || {};
     if (!serverId) {

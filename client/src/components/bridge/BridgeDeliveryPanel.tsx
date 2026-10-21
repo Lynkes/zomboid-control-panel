@@ -104,9 +104,25 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
   // admin), the hook drops this status and loads the new server's, and
   // confirming must not restart a server the prompt never named.
   const shownServerIdRef = useRef<string | null>(status?.serverId ?? null)
+  // The switch and checksum dialogs belong to the server they were opened
+  // for. A server change drops the status, which unmounted them while
+  // switchTarget/checksumOpen stayed set, so they reopened by themselves over
+  // the next server's status. They close with the status, and say why.
+  const dialogOpenRef = useRef(false)
   useEffect(() => {
-    shownServerIdRef.current = status?.serverId ?? null
-  }, [status?.serverId])
+    dialogOpenRef.current = switchTarget !== null || checksumOpen
+  }, [switchTarget, checksumOpen])
+  useEffect(() => {
+    const previous = shownServerIdRef.current
+    const next = status?.serverId ?? null
+    shownServerIdRef.current = next
+    if (previous === null || previous === next) return
+    if (dialogOpenRef.current) {
+      toast({ title: t('serverChangedTitle'), description: t('serverChangedBody') })
+    }
+    setSwitchTarget(null)
+    setChecksumOpen(false)
+  }, [status?.serverId, toast, t])
 
   if (!canView) return null
 
@@ -564,6 +580,18 @@ export function BridgeDeliveryPanel({ activeServerId, iniFileName, playerCount }
           <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-steam-mode-off">
             <AlertTriangle className="h-4 w-4 text-warning" />
             <AlertDescription className="break-words">{t('banner.steamModeOff')}</AlertDescription>
+          </Alert>
+        )}
+        {/* Only a warning: the server keeps running what it downloaded. */}
+        {s.disk?.workshopItem?.integrity === 'mismatch' && (
+          <Alert className={WARNING_CALLOUT} data-testid="bridge-delivery-item-modified">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertDescription className="break-words">
+              {t('banner.workshopItemModified', {
+                version: s.disk.workshopItem.version ?? '?',
+                folder: s.disk.workshopItem.folder,
+              })}
+            </AlertDescription>
           </Alert>
         )}
         {listing === 'unavailable' && (

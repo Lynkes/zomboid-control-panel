@@ -5,7 +5,7 @@ export type DeliveryMethod = (typeof DELIVERY_METHODS)[number]
 
 export const DELIVERY_STATES = [
   'local-ok', 'local-update-pending', 'local-not-installed', 'local-unverified', 'local-workshop-loaded',
-  'workshop-restart-needed', 'workshop-waiting', 'workshop-confirmed', 'workshop-not-loaded',
+  'local-newer', 'workshop-restart-needed', 'workshop-waiting', 'workshop-confirmed', 'workshop-not-loaded',
   'workshop-stopped', 'workshop-start-failed', 'workshop-id-unknown',
 ] as const
 export type DeliveryState = (typeof DELIVERY_STATES)[number]
@@ -36,6 +36,8 @@ export interface DeliveryRelease {
   source: 'env' | 'embedded' | 'file' | 'none'
   modId: string; workshopId: string | null; visibility: 'public' | 'unlisted' | null
   publishedVersion: string | null; publishedAt: string | null
+  // sha256 of the PanelBridge.lua the published version put on the Workshop.
+  serverLuaSha256: string | null
   preview: boolean; linuxChecksumVerified: boolean
 }
 export interface DeliveryLive {
@@ -48,7 +50,14 @@ export interface DeliveryDisk {
   looseFiles: DeliveryLooseFile[]
   iniPath: string | null
   iniEntries: { mods: boolean; workshopItems: boolean } | null
-  workshopItem: { folder: string; version: string | null; source: 'log' | 'candidate' } | null
+  workshopItem: DeliveryWorkshopItem | null
+}
+// integrity: the item's server Lua against the file this release recorded
+// for its version ('unverified' when it holds another version or nothing
+// was recorded; 'mismatch' only warns, nothing is blocked).
+export interface DeliveryWorkshopItem {
+  folder: string; version: string | null; source: 'log' | 'candidate'
+  integrity: 'verified' | 'mismatch' | 'unverified'; serverLuaSha256: string | null
 }
 export interface DeliveryStatus {
   serverId: string

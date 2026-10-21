@@ -191,10 +191,10 @@ describe('Dashboard header: server uptime', () => {
   // Review: on a phone the always-visible uptime (shrink-0) squeezed the
   // server name -- the page's h1, naming the server Stop/Restart act on --
   // down to a few characters or nothing. jsdom has no layout, so this pins
-  // the class contract that prevents it: the status light and name form one
-  // group that is the only thing allowed to shrink, and the cluster around
-  // it wraps, so the uptime moves to a second line instead.
-  it('lets the uptime wrap below the server name instead of squeezing it', async () => {
+  // the structure that prevents it: the uptime sits in the header's facts
+  // row under the name (ServerHeader's meta), never in the name's own row,
+  // and the name wraps instead of truncating.
+  it('keeps the uptime in the facts row under the server name instead of squeezing it', async () => {
     const startedAt = new Date(Date.now() - 3600_000).toISOString()
     setUp({ hostStartedAt: startedAt })
 
@@ -202,15 +202,12 @@ describe('Dashboard header: server uptime', () => {
 
     const uptime = (await screen.findByText(uptimeEn.up.replace('{{uptime}}', '1h'))).closest('time')!
     const heading = screen.getByRole('heading', { level: 1, name: 'Ashenwood' })
-    const nameGroup = heading.parentElement!
-    const cluster = nameGroup.parentElement!
+    const nameRow = heading.parentElement!
 
-    expect(heading).toHaveClass('min-w-0', 'truncate')
-    expect(nameGroup).toHaveClass('min-w-0')
-    expect(nameGroup).not.toHaveClass('flex-wrap')
-    expect(nameGroup).not.toContainElement(uptime)
-    expect(cluster).toHaveClass('flex-wrap')
-    expect(uptime.parentElement).toBe(cluster)
+    expect(heading).toHaveClass('break-words')
+    expect(heading).not.toHaveClass('truncate')
+    expect(nameRow).not.toContainElement(uptime)
+    expect(uptime.closest('.page-meta')).not.toBeNull()
     expect(uptime).not.toHaveClass('shrink-0')
   })
 })

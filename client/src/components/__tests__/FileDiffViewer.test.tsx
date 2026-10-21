@@ -64,6 +64,18 @@ describe('FileDiffViewer', () => {
     expect(screen.getByText('new line')).toBeInTheDocument()
   })
 
+  it('tints added and removed lines with classes Tailwind generates (an off-scale /8 compiled to nothing)', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(textDiff()))
+    render(<FileDiffViewer {...baseProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Recipes.lua/ }))
+
+    const added = (await screen.findByText('new line')).closest('.diff-line')
+    const removed = screen.getByText('old line').closest('.diff-line')
+    expect(added).toHaveClass('bg-success/10')
+    expect(removed).toHaveClass('bg-destructive/10')
+  })
+
   it('does not re-fetch on a second click -- it just collapses/re-expands from cache', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(textDiff()))
     render(<FileDiffViewer {...baseProps} />)

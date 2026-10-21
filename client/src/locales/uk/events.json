@@ -12,21 +12,17 @@
     "resultDisplay.vehiclesLoaded_many"
   ],
   "pageHeader": {
-    "title": "Консоль подій",
-    "description": "Погода, час, звуки, дії гравців та інструменти bridge",
-    "eyebrow": "керування світом",
-    "refreshPlayers": "оновити гравців"
+    "title": "Події та погода",
+    "description": "Змінюйте погоду й час, відтворюйте звуки, створюйте орди й транспорт або запускайте інструменти bridge.",
+    "refreshPlayers": "Оновити гравців"
   },
   "common": {
     "playersUnavailable": "список гравців недоступний",
     "playersUnavailableTitle": "Список гравців недоступний",
-    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі."
+    "noPermissionEndangerOrImpersonate": "Ця дія потребує дозволу players.endanger_or_impersonate, якого немає в цієї ролі.",
+    "noPermissionRconExecute": "Ця дія виконує команду RCON і потребує дозволу rcon.execute, якого немає в цієї ролі."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "онлайн",
-    "offline": "офлайн",
-    "configureLink": "налаштувати →",
     "eventTarget": "Ціль події",
     "allOnline": "усі онлайн",
     "specific": "конкретний",
@@ -47,7 +43,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge офлайн",
-    "description": "Ці елементи керування потребують Lua-моста. Підключіть його в розділі <1>Налаштування</1>, а потім запустіть сервер PZ."
+    "description": "Ці елементи керування потребують Lua-моста. Підключіть його в розділі Налаштування, а потім запустіть сервер PZ.",
+    "action": "Відкрити налаштування PanelBridge"
   },
   "groups": {
     "weather": "Погода",
@@ -247,7 +244,7 @@
   "utilities": {
     "sublabel": "мережі електрики та води",
     "refresh": "оновити",
-    "b42Warning": "b42 мультиплеєр · зміни sandbox поки що не передаються підключеним клієнтам",
+    "b42Warning": "Мультиплеєр Build 42: зміни sandbox поки що не передаються підключеним клієнтам.",
     "power": "електрика",
     "water": "вода",
     "statusOnline": "увімкнено",
@@ -310,7 +307,10 @@
     "clearNear": "очистити біля {{target}}",
     "clearNearConfirmTitle": "Прибрати зомбі біля цього гравця?",
     "clearNearConfirmDescTargeted": "Це миттєво прибирає всіх зомбі в межах вибраного радіуса від гравця {{player}} — зокрема й тих, з якими він зараз б'ється. З часом зомбі з'являться знову, але цей бій для нього обірветься просто зараз.",
-    "clearNearConfirmDescRandom": "Це миттєво прибирає всіх зомбі в межах вибраного радіуса від випадкового гравця онлайн — зокрема й тих, з якими він зараз б'ється. З часом зомбі з'являться знову, але цей бій для нього обірветься просто зараз."
+    "clearNearConfirmDescRandom": "Це миттєво прибирає всіх зомбі в межах вибраного радіуса від випадкового гравця онлайн — зокрема й тих, з якими він зараз б'ється. З часом зомбі з'являться знову, але цей бій для нього обірветься просто зараз.",
+    "spawnConfirmTitle": "Створити {{size}} зомбі?",
+    "spawnConfirmDescTargeted": "Орда з {{size}} зомбі одразу з'явиться біля {{player}}. Вона залишиться у світі, доки її не вб'ють або не приберуть.",
+    "spawnConfirmDescRandom": "Орда з {{size}} зомбі одразу з'явиться біля випадкового гравця онлайн. Вона залишиться у світі, доки її не вб'ють або не приберуть."
   },
   "vehicles": {
     "sublabel": "RCON · створює поряд із гравцем",
@@ -411,8 +411,6 @@
     "lastRun": "Останнє виконання: {{time}}",
     "notRunYet": "Ще не виконувалася",
     "bridgeFileLink": "Файлове підключення bridge: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Потрібне підключення до bridge",
-    "bridgeConnectionRequiredDesc": "Ці операції потребують активного підключення PanelBridge. Спершу налаштуйте його в Налаштуваннях.",
     "moderationConfirmTitle": "Виконати «{{operation}}»?",
     "moderationConfirmDescription": "Це надішле справжню команду модерації через активний bridge{{target}}{{reason}}. Перевірте значення вище, перш ніж продовжити.",
     "moderationConfirmTarget": " щодо {{target}}",

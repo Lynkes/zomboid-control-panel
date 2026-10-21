@@ -5,9 +5,12 @@
   "settingsOverridden_other": "{{count}} paramètres modifiés",
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
-  "preview": "Aperçu",
+  "preview": "Aperçu et application",
+  "previewOnly": "Aperçu",
   "exportTitle": "Exporter le modèle",
   "deleteTitle": "Supprimer le modèle",
+  "hideTitle": "Masquer le modèle",
+  "actionsAria": "Actions pour {{name}}",
   "settingsOverridden_many": "{{count}} paramètres modifiés",
   "modsCount_many": "{{count}} mods"
 }

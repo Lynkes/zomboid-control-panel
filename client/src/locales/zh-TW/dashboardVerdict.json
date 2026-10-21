@@ -1,5 +1,7 @@
 {
   "noUpdateYet": "尚未更新",
+  "verdictAria": "伺服器狀況",
+  "workListAria": "伺服器分區",
   "updatedJustNow": "剛剛更新",
   "updatedSecondsAgo": "{{count}} 秒前更新",
   "updatedMinutesAgo": "{{count}} 分鐘前更新",

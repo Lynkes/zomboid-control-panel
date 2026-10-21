@@ -3,7 +3,13 @@
     "title": "Planifikatè",
     "description": "Otomatize tach sèvè ak redemaraj",
     "eyebrow": "Antretyen",
-    "newTask": "Nouvo Tach"
+    "timezoneMeta": "Orè yo mache sou lè {{tz}}",
+    "changeTimezone": "Chanje",
+    "newTask": "Nouvo tach"
+  },
+  "settings": {
+    "title": "Paramèt planifikatè a",
+    "description": "Fizo orè tout orè yo kouri ladan l, ak kontaj jwè yo wè anvan yon redemaraj."
   },
   "fetchError": {
     "title": "Done planifikatè a pa t kapab chaje",
@@ -22,7 +28,6 @@
   "commands": {
     "restartServer": "Redemare Sèvè",
     "saveWorld": "Sove Mond",
-    "serverMessage": "Mesaj Sèvè",
     "checkModUpdates": "Tcheke Mizajou Mod",
     "triggerBlizzard": "Deklanche Tanpèt Nèj (2èdtan)",
     "triggerStorm": "Deklanche Tanpèt (1èdtan)",
@@ -41,22 +46,7 @@
     "createDescription": "Fè yon kòmand fonksyone sou yon orè.",
     "taskNameLabel": "Non Tach",
     "taskNamePlaceholder": "pa egzanp, Redemaraj Chak Jou",
-    "scheduleTypeLabel": "Tip Orè",
-    "tabSimple": "Konstriktè Senp",
     "tabAdvanced": "Avanse (Cron)",
-    "timezoneNotice": "Orè ki anba yo fonksyone nan fizo orè panèl la: {{tz}}",
-    "frequencyLabel": "Frekans",
-    "freqHourly": "Chak Èdtan (nan minit 0)",
-    "freqInterval": "Chak X Èdtan",
-    "freqDaily": "Chak Jou nan yon Lè Presi",
-    "freqWeekly": "Chak Semèn nan yon Jou Presi",
-    "dayOfWeekLabel": "Jou nan semèn nan",
-    "dayOfWeekAria": "Jou nan semèn nan",
-    "hourLabel": "Èdtan (0-23)",
-    "minuteLabel": "Minit (0-59)",
-    "everyXHoursLabel": "Chak X Èdtan",
-    "everyXHoursPlaceholder": "pa egzanp 4 pou chak 4 èdtan",
-    "generatedCronLabel": "Cron Jenere:",
     "loadPresetLabel": "Chaje Preseleksyon",
     "loadPresetPlaceholder": "Chwazi yon preseleksyon...",
     "presetOption": "{{name}} ({{cron}})",
@@ -67,8 +57,6 @@
     "cronValidExpression": "Ekspresyon valid",
     "commandLabel": "Kòmand",
     "commandTip": "Sa a egzekite san sipèvizyon selon orè ki anwo a, san konfimasyon chak fwa li deklanche. Chwazi yon bagay ki san danje pou repete otomatikman — yon kòmand pèsonalize pa verifye kont okenn lis sekirite, epi li kontinye kouri jiskaske ou dezaktive oswa efase travay sa a.",
-    "commandSelectPlaceholder": "Chwazi kòmand komen...",
-    "commandCustomPlaceholder": "Oswa antre kòmand pèsonalize",
     "bridgeFormatHint": "Fòma: <1>bridge:&lt;action&gt; {json args}</1> — pa egzanp <2>bridge:triggerBlizzard {\"durationHours\":2}</2>. Agiman yo opsyonèl. Sèlman aksyon ki sou lis otorize yo fonksyone atravè planifikatè a.",
     "targetServerLabel": "Sèvè Sib",
     "targetServerPlaceholder": "Chwazi yon sèvè...",
@@ -80,13 +68,99 @@
     "saveChanges": "Sove Chanjman",
     "createTaskButton": "Kreye Tach"
   },
+  "overview": {
+    "ofTotal": "sou {{total}}",
+    "nothingScheduled": "Pa gen anyen ki pwograme",
+    "noRuns": "Poko gen egzekisyon",
+    "backups": "Sovgad",
+    "on": "Limen",
+    "off": "Etenn",
+    "backupNext": "Pwochen {{when}}",
+    "backupsManaged": "Jere nan paj Sovgad",
+    "backupsSetUp": "Konfigire nan paj Sovgad"
+  },
+  "rows": {
+    "colTask": "Tach",
+    "colNext": "Pwochen egzekisyon",
+    "colLast": "Dènye egzekisyon",
+    "colOn": "Aktive",
+    "paused": "An poz",
+    "neverRun": "Poko janm egzekite",
+    "running": "Ap egzekite…",
+    "actionsAria": "Lòt aksyon pou {{name}}",
+    "duplicate": "Kopye",
+    "runBusy": "Yon lòt tach ap egzekite.",
+    "copyName": "{{name}} (kopi)"
+  },
+  "presets": {
+    "heading": "Kòmanse ak yon tach komen",
+    "description": "Chak louvri pare pou anrejistre; ou ka chanje nenpòt bagay anvan.",
+    "dailyRestart": "Redemaraj chak jou",
+    "hourlySave": "Sovgad chak èdtan",
+    "restartNotice": "Avètisman redemaraj",
+    "restartNoticeMessage": "Redemaraj chak jou a nan 10 minit. Chèche yon kote ki an sekirite!",
+    "backups": "Sovgad mond lan",
+    "backupsOn": "Limen · jere nan paj Sovgad",
+    "backupsOff": "Yo gen pwòp orè yo nan paj Sovgad"
+  },
+  "taskType": {
+    "heading": "Kisa li dwe fè?",
+    "pickFirst": "Chwazi youn pou wè opsyon li yo.",
+    "required": "Chwazi kisa tach la dwe fè.",
+    "restart": "Redemare",
+    "restartDesc": "Jwè yo wè rebou redemaraj la, epi sèvè a redemare.",
+    "save": "Anrejistre",
+    "saveDesc": "Anrejistre mond lan san mete pèsonn deyò.",
+    "broadcast": "Anons",
+    "broadcastDesc": "Voye yon mesaj bay tout moun ki nan jwèt la.",
+    "command": "Kòmand RCON",
+    "commandDesc": "Egzekite yon kòmand konsòl oswa yon aksyon PanelBridge.",
+    "backup": "Sovgad",
+    "backupDesc": "Sovgad mond lan gen pwòp orè yo nan paj Sovgad: li tann redemaraj yo fini epi li limite kantite kopi yo.",
+    "backupOn": "Sovgad otomatik yo limen.",
+    "backupOnNext": "Sovgad otomatik yo limen. Pwochen egzekisyon · {{date}}",
+    "backupOff": "Sovgad otomatik yo etenn.",
+    "openBackupSchedule": "Louvri orè sovgad la",
+    "messageLabel": "Mesaj",
+    "messagePlaceholder": "egz. Redemaraj nan 10 minit. Chèche yon kote ki an sekirite!",
+    "messageRequired": "Ekri mesaj jwè yo pral wè a.",
+    "commandPlaceholder": "egz. checkModsNeedUpdate",
+    "commandRequired": "Antre yon kòmand.",
+    "suggestions": "Sijesyon",
+    "nameRequired": "Bay tach la yon non.",
+    "nameAutoHint": "Non an di sa li fè ak ki lè. Tape pou chanje li."
+  },
+  "when": {
+    "heading": "Ki lè li dwe egzekite?",
+    "daily": "Chak jou",
+    "interval": "Chak kèk èdtan",
+    "weekdays": "Sèten jou",
+    "timeLabel": "Lè",
+    "repeatLabel": "Repete",
+    "daysLabel": "Jou",
+    "timeRequired": "Chwazi yon lè.",
+    "daysRequired": "Chwazi omwen yon jou.",
+    "cronRequired": "Antre yon ekspresyon cron."
+  },
+  "summary": {
+    "daily": "Chak jou a {{time}}",
+    "hourly": "Chak èdtan, nan kòmansman èdtan an",
+    "everyNHours_one": "Chak {{count}} èdtan",
+    "everyNHours_other": "Chak {{count}} èdtan",
+    "monToFri": "Lendi rive vandredi a {{time}}",
+    "weekdays": "Chak semèn: {{days}} a {{time}}",
+    "custom": "Orè pèsonalize",
+    "incomplete": "Fini orè ki anwo a.",
+    "nextRuns": "Pwochen egzekisyon yo",
+    "noPreview": "Pwochen egzekisyon an ap parèt nan lis tach yo apre ou anrejistre."
+  },
   "statusTiles": {
     "activeTasks": "Tach Aktif",
     "modUpdateRestart": "Redemaraj Mizajou Mod",
     "modUpdatePending": "An atant"
   },
   "manualRestart": {
-    "title": "Redemaraj Manyèl",
+    "title": "Redemaraj manyèl",
     "descRunning": "Chwazi yon kontdaoun — jwè yo avèti epi sèvè a redemare lè li fini.",
     "descOffline": "Sèvè a òfliy — demare l anvan w lanse yon redemaraj.",
     "noPermission": "Pou ou redemare sèvè a, ou bezwen pèmisyon server.control, e wòl sa a pa genyen li.",
@@ -104,7 +178,7 @@
     "editWarningMessage": "Modifye mesaj avètisman an"
   },
   "quickBroadcasts": {
-    "title": "Difizyon Rapid",
+    "title": "Difizyon rapid",
     "descRunning": "Voye anons komen bay tout jwè.",
     "descOffline": "Sèvè a òfliy — difizyon mande yon sèvè k ap fonksyone.",
     "maintenanceStart": "Kòmansman Antretyen",
@@ -119,8 +193,9 @@
     "welcome": "Byenveni! Tanpri li règ yo nan pwen kòmansman an"
   },
   "scheduledTasks": {
-    "title": "Tach Pwograme",
-    "description": "Jere kòmand otomatize.",
+    "title": "Tach yo",
+    "description": "Kòmand ki kouri dapre yon orè. Kouri youn kounye a, modifye l oswa poze l.",
+    "modUpdatePending": "Redemaraj mizajou mod an atant",
     "emptyTitle": "Pa gen tach pwograme",
     "emptyDesc": "Kreye yon tach pou fè rekòmansaj, sovgad, mesaj sèvè, oswa kòmand PanelBridge (move tan, sèvis) dapre yon orè cron.",
     "emptyActionLabel": "Kreye Tach Pwograme",
@@ -131,18 +206,16 @@
     "lastRunFailedUnknownReason": "erè enkoni",
     "nextRun": "Pwochen egzekisyon · {{date}}",
     "runNowTitle": "Fè tach la fonksyone kounye a",
-    "runNowAria": "Fè {{name}} fonksyone kounye a",
     "editTitle": "Modifye tach",
     "editAria": "Modifye {{name}}",
     "toggleAria": "Aktive/Dezaktive {{name}}",
     "deleteTitle": "Efase tach",
-    "deleteAria": "Efase tach {{name}}",
     "deleteDialogTitle": "Efase Tach Pwograme",
     "deleteDialogDesc": "Ou sèten ou vle efase \"{{name}}\"? Aksyon sa a pa ka anile.",
     "deleteConfirm": "Efase"
   },
   "executionHistory": {
-    "title": "Istorik Egzekisyon",
+    "title": "Istorik egzekisyon",
     "description": "Jounal egzekisyon tach resamman.",
     "refresh": "Rafrechi",
     "clear": "Efase",
@@ -157,13 +230,15 @@
     "succeeded": "Reyisi",
     "failed": "Echwe",
     "duration": "Dire: {{seconds}}s",
+    "filterAll": "Tout",
+    "filterAria": "Montre egzekisyon yo",
     "systemTasks": {
       "manualRestart": "Redemare manyèl",
       "autoRestart": "Redemare otomatik"
     }
   },
   "cronHelp": {
-    "title": "Èd Ekspresyon Cron",
+    "title": "Èd ekspresyon cron",
     "minuteLabel": "Minit",
     "minuteRange": "0-59",
     "hourLabel": "Èdtan",
@@ -180,7 +255,7 @@
     "daily6amExample": "<1>0 6 * * *</1> = chak jou a 6 AM"
   },
   "timezone": {
-    "title": "Fizo Orè Pwogramatè a",
+    "title": "Fizo orè",
     "description": "Chak orè anba a -- tach ou yo, sovgad otomatik la, ak redemaraj otomatik la -- fonksyone nan fizo orè sa a.",
     "inputLabel": "Non fizo orè IANA",
     "noMatches": "Pa gen okenn fizo orè ki koresponn",
@@ -191,7 +266,9 @@
     "backupScheduleOff": "inaktif",
     "autoRestartOn": "aktive",
     "autoRestartOff": "dezaktive",
-    "backupHealthTitle": "Sante orè sovgad la",
+    "backupHealthTitle": "Sovgad otomatik",
+    "backupHealthDesc": "Dènye sovgad monn ki te pwograme a ak pwochen an.",
+    "backupHealthLink": "Orè sovgad",
     "backupLastAttemptOk": "Dènye eseyè te reyisi · {{date}}",
     "backupLastAttemptFailed": "Dènye eseyè echwe · {{date}} — {{reason}}",
     "backupLastAttemptSkippedForRestart": "Dènye eseyè a sote pandan yon redemaraj · {{date}}",
@@ -201,10 +278,12 @@
     "savedDesc": "Orè yo kounye a fonksyone nan {{tz}}.",
     "saveFailedFallback": "Pa t kapab sove fizo orè a",
     "fallbackTitle": "Fizo orè ki sove a pa valab ankò",
-    "fallbackDesc": "Nou pa t kapab itilize \"{{configured}}\" (petèt yo retire l nan baz done fizo orè yo, oswa panel sa a restore soti nan yon lòt machin). Orè yo ap fonksyone nan {{effective}} jiskaske pwoblèm sa a rezoud."
+    "fallbackDesc": "Nou pa t kapab itilize \"{{configured}}\" (petèt yo retire l nan baz done fizo orè yo, oswa panel sa a restore soti nan yon lòt machin). Orè yo ap fonksyone nan {{effective}} jiskaske pwoblèm sa a rezoud.",
+    "fallbackAction": "Chanje fizo orè a",
+    "emptyReason": "Chwazi yon fizo orè dabò."
   },
   "restartWarning": {
-    "title": "Avètisman Redèmaj",
+    "title": "Avètisman redemaraj",
     "description": "Mesaj kontdaoun redèmaj otomatik ki voye bay tout jwè konekte yo.",
     "languageLabel": "Lang mesaj la",
     "templateLabel": "Modèl kontdaoun",
@@ -213,6 +292,7 @@
     "saveButton": "Sove avètisman yo",
     "saved": "Avètisman redèmaj yo sove",
     "saveFailed": "Nou pa t kapab sove avètisman redèmaj yo",
+    "emptyReason": "Ekri mesaj kontaj la dabò.",
     "languages": {
       "en": "Anglè",
       "zh-CN": "Chinwa senplifye",
@@ -226,7 +306,6 @@
   "toasts": {
     "errorTitle": "Erè",
     "successTitle": "Siksè",
-    "fillAllFields": "Tanpri ranpli tout chan yo",
     "invalidScheduleTitle": "Orè Envalid",
     "invalidCronDesc": "Ekspresyon cron envalid: {{cron}}",
     "taskUpdated": "Tach mete ajou avèk siksè",

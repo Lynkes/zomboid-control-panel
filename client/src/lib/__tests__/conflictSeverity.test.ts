@@ -93,3 +93,13 @@ describe('conflict pair severity', () => {
     expect(updated.pairs[1].files[0].winner?.modId).toBe('D')
   })
 })
+describe('recalculateConflictWinners and suggested winners', () => {
+  it('re-reads alreadyWinning from the new order, so a reorder that settles a pair turns "Suggested" into "As suggested"', () => {
+    const result = {
+      totalConflicts: 1, identicalSkipped: 0, totalPairs: 1, modsScanned: 2, missingDeps: [], modLoadOrder: ['B', 'A'],
+      pairs: [{ ...pair(1, 0, 0), suggestion: { winner: 'B', confidence: 'high' as const, reason: 'requiresOther' as const, alreadyWinning: false } }],
+    }
+    expect(recalculateConflictWinners(result, ['A', 'B']).pairs[0].suggestion?.alreadyWinning).toBe(true)
+    expect(recalculateConflictWinners(result, ['B', 'A']).pairs[0].suggestion?.alreadyWinning).toBe(false)
+  })
+})

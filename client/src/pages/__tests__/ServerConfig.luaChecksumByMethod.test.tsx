@@ -55,7 +55,7 @@ async function renderWith(delivery: DeliveryStatus | Error, doLuaChecksum: strin
   )
   // Ready = the INI editor is on screen AND the delivery answer has been
   // applied; asserting an absent callout any earlier would pass vacuously.
-  await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+  await screen.findByRole('searchbox', { name: en.search.aria })
   await waitFor(() => expect(getDelivery).toHaveBeenCalled())
   await act(async () => {
     await getDelivery.mock.results[0].value.catch(() => undefined)
@@ -154,7 +154,7 @@ describe('ServerConfig › INI: the delivery answer, not a guess, decides the ca
         <ServerConfig />
       </MemoryRouter>,
     )
-    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    await screen.findByRole('searchbox', { name: en.search.aria })
     expect(callouts().localBody).toBeNull()
     expect(callouts().unconfirmed).toBeNull()
     await act(async () => { pending.resolve(makeWorkshopStatus({ checksum: { ...makeWorkshopStatus().checksum, current: true, canTurnOn: false, turnOnBlockers: ['alreadyOn'] } })) })
@@ -173,10 +173,10 @@ describe('ServerConfig › INI: the delivery answer, not a guess, decides the ca
         <ServerConfig />
       </MemoryRouter>,
     )
-    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    await screen.findByRole('searchbox', { name: en.search.aria })
     // Reload (the same path activeServerChanged takes): a second request.
     fireEvent.click(screen.getByRole('button', { name: en.pageHeader.refresh }))
-    await screen.findByRole('button', { name: en.editorToolbar.saveAndReload })
+    await screen.findByRole('searchbox', { name: en.search.aria })
     expect(await screen.findByText(en.iniTab.luaChecksumWorkshopUnconfirmed)).toBeInTheDocument()
     // The first request (for what was active before) lands last.
     await act(async () => { slow.resolve(makeLocalStatus()) })

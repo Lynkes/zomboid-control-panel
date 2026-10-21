@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Mode d'installation de PanelBridge",
   "appliesTo": "S'applique à {{server}}. Pour modifier un autre serveur, rendez-le actif sur la page Mes serveurs.",
+  "serverChangedTitle": "Serveur actif changé",
+  "serverChangedBody": "La fenêtre PanelBridge ouverte concernait le serveur précédent ; elle a donc été fermée.",
   "current": "Actuel",
   "recommended": "Recommandé",
   "preview": "Préversion",
@@ -81,6 +83,11 @@
       "title": "Mise à jour en attente",
       "body": "Le dossier du jeu contient une version de PanelBridge plus ancienne que celle de ce panneau. Mettez-la à jour maintenant, ou laissez le prochain démarrage la copier (seulement si « Tenir à jour PanelBridge installé par le panneau » est activé)."
     },
+    "local-newer": {
+      "title": "Plus récent que celui du panneau",
+      "body": "Le dossier du jeu contient une version de PanelBridge plus récente que la v{{version}} fournie avec ce panneau. Le panneau la laisse telle quelle ; mettez à jour le panneau pour que les deux correspondent.",
+      "bodyNoVersion": "Le dossier du jeu contient une version de PanelBridge plus récente que celle fournie avec ce panneau. Le panneau la laisse telle quelle ; mettez à jour le panneau pour que les deux correspondent."
+    },
     "local-not-installed": {
       "title": "Non installé",
       "body": "PanelBridge n'est pas encore installé dans ce dossier du jeu."
@@ -134,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam signale l'élément Workshop de PanelBridge comme indisponible. Le serveur ne démarrera pas tant qu'il ne sera pas revenu ou que vous ne serez pas repassé à l'installation par le panneau.",
+    "workshopItemModified": "Les fichiers PanelBridge {{version}} que le serveur a téléchargés depuis le Steam Workshop ne correspondent pas à ce qui a été publié pour cette version (dossier : {{folder}}). L'élément Workshop ou les fichiers téléchargés ont peut-être été modifiés. En attendant de vérifier, passez à l'installation par le panneau, qui utilise la copie fournie avec le panneau.",
     "steamModeOff": "Ce serveur tourne sans Steam : il ne peut donc pas télécharger PanelBridge depuis le Workshop. Le jeu n'active Steam que si Java démarre avec -Dzomboid.steam=1 et que le serveur n'est pas lancé avec -nosteam : ajoutez -Dzomboid.steam=1 à la ligne java du script de lancement ou de la commande de démarrage de ce serveur, retirez -nosteam s'il y figure, puis redémarrez le serveur.",
     "steamListingHidden": "La page publique du Steam Workshop n'affiche pas l'élément PanelBridge pour le moment. Cela peut arriver pendant que Steam examine un élément nouveau ou mis à jour, ou pour un élément non répertorié, et les serveurs peuvent quand même le télécharger. Si un démarrage échoue à cause de cela, cette page l'indiquera.",
     "autoRestartOn": "Les mises à jour de PanelBridge redémarrent ce serveur automatiquement (Paramètres › Mods et Workshop).",

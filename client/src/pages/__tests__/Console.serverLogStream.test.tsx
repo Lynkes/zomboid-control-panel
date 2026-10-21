@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '@/locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // Console audit (2026-10-12), the three client halves of the /console-log/stream
 // fixes:
@@ -55,7 +56,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

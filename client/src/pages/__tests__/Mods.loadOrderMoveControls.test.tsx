@@ -13,7 +13,7 @@ import { modsApi, serversApi } from '@/lib/api'
 // common case is exactly "last row -> first slot".
 //
 // These tests pin the page wiring: the move controls must go through the same
-// orderedModIds -> "Unsaved order changes" -> Save Order -> saveModOrder path
+// orderedModIds -> "Unsaved changes" (the SaveBar) -> Save Order -> saveModOrder path
 // as drag-and-drop, bring the moved row back into view with focus on it, act
 // on the FULL list even while the list is filtered, and stay out of reach of a
 // role without mods.manage (the capability the save-order route requires).
@@ -49,6 +49,7 @@ vi.mock('@/lib/api', async () => {
       getCachedConflicts: vi.fn(),
       listDiskOnly: vi.fn(),
       saveModOrder: vi.fn(),
+      planLoadOrder: vi.fn(),
     },
     serversApi: { ...actual.serversApi, getActive: vi.fn() },
   }
@@ -69,6 +70,19 @@ const getPresets = vi.mocked(modsApi.getPresets)
 const getCachedConflicts = vi.mocked(modsApi.getCachedConflicts)
 const listDiskOnly = vi.mocked(modsApi.listDiskOnly)
 const saveModOrder = vi.mocked(modsApi.saveModOrder)
+const planLoadOrder = vi.mocked(modsApi.planLoadOrder)
+
+// Smart sort answers with a plan that moves NewMod first (modA requires it).
+function primePlan(input: string[]) {
+  planLoadOrder.mockResolvedValue({
+    order: ['NewMod', ...input.filter((id) => id !== 'NewMod')],
+    changed: true,
+    moves: [{ modId: 'NewMod', from: input.indexOf('NewMod'), to: 0, confidence: 'high', reasons: [{ code: 'require', params: { relation: 'before', other: 'modA' } }] }],
+    explanations: {}, satisfied: 1, unsatisfied: [], cycles: [], winnersChanged: [], implicit: [], warnings: [],
+    stats: { constraints: 1, hard: 1, strong: 0, soft: 0, ms: 2 },
+    steamStatus: { source: 'none', fetchedAt: null, stale: false, failed: false, pending: false, known: 0, total: 0 },
+  } as never)
+}
 const getActive = vi.mocked(serversApi.getActive)
 
 const MOD_IDS = ['modA', 'modB', 'modC', 'NewMod']
@@ -99,7 +113,7 @@ afterEach(() => {
   // clearAllMocks keeps queued mockReturnValueOnce values: a test that fails
   // before its held reload is consumed would hand that never-settling
   // promise to the next test. primeReadMocks re-primes all of these.
-  for (const mock of [getTrackedMods, getStatus, getCurrentConfig, getIgnoredMods, getIgnoredModPairs, collectionDiff, getPresets, getCachedConflicts, listDiskOnly, saveModOrder, getActive]) {
+  for (const mock of [getTrackedMods, getStatus, getCurrentConfig, getIgnoredMods, getIgnoredModPairs, collectionDiff, getPresets, getCachedConflicts, listDiskOnly, saveModOrder, getActive, planLoadOrder]) {
     mock.mockReset()
   }
   mockCan = () => true
@@ -136,13 +150,13 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
   it('Move to top takes the newest mod from the last row to slot 1, and Save Order writes that order', async () => {
     primeReadMocks()
     await openLoadOrder()
-    expect(screen.queryByText('Unsaved order changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod to the top' }))
 
     expect(shownOrder()).toEqual(['NewMod', 'modA', 'modB', 'modC'])
     // Same dirty state a drag produces -- nothing is written yet.
-    expect(screen.getByText('Unsaved order changes')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
     expect(saveModOrder).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: /save order/i }))
@@ -235,7 +249,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     // unsaved bar goes away -- but the move still happened and is announced.
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod down' }))
     expect(shownOrder()).toEqual(MOD_IDS)
-    expect(screen.queryByText('Unsaved order changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
     expect(loadOrderStatus()).toHaveTextContent('NewMod moved to position 4 of 4')
     expect(rowOf(screen.getByText('NewMod'))).toHaveClass('!bg-primary/[0.055]')
   })
@@ -275,15 +289,15 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move NewMod up' })))
   })
 
-  it('Reset discards a move the same way it discards a drag', async () => {
+  it('Discard drops a move the same way it drops a drag', async () => {
     primeReadMocks()
     await openLoadOrder()
 
     fireEvent.click(screen.getByRole('button', { name: 'Move NewMod to the top' }))
-    fireEvent.click(screen.getByRole('button', { name: /^reset$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^discard$/i }))
 
     expect(shownOrder()).toEqual(MOD_IDS)
-    expect(screen.queryByText('Unsaved order changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
   })
 
   it('a drag ends cleanly even though the order changed under it', async () => {
@@ -343,6 +357,9 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     let finishSave!: () => void
     saveModOrder.mockReturnValueOnce(new Promise((resolve) => { finishSave = () => resolve({ message: 'ok', modCount: 4 } as never) }))
     let finishReload!: () => void
+    // Save first reads Mods= again (nothing changed on the server), then the
+    // reload after the write is held back.
+    getCurrentConfig.mockResolvedValueOnce({ configured: true, modIds: MOD_IDS, workshopIds: [], maps: [], totalMods: 4 } as never)
     getCurrentConfig.mockReturnValueOnce(new Promise((resolve) => {
       finishReload = () => resolve({ configured: true, modIds: ['NewMod', 'modA', 'modB', 'modC'], workshopIds: [], maps: [], totalMods: 4 } as never)
     }))
@@ -354,7 +371,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     // Auto-sort already was.
     expect(screen.getByRole('button', { name: 'Move modA to the bottom' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Move modC up' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /auto-sort by dependencies/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^auto-sort$/i })).toBeDisabled()
     expect(rowOf(screen.getByText('modA'))).toHaveAttribute('draggable', 'false')
     fireEvent.dragStart(rowOf(screen.getByText('modC')))
     fireEvent.dragOver(rowOf(screen.getByText('NewMod')))
@@ -362,12 +379,12 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
 
     // Still locked once the write itself is done, while the reload is out.
     finishSave()
-    await waitFor(() => expect(getCurrentConfig).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(getCurrentConfig).toHaveBeenCalledTimes(3))
     expect(screen.getByRole('button', { name: 'Move modA to the bottom' })).toBeDisabled()
 
     finishReload()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Move modA to the bottom' })).toBeEnabled())
-    expect(screen.queryByText('Unsaved order changes')).toBeNull()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
     expect(rowOf(screen.getByText('modA'))).toHaveAttribute('draggable', 'true')
   })
 
@@ -385,7 +402,8 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     await openLoadOrder()
     expect(screen.getByText('Drag or use the arrow buttons to reorder. Changes are not saved until you click Save Order.')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /auto-sort by dependencies/i }))
+    primePlan(MOD_IDS)
+    fireEvent.click(screen.getByRole('button', { name: /^auto-sort$/i }))
     await screen.findByRole('button', { name: /^apply$/i })
 
     // Apply writes the proposal computed from the order as it was, so a move
@@ -418,7 +436,8 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     fireEvent.dragOver(rowOf(screen.getByText('modC')))
     expect(shownOrder()).toEqual(['modA', 'modB', 'NewMod', 'modC'])
 
-    fireEvent.click(screen.getByRole('button', { name: /auto-sort by dependencies/i }))
+    primePlan(['modA', 'modB', 'NewMod', 'modC'])
+    fireEvent.click(screen.getByRole('button', { name: /^auto-sort$/i }))
     await screen.findByRole('button', { name: /^apply$/i })
     expect(fadedRows()).toEqual([])
     // Apply would write the proposal computed from the order above, so a
@@ -504,7 +523,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
     // The filter box lives on "Active on server"; the Load Order list honours it.
     fireEvent.click(await screen.findByRole('button', { name: /^active on server/i }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Filter active mods' }), { target: { value: 'newmod' } })
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Filter active mods' }), { target: { value: 'newmod' } })
     fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
     await waitFor(() => expect(screen.queryByText('modA')).toBeNull())
     // The filter is set on another tab; this one says why rows are missing
@@ -528,7 +547,7 @@ describe('Mods.tsx Load Order: move to top / bottom', () => {
     expect(rowOf(screen.getByText('NewMod'))).toHaveAttribute('draggable', 'false')
     // No drag handle on a row that can't be dragged.
     expect(rowOf(screen.getByText('NewMod')).querySelector('svg.lucide-grip-vertical')).toHaveClass('invisible')
-    expect(screen.getByRole('button', { name: /auto-sort by dependencies/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^auto-sort$/i })).toBeDisabled()
 
     // A drag that starts anyway (e.g. from a stale render) still can't reorder.
     fireEvent.dragStart(rowOf(screen.getByText('NewMod')))

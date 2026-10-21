@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Loader2, RotateCcw, Trash2, XCircle } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, RotateCcw, Trash2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/EmptyState'
 import { useToast } from '@/components/ui/use-toast'
@@ -19,10 +19,8 @@ interface TrashViewProps {
   isDesktop: boolean
   runConfirmed: RunConfirmed
   onBack: () => void
-  /** Something was restored or removed: refresh the listing and the count. */
+  /** Something was restored or removed (or Refresh was pressed): refresh the folder's count and history. */
   onChanged: () => void
-  /** Bumped by the page's Refresh button: the list is fetched again. */
-  refreshKey?: number
 }
 
 type JobLine = { state: 'running'; done: number; total: number | null } | { state: 'done' } | { state: 'failed'; error: string }
@@ -37,7 +35,7 @@ function withPermanent(tokens: ConfirmToken[]): ConfirmToken[] {
 // by whom and when, and when the panel will remove it. Restore puts an item
 // back where it was (or under another name if that's taken); deleting from
 // here is permanent and typed-confirmed like any other permanent delete.
-export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, onChanged, refreshKey = 0 }: TrashViewProps) {
+export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, onChanged }: TrashViewProps) {
   const { t, i18n } = useTranslation('files')
   const { toast } = useToast()
   const confirm = useConfirm()
@@ -70,16 +68,18 @@ export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, on
     return () => controller.abort()
   }, [load])
 
-  // The page's Refresh: fetched again in place (someone else, or the hourly
-  // clean-up, may have changed Trash meanwhile).
-  const firstRefreshRef = useRef(refreshKey)
-  useEffect(() => {
-    if (refreshKey === firstRefreshRef.current) return
-    firstRefreshRef.current = refreshKey
-    const controller = new AbortController()
-    void load(controller.signal)
-    return () => controller.abort()
-  }, [load, refreshKey])
+  // Refresh: fetched again in place (someone else, or the hourly clean-up,
+  // may have changed Trash meanwhile), with the folder's count.
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      await load()
+      onChanged()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const restore = async (item: TrashItem, name?: string) => {
     setBusyId(item.trashId)
@@ -200,10 +200,13 @@ export function TrashView({ profileId, root, isDesktop, runConfirmed, onBack, on
           <ArrowLeft className="rtl:-scale-x-100" aria-hidden="true" />
           {t(`roots.labels.${root.id}`)}
         </Button>
-        <h2 className="me-auto text-sm font-medium">{t('trash.title')}</h2>
+        <h2 className="me-auto text-base font-semibold">{t('trash.title')}</h2>
         {items && items.length > 0 && (
-          <span className="text-xs text-muted-foreground">{formatBytes(totalBytes, i18n.language)}</span>
+          <span className="text-xs tabular-nums text-muted-foreground">{formatBytes(totalBytes, i18n.language)}</span>
         )}
+        <Button variant="ghost" size="iconDense" onClick={() => void refresh()} disabled={refreshing || items === null} aria-label={t('page.refresh')}>
+          {refreshing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+        </Button>
         {writable && items && items.length > 0 && (
           <Button variant="destructive" size="sm" onClick={() => void emptyTrash()} disabled={busyId !== null}>
             {busyId === '*' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Trash2 aria-hidden="true" />}

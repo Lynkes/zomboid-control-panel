@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Plantillas de simulación",
-    "description": "Aplica un conjunto de reglas seleccionado a tu servidor, o guarda tu propia configuración para reutilizarla después.",
+    "title": "Plantillas",
+    "description": "Conjuntos de reglas que puedes aplicar a cualquier servidor; una instantánea de configuración solo restaura los archivos de un servidor.",
+    "snapshotsLink": "Las instantáneas de configuración están en Configuración del servidor",
     "import": "Importar",
     "saveCurrentConfig": "Guardar configuración actual"
   },
+  "loading": "Cargando plantillas",
   "emptyState": {
     "loadErrorTitle": "No se pudieron cargar las plantillas",
     "retry": "Reintentar",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Guarda la configuración actual del servidor como plantilla, o importa una desde un archivo."
   },
   "hiddenSection": {
-    "title": "Plantillas integradas ocultas",
+    "toggle": "Plantillas integradas ocultas ({{n}})",
     "description": "Ocultas de la lista superior, pero no eliminadas. Restaura una para recuperarla.",
     "restoreButton": "Restaurar",
     "restoreAria": "Restaurar {{name}}"

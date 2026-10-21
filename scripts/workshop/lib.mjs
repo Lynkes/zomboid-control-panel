@@ -244,6 +244,12 @@ export function publishedDocErrors(doc) {
   if (doc.publishedAt !== null && typeof doc.publishedAt !== "string") {
     errors.push("published.json publishedAt must be null or an ISO date string");
   }
+  // The sha256 of the PanelBridge.lua the published version put on the
+  // Workshop (publish.mjs writes it); the panel compares a server's download
+  // with it. Absent in documents from before it existed.
+  if (doc.serverLuaSha256 !== undefined && doc.serverLuaSha256 !== null && !/^[0-9a-f]{64}$/.test(String(doc.serverLuaSha256))) {
+    errors.push(`published.json serverLuaSha256 must be null or a lower-case sha256 hex digest (found ${JSON.stringify(doc.serverLuaSha256)})`);
+  }
   const live = doc.liveVerified;
   if (!live || typeof live !== "object" || Array.isArray(live) || !("windowsServer" in live) || !("linuxServer" in live)) {
     errors.push("published.json liveVerified must hold windowsServer and linuxServer (null until the live test)");
@@ -290,23 +296,42 @@ export function readPublished(repoRoot) {
 
 // Rewrites only the given top-level scalar fields of published.json and keeps
 // every other byte (the maintainer fills liveVerified by hand, and a full
-// re-serialisation would reflow it). Falls back to a plain re-serialisation
-// if a field isn't on a line of its own.
+// re-serialisation would reflow it). A field the document doesn't have yet
+// goes on a line of its own after "publishedVersion". Falls back to a plain
+// re-serialisation if a field isn't on a line of its own.
 export function updatePublishedText(text, updates) {
   let next = text;
+  const expected = { ...JSON.parse(text), ...updates };
+  const reserialised = `${JSON.stringify(expected, null, 2)}\n`;
   for (const [key, value] of Object.entries(updates)) {
     const pattern = new RegExp(`^(\\s*"${key}"\\s*:\\s*)(null|"(?:[^"\\\\]|\\\\.)*")`, "m");
-    if (!pattern.test(next)) {
-      const doc = { ...JSON.parse(text), ...updates };
-      return `${JSON.stringify(doc, null, 2)}\n`;
+    if (pattern.test(next)) {
+      next = next.replace(pattern, (_match, prefix) => `${prefix}${JSON.stringify(value)}`);
+      continue;
     }
-    next = next.replace(pattern, (_match, prefix) => `${prefix}${JSON.stringify(value)}`);
+    const anchor = /^([ \t]*)"publishedVersion"[ \t]*:[ \t]*(?:null|"(?:[^"\\]|\\.)*"),[ \t]*(?=\r?$)/m.exec(next);
+    if (!anchor || key in JSON.parse(text)) return reserialised;
+    const at = anchor.index + anchor[0].length;
+    const eol = next.includes("\r\n") ? "\r\n" : "\n";
+    next = `${next.slice(0, at)}${eol}${anchor[1]}${JSON.stringify(key)}: ${JSON.stringify(value)},${next.slice(at)}`;
   }
-  const expected = { ...JSON.parse(text), ...updates };
-  if (JSON.stringify(JSON.parse(next)) !== JSON.stringify(expected)) {
-    return `${JSON.stringify(expected, null, 2)}\n`;
+  let parsed;
+  try {
+    parsed = JSON.parse(next);
+  } catch {
+    return reserialised;
   }
-  return next;
+  return sameJson(parsed, expected) ? next : reserialised;
+}
+
+// Deep equality of two JSON values, ignoring object key order.
+function sameJson(a, b) {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  return keysA.length === keysB.length && keysA.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]));
 }
 
 // ---------------------------------------------------------------------------

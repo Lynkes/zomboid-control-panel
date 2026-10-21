@@ -4,6 +4,7 @@
 // stored — this keeps built-in templates small and readable, and means
 // applying a template never resets a setting the template doesn't mention.
 import crypto from "crypto";
+import { SENSITIVE_FIELD_RE } from "./sanitize.js";
 
 export const TEMPLATE_SCHEMA_VERSION = 1;
 
@@ -31,6 +32,18 @@ export const SANDBOX_SECTIONS = [
 // empty list, at both the validate and the apply-time write sites, letting
 // a templates.manage-only role rewrite RCONPassword, the public port and
 // the server name. See 2026-08-24 conv-template-privesc.
+//
+// SECURITY (2026-10-20, access-control audit): the floor also holds every
+// key another capability governs, so templates.manage can't reach them
+// through a template: the server.configure keys (INI_KEY_CAPABILITY in
+// utils/iniKeyCapability.js -- templateSchema.test.js checks the floor holds
+// all of them), Mods/WorkshopItems/Map (mods.manage) and DoLuaChecksum
+// (bridge.setup). And any key that looks secret-like (TEMPLATE_SECRET_KEY_RE,
+// e.g. DiscordToken) is excluded whatever its name -- a template captured
+// from a server's settings page used to carry the masked value of such a key
+// and wrote the mask over the real secret on apply. Keys compare without
+// case. client/src/lib/templateBuilder.ts mirrors this list and the pattern
+// (serverClientConstantParity.test.js).
 export const DEFAULT_INI_EXCLUSIONS = [
   "RCONPassword",
   "Password",
@@ -40,7 +53,25 @@ export const DEFAULT_INI_EXCLUSIONS = [
   "UDPPort",
   "RCONPort",
   "server_browser_announced_ip",
+  "UPnP",
+  "Mods",
+  "WorkshopItems",
+  "Map",
+  "DoLuaChecksum",
+  "DiscordToken",
 ];
+
+export const TEMPLATE_SECRET_KEY_RE = SENSITIVE_FIELD_RE;
+
+// Whether `key` may not appear in (or be applied from) a template's
+// serverIni, given the resolved exclusion list (resolveIniExclusions()).
+export function isIniKeyExcluded(key, exclusions = DEFAULT_INI_EXCLUSIONS) {
+  const lower = String(key).toLowerCase();
+  return (
+    TEMPLATE_SECRET_KEY_RE.test(key) ||
+    exclusions.some((excluded) => String(excluded).toLowerCase() === lower)
+  );
+}
 
 // The only correct way to resolve a template's ini exclusion set: always
 // the union of DEFAULT_INI_EXCLUSIONS with whatever additional keys the
@@ -57,6 +88,18 @@ export function resolveIniExclusions(template) {
     ? template.iniExclusions
     : [];
   return [...new Set([...DEFAULT_INI_EXCLUSIONS, ...extra])];
+}
+
+// A template with its excluded serverIni keys left out. Every read of a
+// stored template goes through this (templateService.js), so one saved
+// before a key joined the floor neither shows, exports nor applies it.
+export function withoutExcludedIniKeys(template) {
+  if (!isPlainObject(template?.serverIni)) return template;
+  const exclusions = resolveIniExclusions(template);
+  const serverIni = Object.fromEntries(
+    Object.entries(template.serverIni).filter(([key]) => !isIniKeyExcluded(key, exclusions)),
+  );
+  return { ...template, serverIni };
 }
 
 export function createTemplate({
@@ -150,7 +193,7 @@ export function validateTemplate(template) {
   const exclusions = resolveIniExclusions(template);
   if (isPlainObject(template.serverIni)) {
     const leaked = Object.keys(template.serverIni).filter((key) =>
-      exclusions.includes(key),
+      isIniKeyExcluded(key, exclusions),
     );
     if (leaked.length > 0) {
       errors.push(
@@ -191,7 +234,7 @@ export function diffTemplate(template, currentConfig = {}) {
 
   const serverIni = [];
   for (const [key, to] of Object.entries(template?.serverIni || {})) {
-    if (exclusions.includes(key)) continue;
+    if (isIniKeyExcluded(key, exclusions)) continue;
     const from = currentConfig?.serverIni?.[key];
     if (!valuesEqual(from, to)) serverIni.push({ key, from, to });
   }

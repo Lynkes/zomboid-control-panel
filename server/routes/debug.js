@@ -70,7 +70,8 @@ import {
   getB42TopFormat,
   getB42ResolutionStatus,
 } from "./mapProxy.js";
-import { getThumbnailResolutionStatus } from "./mods.js";
+import { getActiveServerPaths, getSanitizedIniPath, getThumbnailResolutionStatus } from "./mods.js";
+import { scanServerProblems } from "../services/serverProblems.js";
 import {
   getCandidateZomboidPaths,
   inspectZomboidPath,
@@ -94,6 +95,8 @@ import {
 } from "../utils/discordMessageRedaction.js";
 import { getSteamApiKey } from "../services/steamApiKey.js";
 import { hasActiveSteamOperation } from "../services/activeSteamOperations.js";
+import { modInfoEntries, readModInfoText } from "../utils/modInfoText.js";
+import { redactGameLogSecrets } from "../utils/gameLogSecrets.js";
 import { Transform } from "stream";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -218,13 +221,54 @@ router.get("/logs", requirePermission("diagnostics.manage"), async (req, res) =>
   }
 });
 
+// What GET /logs/files lists, and so all GET /logs/download/:filename
+// serves: a regular file (not a link) directly in the logs folder whose name
+// ends in ".log".
+function isListedLogEntry(entry) {
+  return entry.isFile() && entry.name.endsWith(".log");
+}
+
+// Opens a log file the listing shows, or returns null. The name must be one
+// readdir() returns (exact spelling: no case alias, trailing dot, short name
+// or ":stream" suffix), a regular file whose real path is directly inside
+// the logs folder's real path, and the file opened must be the one checked.
+async function openListedLogFile(logsDir, filename) {
+  let entries;
+  try {
+    entries = await fs.promises.readdir(logsDir, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const entry = entries.find((candidate) => candidate.name === filename);
+  if (!entry || !isListedLogEntry(entry)) return null;
+  const filePath = path.join(logsDir, entry.name);
+  let handle = null;
+  try {
+    const checked = await fs.promises.lstat(filePath);
+    if (!checked.isFile()) return null;
+    const realDir = await fs.promises.realpath(logsDir);
+    const rel = path.relative(realDir, await fs.promises.realpath(filePath));
+    if (!rel || rel.includes(path.sep) || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+    handle = await fs.promises.open(filePath, "r");
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.ino !== checked.ino || opened.dev !== checked.dev) {
+      await handle.close();
+      return null;
+    }
+    return handle;
+  } catch {
+    if (handle) await handle.close().catch(() => {});
+    return null;
+  }
+}
+
 async function getAvailableLogFiles(logsDir) {
   const entries = await fs.promises.readdir(logsDir, { withFileTypes: true });
 
   const files = (
     await Promise.all(
       entries
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".log"))
+        .filter(isListedLogEntry)
         .map(async (entry) => {
           try {
             const filePath = path.join(logsDir, entry.name);
@@ -427,7 +471,7 @@ const RAW_LOG_STEAM_KEY_QUERY_RE = /([?&]key=)[0-9A-Za-z]{16,64}/g;
 
 /**
  * Support-bundle-specific superset of discordMessageRedaction.js's own
- * known-secret list: everything that list already covers (RCON/join
+ * known-secret list: everything that list already covers (RCON/join/admin
  * passwords across every server profile, the Discord bot token, the
  * PanelBridge SFTP password, Steam session cookies) plus the Steam Web API
  * key, which that module has no reason to know about (a Discord message
@@ -477,6 +521,28 @@ function redactRawLogText(text, knownSecrets) {
   out = redactRconCommandSecrets(out);
   out = out.replace(RAW_LOG_DISCORD_TOKEN_RE, "[REDACTED-DISCORD-TOKEN]");
   out = out.replace(RAW_LOG_STEAM_KEY_QUERY_RE, "$1[REDACTED]");
+  // The game's own "Command line admin password: <value>" line
+  // (utils/gameLogSecrets.js), a value it may have been started with that
+  // the panel no longer holds.
+  out = redactGameLogSecrets(out);
+  return out;
+}
+
+// One in-memory log buffer entry (addLogToBuffer) with every string field
+// redacted like a raw log line; a non-string message is turned into its JSON
+// text first, so nothing reaches the bundle unscrubbed.
+function redactLogBufferEntry(entry, knownSecrets) {
+  if (!entry || typeof entry !== "object") return entry;
+  const out = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (typeof value === "string") {
+      out[key] = redactRawLogText(value, knownSecrets);
+    } else if (value !== null && typeof value === "object") {
+      out[key] = redactRawLogText(JSON.stringify(value), knownSecrets);
+    } else {
+      out[key] = value;
+    }
+  }
   return out;
 }
 
@@ -491,17 +557,29 @@ function redactRawLogText(text, knownSecrets) {
  */
 function createRedactingLogStream(knownSecrets) {
   let carry = "";
+  // One decoder for the whole stream: a character whose UTF-8 bytes straddle
+  // a 64 KB read boundary decoded chunk by chunk came out as two U+FFFD (and
+  // a secret containing it no longer matched the exact-value redaction).
+  // ignoreBOM: true keeps a leading BOM, as Buffer#toString did.
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  const pushLines = (stream, text) => {
+    carry += text;
+    const lines = carry.split("\n");
+    carry = lines.pop() ?? "";
+    for (const line of lines) {
+      stream.push(redactRawLogText(line, knownSecrets) + "\n");
+    }
+  };
   return new Transform({
     transform(chunk, _enc, callback) {
-      carry += chunk.toString("utf-8");
-      const lines = carry.split("\n");
-      carry = lines.pop() ?? "";
-      for (const line of lines) {
-        this.push(redactRawLogText(line, knownSecrets) + "\n");
-      }
+      pushLines(
+        this,
+        typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }),
+      );
       callback();
     },
     flush(callback) {
+      pushLines(this, decoder.decode());
       if (carry) this.push(redactRawLogText(carry, knownSecrets));
       callback();
     },
@@ -802,7 +880,7 @@ async function inspectModDirectory(modDir, fallbackName, source, workshopId, con
     let metadata;
     try {
       metadata = parseModInfoMetadata(
-        await fs.promises.readFile(infoPath, "utf8"),
+        await readModInfoText(infoPath),
         infoPath,
         fallbackName,
       );
@@ -921,7 +999,9 @@ async function buildSandboxOptionsDiagnostics(activeServer, knownSecrets = []) {
   }
 
   const installedMods = await collectSandboxModMetadata(activeServer, ini);
-  const pzVersion = logText?.match(/\bversion=([^\s]+)\s+b[0-9a-f]+/i)?.[1] || null;
+  // No "=" in the version: with [^\s]+ a line of "version=version=..." (a
+  // mod can print one) rescanned the rest of the line from every match start.
+  const pzVersion = logText?.match(/\bversion=([^\s=]+)\s+b[0-9a-f]+/i)?.[1] || null;
   const bridgeVersion = logText?.match(/\[PanelBridge\]\s+Initializing v([^\s]+)/i)?.[1] || null;
   const detected = exceptionCount > 0;
   // A bridge that makes the index-0 read is the likely cause. null: the log
@@ -1757,9 +1837,12 @@ async function buildBundleDiagnostics(activeServer, req, knownSecrets) {
     wrap("db-write-health.json", async () => buildDbWriteHealth()),
     wrap("backups-summary.json", () => buildBackupsSummary(req)),
     wrap("discord-bot-status.json", () => buildDiscordBotStatus(req)),
+    // SECURITY (2026-10-20): these are combined.log's newest lines, so they
+    // get the redaction combined.log gets in this bundle
+    // (createRedactingLogStream). They used to go in as they were logged.
     wrap("in-memory-log-buffer.json", async () => ({
       total: logBuffer.length,
-      entries: logBuffer.slice(-MAX_BUFFER_SIZE),
+      entries: logBuffer.slice(-MAX_BUFFER_SIZE).map((entry) => redactLogBufferEntry(entry, knownSecrets)),
     })),
   ]);
 
@@ -2114,16 +2197,17 @@ router.get("/logs/download/:filename", requirePermission("diagnostics.manage"), 
 
     // Security: prevent path traversal
     if (
+      typeof filename !== "string" ||
       filename.includes("..") ||
-      filename.includes("/") ||
-      filename.includes("\\")
+      /[/\\:\0]/.test(filename)
     ) {
       return res.status(400).json({ error: "Invalid filename" });
     }
 
-    const logsPath = path.join(paths.logsDir, filename);
-
-    if (!fs.existsSync(logsPath)) {
+    // Only a log file the listing shows: the logs folder is configurable,
+    // and a name check alone served any file in it (jwt.secret, db.json).
+    const handle = await openListedLogFile(paths.logsDir, filename);
+    if (!handle) {
       return res.status(404).json({ error: "Log file not found" });
     }
 
@@ -2134,7 +2218,7 @@ router.get("/logs/download/:filename", requirePermission("diagnostics.manage"), 
       `attachment; filename="${safeFilename}"`,
     );
 
-    const readStream = fs.createReadStream(logsPath);
+    const readStream = handle.createReadStream();
     readStream.on("error", (err) => {
       log.error(`Log file read error: ${err.message}`);
       if (!res.headersSent)
@@ -2186,6 +2270,12 @@ router.post("/paths", requirePermission("diagnostics.manage"), async (req, res) 
     const extraBlockedPaths = configuredServers
       .flatMap((server) => [server.installPath, server.zomboidDataPath])
       .filter((p) => typeof p === "string" && p.trim());
+    // The HTTPS key and certificate: the logs folder (served file by file
+    // below) must not hold them.
+    const settings = (await getAllSettings()) || {};
+    const secretPaths = [settings.httpsKeyPath, settings.httpsCertPath].filter(
+      (p) => typeof p === "string" && p.trim(),
+    );
 
     // 2026-08-27: moveFiles now defaults to false, not true. It used to be
     // `moveFiles !== false`, so a request naming a new dataDir with no
@@ -2196,7 +2286,7 @@ router.post("/paths", requirePermission("diagnostics.manage"), async (req, res) 
     const result = await setDataPaths(
       { dataDir, logsDir },
       moveFiles === true,
-      { extraBlockedPaths },
+      { extraBlockedPaths, secretPaths },
     );
 
     if (result.success) {
@@ -2575,15 +2665,15 @@ async function parseServerIni(iniPath) {
 // can live under versioned subfolders like `common/`, `41/`, `42/`
 // (e.g. <mod>/42/mod.info and <mod>/common/media/maps/<name>/). We
 // therefore probe the mod root AND each direct subdirectory.
-async function readModIds(modInfoPath, fallbackName) {
+// Exported for server/tests/modContentRegexTiming.test.js.
+export async function readModIds(modInfoPath, fallbackName) {
   try {
-    const text = await fs.promises.readFile(modInfoPath, "utf-8");
+    // Capped, and split at "=" rather than matched with /^id\s*=\s*(.+?)\s*$/i,
+    // which backtracked quadratically on a long id= line with inner spaces
+    // (the file is the Workshop author's; utils/modInfoText.js).
     const ids = [];
-    for (const raw of text.split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#") || line.startsWith(";")) continue;
-      const m = line.match(/^id\s*=\s*(.+?)\s*$/i);
-      if (m && m[1]) ids.push(m[1]);
+    for (const { key, value } of modInfoEntries(await readModInfoText(modInfoPath))) {
+      if (key.toLowerCase() === "id" && value) ids.push(value);
     }
     if (ids.length === 0 && fallbackName) ids.push(fallbackName);
     else if (fallbackName && !ids.includes(fallbackName))
@@ -5969,16 +6059,29 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
           ),
         );
       } else {
-        // 'fallback', or any value outside the current contract -- treat as
-        // the failure state rather than as healthy.
+        // 'fallback': pzmap.org's bot protection refuses some networks for
+        // good (Tower: HTTP 403 on every try). The built-in build is the
+        // newest the panel knows and the map works, so this is information,
+        // not a warning the operator can act on. A broken map still shows up
+        // in the tile checks below. Any value outside the contract still
+        // fails closed to the warning.
         checks.push(
-          diagWarn(
+          resolution.source !== "fallback" ? diagWarn(
             "worldmap.tiles.buildDetect",
             "B42 build auto-detect failed",
             `Using hardcoded build ${resolution.directory} because discovery failed: ${resolution.reason || "unknown reason"}. This will not track the next PZ map build until discovery starts working again.`,
             {
               category: "worldmap",
-              hint: "Discovery reads build_list.json and each candidate's layer0.dzi from tiles.pzmap.org. If upstream is blocking the panel's requests specifically (e.g. bot protection keyed on the HTTP client), this may not be fixable from the panel side — watch for this warning after the next PZ map release, since that's when a stale build actually shows up as wrong map geometry.",
+              hint: "Discovery asks the map service which build is current. If upstream is blocking the panel's requests, this may not be fixable from the panel side.",
+              params: { build: resolution.directory, reason: resolution.reason || "unknown reason" },
+            },
+          ) : diagInfo(
+            "worldmap.tiles.buildDetect",
+            `Map build ${resolution.directory} (built in)`,
+            `pzmap.org did not answer the panel's automatic build check (${resolution.reason || "unknown reason"}), so the map uses the panel's built-in build ${resolution.directory}. The map works normally.`,
+            {
+              category: "worldmap",
+              hint: "pzmap.org guards its build list with bot protection that sometimes refuses servers. Nothing needs fixing on your side. After a Project Zomboid map update, update the panel to get the new map build.",
               params: { build: resolution.directory, reason: resolution.reason || "unknown reason" },
             },
           ),
@@ -6661,6 +6764,45 @@ router.post("/clear-stale-locks", requirePermission("diagnostics.manage"), async
       .json({ success: false, error: sanitizeError(error.message) });
   } finally {
     lifecycleLock.release();
+  }
+});
+
+// GET /problems -- "Problems found": the active server's latest game log and
+// the panel's own recent errors, read into deduplicated findings with the
+// fixes the panel can apply (utils/serverErrorFinder.js). Read-only; every
+// fix runs through the route that already does it (mods, servers, server
+// power), under that route's own capability. Sample lines are redacted like
+// a support bundle's logs, plus IP addresses and Steam IDs.
+router.get("/problems", requirePermission("diagnostics.manage"), async (req, res) => {
+  try {
+    const serverManager = req.app.get("serverManager");
+    const [activeServer, paths, knownSecrets, processState] = await Promise.all([
+      getActiveServer().catch(() => null),
+      getActiveServerPaths().catch(() => null),
+      collectBundleKnownSecrets().catch(() => []),
+      getServerProcessState(serverManager).catch(() => ({ running: null })),
+    ]);
+    let iniPath = null;
+    if (paths?.serverConfigPath && paths?.serverName) {
+      try {
+        iniPath = getSanitizedIniPath(paths.serverConfigPath, paths.serverName);
+      } catch {
+        iniPath = null;
+      }
+    }
+    const result = await scanServerProblems({
+      activeServer,
+      zomboidDataPath: paths?.zomboidDataPath ?? null,
+      serverPath: paths?.serverPath ?? null,
+      iniPath,
+      running: typeof processState?.running === "boolean" ? processState.running : null,
+      panelLog: logBuffer,
+      redact: (text) => redactRawLogText(text, knownSecrets),
+    });
+    res.json(result);
+  } catch (error) {
+    log.error(`Failed to scan for problems: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
 

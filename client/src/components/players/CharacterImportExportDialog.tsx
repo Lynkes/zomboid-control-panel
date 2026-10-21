@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 import { Link } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
@@ -90,6 +90,25 @@ export function CharacterImportExportDialog({
     }
   }, [])
 
+  // The saved exports list, re-read from the server: an import writes a
+  // recovery copy of the player's current data there first (the confirm text
+  // promises it), and auto-exports land in it on every login, so the list
+  // the page loaded once is stale. Re-read whenever the dialog opens and
+  // after every import. Only the latest answer is applied.
+  const exportsRequestRef = useRef(0)
+  const refreshSavedExports = useCallback(() => {
+    const requestId = ++exportsRequestRef.current
+    Promise.resolve()
+      .then(() => playersApi.getExports())
+      .then((response) => {
+        if (requestId === exportsRequestRef.current && response?.exports) onSavedExportsChange(response.exports)
+      })
+      .catch(() => {})
+  }, [onSavedExportsChange])
+  useEffect(() => {
+    if (open) refreshSavedExports()
+  }, [open, refreshSavedExports])
+
   // A different player was selected: the previous player's export is not
   // theirs to show, copy or download.
   const playerRef = useRef(player)
@@ -156,6 +175,9 @@ export function CharacterImportExportDialog({
       setImporting(false)
       setImportConfirmOpen(false)
       setPendingImportData(null)
+      // Also after a failed import: the recovery copy is written before the
+      // import is attempted.
+      refreshSavedExports()
     }
   }
 
@@ -181,7 +203,7 @@ export function CharacterImportExportDialog({
                 <Trans
                   i18nKey="importExport.bridgeOfflineDesc"
                   t={t}
-                  components={{ 1: <Link to="/settings" className="text-primary underline hover:text-foreground" /> }}
+                  components={{ 1: <Link to="/settings?tab=bridge" className="text-primary underline hover:text-foreground" /> }}
                 />
               </AlertDescription>
             </Alert>

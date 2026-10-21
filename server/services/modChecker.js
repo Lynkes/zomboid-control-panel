@@ -25,6 +25,7 @@ import {
 } from "./lifecycleCoordinator.js";
 import { resolveActiveServerStartedAt } from "../utils/serverStatus.js";
 import { getRestartWarningNotice } from "../utils/restartWarning.js";
+import { modInfoName, readModInfoTextSync } from "../utils/modInfoText.js";
 
 export const MOD_CHECK_INTERVAL_MINUTES_MIN = 1;
 export const MOD_CHECK_INTERVAL_MINUTES_MAX = 120;
@@ -764,11 +765,18 @@ export class ModChecker extends EventEmitter {
             .filter((candidate) => fs.existsSync(candidate.path))
             .sort(compareModInfoCandidates)[0]?.path;
           if (modInfoPath) {
-            let content = fs.readFileSync(modInfoPath, "utf-8");
-            if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
-            const nameMatch = content.match(/^\s*name\s*=\s*(.+)$/m);
-            if (nameMatch && nameMatch[1]) {
-              const name = nameMatch[1].trim();
+            // Capped and parsed line by line (utils/modInfoText.js): the file
+            // is the Workshop author's, and a regex over all of it
+            // backtracked for seconds on a mod.info of blank lines.
+            // A mod.info that is not a regular file (a FIFO would block) or
+            // cannot be read falls back to the folder name below.
+            let name = null;
+            try {
+              name = modInfoName(readModInfoTextSync(modInfoPath));
+            } catch {
+              name = null;
+            }
+            if (name) {
               // Update cache
               this.modNameCache.set(workshopId, {
                 name,

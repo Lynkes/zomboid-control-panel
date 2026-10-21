@@ -4,6 +4,7 @@
   "workshopId": "3809901056",
   "visibility": "unlisted",
   "publishedVersion": "1.7.76",
+  "serverLuaSha256": "2268a589750db5cfc6008436f497b979c9e734e930a3c592546d4f0dfab2d4c0",
   "publishedAt": "2026-10-13T13:05:18.071Z",
   "liveVerified": { "windowsServer": null, "linuxServer": null }
 }

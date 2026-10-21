@@ -43,7 +43,8 @@
 
 services:
   panel:
-    # Prebuilt image (published by .github/workflows/docker-publish.yml on tag push).
+    # Prebuilt image (published by .github/workflows/docker-publish.yml; `latest` is
+    # the newest release tag, `edge` the unreleased main branch).
     # If the pull fails (e.g. before the first tagged release, or on a private fork),
     # `build:` below kicks in automatically and the locally built image is tagged with
     # this same name so subsequent `up -d` calls don't try to pull again.

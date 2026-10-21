@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus } from '@/lib/api'
 
 // The public demo (VITE_DEMO_MODE) answered GET /backup/status with its
@@ -109,7 +110,7 @@ function prime(status: BackupStatus) {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -136,7 +137,7 @@ describe('Backups.tsx: a status without a usable schedule', () => {
     // The settings panel: no saved schedule to show, so the menu waits on a
     // choice -- not the form's '0 */6 * * *' default (the status was
     // applied), and not "Custom" with nothing in it.
-    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     expect(frequency).toHaveValue('')
     expect(screen.queryByLabelText('Cron expression')).not.toBeInTheDocument()

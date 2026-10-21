@@ -8,7 +8,7 @@ vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api')
   return {
     ...actual,
-    playersApi: { ...actual.playersApi, getExport: vi.fn(), deleteExport: vi.fn() },
+    playersApi: { ...actual.playersApi, getExport: vi.fn(), getExports: vi.fn(), deleteExport: vi.fn() },
     panelBridgeApi: { ...actual.panelBridgeApi, exportCharacter: vi.fn(), importCharacter: vi.fn() },
     configApi: { ...actual.configApi, updateAppSettings: vi.fn() },
   }
@@ -16,6 +16,7 @@ vi.mock('@/lib/api', async () => {
 
 const exportCharacter = vi.mocked(panelBridgeApi.exportCharacter)
 const importCharacter = vi.mocked(panelBridgeApi.importCharacter)
+const getExports = vi.mocked(playersApi.getExports)
 
 type Props = Partial<React.ComponentProps<typeof CharacterImportExportDialog>>
 
@@ -44,6 +45,7 @@ let downloads: string[] = []
 
 beforeEach(() => {
   downloads = []
+  getExports.mockResolvedValue({ exports: [] })
   Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:fake') })
   Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
   vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
@@ -137,6 +139,30 @@ describe('CharacterImportExportDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Yes, Overwrite Character' }))
 
     await waitFor(() => expect(importCharacter).toHaveBeenCalledWith('Alice', { perks: { Woodwork: 3 } }))
+  })
+
+  // The confirm text promises a recovery copy of the player's current data
+  // in Saved Exports; the list was only ever loaded with the page, so the
+  // copy (and any login auto-export since) never showed up there.
+  it('re-reads Saved Exports when it opens and after an import, so the recovery copy shows', async () => {
+    const recoveryCopy = { username: 'Alice', filename: 'Alice_pre-import_2026-10-20T10-00-00-000Z.json', size: 120, timestamp: '2026-10-20T10:00:00.000Z' }
+    const onSavedExportsChange = vi.fn()
+    importCharacter.mockResolvedValue({ success: true, data: { restored: { perks: 1, items: 0 } } } as never)
+    const { rerender } = render(dialog({ open: false, onSavedExportsChange }))
+    expect(getExports).not.toHaveBeenCalled()
+
+    rerender(dialog({ open: true, onSavedExportsChange }))
+    await waitFor(() => expect(onSavedExportsChange).toHaveBeenCalledWith([]))
+
+    getExports.mockResolvedValue({ exports: [recoveryCopy] })
+    fireEvent.change(screen.getByPlaceholderText('Paste character JSON here...'), {
+      target: { value: '{"perks":{"Woodwork":3}}' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Yes, Overwrite Character' }))
+
+    await waitFor(() => expect(onSavedExportsChange).toHaveBeenLastCalledWith([recoveryCopy]))
+    expect(getExports).toHaveBeenCalledTimes(2)
   })
 
   it('refuses invalid JSON without opening the confirmation', () => {

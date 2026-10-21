@@ -1,20 +1,16 @@
 {
   "pageHeader": {
-    "title": "Console d'événements",
-    "description": "Météo, temps, sons, actions joueurs et outils bridge",
-    "eyebrow": "contrôle du monde",
-    "refreshPlayers": "actualiser les joueurs"
+    "title": "Événements et météo",
+    "description": "Changez la météo et l'heure, jouez des sons, faites apparaître hordes et véhicules ou lancez les outils bridge.",
+    "refreshPlayers": "Actualiser les joueurs"
   },
   "common": {
     "playersUnavailable": "liste des joueurs indisponible",
     "playersUnavailableTitle": "Liste des joueurs indisponible",
-    "noPermissionEndangerOrImpersonate": "Cette action nécessite la permission players.endanger_or_impersonate, que ce rôle n'a pas."
+    "noPermissionEndangerOrImpersonate": "Cette action nécessite la permission players.endanger_or_impersonate, que ce rôle n'a pas.",
+    "noPermissionRconExecute": "Cette action exécute une commande RCON et nécessite la permission rcon.execute, que ce rôle n'a pas."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "en ligne",
-    "offline": "hors ligne",
-    "configureLink": "configurer →",
     "eventTarget": "Cible de l'événement",
     "allOnline": "tous en ligne",
     "specific": "spécifique",
@@ -35,7 +31,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge est hors ligne",
-    "description": "Ces contrôles nécessitent le bridge Lua. Connectez-le dans <1>Paramètres</1>, puis démarrez le serveur PZ."
+    "description": "Ces contrôles nécessitent le bridge Lua. Connectez-le dans Paramètres, puis démarrez le serveur PZ.",
+    "action": "Ouvrir les paramètres PanelBridge"
   },
   "groups": {
     "weather": "Météo",
@@ -235,7 +232,7 @@
   "utilities": {
     "sublabel": "réseau électrique et d'eau",
     "refresh": "actualiser",
-    "b42Warning": "b42 multijoueur · les changements sandbox ne sont pas encore transmis aux clients connectés",
+    "b42Warning": "Multijoueur Build 42 : les changements sandbox ne sont pas encore transmis aux clients connectés.",
     "power": "électricité",
     "water": "eau",
     "statusOnline": "en ligne",
@@ -298,7 +295,10 @@
     "clearNear": "nettoyer près de {{target}}",
     "clearNearConfirmTitle": "Éliminer les zombies près de ce joueur ?",
     "clearNearConfirmDescTargeted": "Ceci élimine instantanément tous les zombies dans le rayon choisi autour de {{player}} -- y compris ceux qu'il ou elle combat actuellement. Les zombies réapparaissent avec le temps, mais cela met fin à cet affrontement dès maintenant pour cette personne.",
-    "clearNearConfirmDescRandom": "Ceci élimine instantanément tous les zombies dans le rayon choisi autour d'un joueur en ligne aléatoire -- y compris ceux qu'il ou elle combat actuellement. Les zombies réapparaissent avec le temps, mais cela met fin à cet affrontement dès maintenant pour cette personne."
+    "clearNearConfirmDescRandom": "Ceci élimine instantanément tous les zombies dans le rayon choisi autour d'un joueur en ligne aléatoire -- y compris ceux qu'il ou elle combat actuellement. Les zombies réapparaissent avec le temps, mais cela met fin à cet affrontement dès maintenant pour cette personne.",
+    "spawnConfirmTitle": "Faire apparaître {{size}} zombies ?",
+    "spawnConfirmDescTargeted": "Une horde de {{size}} zombies apparaît immédiatement près de {{player}}. Elle reste dans le monde jusqu'à ce qu'elle soit tuée ou éliminée.",
+    "spawnConfirmDescRandom": "Une horde de {{size}} zombies apparaît immédiatement près d'un joueur en ligne choisi au hasard. Elle reste dans le monde jusqu'à ce qu'elle soit tuée ou éliminée."
   },
   "vehicles": {
     "sublabel": "RCON · apparaît à côté d'un joueur",
@@ -399,8 +399,6 @@
     "lastRun": "Dernière exécution : {{time}}",
     "notRunYet": "Pas encore exécutée",
     "bridgeFileLink": "Lien de fichier du bridge : {{summary}}",
-    "bridgeConnectionRequiredTitle": "Connexion au bridge requise",
-    "bridgeConnectionRequiredDesc": "Ces opérations nécessitent une connexion PanelBridge active. Configurez-la d'abord dans Paramètres.",
     "moderationConfirmTitle": "Exécuter {{operation}} ?",
     "moderationConfirmDescription": "Ceci envoie une véritable commande de modération via le pont actif{{target}}{{reason}}. Vérifiez les valeurs ci-dessus avant de continuer.",
     "moderationConfirmTarget": " ciblant {{target}}",

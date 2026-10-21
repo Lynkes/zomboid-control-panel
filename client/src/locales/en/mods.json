@@ -12,7 +12,7 @@
     "retry": "Retry"
   },
   "pageHeader": {
-    "title": "Mod Manager",
+    "title": "Mods",
     "description": "Add, update, and configure Steam Workshop mods on your server",
     "eyebrow": "Workshop",
     "addMod": "Add Mod"
@@ -40,7 +40,11 @@
     "importCollection": "Import Collection",
     "autoRestartSettings": "Auto-Restart Settings",
     "autoRestart": "Auto-restart",
-    "autoRestartAria": "Toggle auto-restart on mod update"
+    "autoRestartAria": "Toggle auto-restart on mod update",
+    "autoRestartOn": "Auto-restart: on",
+    "autoRestartOff": "Auto-restart: off",
+    "autoRestartOnAria": "Auto-restart is on. Open its settings",
+    "autoRestartOffAria": "Auto-restart is off. Open its settings"
   },
   "restartPending": {
     "title": "Restart Pending",
@@ -89,11 +93,14 @@
     "active": { "label": "Active on server", "hint": "What the server config actually loads" },
     "deactivated": { "label": "Deactivated", "hint": "Tracked items currently switched off" },
     "add": { "label": "Add mods", "hint": "Add by Workshop ID or URL" },
-    "collection": { "label": "Import collection", "hint": "Pull every item from a Steam collection" },
+    "collection": { "label": "Collections", "hint": "Import a collection, or keep yours in sync" },
     "order": { "label": "Load order", "hint": "Order mods are loaded in" },
     "conflicts": { "label": "Conflicts", "hint": "Clashes and missing dependencies" },
     "presets": { "label": "Presets", "hint": "Save and restore mod sets" },
-    "tools": { "label": "Tools", "hint": "Repair, deduplicate, and cleanup" }
+    "tools": { "label": "Tools", "hint": "Repair, deduplicate, and cleanup" },
+    "groupLibrary": "Library",
+    "groupServer": "On the server",
+    "groupTools": "Tools"
   },
   "collectionDialog": {
     "title": "Import Steam Workshop Collection",
@@ -118,7 +125,8 @@
     "openWorkshopAria": "Open workshop page (opens in new tab)",
     "cancel": "Cancel",
     "adding": "Adding...",
-    "addToServer": "Add {{count}} Mods to Server"
+    "addToServer": "Add {{count}} Mods to Server",
+    "fetchAria": "Look up the collection"
   },
   "addModDialog": {
     "title": "Add Workshop Mod",
@@ -175,7 +183,8 @@
     "currentMaxDelay": "• Max delay: {{minutes}} minutes",
     "cancel": "Cancel",
     "saving": "Saving...",
-    "saveSettings": "Save Settings"
+    "saveSettings": "Save Settings",
+    "autoRestartHint": "Restart the server by itself when Steam publishes an update for one of its mods."
   },
   "installedTab": {
     "searchPlaceholder": "Search mods...",
@@ -193,6 +202,7 @@
     "collectionDrift": "{{count}} drift",
     "collectionSyncTooltip": "Sync tracked mods → Steam Workshop collection",
     "collectionSync": "Sync",
+    "collectionSyncAria": "Sync the collection",
     "collectionChecking": "Checking collection…",
     "selectedCount": "{{count}} selected",
     "deselect": "Deselect",
@@ -228,7 +238,12 @@
     "modFallback": "Mod {{id}}",
     "selectAria": "Select {{name}}",
     "removeModAria": "Remove mod {{name}}",
-    "removeFromServer": "Remove from server"
+    "removeFromServer": "Remove from server",
+    "loading": "Loading mods",
+    "selectionAria": "Selected mods",
+    "allDeactivatedTitle": "No tracked mod is on the server",
+    "allDeactivatedDesc_one": "{{count}} tracked mod is deactivated. Re-enable it from Deactivated.",
+    "allDeactivatedDesc_other": "{{count}} tracked mods are deactivated. Re-enable them from Deactivated."
   },
   "disabledPanel": {
     "title": "Disabled mods on disk",
@@ -241,7 +256,11 @@
     "scanFailedDesc": "The workshop folder scan failed. Try refreshing again.",
     "openWorkshopPage": "Open Workshop page",
     "enable": "Enable",
-    "deleteFromDisk": "Delete from disk"
+    "deleteFromDisk": "Delete from disk",
+    "sectionTitle": "On disk, not on the server",
+    "description": "Downloaded to the Workshop folder but missing from the server's WorkshopItems=, so the server does not load them.",
+    "notScanned": "Not scanned yet.",
+    "deleteFromDiskAria": "Delete {{name}} from disk"
   },
   "ignoredPanel": {
     "count_one": "{{count}} ignored mod",
@@ -255,7 +274,8 @@
     "selectAll": "Select all",
     "selectRow": "Select {{name}}",
     "removeSelected": "Remove selected ({{n}})",
-    "reTrackHint": "Take this mod off the ignored list so sync and collection import can add it again. The server config and the mod's files are not touched."
+    "reTrackHint": "Take this mod off the ignored list so sync and collection import can add it again. The server config and the mod's files are not touched.",
+    "description": "Sync and collection import won't add these back."
   },
   "serverConfigTab": {
     "summaryMods": "mods",
@@ -263,12 +283,11 @@
     "summaryWorkshopItems_other": "workshop items",
     "summaryMaps_one": "map",
     "summaryMaps_other": "maps",
-    "duplicateModIdsFound": "Duplicate mod IDs found: {{ids}}",
+    "duplicateModIdsFound": "Listed more than once in Mods=: {{ids}}. The server loads each mod once, so the extra entries do nothing.",
+    "removeExtraEntries": "Remove the extra entries",
     "workshopItemsNoModIds": "{{count}} workshop items configured but no mod IDs. Run \"Sync Mod IDs\" after downloading mods.",
-    "duplicateModsTitle": "Duplicate Mods",
     "missingModIdsTitle": "Missing Mod IDs",
     "outdatedDependencyTitle": "Outdated Dependency",
-    "fix": "Fix",
     "deduplicateEndpointUnavailable": "Failed to deduplicate — server endpoint not available",
     "deduplicateError": "Error: {{message}}",
     "notConfiguredTitle": "Server config file not found",
@@ -291,7 +310,6 @@
     "missingDepTooltip": "At least one enabled mod requires another mod that isn't enabled. See the Conflicts tab → Missing Dependencies.",
     "missingDep_one": "{{count}} missing dep",
     "missingDep_other": "{{count}} missing deps",
-    "duplicateIdTooltip": "Multiple workshop items declare the same internal mod ID. Only one will load — review the Conflicts tab.",
     "duplicateId_one": "{{count}} duplicate ID",
     "duplicateId_other": "{{count}} duplicate IDs",
     "savedToIni": "Saved to INI",
@@ -313,8 +331,6 @@
     "removeFromServer": "Remove from server",
     "missingRequiredId": "Missing required ID:",
     "missingRequiredTooltip": "{{dep}} is not enabled — this mod may not work",
-    "duplicateTooltip_one": "Also provided by workshop item {{ids}}",
-    "duplicateTooltip_other": "Also provided by workshop items {{ids}}",
     "duplicate": "duplicate",
     "enabled": "Enabled",
     "disabled": "Disabled",
@@ -326,7 +342,6 @@
     "enabledLabel": "enabled",
     "clickToEnable": "Click to enable",
     "clickToDisable": "Click to disable",
-    "chipTooltipDupe": "⚠ Also in workshop {{ids}}",
     "chipTooltipClash": "⚠ Conflicts with {{names}} — both are enabled and share files. The one loaded last will overwrite the other.",
     "chipTooltipOverlap": "Variant of {{names}} — these share files, so only one should be enabled at a time. Currently safe.",
     "clashWarning": "Two variants of this mod are enabled and share files. One will overwrite the other — disable one.",
@@ -379,12 +394,17 @@
     "addedButton": "Added",
     "addButton": "Add",
     "openFullWorkshopSearch": "Open full Workshop search",
-    "duplicateInternalIdsTitle": "Duplicate internal IDs",
     "showRawModsLine": "Show raw <1>Mods=</1> line",
     "removeWorkshopDialogTitle": "Remove workshop item?",
     "removeWorkshopDialogDesc": "This will remove the workshop item and its mod IDs from the server INI. Workshop files on disk won't be deleted.",
     "cancel": "Cancel",
-    "remove": "Remove"
+    "remove": "Remove",
+    "hasNoteChip": "With a note ({{count}})",
+    "updatesChip": "Update available ({{count}})",
+    "noFilterMatches": "No Workshop item matches these filters.",
+    "select": "Select",
+    "selectItemAria": "Select {{name}}",
+    "selectionAria": "Selected Workshop items"
   },
   "loadOrder": {
     "emptyTitle": "No mods in load order",
@@ -397,8 +417,8 @@
     "groupNeedsTwo": "Select at least 2 mods to make a group.",
     "selectRowAria": "Select {{name}}",
     "previewLockHint": "Apply or cancel the proposed order below before reordering by hand.",
-    "filteredHint": "Showing only mods matching \"{{query}}\" (filter set on Active on server). Drag is off while filtered; the arrow buttons still move mods within the full load order.",
-    "autoSort": "Auto-sort by dependencies",
+    "filteredHint": "Showing only mods matching \"{{query}}\". Drag is off while filtered; the arrow buttons still move mods within the full load order.",
+    "autoSort": "Auto-sort",
     "proposedOrder_one": "Proposed order: {{count}} mod would move",
     "proposedOrder_other": "Proposed order: {{count}} mods would move",
     "basedOnDependencies_one": "Based on {{count}} dependency declared in mod.info. Mods with no dependency keep your order.",
@@ -421,7 +441,27 @@
     "movedAnnouncement": "{{name}} moved to position {{position}} of {{total}}",
     "unsavedChanges": "Unsaved order changes",
     "reset": "Reset",
-    "saveOrder": "Save Order"
+    "saveOrder": "Save Order",
+    "searchPlaceholder": "Filter by mod ID or name...",
+    "searchAria": "Filter the load order",
+    "showGroups": "Show groups",
+    "blockCount_one": "{{count}} mod",
+    "blockCount_other": "{{count}} mods",
+    "blockTogether": "Kept together",
+    "blockApart": "Members are apart",
+    "gather": "Put together",
+    "gatheredAnnouncement": "{{name}} put together",
+    "blockToTopAria": "Move group {{name}} to the top",
+    "blockUpAria": "Move group {{name}} up",
+    "blockDownAria": "Move group {{name}} down",
+    "blockToBottomAria": "Move group {{name}} to the bottom",
+    "blockAlreadyFirst": "The group already loads first",
+    "blockAlreadyLast": "The group already loads last",
+    "blockMovedAnnouncement": "Group {{name}} moved to position {{position}} of {{total}}",
+    "collapseBlockAria": "Collapse group {{name}}",
+    "expandBlockAria": "Expand group {{name}}",
+    "blockConflictsAria_one": "{{count}} file conflict involves {{name}}. Show it",
+    "blockConflictsAria_other": "{{count}} file conflicts involve {{name}}. Show them"
   },
   "addModsTab": {
     "syncTitle": "Sync Mod IDs from Downloads",
@@ -460,7 +500,8 @@
     "applyPreset": "Apply Preset",
     "deleteDialogTitle": "Delete preset \"{{name}}\"?",
     "deleteDialogDesc": "This preset will be permanently deleted. This action cannot be undone.",
-    "deletePreset": "Delete Preset"
+    "deletePreset": "Delete Preset",
+    "actionsAria": "Actions for preset {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -531,6 +572,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "The server's mod list changed",
+    "serverModsChangedDesc": "Mods were enabled or disabled on the server since this page loaded the list. They are merged into your order now: check it, then save again.",
     "pendingAddServerChangedTitle": "Active server changed",
     "pendingAddServerChangedDesc": "The active server changed while you had mods queued to add. The IDs and map folders shown were looked up for the previous server -- close this dialog and start over for the server that is active now.",
     "noActiveServerTitle": "No active server",
@@ -756,6 +799,110 @@
     "scanFailedGeneric": "Scan failed",
     "scanParseFailed": "Failed to parse scan results",
     "comparingFileContents": "Comparing file contents...",
-    "groupingResults": "Grouping results..."
+    "groupingResults": "Grouping results...",
+    "noSortRulesDesc": "No enabled mod declares a requirement and no group sets an order or a place, so there is nothing to sort by.",
+    "loadOrderRulesMetDesc": "Every dependency, group order and group placement is already met."
+  },
+  "listMode": {
+    "aria": "Show the list as",
+    "list": "List",
+    "groups": "Groups"
+  },
+  "sort": {
+    "aria": "Sort by",
+    "status": "Sort: update status",
+    "name": "Sort: name",
+    "updated": "Sort: recently updated",
+    "config": "Sort: config order",
+    "loadOrder": "Sort: load order"
+  },
+  "filters": {
+    "filteredBy": "Filtered by:",
+    "activeAria": "Active filters",
+    "removeAria": "Remove filter: {{name}}",
+    "clearAll": "Clear filters",
+    "updatesOnly": "Updates only",
+    "updates": "Update available",
+    "hasNote": "Has a note",
+    "ungrouped": "In no group",
+    "allGroups": "All groups",
+    "inGroup": "In {{name}}",
+    "groupAria": "Filter by group",
+    "multiId": "Multi-ID only",
+    "needsAttention": "Needs attention",
+    "notEnabled": "Not enabled",
+    "missingDep": "Missing dependency"
+  },
+  "whatChanged": {
+    "label": "What changed",
+    "updateLabel": "Update · what changed",
+    "aria": "What changed in {{name}}: Steam change notes (opens a new tab)"
+  },
+  "rowMenu": {
+    "actionsAria": "Actions for {{name}}"
+  },
+  "notes": {
+    "addAction": "Add note",
+    "editAction": "Edit note",
+    "addTitle": "Add a note",
+    "editTitle": "Edit note",
+    "dialogDesc": "A note on {{name}}. Every admin of this panel sees it.",
+    "label": "Note",
+    "placeholder": "Why it is here, a version to keep, who to ask before removing it",
+    "counter": "{{count}} / {{max}}",
+    "save": "Save note",
+    "delete": "Delete note",
+    "cancel": "Cancel",
+    "close": "Close",
+    "lastEdited": "Last edited by {{name}} on {{date}}",
+    "lastEditedNoName": "Last edited on {{date}}",
+    "sharedHint": "Shared with every admin of this panel.",
+    "savedTitle": "Note saved",
+    "deletedTitle": "Note deleted",
+    "saveFailedFallback": "The note could not be saved.",
+    "indicatorAria": "Note: {{text}}",
+    "inspectorTitle": "Note",
+    "empty": "No note yet."
+  },
+  "collectionView": {
+    "importTitle": "Import a collection",
+    "importDesc": "Add every mod of a Steam Workshop collection to this server at once."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "Dependencies",
+      "groupOrder": "Group order",
+      "together": "Kept together",
+      "placement": "Placements",
+      "winners": "Conflict winners kept"
+    },
+    "reason": {
+      "requires": "after {{mod}}, which it requires",
+      "requiredBy": "before {{mod}}, which requires it",
+      "groupOrder": "keeps the order of {{group}}",
+      "together": "kept together with {{group}}",
+      "placementFirst": "{{group}} loads first",
+      "placementLast": "{{group}} loads last",
+      "winner": "still overrides {{mod}}",
+      "keepsWinner": "stays before {{mod}}, which overrides it"
+    },
+    "issue": {
+      "groupVsDependency": "{{group}} lists {{before}} before {{after}}, but a dependency needs the opposite: the dependency wins. Fix the group with Auto-order members.",
+      "groupVsGroup": "{{group}} lists {{before}} before {{after}}, but another group needs the opposite: the group listed first wins.",
+      "split": "{{groups}} cannot load as one block: {{mods}} must load between its mods.",
+      "placement": "{{mods}} must load before a \"first\" group, so it loads first too ({{groups}}).",
+      "winner": {
+        "dependency": "{{newWinner}} now overrides {{previousWinner}}: a dependency needs it to load later.",
+        "group": "{{newWinner}} now overrides {{previousWinner}}: a group order needs it to load later.",
+        "placement": "{{newWinner}} now overrides {{previousWinner}}: a group placement needs it to load later."
+      }
+    },
+    "issuesTitle_one": "{{count}} rule cannot be met",
+    "issuesTitle_other": "{{count}} rules cannot be met",
+    "moreIssues": "+{{count}} more",
+    "movesTo": "moves to",
+    "otherMods": "Other mods",
+    "groupMoves_one": "{{count}} moved",
+    "groupMoves_other": "{{count}} moved"
   }
 }

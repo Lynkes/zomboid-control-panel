@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Mods from '../Mods'
 import { modsApi } from '@/lib/api'
+import { openModsView } from './modsNav'
 
 // pz-bughunt round 17b (approved design call, closing the "race-window"
 // class flagged in the round-17 report): toggleModId, batchToggleModIds,
@@ -17,7 +18,7 @@ import { modsApi } from '@/lib/api'
 // server. Fixed by clearing mods/disabledMods/ignoredMods outright the
 // instant the switch happens, mirroring WorldMap.tsx's own selection-state
 // clear -- nothing stale survives to be clicked, so no per-handler guard is
-// needed. This test targets the "Show disabled" panel (disabledMods, a
+// needed. This test targets Deactivated's "on disk" list (disabledMods, a
 // plain non-virtualized list, unlike the Installed tab's virtualized one)
 // since it's the simplest, most direct place to observe the clear.
 
@@ -87,10 +88,7 @@ const listDiskOnly = vi.mocked(modsApi.listDiskOnly)
 const deleteDiskMod = vi.mocked(modsApi.deleteDiskMod)
 
 function primeReadMocks() {
-  // The "Show disabled" toggle only renders when the Installed tab has at
-  // least one tracked mod (see Mods.tsx's own `{mods.length > 0 && (...)}`
-  // guard around the search/filter toolbar) -- seed one so the toolbar
-  // (and the toggle this test needs) actually renders.
+  // One tracked mod, so the page renders its lists.
   getTrackedMods.mockResolvedValue({
     mods: [{ workshop_id: '1', name: 'Tracked Mod', last_checked: '2026-01-01' }],
   } as never)
@@ -139,9 +137,10 @@ describe('Mods.tsx: activeServerChanged clears the disabled-mods list before any
     renderMods()
     await waitForLoaded()
 
-    // Open "Show disabled" and let it populate from a real, resolved fetch.
+    // Open Deactivated (it reads the mods on disk that are not in the INI) and
+    // let the list populate from a real, resolved fetch.
     listDiskOnly.mockResolvedValueOnce({ mods: [{ workshop_id: '555', name: 'Orphan Mod' }] } as never)
-    fireEvent.click(await screen.findByRole('button', { name: /show disabled/i }))
+    await openModsView('Deactivated')
     await screen.findByText('Orphan Mod')
 
     // From here on, listDiskOnly hangs forever (see primeReadMocks) -- any

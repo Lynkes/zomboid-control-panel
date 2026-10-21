@@ -72,6 +72,7 @@ import {
   RECOVERY_CAPABILITIES,
 } from "./permissions.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { assertNewPasswordPolicy } from "./passwordPolicy.js";
 
 const log = createLogger("Auth");
 
@@ -171,14 +172,10 @@ function makeRoleError(code, message, status = 400, params) {
 }
 
 // The rules every password set without the old one follows (reset token,
-// recovery code, --reset-password).
+// recovery code, --reset-password): the same as for any new password
+// (services/passwordPolicy.js).
 function assertResetPasswordPolicy(newPassword) {
-  if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
-    throw new Error("Password must be at least 6 characters");
-  }
-  if (newPassword.length > 128) {
-    throw new Error("Password must be 128 characters or fewer");
-  }
+  assertNewPasswordPolicy(newPassword);
 }
 
 // Kept across browser restarts ("Keep me signed in"); a session stored
@@ -1041,13 +1038,9 @@ class AuthService {
         );
       }
 
-      if (password.length < 6) {
-        throw new Error("Password must be at least 6 characters");
-      }
-
-      if (password.length > 128) {
-        throw new Error("Password must be 128 characters or fewer");
-      }
+      // services/passwordPolicy.js: length (10 characters, 72 bytes) and the
+      // common-password list; coded errors the routes pass on.
+      assertNewPasswordPolicy(password);
 
       const db = await getDb();
       if (!db.data.users) {
@@ -1845,9 +1838,7 @@ class AuthService {
    * Change user password
    */
   async changePassword(userId, currentPassword, newPassword) {
-    if (!newPassword || newPassword.length < 6) {
-      throw new Error("New password must be at least 6 characters");
-    }
+    assertNewPasswordPolicy(newPassword);
 
     const db = await getDb();
     const users = db.data.users || [];
@@ -2406,6 +2397,9 @@ class AuthService {
    */
   async redeemRecoveryCode(code, newPassword) {
     return this._withMutex(async () => {
+      // The new password is judged first, so a refused one never spends
+      // the code, and the answer says nothing about the code.
+      assertNewPasswordPolicy(newPassword);
       if (typeof code !== "string" || !code.trim()) {
         throw new Error("A recovery code is required");
       }

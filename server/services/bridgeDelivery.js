@@ -50,6 +50,7 @@ import {
 } from "./panelBridgeInstaller.js";
 import {
   archiveLooseBridgeFiles,
+  checkWorkshopItemServerLua,
   detectWorkshopItem,
   installDirKey,
   listLooseBridgeFiles,
@@ -788,6 +789,8 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
       if (workshopCopyWithChecksumOn(ctx.iniText)) return "local-workshop-loaded";
       const installed = checkBridgeInstalled(ctx.server);
       if (!installed.installed) return "local-not-installed";
+      // Never replaced by the panel (installBridge() refuses a downgrade).
+      if (installed.newerThanBundled) return "local-newer";
       if (installed.needsUpdate) return "local-update-pending";
       return "local-ok";
     }
@@ -809,6 +812,23 @@ function deriveState(ctx, { restartedSinceSwitch, lastStartFailure }) {
   return serverRunning === true && Date.now() - baseline < WAITING_GRACE_MS
     ? "workshop-waiting"
     : "workshop-not-loaded";
+}
+
+// The downloaded item, with whether its server Lua is the file this release
+// recorded for its version. The recorded checksum belongs to the item
+// published.json names, so it is never applied to another one (an id from
+// an older switch record, or the PANEL_BRIDGE_WORKSHOP_ID test override).
+function workshopItemOnDisk(ctx, release, workshopId) {
+  const item = detectWorkshopItem(ctx.installDir, workshopId, { zomboidDataPath: ctx.server.zomboidDataPath });
+  if (!item) return null;
+  const pinned = release.source !== "env" && release.workshopId === workshopId;
+  return {
+    ...item,
+    ...checkWorkshopItemServerLua(item, {
+      expectedSha256: pinned ? release.serverLuaSha256 : null,
+      expectedVersion: pinned ? release.publishedVersion : null,
+    }),
+  };
 }
 
 async function statusFromContext(ctx) {
@@ -837,9 +857,7 @@ async function statusFromContext(ctx) {
           // WorkshopItems id not counted.
           iniEntries:
             ctx.iniText !== null ? hasBridgeEntries(ctx.iniText, BRIDGE_MOD_ID, effectiveWorkshopId) : null,
-          workshopItem: effectiveWorkshopId
-            ? detectWorkshopItem(ctx.installDir, effectiveWorkshopId, { zomboidDataPath: server.zomboidDataPath })
-            : null,
+          workshopItem: effectiveWorkshopId ? workshopItemOnDisk(ctx, release, effectiveWorkshopId) : null,
         }
       : null;
   const state = deriveState(ctx, { restartedSinceSwitch, lastStartFailure });

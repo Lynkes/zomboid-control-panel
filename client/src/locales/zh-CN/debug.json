@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "调试与日志",
+    "title": "诊断",
     "description": "本面板的实时诊断、近期历史记录及环境详情"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "日志",
     "crashes": "崩溃记录",
     "health": "实时状态",
-    "system": "环境"
+    "system": "环境",
+    "ariaLabel": "诊断分区",
+    "groups": {
+      "now": "当前",
+      "history": "历史",
+      "system": "系统"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "选择或配置一个具有有效安装路径的活动服务器。"
     },
     "serverZomboidData": {
-      "label": "打开设置",
-      "note": "在设置中配置 Zomboid 数据路径。"
+      "label": "打开服务器列表",
+      "note": "在“服务器列表”页面编辑此服务器时设置 Zomboid 数据文件夹。"
     },
     "serverStartScriptOrJre": {
       "label": "打开服务器查找器",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "打开服务器配置",
-      "note": "在服务器配置中设置 RCON 密码（并在设置中填入相同的值）。"
+      "note": "在服务器配置中设置 RCON 密码，并在“服务器列表”页面编辑此服务器时填入相同的值。"
     },
     "serverBridgeMod": {
       "label": "打开「设置 › PanelBridge」",
@@ -285,6 +291,11 @@
     "workshopNothingToChange_other": "{{count}} 个 ID 无需更改。",
     "mapEntriesRepairedTitle": "Map 条目已修复",
     "duplicatesCleanedTitle": "重复项已清理",
+    "mapEntriesRemoved": "已移除无效的 Map 条目（{{count}}）：{{list}}。",
+    "mapEntriesAdded": "已添加缺失的 Map 条目（{{count}}）：{{list}}。",
+    "mapEntriesAllValid": "所有 Map 条目均有效，无需更改。",
+    "duplicatesRemoved": "已移除重复的模组 ID（{{count}}）：{{list}}。",
+    "duplicatesNone": "未发现重复的模组 ID，无需更改。",
     "serverStartingTitle": "服务器正在启动",
     "serverStartingFallback": "已发送专用服务器启动信号。请在仪表盘查看状态。",
     "rconReconnectedTitle": "RCON 已重新连接",
@@ -293,6 +304,8 @@
     "dbBackupCreatedDesc": "备份已完成{{backupName}}。",
     "staleLocksRemovedTitle": "过期锁文件已删除",
     "staleLocksRemovedFallback": "已删除 {{count}} 个锁文件。",
+    "staleLocksSomeFailed": "部分文件无法删除（{{count}}）。",
+    "staleLocksTruncated": "已提前停止：此存档过大，无法一次检查完毕，可能仍有残留的过期锁文件。",
     "bridgeConfiguredTitle": "桥接已配置",
     "bridgeConfiguredDesc": "正在监视 {{serverName}}。请启动服务器以完成握手。",
     "bridgeConfiguredServerFallback": "活动服务器",
@@ -1170,6 +1183,11 @@
               "label": "B42 版本自动检测失败",
               "message": "因检测失败，正在使用写死的版本 {{build}}：{{reason}}。在检测恢复正常之前，将无法跟进下一个 PZ 地图版本。",
               "hint": "检测会使用系统的 curl 向地图服务询问当前版本。出现此提示说明该请求未成功——缺少 curl、面板无法访问外部网络，或地图服务拒绝了请求。前两种情况值得您在本地排查；第三种可能无法从面板侧修复。请在 Project Zomboid 发布地图更新后留意此警告，因为那时过时的版本才会表现为地图几何错误。"
+            },
+            "info": {
+              "label": "地图版本 {{build}}（内置）",
+              "message": "pzmap.org 未响应面板的自动版本检查（{{reason}}），因此地图使用面板内置的版本 {{build}}。地图可正常使用。",
+              "hint": "pzmap.org 的版本列表受反机器人保护，有时会拒绝服务器的请求。你这边无需处理。Project Zomboid 地图更新后，请更新面板以获取新的地图版本。"
             }
           }
         },
@@ -1573,6 +1591,7 @@
     "copyDbPathAria": "复制数据库路径",
     "copyLogsPathAria": "复制日志文件夹路径",
     "pathsUpdatedTitle": "路径已更新",
+    "pathsUpdatedDesc": "重启面板以应用更改。",
     "enterAtLeastOnePath": "请至少输入一个路径",
     "updatePathsFailedFallback": "更新路径失败"
   },

@@ -1,0 +1,196 @@
+{
+  "title": "Tchèk sante",
+  "description": "Sa ki anpeche yon mod chaje, ak koreksyon panèl la ka fè pou ou.",
+  "checkedAt": "Tcheke {{time}}",
+  "recheck": "Tcheke ankò",
+  "loading": "N ap tcheke lis mods yo…",
+  "loadFailed": "Tchèk sante a pa t ka fèt.",
+  "reloadFailed": "Nouvo tchèk la echwe; sa a se dènye rezilta a.",
+  "retry": "Eseye ankò",
+  "emptyTitle": "Pa gen pwoblèm",
+  "emptyDesc": "Chak mod ki aktive enstale, sa yo bezwen la, epi lòd chajman an swiv règ li yo.",
+  "noPermission": "Wòl ou a pa gen pèmisyon pou jere mods.",
+  "showMod": "Montre {{name}}",
+  "showItem": "Montre atik Workshop {{name}}",
+  "andMore_one": "{{count}} lòt",
+  "andMore_other": "{{count}} lòt",
+  "issueCount_one": "{{count}} pwoblèm",
+  "issueCount_other": "{{count}} pwoblèm",
+  "stats": {
+    "critical": "Grav",
+    "warning": "Avètisman",
+    "info": "Bon pou konnen"
+  },
+  "severity": {
+    "critical": "Anpeche mods chaje",
+    "warning": "Bezwen atansyon",
+    "info": "Bon pou konnen"
+  },
+  "entryIssue": {
+    "emptyEntry": "vid (de vigil youn dèyè lòt, oswa anyen apre require=)",
+    "blankEntry": "gen espas sèlman",
+    "whitespace": "gen espas toutotou, jwèt la pa retire yo",
+    "semicolon": "separe ak “;” olye yon vigil",
+    "unknown": "jwèt la pa ka li l"
+  },
+  "reason": {
+    "require": "obligatwa",
+    "rule": "lòd fiks",
+    "groupOrder": "lòd gwoup la",
+    "keepTogether": "kenbe ansanm",
+    "groupPlacement": "plas gwoup la",
+    "loadAfter": "lòd chajman mod.info",
+    "loadBefore": "lòd chajman mod.info",
+    "steamRequired": "atik obligatwa sou Steam",
+    "patch": "patch",
+    "conflictWinner": "gayan konfli a",
+    "tier": "kalite mod",
+    "displaced": "fè plas"
+  },
+  "kind": {
+    "requireLoop": {
+      "title": "Mods obligatwa yo fè yon wonn",
+      "body": "{{mods}} bezwen youn lòt nan yon wonn. Sèvè a kraze pandan l ap chaje yo. Retire youn ladan yo, oswa mande otè a ranje mod.info li."
+    },
+    "modInfoBroken": {
+      "title": "Yon liy require= ki kase nan mod.info",
+      "body": "Nan mod.info {{mod}}, antre require= “{{entry}}” la {{problem}}. Jwèt la pa ka li l epi li sote {{mod}}.",
+      "affected": "Yo sote tou paske yo bezwen l: {{mods}}.",
+      "hint": "Se otè mod la sèlman ki ka ranje mod.info li. Annatandan, kite mod la dezaktive oswa retire l."
+    },
+    "requiredNotInstalled": {
+      "title": "Yon mod obligatwa pa enstale",
+      "body": "{{requiredBy}} bezwen {{missing}}, men okenn atik Workshop ki enstale pa genyen l. Jwèt la sote {{affected}}.",
+      "caseMatch": "Gen yon mod enstale ki rele {{match}}: ID a diferan sèlman nan lèt majiskil ak miniskil, epi jwèt la bezwen menm bagay egzakteman.",
+      "b41Only": "{{missing}} egziste sèlman kòm mod Build 41 (atik Workshop {{item}}), kidonk li pa janm chaje sou Build 42."
+    },
+    "requiredWorkshopItemMissing": {
+      "title": "Yon atik Workshop obligatwa manke",
+      "body": "{{items}} mete {{target}} nan atik obligatwa yo sou Steam, men li pa nan WorkshopItems=.",
+      "downloaded": "Li deja telechaje sou sèvè sa a.",
+      "notDownloaded": "Lè w ajoute l, sèvè a ap telechaje l nan pwochen demaraj li."
+    },
+    "notInstalled": {
+      "title": "Yon mod nan lis la pa enstale",
+      "body": "{{mod}} nan Mods=, men okenn atik Workshop nan WorkshopItems= pa genyen l, kidonk jwèt la sote l.",
+      "foundIn": "Atik Workshop {{item}}, ki deja sou disk la, genyen l: ajoute atik sa a.",
+      "notDownloaded_one": "{{count}} atik Workshop poko telechaje epi li ka genyen l: demare sèvè a yon fwa pou telechaje l.",
+      "notDownloaded_other": "{{count}} atik Workshop poko telechaje epi youn ka genyen l: demare sèvè a yon fwa pou telechaje yo."
+    },
+    "b41Only": {
+      "title": "Gen yon mod Build 41 nan lis la",
+      "body": "{{mod}} (atik Workshop {{item}}) pa gen vèsyon Build 42, kidonk jwèt la pa janm chaje l sou sèvè sa a."
+    },
+    "incompatibleEnabled": {
+      "title": "De mods ki pa konpatib tou de aktive",
+      "body": "{{a}} ak {{b}} tou de chaje, men mod.info {{declaredBy}} di yo pa mache ansanm. Kenbe youn sèlman."
+    },
+    "duplicateModId": {
+      "title": "Menm mod yo enstale de fwa"
+    },
+    "mapNotInMapLine": {
+      "title": "Yon kat manke nan Map=",
+      "body": "{{mod}} vini ak kat {{folders}}, men Map= pa mete l, kidonk li pa janm parèt nan mond lan."
+    },
+    "mapFolderWithoutMod": {
+      "title": "Map= nonmen yon kat okenn mod aktive pa bay",
+      "body": "Map= gen {{folder}}, men okenn mod ki chaje pa bay li.",
+      "shippedBy": "{{items}} genyen l: aktive mod li a, oswa retire dosye a nan Map=.",
+      "nobody": "Okenn atik Workshop ki enstale pa genyen l nonplis."
+    },
+    "orderProblems": {
+      "title": "Lòd chajman an kase kèk nan règ li yo",
+      "changesLoading_one": "Triyaj entèlijan an ta deplase {{count}} mod pou yon bezwen, yon règ fiks oswa yon gwoup. Jwèt la pa chaje l jan règ li yo mande.",
+      "changesLoading_other": "Triyaj entèlijan an ta deplase {{count}} mods pou yon bezwen, yon règ fiks oswa yon gwoup. Jwèt la pa chaje yo jan règ yo mande.",
+      "tidyOnly_one": "Triyaj entèlijan an ta deplase {{count}} mod pou règ li yo. Jwèt la deja chaje l kòrèkteman, kidonk sa a jis ranje lis la.",
+      "tidyOnly_other": "Triyaj entèlijan an ta deplase {{count}} mods pou règ yo. Jwèt la deja chaje yo kòrèkteman, kidonk sa a jis ranje lis la.",
+      "move": "{{mod}}: soti #{{from}} rive #{{to}} ({{reasons}})"
+    },
+    "requiredLoadedImplicitly": {
+      "title": "Yon mod obligatwa pa nan lis la",
+      "body": "{{requiredBy}} bezwen {{mod}}, men li pa nan Mods=. Jwèt la chaje l anvan kanmenm; si w ajoute l, lòd la vin vizib epi ou ka chanje l."
+    },
+    "unusedWorkshopItem": {
+      "title": "Yon atik Workshop pa itilize",
+      "body": "{{item}} nan WorkshopItems=, men okenn nan mods li yo ({{mods}}) pa aktive epi okenn nan kat li yo pa nan Map=. Sèvè a toujou ap telechaje l epi mete l ajou."
+    },
+    "updatesAvailable": {
+      "title": "Gen mizajou pou mods",
+      "body_one": "{{count}} atik Workshop gen yon mizajou. Redemare sèvè a pou enstale l; jwè yo resevwa l lè yo antre.",
+      "body_other": "{{count}} atik Workshop gen mizajou. Redemare sèvè a pou enstale yo; jwè yo resevwa yo lè yo antre."
+    }
+  },
+  "duplicates": {
+    "pair": "2 atik Workshop gen menm mod yo ({{mods}}): {{items}}. Sèvè a chaje yon sèl kopi chak mod, epi pa gen anyen ki di ki kopi. Kenbe youn nan de atik yo.",
+    "many": "Plizyè atik Workshop gen menm mod yo ({{mods}}): {{items}}. Sèvè a chaje yon sèl kopi chak mod, epi pa gen anyen ki di ki kopi. Kenbe youn ladan yo.",
+    "defined": "Gen plis pase yon kopi {{mods}} ki enstale. Sèvè a chaje sa ki soti nan {{from}} epi li inyore lòt yo.",
+    "local": "Dosye mods sèvè a gen plis pase yon kopi {{mods}}. Sèvè a chaje yon sèl, epi pa gen anyen ki di kiyès. Kenbe yon sèl kopi.",
+    "sourceLocal": "dosye mods sèvè a",
+    "sourceStaged": "yon voye Workshop ki prepare",
+    "keep": "Kenbe {{item}}",
+    "confirmKeep": "{{item}} ap rete. Yo fè yon kopi sekou INI sèvè a, epi yo retire sa ki anba a ladan l:",
+    "removedItem": "Nan WorkshopItems=: {{item}}",
+    "removedMod": "Nan Mods=: {{mod}}",
+    "removedRepeat": "Nan Mods=: antre an plis {{mod}} an"
+  },
+  "fix": {
+    "removeMods": "Retire {{mods}} nan lis mods la",
+    "addMods": "Ajoute {{mods}} nan lis mods la",
+    "addWorkshopItems_one": "Ajoute atik Workshop {{items}}",
+    "addWorkshopItems_other": "Ajoute atik Workshop {{items}} yo",
+    "addWorkshopItemsAndMods_one": "Ajoute atik Workshop {{items}} epi aktive {{mods}}",
+    "addWorkshopItemsAndMods_other": "Ajoute atik Workshop {{items}} yo epi aktive {{mods}}",
+    "removeWorkshopItems_one": "Retire atik Workshop {{items}}",
+    "removeWorkshopItems_other": "Retire atik Workshop {{items}} yo",
+    "addMapFolders": "Ajoute {{folders}} nan Map=",
+    "removeMapFolders": "Retire {{folders}} nan Map=",
+    "applyPlan": "Aplike lòd chajman yo sijere a"
+  },
+  "confirm": {
+    "title": "Èske w sèten nèt?",
+    "removeMods": "Mods sa yo ap soti nan Mods= nan INI sèvè a. Atik Workshop yo rete enstale, epi yo fè yon kopi sekou INI a anvan.",
+    "removeWorkshopItems": "Atik Workshop sa yo ap soti nan WorkshopItems=: sèvè a ap sispann telechaje yo ak mete yo ajou. Yo fè yon kopi sekou INI a anvan.",
+    "removeMapFolders": "Dosye kat sa yo ap soti nan Map= nan INI sèvè a. Yo fè yon kopi sekou INI a anvan.",
+    "remove": "Retire"
+  },
+  "fixAll": {
+    "button": "Ranje tout pwoblèm ki san danje",
+    "noneReason": "Okenn nan pwoblèm sa yo pa gen yon koreksyon ki jis ajoute nan lis mods la.",
+    "confirmTitle_one": "Aplike {{count}} koreksyon san danje?",
+    "confirmTitle_other": "Aplike {{count}} koreksyon san danje?",
+    "confirmDesc": "Koreksyon sa yo jis ajoute nan INI sèvè a oswa aplike lòd chajman yo sijere a: yo pa retire anyen. Yo fèt youn apre lòt epi yo kanpe nan premye erè a.",
+    "confirmLabel": "Aplike koreksyon yo",
+    "progress": "N ap ranje {{current}} sou {{total}}: {{label}}",
+    "doneTitle": "Koreksyon san danje yo aplike",
+    "doneDesc_one": "{{count}} koreksyon aplike.",
+    "doneDesc_other": "{{count}} koreksyon aplike.",
+    "skipped_one": "{{count}} pwoblèm te deja disparèt.",
+    "skipped_other": "{{count}} pwoblèm te deja disparèt.",
+    "stoppedTitle": "Kanpe sou yon koreksyon ki echwe",
+    "stoppedDesc": "“{{label}}”: {{message}}"
+  },
+  "toast": {
+    "fixedTitle": "Lis mods la mete ajou",
+    "unchangedTitle": "Pa t gen anyen pou chanje",
+    "unchangedDesc": "INI sèvè a te deja dakò ak koreksyon sa a.",
+    "failedTitle": "Koreksyon an pa t ka aplike",
+    "failedFallback": "Sèvè a pa t aplike koreksyon an.",
+    "goneTitle": "Pwoblèm sa a chanje",
+    "goneDesc": "Yo tcheke lis mods la ankò."
+  },
+  "summary": {
+    "critical_one": "{{count}} pwoblèm ap anpeche mods chaje",
+    "critical_other": "{{count}} pwoblèm ap anpeche mods chaje",
+    "warning_one": "{{count}} avètisman",
+    "warning_other": "{{count}} avètisman",
+    "warningOnly_one": "{{count}} pwoblèm bezwen atansyon",
+    "warningOnly_other": "{{count}} pwoblèm bezwen atansyon",
+    "review": "Revize",
+    "reviewAria": "Revize tchèk sante mods yo"
+  },
+  "dashboard": {
+    "label": "Sante mods",
+    "critical_one": "{{count}} pwoblèm grav",
+    "critical_other": "{{count}} pwoblèm grav"
+  }
+}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
 import {
@@ -27,6 +27,7 @@ let mockCanControl = true
 let mockCanWipe = true
 let mockCanPanelSettings = true
 let mockCanBackups = true
+let mockCanRcon = true
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
@@ -42,6 +43,7 @@ vi.mock('@/contexts/AuthContext', () => ({
       if (capability === 'server.wipe') return mockCanWipe
       if (capability === 'panel.settings') return mockCanPanelSettings
       if (capability === 'backups.manage') return mockCanBackups
+      if (capability === 'rcon.execute') return mockCanRcon
       return true
     },
   }),
@@ -207,10 +209,15 @@ async function openMoreActionsMenu() {
   // dispatches pointerdown, so the menu would never open and
   // findByRole('menu') would sit at the suite's 60000ms asyncUtilTimeout
   // instead of failing fast.
-  const trigger = await screen.findByRole('button', { name: /more server actions/i })
+  const trigger = await screen.findByRole('button', { name: /more actions for/i })
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
   fireEvent.click(trigger)
   return screen.findByRole('menu')
+}
+
+async function closeMenu(menu: HTMLElement) {
+  fireEvent.keyDown(menu, { key: 'Escape' })
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 }
 
 afterEach(() => {
@@ -220,6 +227,7 @@ afterEach(() => {
   mockCanWipe = true
   mockCanPanelSettings = true
   mockCanBackups = true
+  mockCanRcon = true
 })
 
 // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
@@ -322,16 +330,24 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
     renderDashboard()
 
     const stopButton = await screen.findByRole('button', { name: 'Stop' })
-    const forceStopButton = screen.getByRole('button', { name: /force stop/i })
     const restartButton = screen.getByRole('button', { name: 'Restart' })
-    const saveButton = screen.getByRole('button', { name: 'Save' })
 
-    for (const button of [stopButton, forceStopButton, restartButton, saveButton]) {
+    for (const button of [stopButton, restartButton]) {
       expect(button).toBeDisabled()
     }
 
-    for (const button of [stopButton, forceStopButton, restartButton, saveButton]) {
+    for (const button of [stopButton, restartButton]) {
       fireEvent.click(button)
+    }
+
+    // Force stop and Save world live in the header's More menu: disabled
+    // there, with the reason under the label instead of a grey item.
+    const menu = await openMoreActionsMenu()
+    for (const name of [/^force stop/i, /^save world/i]) {
+      const item = within(menu).getByRole('menuitem', { name })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      expect(item).toHaveTextContent("Your role doesn't have permission to control the server.")
+      fireEvent.click(item)
     }
 
     // Disabled buttons never open the confirm dialog -- no
@@ -371,9 +387,11 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
 
     const stopButton = await screen.findByRole('button', { name: 'Stop' })
     expect(stopButton).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: /force stop/i })).not.toBeDisabled()
     expect(screen.getByRole('button', { name: 'Restart' })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /^force stop/i })).not.toHaveAttribute('aria-disabled', 'true')
+    expect(within(menu).getByRole('menuitem', { name: /^save world/i })).not.toHaveAttribute('aria-disabled', 'true')
+    await closeMenu(menu)
 
     fireEvent.click(stopButton)
     const dialog = await screen.findByRole('alertdialog')
@@ -405,17 +423,20 @@ describe('Dashboard.tsx: Stop/Force Stop/Restart/Save share server.control, gate
 
     renderDashboard()
 
-    const forceStopButton = await screen.findByRole('button', { name: /force stop/i })
-    expect(forceStopButton).not.toBeDisabled()
-    fireEvent.click(forceStopButton)
+    await screen.findByRole('button', { name: 'Stop' })
+    const menu = await openMoreActionsMenu()
+    const forceStopItem = within(menu).getByRole('menuitem', { name: /^force stop/i })
+    expect(forceStopItem).not.toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(forceStopItem)
     const forceStopDialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(forceStopDialog).getByRole('button', { name: /force stop server/i }))
     await waitFor(() => expect(forceStop).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
 
-    const saveButton = screen.getByRole('button', { name: 'Save' })
-    expect(saveButton).not.toBeDisabled()
-    fireEvent.click(saveButton)
+    const menuAgain = await openMoreActionsMenu()
+    const saveItem = await within(menuAgain).findByRole('menuitem', { name: /^save world/i })
+    await waitFor(() => expect(saveItem).not.toHaveAttribute('aria-disabled', 'true'))
+    fireEvent.click(saveItem)
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
   })
 
@@ -544,42 +565,11 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
     await waitFor(() => expect(wipe).toHaveBeenCalledTimes(1))
   })
 
-  // bug-hunt-2026-08-27, stock-role hunt: this sidebar Maintenance-panel
-  // button opens the exact same wipe dialog as the "..." dropdown item
-  // above, but was missing canWipeServer entirely -- neither disabled nor
-  // onClick-guarded -- so a role without server.wipe (both stock
-  // TECHNICIAN and MODERATOR) could open the destructive dialog and only
-  // hit unexplained disabled Preview/Wipe Now buttons inside it. Found by
-  // an independent capability-gate audit, not by a user report.
-  it('lacking server.wipe: the sidebar Maintenance Wipe Server button is disabled and never opens the dialog', async () => {
-    mockCanControl = true
-    mockCanWipe = false
-    await setUpCommon()
-    // Offline, not setUpOnlineServer() -- the button is already disabled
-    // while online for an unrelated reason (must stop first), which would
-    // mask whether canWipeServer is doing anything. An earlier draft of
-    // this test used the online fixture and stayed green even with the
-    // capability check removed entirely from the disabled prop -- caught
-    // by break-verify, fixed by isolating the actual condition under test.
-    const offline = makeServer()
-    getResolvedActive.mockResolvedValue({ server: offline })
-    getStatus.mockResolvedValue({
-      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
-      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
-    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
-
-    renderDashboard()
-
-    const wipeButton = await screen.findByRole('button', { name: /wipe server/i })
-    expect(wipeButton).toBeDisabled()
-
-    fireEvent.click(wipeButton)
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(wipePreview).not.toHaveBeenCalled()
-    expect(wipe).not.toHaveBeenCalled()
-  })
-
-  it('holding server.wipe: the sidebar Maintenance Wipe Server button opens the dialog and reaches the real wipe API end to end', async () => {
+  // UX restructure (2026-10): Wipe used to have a second entry point, a
+  // Maintenance sidebar button (which once missed canWipeServer entirely,
+  // bug-hunt-2026-08-27). It now lives only in the header's More menu,
+  // whose gating the tests above prove; this pins that the duplicate is gone.
+  it('Wipe has one entry point: the header More menu, not a Maintenance button', async () => {
     mockCanControl = true
     mockCanWipe = true
     await setUpCommon()
@@ -589,23 +579,13 @@ describe('Dashboard.tsx: Wipe is gated on server.wipe, independently of server.c
       running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
       serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
     } as Awaited<ReturnType<typeof serverApi.getStatus>>)
-    wipePreview.mockResolvedValue({ totalFiles: 5, totalSize: 1024, preview: {} })
-    wipe.mockResolvedValue({ success: true, backupCreated: false, backupName: null })
 
     renderDashboard()
 
-    const wipeButton = await screen.findByRole('button', { name: /wipe server/i })
-    expect(wipeButton).not.toBeDisabled()
-
-    fireEvent.click(wipeButton)
-    const dialog = await screen.findByRole('alertdialog')
-
-    fireEvent.click(within(dialog).getByRole('button', { name: /^preview$/i }))
-    const wipeNowButton = await within(dialog).findByRole('button', { name: /wipe now/i })
-    expect(wipeNowButton).not.toBeDisabled()
-    fireEvent.click(wipeNowButton)
-
-    await waitFor(() => expect(wipe).toHaveBeenCalledTimes(1))
+    await screen.findAllByRole('button', { name: 'Start' })
+    expect(screen.queryByRole('button', { name: /wipe server/i })).not.toBeInTheDocument()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /wipe server/i })).not.toHaveAttribute('aria-disabled', 'true')
   })
 })
 
@@ -696,5 +676,69 @@ describe('Dashboard.tsx: Create backup is gated on backups.manage at all 3 of it
     expect(dropdownItem).not.toHaveAttribute('aria-disabled', 'true')
     fireEvent.click(dropdownItem)
     await waitFor(() => expect(createBackup).toHaveBeenCalledTimes(1))
+  })
+})
+
+// Bug pass before the UX release: POST /rcon/connect needs rcon.execute, but
+// the verdict shortcut and the More menu offered Connect RCON to every role,
+// which then got a permission error toast.
+describe('Dashboard.tsx: Connect RCON is offered only with rcon.execute', () => {
+  async function setUpRunningWithoutRcon() {
+    await setUpCommon()
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+  }
+
+  it('lacking rcon.execute: neither the verdict nor the More menu offers Connect RCON', async () => {
+    mockCanRcon = false
+    await setUpRunningWithoutRcon()
+    renderDashboard()
+    await screen.findByRole('button', { name: 'Stop' })
+    expect(screen.queryByRole('button', { name: 'Connect RCON' })).not.toBeInTheDocument()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).queryByRole('menuitem', { name: /^connect rcon/i })).not.toBeInTheDocument()
+  })
+
+  it('holding rcon.execute: both offer it', async () => {
+    await setUpRunningWithoutRcon()
+    renderDashboard()
+    expect(await screen.findByRole('button', { name: 'Connect RCON' })).toBeInTheDocument()
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /^connect rcon/i })).toBeInTheDocument()
+  })
+})
+
+// Bug pass: the redesign's More menu lost v1.4.17's "Bridge settings" item and
+// the Force stop explanation (its tooltip).
+describe('Dashboard.tsx: More menu keeps Bridge settings and explains Force stop', () => {
+  it('shows what Force stop does and opens the bridge settings', async () => {
+    await setUpCommon()
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: true, startTime: '2026-08-27T00:00:00.000Z', uptime: 120, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '127.0.0.1', port: 27015, connected: true },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    function Where() {
+      const location = useLocation()
+      return <div data-testid="where">{location.pathname + location.search}</div>
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <TooltipProvider>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/settings" element={<Where />} />
+          </Routes>
+        </TooltipProvider>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('button', { name: 'Stop' })
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: /^force stop/i })).toHaveTextContent('Tries a quick save, then stops immediately either way')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Bridge settings' }))
+    expect(await screen.findByTestId('where')).toHaveTextContent('/settings?tab=bridge')
   })
 })

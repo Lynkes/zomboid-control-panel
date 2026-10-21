@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // console follow-ups (2026-09-18): GET /server/console-log and /console-log/stream
 // are gated on server.world_events (server/routes/server.js). The Server Log
@@ -69,7 +70,7 @@ function renderConsole() {
   render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

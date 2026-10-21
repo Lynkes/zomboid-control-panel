@@ -8,6 +8,8 @@
   "remoteServerTitle": "Remote Server",
   "remoteServerDesc": "Applying templates to remote servers isn't supported yet.",
   "previewFailedTitle": "Preview Failed",
+  "previewNoAccessTitle": "Comparison not available",
+  "previewNoAccessDesc": "Comparing a template with the server's current settings takes the \"Manage server templates\" permission, which this role doesn't have.",
   "applyConfirmTitle": "Apply \"{{name}}\"?",
   "applyConfirmDescription": "This overwrites the server's current config with this template's {{count}} change(s). Players won't see the difference until the server restarts, and you can undo it by applying a different template.",
   "applyConfirmButton": "Apply Template"

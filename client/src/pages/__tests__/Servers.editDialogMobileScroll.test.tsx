@@ -254,8 +254,8 @@ describe('Servers -- Edit Server dialog fits a short or zoomed-in viewport', () 
 // family on the same page and used to scroll as one box under its own
 // max-h-[90vh] -- its title and Add Server button scrolled away with the
 // fields, the opposite of Edit. It now uses the same DialogBody layout.
-async function openAddDialog(trigger: string, heading: string) {
-  fireEvent.click(await screen.findByRole('button', { name: trigger }))
+async function openAddDialog(choice: 'existing' | 'remote', heading: string) {
+  await openAddFromHeader(choice)
   await screen.findByRole('heading', { name: heading })
 }
 
@@ -264,7 +264,7 @@ describe('Servers -- Add Existing/Remote Server dialog scrolls only its form, li
     // A local server already exists, so the tandem-install notes render too.
     getAll.mockResolvedValue({ servers: [LOCAL_SERVER] } as never)
     renderServers()
-    await openAddDialog(en.pageHeader.addExisting, en.addDialog.titleLocal)
+    await openAddDialog('existing', en.addDialog.titleLocal)
 
     const dialog = screen.getByRole('dialog')
     // The shared dvh bound, no longer replaced by the dialog's own 90vh.
@@ -287,7 +287,7 @@ describe('Servers -- Add Existing/Remote Server dialog scrolls only its form, li
 
   it('remote mode: the RCON-only banner and remote fields are in the scrolling body; the title and Cancel/Add Server are not', async () => {
     renderServers()
-    await openAddDialog(en.pageHeader.addRemote, en.addDialog.titleRemote)
+    await openAddDialog('remote', en.addDialog.titleRemote)
 
     const dialog = screen.getByRole('dialog')
     const body = getScrollBody(dialog)
@@ -302,3 +302,14 @@ describe('Servers -- Add Existing/Remote Server dialog scrolls only its form, li
     expectFooterAndTitleOutside(dialog, body, [en.addDialog.cancel, en.addDialog.addServer], en.addDialog.titleRemote)
   })
 })
+
+// The page header's "Add server" menu (UX restructure, one command primary):
+// the existing-files and remote dialogs open from its items. Radix opens the
+// menu on pointerdown.
+async function openAddFromHeader(choice: 'existing' | 'remote') {
+  const trigger = await screen.findByRole('button', { name: en.addServer.menu })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+  fireEvent.click(trigger)
+  const menu = await screen.findByRole('menu')
+  fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(en.addServer[choice].label) }))
+}

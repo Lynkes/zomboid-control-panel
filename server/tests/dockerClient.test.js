@@ -342,6 +342,53 @@ describe("DockerClient.inspectManagedContainer -- lastError distinguishes 'confi
   });
 });
 
+// SECURITY (2026-10-20): getContainerStats() asked Docker for any container
+// it was named, and the telemetry names the one a server profile holds. It
+// now has getContainerLogs()'s contract: a labelled container only, read by
+// the Id the label check saw.
+describe("DockerClient.getContainerStats -- managed containers only", () => {
+  function withClient(run) {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-docker-stats-"));
+    const socketPath = path.join(tmpDir, "docker.sock");
+    fs.writeFileSync(socketPath, "");
+    const client = new DockerClient({ socketPath, enabled: true });
+    const requested = [];
+    const answer = (labels) =>
+      vi.spyOn(client, "_requestJson").mockImplementation(async (_method, requestPath) => {
+        requested.push(requestPath);
+        if (requestPath.endsWith("/json")) return { Id: "f00d", Labels: labels };
+        return { memory_stats: { usage: 1000, limit: 4000 } };
+      });
+    return Promise.resolve(run({ client, requested, answer })).finally(() =>
+      fs.rmSync(tmpDir, { recursive: true, force: true }),
+    );
+  }
+
+  it("returns null for an unlabelled container without asking for its stats", () =>
+    withClient(async ({ client, requested, answer }) => {
+      answer({ "zomboid-panel.managed": "false" });
+      await expect(client.getContainerStats("postgres")).resolves.toBeNull();
+      expect(requested).toEqual(["/containers/postgres/json"]);
+    }));
+
+  it("reads a labelled container's stats by the Id the label check saw", () =>
+    withClient(async ({ client, requested, answer }) => {
+      answer({ "zomboid-panel.managed": "true" });
+      const stats = await client.getContainerStats("pz");
+      expect(stats.memoryUsed).toBe(1000);
+      expect(requested).toEqual(["/containers/pz/json", "/containers/f00d/stats?stream=false"]);
+    }));
+
+  it("refuses a reference that is no container name, without contacting Docker", () =>
+    withClient(async ({ client, requested, answer }) => {
+      answer({ "zomboid-panel.managed": "true" });
+      for (const ref of ["../images/json", "pz/../x", "", undefined, "-pz"]) {
+        await expect(client.getContainerStats(ref)).resolves.toBeNull();
+      }
+      expect(requested).toEqual([]);
+    }));
+});
+
 // GH #189: a Start on a container that is already running gets Docker's 304
 // and launches nothing, so it must not be reported as a fresh launch (the
 // mod checker would cancel a pending mod-update restart on it).

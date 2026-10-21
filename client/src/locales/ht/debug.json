@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Debogaj & Jounal",
+    "title": "Dyagnostik",
     "description": "Dyagnostik an tan reyèl, istorik resan, ak detay anviwònman pou panèl sa a"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Jounal",
     "crashes": "Kraze",
     "health": "Estati an Dirèk",
-    "system": "Anviwònman"
+    "system": "Anviwònman",
+    "ariaLabel": "Seksyon dyagnostik yo",
+    "groups": {
+      "now": "Kounye a",
+      "history": "Istorik",
+      "system": "Sistèm"
+    }
   },
   "fixActions": {
     "links": {
@@ -90,8 +96,8 @@
       "note": "Chwazi oswa konfigire yon sèvè aktif ak yon chemen enstalasyon valab."
     },
     "serverZomboidData": {
-      "label": "Louvri Paramèt",
-      "note": "Defini chemen done Zomboid nan Paramèt."
+      "label": "Louvri Sèvè",
+      "note": "Defini dosye done Zomboid la lè w ap modifye sèvè sa a nan paj Sèvè yo."
     },
     "serverStartScriptOrJre": {
       "label": "Louvri Chèchè Sèvè",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Louvri Konfigirasyon Sèvè",
-      "note": "Defini modpas RCON nan Konfigirasyon Sèvè (ak menm valè a nan Paramèt)."
+      "note": "Defini modpas RCON nan Konfigirasyon Sèvè, ak menm valè a lè w ap modifye sèvè sa a nan paj Sèvè yo."
     },
     "serverBridgeMod": {
       "label": "Louvri Paramèt › PanelBridge",
@@ -295,6 +301,11 @@
     "workshopNothingToChange_many": "Anyen pou chanje pou {{count}} ID.",
     "mapEntriesRepairedTitle": "Antre kat repare",
     "duplicatesCleanedTitle": "Doublon netwaye",
+    "mapEntriesRemoved": "Antre kat ki pa valid yo retire ({{count}}): {{list}}.",
+    "mapEntriesAdded": "Antre kat ki te manke yo ajoute ({{count}}): {{list}}.",
+    "mapEntriesAllValid": "Tout antre kat yo valid. Pa bezwen okenn chanjman.",
+    "duplicatesRemoved": "ID mod ki te an doub yo retire ({{count}}): {{list}}.",
+    "duplicatesNone": "Pa jwenn okenn ID mod an doub. Pa bezwen okenn chanjman.",
     "serverStartingTitle": "Sèvè ap demare",
     "serverStartingFallback": "Siyal demaraj sèvè dedye voye. Tcheke Tablo Bòd la pou estati.",
     "rconReconnectedTitle": "RCON rekonekte",
@@ -303,6 +314,8 @@
     "dbBackupCreatedDesc": "Kopi sovgad konplete{{backupName}}.",
     "staleLocksRemovedTitle": "Ansyen fichye lock retire",
     "staleLocksRemovedFallback": "Efase {{count}} fichye lock.",
+    "staleLocksSomeFailed": "Gen kèk ki pa t ka efase ({{count}}).",
+    "staleLocksTruncated": "Li te kanpe bonè: sovgad sa a twò gwo pou tcheke an yon sèl fwa, kidonk kèk ansyen fichye lock ka rete.",
     "bridgeConfiguredTitle": "Bridge konfigire",
     "bridgeConfiguredDesc": "Ap siveye {{serverName}}. Demare sèvè a pou konplete koneksyon an.",
     "bridgeConfiguredServerFallback": "sèvè aktif la",
@@ -1181,6 +1194,11 @@
               "label": "Deteksyon otomatik build B42 echwe",
               "message": "Ap itilize build kode an dwa {{build}} paske dekouvèt echwe: {{reason}}. Sa a pa ap swiv pwochen build kat PZ jiskaske dekouvèt kòmanse fonksyone ankò.",
               "hint": "Dekouvèt mande sèvis kat la ki build ki aktyèl, lè l itilize curl sistèm nan. Ateri isit la vle di demand sa a pa t reyisi — curl manke, panèl la pa gen aksè rezo sòti, oswa sèvis kat la te refize demand lan. De premye yo vo lapenn tcheke sou kote ou; twazyèm nan ka pa reparab soti nan panèl la. Veye sa apre yon lansman kat Project Zomboid, paske se lè sa a yon build ansyen parèt kòm jeyometri kat ki mal."
+            },
+            "info": {
+              "label": "Vèsyon kat {{build}} (entegre)",
+              "message": "pzmap.org pa t reponn verifikasyon vèsyon otomatik panèl la ({{reason}}), donk kat la sèvi ak vèsyon entegre {{build}}. Kat la mache nòmalman.",
+              "hint": "pzmap.org pwoteje lis vèsyon li ak yon pwoteksyon kont bòt ki konn refize sèvè yo. Pa gen anyen pou w ranje bò kote w. Apre yon mizajou kat Project Zomboid, mete panèl la ajou pou w jwenn nouvo vèsyon kat la."
             }
           }
         },
@@ -1593,6 +1611,7 @@
     "copyDbPathAria": "Kopye chemen baz done",
     "copyLogsPathAria": "Kopye chemen dosye jounal",
     "pathsUpdatedTitle": "Chemen Mete Ajou",
+    "pathsUpdatedDesc": "Redemare panèl la pou aplike chanjman yo.",
     "enterAtLeastOnePath": "Tanpri antre omwen yon chemen",
     "updatePathsFailedFallback": "Pa t kapab mete ajou chemen yo"
   },

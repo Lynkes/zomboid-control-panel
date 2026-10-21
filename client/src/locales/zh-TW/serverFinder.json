@@ -1,17 +1,19 @@
 {
   "pageHeader": {
-    "title": "瀏覽公共伺服器",
+    "title": "公共伺服器",
     "description": "搜尋 Project Zomboid 公共伺服器列表，複製伺服器地址以快速加入",
     "refreshList": "重新整理列表",
     "reloadFromSteam": "從 Steam 重新載入",
-    "reloadFromSteamTip": "「重新整理列表」顯示的是面板自身快取中的結果，可能長達一分鐘未更新。「從 Steam 重新載入」總是直接向 Steam 查詢——如果你剛在自己的伺服器上做了修改卻還沒看到變化，請使用這個按鈕。"
+    "reloadFromSteamTip": "「重新整理列表」顯示的是面板自身快取中的結果，可能長達一分鐘未更新。「從 Steam 重新載入」總是直接向 Steam 查詢——如果你剛在自己的伺服器上做了修改卻還沒看到變化，請使用這個按鈕。",
+    "refreshMenuAria": "更多重新整理方式"
   },
   "apiKeyWarning": {
     "title": "缺少 Steam API 金鑰",
     "description": "請先在設定中新增 Steam API 金鑰，此頁面才能載入公共伺服器列表。",
     "step1": "前往 <1>Steam API 金鑰頁面<2>（在新分頁中開啟）</2></1> 註冊金鑰",
     "step2": "前往 <1>設定</1>，將 API 金鑰貼上到「Steam Web API Key」欄位中",
-    "step3": "點選「儲存設定」並重新整理此頁面"
+    "step3": "點選「儲存設定」並重新整理此頁面",
+    "action": "在設定中新增金鑰"
   },
   "stats": {
     "totalServers": "伺服器總數",
@@ -27,7 +29,6 @@
     "matchingFilters": "符合篩選條件"
   },
   "searchFilters": {
-    "title": "搜尋與篩選",
     "hideFilters": "隱藏篩選",
     "showFilters": "顯示篩選",
     "searchPlaceholder": "按名稱、IP、地圖或關鍵詞搜尋...",
@@ -38,13 +39,10 @@
     "vacOnly": "僅顯示 VAC 保護",
     "versionLabel": "版本：",
     "allVersions": "所有版本",
-    "sortByLabel": "排序方式：",
     "sortName": "名稱",
     "sortPlayers": "玩家數",
-    "sortMaxPlayers": "最大玩家數",
     "sortPing": "延遲",
-    "ascending": "升序",
-    "descending": "降序"
+    "sortMaxPlayers": "最大玩家數"
   },
   "error": {
     "title": "無法載入公共伺服器",
@@ -61,7 +59,7 @@
   },
   "serverList": {
     "title": "伺服器列表",
-    "description": "點選伺服器可檢視更多詳情或複製地址",
+    "description": "複製位址即可加入，或 Ping 伺服器檢查它是否回應。",
     "loading": "正在載入伺服器...",
     "sortAria": "按 {{label}} 排序",
     "sortAriaWithDirection": "按 {{label}} 排序，{{direction}}",

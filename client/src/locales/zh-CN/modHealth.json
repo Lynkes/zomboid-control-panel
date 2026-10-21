@@ -1,0 +1,196 @@
+{
+  "title": "健康检查",
+  "description": "哪些问题会让模组无法加载，以及面板可以替你完成的修复。",
+  "checkedAt": "检查于 {{time}}",
+  "recheck": "重新检查",
+  "loading": "正在检查模组列表…",
+  "loadFailed": "健康检查无法运行。",
+  "reloadFailed": "重新检查失败；这是上一次的结果。",
+  "retry": "重试",
+  "emptyTitle": "未发现问题",
+  "emptyDesc": "每个已启用的模组都已安装，依赖都已满足，加载顺序也符合它的规则。",
+  "noPermission": "你的角色没有管理模组的权限。",
+  "showMod": "显示 {{name}}",
+  "showItem": "显示创意工坊项目 {{name}}",
+  "andMore_one": "另外 {{count}} 个",
+  "andMore_other": "另外 {{count}} 个",
+  "issueCount_one": "{{count}} 个问题",
+  "issueCount_other": "{{count}} 个问题",
+  "stats": {
+    "critical": "严重",
+    "warning": "警告",
+    "info": "值得了解"
+  },
+  "severity": {
+    "critical": "会让模组无法加载",
+    "warning": "需要注意",
+    "info": "值得了解"
+  },
+  "entryIssue": {
+    "emptyEntry": "为空（连续两个逗号，或 require= 后面什么都没有）",
+    "blankEntry": "只有空格",
+    "whitespace": "两侧带有空格，而游戏不会去掉它们",
+    "semicolon": "用“;”而不是逗号分隔",
+    "unknown": "游戏无法读取"
+  },
+  "reason": {
+    "require": "依赖",
+    "rule": "固定顺序",
+    "groupOrder": "组内顺序",
+    "keepTogether": "保持在一起",
+    "groupPlacement": "组的位置",
+    "loadAfter": "mod.info 中的加载顺序",
+    "loadBefore": "mod.info 中的加载顺序",
+    "steamRequired": "Steam 必需项目",
+    "patch": "补丁",
+    "conflictWinner": "冲突胜出者",
+    "tier": "模组类型",
+    "displaced": "让出位置"
+  },
+  "kind": {
+    "requireLoop": {
+      "title": "必需的模组形成了循环",
+      "body": "{{mods}} 互相依赖，形成一个环。服务器加载它们时会崩溃。请移除其中一个，或请作者修复其 mod.info。"
+    },
+    "modInfoBroken": {
+      "title": "mod.info 中有一行损坏的 require=",
+      "body": "在 {{mod}} 的 mod.info 中，require= 条目“{{entry}}”{{problem}}。游戏无法读取它，会跳过 {{mod}}。",
+      "affected": "因为依赖它而同样被跳过：{{mods}}。",
+      "hint": "只有模组作者能修复它的 mod.info。在那之前，请保持该模组关闭或将其移除。"
+    },
+    "requiredNotInstalled": {
+      "title": "必需的模组未安装",
+      "body": "{{requiredBy}} 需要 {{missing}}，但没有任何已安装的创意工坊项目包含它。游戏会跳过 {{affected}}。",
+      "caseMatch": "已安装的模组名为 {{match}}：ID 只在大小写上不同，而游戏要求完全一致。",
+      "b41Only": "{{missing}} 只有 Build 41 版本（创意工坊项目 {{item}}），因此在 Build 42 上永远不会加载。"
+    },
+    "requiredWorkshopItemMissing": {
+      "title": "缺少必需的创意工坊项目",
+      "body": "{{items}} 在 Steam 上把 {{target}} 列为必需项目，但它不在 WorkshopItems= 中。",
+      "downloaded": "它已经下载到这台服务器上。",
+      "notDownloaded": "添加之后，服务器会在下次启动时下载它。"
+    },
+    "notInstalled": {
+      "title": "列表中的模组未安装",
+      "body": "{{mod}} 在 Mods= 中，但 WorkshopItems= 里没有任何创意工坊项目包含它，所以游戏会跳过它。",
+      "foundIn": "磁盘上已有的创意工坊项目 {{item}} 包含它：添加这个项目即可。",
+      "notDownloaded_one": "还有 {{count}} 个创意工坊项目尚未下载，可能包含它：启动一次服务器即可下载。",
+      "notDownloaded_other": "还有 {{count}} 个创意工坊项目尚未下载，可能包含它：启动一次服务器即可下载。"
+    },
+    "b41Only": {
+      "title": "列表中有 Build 41 模组",
+      "body": "{{mod}}（创意工坊项目 {{item}}）没有 Build 42 版本，因此游戏在这台服务器上永远不会加载它。"
+    },
+    "incompatibleEnabled": {
+      "title": "两个不兼容的模组都已启用",
+      "body": "{{a}} 和 {{b}} 都会加载，但 {{declaredBy}} 的 mod.info 表明它们不能一起使用。只保留其中一个。"
+    },
+    "duplicateModId": {
+      "title": "相同的模组被安装了两次"
+    },
+    "mapNotInMapLine": {
+      "title": "Map= 中缺少一张地图",
+      "body": "{{mod}} 带有地图 {{folders}}，但 Map= 没有列出它，因此它永远不会出现在世界中。"
+    },
+    "mapFolderWithoutMod": {
+      "title": "Map= 中列出的地图没有已启用的模组提供",
+      "body": "Map= 列出了 {{folder}}，但没有已加载的模组提供它。",
+      "shippedBy": "{{items}} 包含它：启用对应的模组，或从 Map= 中移除该文件夹。",
+      "nobody": "也没有任何已安装的创意工坊项目包含它。"
+    },
+    "orderProblems": {
+      "title": "加载顺序违反了它的一些规则",
+      "changesLoading_one": "智能排序会因为依赖、固定规则或分组移动 {{count}} 个模组。游戏没有按它们的规则来加载。",
+      "changesLoading_other": "智能排序会因为依赖、固定规则或分组移动 {{count}} 个模组。游戏没有按它们的规则来加载。",
+      "tidyOnly_one": "智能排序会按规则移动 {{count}} 个模组。游戏已经能正确加载它们，所以这只是整理列表。",
+      "tidyOnly_other": "智能排序会按规则移动 {{count}} 个模组。游戏已经能正确加载它们，所以这只是整理列表。",
+      "move": "{{mod}}：从第 {{from}} 位移到第 {{to}} 位（{{reasons}}）"
+    },
+    "requiredLoadedImplicitly": {
+      "title": "必需的模组不在列表中",
+      "body": "{{requiredBy}} 需要 {{mod}}，但它没有列在 Mods= 中。游戏仍会先加载它；把它加进去可以让顺序可见、可编辑。"
+    },
+    "unusedWorkshopItem": {
+      "title": "有一个创意工坊项目没有被使用",
+      "body": "{{item}} 在 WorkshopItems= 中，但它的模组（{{mods}}）都没有启用，它的地图也都不在 Map= 中。服务器仍会下载和更新它。"
+    },
+    "updatesAvailable": {
+      "title": "有可用的模组更新",
+      "body_one": "{{count}} 个创意工坊项目有更新。重启服务器即可安装；玩家加入时会收到更新。",
+      "body_other": "{{count}} 个创意工坊项目有更新。重启服务器即可安装；玩家加入时会收到更新。"
+    }
+  },
+  "duplicates": {
+    "pair": "2 个创意工坊项目包含相同的模组（{{mods}}）：{{items}}。服务器每个模组只加载一份，加载哪一份是不确定的。请只保留其中一个项目。",
+    "many": "多个创意工坊项目包含相同的模组（{{mods}}）：{{items}}。服务器每个模组只加载一份，加载哪一份是不确定的。请只保留其中一个。",
+    "defined": "{{mods}} 安装了不止一份。服务器加载来自{{from}}的那份，忽略其他的。",
+    "local": "服务器的 mods 文件夹中有不止一份 {{mods}}。服务器只加载其中一份，加载哪一份是不确定的。请只保留一份。",
+    "sourceLocal": "服务器的 mods 文件夹",
+    "sourceStaged": "暂存的创意工坊上传",
+    "keep": "保留 {{item}}",
+    "confirmKeep": "{{item}} 将保留。会先备份服务器 INI，然后从中移除以下内容：",
+    "removedItem": "从 WorkshopItems= 移除：{{item}}",
+    "removedMod": "从 Mods= 移除：{{mod}}",
+    "removedRepeat": "从 Mods= 移除：{{mod}} 的多余条目"
+  },
+  "fix": {
+    "removeMods": "从模组列表中移除 {{mods}}",
+    "addMods": "将 {{mods}} 添加到模组列表",
+    "addWorkshopItems_one": "添加创意工坊项目 {{items}}",
+    "addWorkshopItems_other": "添加创意工坊项目 {{items}}",
+    "addWorkshopItemsAndMods_one": "添加创意工坊项目 {{items}} 并启用 {{mods}}",
+    "addWorkshopItemsAndMods_other": "添加创意工坊项目 {{items}} 并启用 {{mods}}",
+    "removeWorkshopItems_one": "移除创意工坊项目 {{items}}",
+    "removeWorkshopItems_other": "移除创意工坊项目 {{items}}",
+    "addMapFolders": "将 {{folders}} 添加到 Map=",
+    "removeMapFolders": "从 Map= 中移除 {{folders}}",
+    "applyPlan": "应用建议的加载顺序"
+  },
+  "confirm": {
+    "title": "你确定吗？",
+    "removeMods": "这些模组会从服务器 INI 的 Mods= 中移除。它们的创意工坊项目仍保持安装，并且会先备份 INI。",
+    "removeWorkshopItems": "这些创意工坊项目会从 WorkshopItems= 中移除：服务器将不再下载和更新它们。会先备份 INI。",
+    "removeMapFolders": "这些地图文件夹会从服务器 INI 的 Map= 中移除。会先备份 INI。",
+    "remove": "移除"
+  },
+  "fixAll": {
+    "button": "修复所有安全问题",
+    "noneReason": "这些问题都没有只向模组列表添加内容的修复。",
+    "confirmTitle_one": "应用 {{count}} 个安全修复？",
+    "confirmTitle_other": "应用 {{count}} 个安全修复？",
+    "confirmDesc": "这些修复只会向服务器 INI 添加内容，或应用建议的加载顺序：不会移除任何东西。它们会逐个运行，遇到第一个错误就停止。",
+    "confirmLabel": "应用修复",
+    "progress": "正在修复第 {{current}} 个，共 {{total}} 个：{{label}}",
+    "doneTitle": "已应用安全修复",
+    "doneDesc_one": "已应用 {{count}} 个修复。",
+    "doneDesc_other": "已应用 {{count}} 个修复。",
+    "skipped_one": "{{count}} 个问题已经不存在。",
+    "skipped_other": "{{count}} 个问题已经不存在。",
+    "stoppedTitle": "在一个失败的修复处停止",
+    "stoppedDesc": "“{{label}}”：{{message}}"
+  },
+  "toast": {
+    "fixedTitle": "模组列表已更新",
+    "unchangedTitle": "无需更改",
+    "unchangedDesc": "服务器 INI 已经与此修复一致。",
+    "failedTitle": "无法应用修复",
+    "failedFallback": "服务器没有应用该修复。",
+    "goneTitle": "这个问题已经变化",
+    "goneDesc": "已重新检查模组列表。"
+  },
+  "summary": {
+    "critical_one": "{{count}} 个问题会让模组无法加载",
+    "critical_other": "{{count}} 个问题会让模组无法加载",
+    "warning_one": "{{count}} 个警告",
+    "warning_other": "{{count}} 个警告",
+    "warningOnly_one": "{{count}} 个问题需要注意",
+    "warningOnly_other": "{{count}} 个问题需要注意",
+    "review": "查看",
+    "reviewAria": "查看模组健康检查"
+  },
+  "dashboard": {
+    "label": "模组健康",
+    "critical_one": "{{count}} 个严重问题",
+    "critical_other": "{{count}} 个严重问题"
+  }
+}

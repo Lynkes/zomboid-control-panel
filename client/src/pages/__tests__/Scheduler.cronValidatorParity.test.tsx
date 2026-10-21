@@ -98,12 +98,12 @@ async function setUp() {
 }
 
 async function openAdvancedTaskDialog(cron: string) {
-  fireEvent.click(await screen.findByRole('button', { name: 'New Task' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'New task' }))
+  // The dialog asks what the task does first; a Restart task saves "restart".
+  fireEvent.click(await screen.findByRole('radio', { name: 'Restart' }))
   fireEvent.change(await screen.findByPlaceholderText('e.g., Daily Restart'), { target: { value: 'A task' } })
-  // Radix's TabsTrigger switches on mousedown, not click (see Console.test.tsx's openRconTab).
-  fireEvent.mouseDown(screen.getByRole('tab', { name: 'Advanced (Cron)' }), { button: 0 })
+  fireEvent.click(screen.getByRole('radio', { name: 'Advanced (Cron)' }))
   fireEvent.change(await screen.findByPlaceholderText('e.g., 0 */2 * * *'), { target: { value: cron } })
-  fireEvent.change(screen.getByPlaceholderText('Or enter custom command'), { target: { value: 'restart' } })
 }
 
 describe('Scheduler.tsx: Advanced-tab Save delegates cron validity to the server, not a local regex', () => {

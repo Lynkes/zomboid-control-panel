@@ -28,6 +28,7 @@ on:
       - 'v*'
     paths:
       - 'docker/all-in-one/**'
+      - 'docker/healthcheck.cjs'
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'
@@ -40,6 +41,7 @@ on:
   pull_request:
     paths:
       - 'docker/all-in-one/**'
+      - 'docker/healthcheck.cjs'
       - 'server/**'
       - 'client/**'
       - 'pz-mod/**'

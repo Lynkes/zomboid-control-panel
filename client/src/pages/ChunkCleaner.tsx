@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
-  Map,
   Trash2,
   RefreshCw,
   AlertTriangle,
@@ -23,9 +22,11 @@ import {
   XCircle,
   HelpCircle,
   ShieldAlert,
+  SlidersHorizontal,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
+import { PageAlerts } from "@/components/PageAlerts";
+import { SectionCard } from "@/components/ui/section-card";
 import { EmptyState } from "@/components/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -207,8 +208,8 @@ function formatSize(bytes: number): string {
 function decomposeIntoRectangles(
   selectedChunks: Set<string>,
 ): Array<{ minX: number; minY: number; maxX: number; maxY: number }> {
-  // `new globalThis.Map`, not `new Map` -- this file imports Lucide's `Map`
-  // icon under that exact name, which shadows the global Map constructor
+  // `new globalThis.Map`, not `new Map` -- this file used to import Lucide's
+  // `Map` icon under that exact name, which shadows the global Map constructor
   // (same fix WorldMap.tsx already applies for its own player-position map).
   const rowsMap = new globalThis.Map<number, number[]>();
   for (const key of selectedChunks) {
@@ -340,6 +341,14 @@ export default function ChunkCleaner() {
   // both, unlike WorldMap's mixed bridge.command/players.gm_tools/
   // server.world_events split (2026-08-27 bug-hunt capability trace).
   const canManageChunks = can("chunks.manage");
+  // "Save as default" repoints the active server's data folder: the route
+  // also wants server.configure for that (chunks.js, save-path).
+  const canSaveDefaultPath = canManageChunks && can("server.configure");
+  const saveDefaultPathReason = !canManageChunks
+    ? t("permissions.noManage")
+    : !canSaveDefaultPath
+      ? t("CHUNKS_SAVE_PATH_CAPABILITY_REQUIRED", { ns: "errors" })
+      : null;
   // 41fa20a3 gated every chunks.js READ route (saves/suggested-paths/
   // chunks/stats/browse) behind chunks.manage, previously unpermissioned.
   // Set from a REAL 403 on fetchSaves' mount-time call, not the client-side
@@ -658,34 +667,38 @@ export default function ChunkCleaner() {
     [customPath, toast, t],
   );
 
+  // Select the active server's save in a freshly loaded list: on mount and
+  // again after an active-server switch reloads the list (several servers
+  // can share one Zomboid folder, so the first save may be another one's).
+  const selectActiveServerSave = useCallback(async (savesList: SaveInfo[]) => {
+    if (savesList.length === 0) return;
+
+    let picked = false;
+    try {
+      const { server } = await serversApi.getResolvedActive();
+      if (server?.serverName) {
+        const match = savesList.find(
+          (s: SaveInfo) => s.name === server.serverName,
+        );
+        if (match) {
+          setSelectedSave(match.name);
+          picked = true;
+        }
+      }
+    } catch {
+      // No active server configured — fall through to auto-pick below
+    }
+
+    // Fallback: if the active-server lookup didn't yield a match, auto-select
+    // the only save (common on single-server Linux setups) or the first one.
+    if (!picked) {
+      setSelectedSave(savesList[0].name);
+    }
+  }, []);
+
   // On mount: fetch saves and auto-select the active server's save
   useEffect(() => {
-    (async () => {
-      const savesList = await fetchSaves();
-      if (savesList.length === 0) return;
-
-      let picked = false;
-      try {
-        const { server } = await serversApi.getResolvedActive();
-        if (server?.serverName) {
-          const match = savesList.find(
-            (s: SaveInfo) => s.name === server.serverName,
-          );
-          if (match) {
-            setSelectedSave(match.name);
-            picked = true;
-          }
-        }
-      } catch {
-        // No active server configured — fall through to auto-pick below
-      }
-
-      // Fallback: if the active-server lookup didn't yield a match, auto-select
-      // the only save (common on single-server Linux setups) or the first one.
-      if (!picked) {
-        setSelectedSave(savesList[0].name);
-      }
-    })();
+    void fetchSaves().then(selectActiveServerSave);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Safety net: if the saves list changes (Refresh, custom-path swap) and
@@ -898,8 +911,8 @@ export default function ChunkCleaner() {
       description: t("toasts.activeServerChangedDesc"),
       variant: "destructive",
     });
-    void fetchSaves();
-  }, [toast, t, fetchSaves]);
+    void fetchSaves().then(selectActiveServerSave);
+  }, [toast, t, fetchSaves, selectActiveServerSave]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1874,14 +1887,25 @@ export default function ChunkCleaner() {
   }, [hasCanvas]);
 
   // ─── Keyboard shortcuts ───
+  // Capture phase: 1 and 2 are also the shell's Dashboard and Console
+  // shortcuts (useKeyboardShortcuts, a bubble-phase window listener), so a
+  // tool switch used to leave the page and lose the selection. The page
+  // claims the keys it handles and stops them there. Like the shell, it
+  // leaves fields, modified keys and any open dialog alone (the shortcut
+  // list, the delete confirm).
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target;
       if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLTextAreaElement
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable)
       )
         return;
       if (deleteDialogOpen) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
       if (!selectedSave) return;
 
       switch (e.key) {
@@ -1897,16 +1921,20 @@ export default function ChunkCleaner() {
           }
           break;
         case "1":
+          e.preventDefault();
+          e.stopPropagation();
           setTool("select");
           break;
         case "2":
+          e.preventDefault();
+          e.stopPropagation();
           setTool("pan");
           break;
       }
     };
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [selectedChunks.size, deleteDialogOpen, selectedSave, canManageChunks]);
 
   // ─── Mouse handlers ───
@@ -2363,17 +2391,51 @@ export default function ChunkCleaner() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-5 page-transition">
-        {/* Header + compact warning */}
-        <div className="space-y-3">
-          <PageHeader
-            title={t("pageHeader.title")}
-            description={t("pageHeader.description")}
-            icon={<Map className="w-5 h-5" />}
+      <div className="space-y-6 page-transition">
+        <PageHeader
+          title={t("pageHeader.title")}
+          description={t("pageHeader.description")}
+          actions={
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHelp((open) => !open)}
+              aria-expanded={showHelp}
+              aria-controls="chunk-cleaner-help"
+              aria-label={showHelp ? t("help.hide") : t("help.show")}
+            >
+              <HelpCircle aria-hidden="true" />
+              <span className="hidden sm:inline">{showHelp ? t("help.hide") : t("help.show")}</span>
+            </Button>
+          }
+        />
+
+        {!permissionDenied && (
+          <PageAlerts
+            alerts={[{ id: "chunk-delete-warning", tone: "warning", title: t("pageHeader.warningTitle"), description: t("pageHeader.warning") }]}
           />
-          <p className="flex items-center gap-2 text-xs text-warning/90">
-            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-            {t("pageHeader.warning")}
+        )}
+
+        <div
+          id="chunk-cleaner-help"
+          hidden={!showHelp}
+          className="space-y-1.5 rounded-lg border border-border/60 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        >
+          <p>
+            <strong className="font-medium text-foreground">{t("help.selectTitle")}</strong> —{" "}
+            {t("help.selectDesc")}
+          </p>
+          <p>
+            <strong className="font-medium text-foreground">{t("help.navigateTitle")}</strong> —{" "}
+            {t("help.navigateDesc")}
+          </p>
+          <p>
+            <strong className="font-medium text-foreground">{t("help.deleteTitle")}</strong> —{" "}
+            {t("help.deleteDesc")}
+          </p>
+          <p>
+            <strong className="font-medium text-foreground">{t("help.shortcutsTitle")}</strong> —{" "}
+            {t("help.shortcutsDesc")}
           </p>
         </div>
 
@@ -2385,18 +2447,12 @@ export default function ChunkCleaner() {
             description={t("permissionDenied.description")}
           />
         ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-5">
-          {/* Left Panel - Controls */}
-          <div className="space-y-3 order-2 lg:order-1">
-            {/* Save Selection */}
-            <Card>
-              <CardHeader className="px-4 py-3 pb-0">
-                <CardTitle className="text-xs font-medium flex items-center gap-2 text-muted-foreground">
-                  <Save className="w-3.5 h-3.5" />
-                  {t("save.title")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="px-4 pb-4 pt-2 space-y-2.5">
+        // One grid, in phone order: the save picker, the map, the tools, the
+        // delete bar. From lg the map takes the right column and spans the
+        // rows the left column stacks in.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)] lg:grid-rows-[auto_auto_auto_1fr] lg:items-start">
+          <SectionCard title={t("save.title")} icon={Save} density="compact" className="lg:col-start-1 lg:row-start-1">
+            <div className="space-y-2.5">
                 <Select value={selectedSave} onValueChange={setSelectedSave}>
                   <SelectTrigger disabled={loadingSaves} className="h-9">
                     <SelectValue
@@ -2435,7 +2491,7 @@ export default function ChunkCleaner() {
                             <div className="flex flex-col min-w-0">
                               <span className="truncate">{save.name}</span>
                               {modifiedLabel && (
-                                <span className="text-[10px] text-muted-foreground">
+                                <span className="text-xs text-muted-foreground">
                                   {modifiedLabel}
                                 </span>
                               )}
@@ -2472,7 +2528,7 @@ export default function ChunkCleaner() {
                   onOpenChange={setShowCustomPath}
                 >
                   <CollapsibleTrigger asChild>
-                    <button className="flex items-center gap-1.5 w-full text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors pt-1">
+                    <button className="flex items-center gap-1.5 w-full text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors pt-1">
                       <FolderOpen className="w-3 h-3" />
                       <span>
                         {showCustomPath
@@ -2505,7 +2561,7 @@ export default function ChunkCleaner() {
                         {t("save.load")}
                       </Button>
                     </div>
-                    <p className="text-[10px] text-muted-foreground/80 leading-snug">
+                    <p className="text-xs text-muted-foreground/80 leading-snug">
                       <Trans
                         i18nKey={platformTranslationKey("save.customPathHint", runtimeInfo?.family)}
                         t={t}
@@ -2519,13 +2575,13 @@ export default function ChunkCleaner() {
                     </p>
                     {customPath && (
                       <div className="flex gap-1.5">
-                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                        <DisabledReason reason={saveDefaultPathReason}>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="flex-1 h-6 text-[10px]"
+                            className="flex-1 h-6 text-xs"
                             onClick={() => void persistCurrentPath(customPath)}
-                            disabled={savingPath || loadingSaves || !canManageChunks}
+                            disabled={savingPath || loadingSaves || !canSaveDefaultPath}
                             // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                             title={t("save.saveAsDefaultTitle")}
                           >
@@ -2536,7 +2592,7 @@ export default function ChunkCleaner() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="flex-1 h-6 text-[10px] text-muted-foreground"
+                          className="flex-1 h-6 text-xs text-muted-foreground"
                           onClick={() => void resetToDefaultPath()}
                           disabled={loadingSaves}
                         >
@@ -2544,24 +2600,24 @@ export default function ChunkCleaner() {
                         </Button>
                       </div>
                     )}
-                    <div className="rounded border border-border/40 bg-muted/20 px-2 py-1.5 text-[10px] text-muted-foreground break-all">
+                    <div className="rounded border border-border/40 bg-muted/20 px-2 py-1.5 text-xs text-muted-foreground break-all">
                       {activePathLabel}
                     </div>
                     {debugInfo?.autoPicked && !customPath && (
-                      <div className="rounded border border-primary/30 bg-primary/5 px-2 py-1.5 text-[10px] space-y-1">
+                      <div className="rounded border border-primary/30 bg-primary/5 px-2 py-1.5 text-xs space-y-1">
                         <div className="flex items-start gap-1.5">
                           <CheckCircle2 className="w-3 h-3 text-primary shrink-0 mt-0.5" />
                           <span>{t("save.autoDetected")}</span>
                         </div>
-                        <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null}>
+                        <DisabledReason reason={saveDefaultPathReason}>
                           <Button
                             variant="outline"
                             size="sm"
-                            className="w-full h-6 text-[10px]"
+                            className="w-full h-6 text-xs"
                             onClick={() =>
                               void persistCurrentPath(debugInfo.autoPicked!)
                             }
-                            disabled={savingPath || !canManageChunks}
+                            disabled={savingPath || !canSaveDefaultPath}
                           >
                             <Save className="w-3 h-3 me-1" />
                             {savingPath ? t("save.saving") : t("save.saveAsDefault")}
@@ -2571,9 +2627,380 @@ export default function ChunkCleaner() {
                     )}
                   </CollapsibleContent>
                 </Collapsible>
-              </CardContent>
-            </Card>
+            </div>
+          </SectionCard>
 
+          {/* The map: the right column from lg, under the save picker on
+              phones, so a picked save shows its map without scrolling past
+              the tools. */}
+          <div className="h-[24rem] min-h-[320px] rounded-xl border border-border/60 bg-card p-2 sm:h-[30rem] lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:h-[calc(100dvh-16rem)] lg:min-h-[32rem]">
+            {!selectedSave ? (
+              loadingSaves ? (
+                // Genuinely unknown (still fetching, or hasn't started
+                // yet) -- must not fall through to the "no saves found"
+                // branch below, which asserts a confirmed, investigated
+                // fact. Same spinner treatment the chunks-loading branch
+                // further down already uses for this same card.
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
+                    <p className="mt-3 text-xs font-medium">
+                      {t("save.placeholderLoading")}
+                    </p>
+                  </div>
+                </div>
+              ) : hasSaves ? (
+                <div className="h-full flex items-center justify-center text-muted-foreground">
+                  <div className="text-center max-w-xs">
+                    <FileBox className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                    <p className="font-medium text-foreground text-sm">
+                      {t("canvas.selectSaveTitle")}
+                    </p>
+                    <p className="text-xs mt-1.5 opacity-70">
+                      {t("canvas.selectSaveDesc")}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                /* No saves found — show what was tried, why, and offer one-click fixes. */
+                <div className="h-full overflow-y-auto p-4 sm:p-6">
+                  <div className="max-w-xl mx-auto space-y-4">
+                    <div className="text-center">
+                      <FileBox className="w-10 h-10 mx-auto mb-2 opacity-40" />
+                      <p className="font-medium text-foreground text-sm">
+                        {t("canvas.noSavesTitle")}
+                      </p>
+                      <p className="text-xs mt-1 text-muted-foreground">
+                        {t("canvas.noSavesDesc")}
+                      </p>
+                    </div>
+
+                    {/* What we tried */}
+                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5 space-y-1.5">
+                      <div className="flex items-center gap-1.5 label-micro">
+                        <Info className="w-3 h-3" /> {t("canvas.whatTried")}
+                      </div>
+                      <div className="text-xs space-y-1">
+                        <div className="flex gap-2">
+                          <span className="text-muted-foreground shrink-0 w-20">
+                            {t("canvas.dataFolder")}
+                          </span>
+                          <span className="font-mono break-all">
+                            {debugInfo?.zomboidDataPath ??
+                              t("canvas.dataFolderNotConfigured")}
+                          </span>
+                        </div>
+                        {debugInfo?.savesPath && (
+                          <div className="flex gap-2">
+                            <span className="text-muted-foreground shrink-0 w-20">
+                              {t("canvas.savesFolder")}
+                            </span>
+                            <span className="font-mono break-all">
+                              {debugInfo.savesPath}
+                            </span>
+                            {debugInfo.exists ? (
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
+                            ) : (
+                              <XCircle className="w-3 h-3 text-destructive shrink-0 mt-0.5" />
+                            )}
+                          </div>
+                        )}
+                        {debugInfo?.attempted &&
+                          debugInfo.attempted.length > 1 && (
+                            <div className="flex gap-2">
+                              <span className="text-muted-foreground shrink-0 w-20">
+                                {t("canvas.alsoChecked")}
+                              </span>
+                              <span className="font-mono break-all opacity-75">
+                                {debugInfo.attempted.slice(1).join(", ")}
+                              </span>
+                            </div>
+                          )}
+                      </div>
+                      {(debugInfo?.hint || loadError) && (
+                        <p className="text-xs text-warning/90 pt-1 flex gap-1.5">
+                          <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span>{resolveDebugHint(debugInfo) || loadError}</span>
+                        </p>
+                      )}
+                      {/* Structured rejection diagnostics — show why the validator turned the path down. */}
+                      {debugInfo?.rejection && (
+                        <div className="pt-1 space-y-1">
+                          {debugInfo.rejection.tried && (
+                            <div className="text-xs text-muted-foreground">
+                              {t("canvas.tried")}{" "}
+                              <span className="font-mono break-all">
+                                {debugInfo.rejection.tried}
+                              </span>
+                            </div>
+                          )}
+                          {debugInfo.rejection.reason ===
+                            "install-folder" && (
+                            <p className="text-xs text-destructive/90">
+                              {t("canvas.installFolderHint")}
+                            </p>
+                          )}
+                          {debugInfo.rejection.parentSuggestion && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() =>
+                                void applySuggestedPath(
+                                  debugInfo.rejection!.parentSuggestion!,
+                                )
+                              }
+                            >
+                              <FolderOpen className="w-3 h-3 me-1" />
+                              {t("canvas.tryParent")}{" "}
+                              <span className="font-mono ms-1 truncate max-w-[180px]">
+                                {debugInfo.rejection.parentSuggestion}
+                              </span>
+                            </Button>
+                          )}
+                          {debugInfo.rejection.checks &&
+                            debugInfo.rejection.reason ===
+                              "no-zomboid-markers" && (
+                              <details className="text-xs text-muted-foreground">
+                                <summary className="cursor-pointer hover:text-foreground/80">
+                                  {t("canvas.whyRejected")}
+                                </summary>
+                                <ul className="ps-3 pt-1 space-y-0.5">
+                                  {Object.entries(
+                                    debugInfo.rejection.checks,
+                                  ).map(([k, v]) => (
+                                    <li
+                                      key={k}
+                                      className="flex gap-1.5 items-center"
+                                    >
+                                      {v ? (
+                                        <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
+                                      ) : (
+                                        <XCircle className="w-2.5 h-2.5 text-destructive/60" />
+                                      )}
+                                      <span className="font-mono">{k}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Suggested paths */}
+                    {debugInfo?.suggestedPaths &&
+                      debugInfo.suggestedPaths.length > 0 && (
+                        <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2.5 space-y-2">
+                          <div className="flex items-center gap-1.5 label-micro">
+                            <FolderOpen className="w-3 h-3" /> {t("canvas.tryCommonLocation")}
+                          </div>
+                          <ul className="space-y-1">
+                            {debugInfo.suggestedPaths.map((s) => (
+                              <li
+                                key={s.path}
+                                className="flex items-center gap-2"
+                              >
+                                <DisabledReason
+                                  reason={!s.exists ? t("canvas.titleFolderMissing") : null}
+                                  className="flex-1"
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void applySuggestedPath(s.path)
+                                    }
+                                    disabled={!s.exists || loadingSaves}
+                                    className="flex-1 text-start text-xs font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (folder missing) now lives in the DisabledReason wrapper above; this title carries only the enabled-state status hint and is correctly absent, not dead, when the wrapper's reason covers the disable.
+                                    title={
+                                      s.exists
+                                        ? s.hasSaves
+                                          ? t("canvas.titleHasSaves")
+                                          : t("canvas.titleFolderExists")
+                                        : undefined
+                                    }
+                                  >
+                                    {s.path}
+                                  </button>
+                                </DisabledReason>
+                                {s.hasSaves ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] h-4 px-1.5 shrink-0"
+                                  >
+                                    {t("canvas.badgeHasSaves")}
+                                  </Badge>
+                                ) : s.exists ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[10px] h-4 px-1.5 shrink-0 opacity-70"
+                                  >
+                                    {t("canvas.badgeExists")}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {t("canvas.badgeMissing")}
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                    {/* How to find it yourself */}
+                    <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2.5 space-y-1.5">
+                      <div className="flex items-center gap-1.5 label-micro">
+                        <HelpCircle className="w-3 h-3" /> {t("canvas.howToFind")}
+                      </div>
+                      <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                        <li>
+                          {t("canvas.windowsPath")}{" "}
+                          <span className="font-mono text-foreground/80">
+                            C:\Users\&lt;you&gt;\Zomboid
+                          </span>
+                        </li>
+                        <li>
+                          {t("canvas.linuxPath")}{" "}
+                          <span className="font-mono text-foreground/80">
+                            ~/Zomboid
+                          </span>{" "}
+                          {t("canvas.linuxHint")}
+                        </li>
+                        <li>
+                          <Trans
+                            i18nKey="canvas.mustContain"
+                            t={t}
+                            components={{
+                              1: <span className="font-mono text-foreground/80" />,
+                            }}
+                          />
+                        </li>
+                        <li>
+                          <Trans
+                            i18nKey="canvas.pointDirect"
+                            t={t}
+                            components={{
+                              1: <span className="font-mono text-foreground/80" />,
+                            }}
+                          />
+                        </li>
+                      </ul>
+                    </div>
+
+                    <div className="flex gap-2 justify-center pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => {
+                          setShowCustomPath(true);
+                        }}
+                      >
+                        <FolderOpen className="w-3.5 h-3.5 me-1.5" />
+                        {t("canvas.setCustomPath")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-xs"
+                        onClick={() => void fetchSaves()}
+                        disabled={loadingSaves}
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 me-1.5 ${loadingSaves ? "animate-spin" : ""}`}
+                        />
+                        {t("canvas.tryAgain")}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )
+            ) : loading ? (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center text-muted-foreground w-56 max-w-[80%]">
+                  <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
+                  {scanProgress && scanProgress.total > 0 ? (
+                    <>
+                      <p className="mt-3 text-xs font-medium text-foreground tabular-nums">
+                        {t("canvas.scanningPercent", {
+                          percent: Math.floor(
+                            (scanProgress.scanned / scanProgress.total) * 100,
+                          ),
+                        })}
+                      </p>
+                      <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-[width] duration-200 ease-out"
+                          style={{
+                            width: `${Math.min(100, (scanProgress.scanned / scanProgress.total) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-xs opacity-70 tabular-nums">
+                        {t("canvas.scanProgressDetail", {
+                          chunks: scanProgress.chunks.toLocaleString(i18n.language),
+                          scanned: scanProgress.scanned.toLocaleString(i18n.language),
+                          total: scanProgress.total.toLocaleString(i18n.language),
+                        })}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs">
+                      {scanProgress
+                        ? t("canvas.scanningChunks", {
+                            count: scanProgress.chunks.toLocaleString(i18n.language),
+                          })
+                        : t("canvas.loadingChunks")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : chunks.length === 0 ? (
+              <div className="h-full flex items-center justify-center">
+                <EmptyState
+                  type="noFile"
+                  title={t("canvas.noChunksTitle")}
+                  description={t("canvas.noChunksDesc")}
+                  compact
+                />
+              </div>
+            ) : (
+              <div
+                ref={containerRef}
+                className="h-full w-full overflow-hidden"
+              >
+                {canvasSize.width > 0 && (
+                  <canvas
+                    ref={canvasRef}
+                    width={canvasSize.width}
+                    height={canvasSize.height}
+                    role="img"
+                    aria-label={t("canvas.ariaLabel")}
+                    style={{
+                      width: canvasSize.width,
+                      height: canvasSize.height,
+                      borderRadius: "0.375rem",
+                      border: "1px solid hsl(var(--border))",
+                      cursor: tool === "pan" ? "grab" : "crosshair",
+                    }}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseLeave}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
+                    onWheel={handleWheel}
+                    onContextMenu={handleContextMenu}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 lg:col-start-1 lg:row-start-2">
             {/* Stats — inline when available */}
             {stats &&
               (() => {
@@ -2591,18 +3018,18 @@ export default function ChunkCleaner() {
                   "bg-muted-foreground/40",
                 ];
                 return (
-                  <Card>
-                    <CardContent className="px-4 py-3 space-y-2.5">
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                          <Database className="w-3 h-3" /> {t("stats.worldFootprint")}
-                        </span>
-                        <span className="text-sm font-semibold tabular-nums text-foreground">
-                          {stats.totalSizeFormatted}
-                        </span>
-                      </div>
-                      {folderEntries.length > 0 && folderTotal > 0 && (
-                        <>
+                  <SectionCard
+                    title={t("stats.worldFootprint")}
+                    icon={Database}
+                    density="compact"
+                    status={
+                      <span className="text-sm font-semibold tabular-nums text-foreground">
+                        {stats.totalSizeFormatted}
+                      </span>
+                    }
+                  >
+                      {folderEntries.length > 0 && folderTotal > 0 ? (
+                        <div className="space-y-2.5">
                           <div
                             className="flex h-1.5 w-full overflow-hidden rounded-full border border-border/40 bg-muted/30"
                             aria-hidden="true"
@@ -2629,7 +3056,7 @@ export default function ChunkCleaner() {
                             {folderEntries.map(([folder, info], i) => (
                               <div
                                 key={folder}
-                                className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+                                className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
                               >
                                 <span className="flex items-center gap-1.5 min-w-0">
                                   <span
@@ -2646,16 +3073,15 @@ export default function ChunkCleaner() {
                               </div>
                             ))}
                           </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
+                        </div>
+                      ) : undefined}
+                  </SectionCard>
                 );
               })()}
 
             {/* Tools */}
-            <Card>
-              <CardContent className="px-4 py-3 space-y-3">
+            <SectionCard title={t("tools.title")} icon={SlidersHorizontal} density="compact">
+              <div className="space-y-3">
                 <div className="flex items-center gap-1.5">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -2664,6 +3090,7 @@ export default function ChunkCleaner() {
                         size="icon"
                         onClick={() => setTool("select")}
                         aria-label={t("tools.selectToolAria")}
+                        aria-pressed={tool === "select"}
                       >
                         <Square className="w-4 h-4" />
                       </Button>
@@ -2678,6 +3105,7 @@ export default function ChunkCleaner() {
                         size="icon"
                         onClick={() => setTool("pan")}
                         aria-label={t("tools.panToolAria")}
+                        aria-pressed={tool === "pan"}
                       >
                         <Move className="w-4 h-4" />
                       </Button>
@@ -2753,7 +3181,7 @@ export default function ChunkCleaner() {
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-map" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     {showMap ? (
                       <Image className="w-3.5 h-3.5" />
                     ) : (
@@ -2761,36 +3189,38 @@ export default function ChunkCleaner() {
                     )}
                     {t("tools.map")}
                   </Label>
-                  <Switch checked={showMap} onCheckedChange={setShowMap} />
+                  <Switch id="chunk-cleaner-show-map" checked={showMap} onCheckedChange={setShowMap} />
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-vehicles" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <Car className="w-3.5 h-3.5" />
                     {t("tools.vehicles")}
                     {chunkVehicles.length > 0 && (
-                      <span className="text-[10px] tabular-nums opacity-60">
+                      <span className="text-xs tabular-nums opacity-60">
                         ({chunkVehicles.length})
                       </span>
                     )}
                   </Label>
                   <Switch
+                    id="chunk-cleaner-show-vehicles"
                     checked={showVehicles}
                     onCheckedChange={setShowVehicles}
                   />
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Label htmlFor="chunk-cleaner-show-safehouses" className="text-xs text-muted-foreground flex items-center gap-1.5">
                     <Home className="w-3.5 h-3.5" />
                     {t("tools.safehouses")}
                     {chunkSafehouses.length > 0 && (
-                      <span className="text-[10px] tabular-nums opacity-60">
+                      <span className="text-xs tabular-nums opacity-60">
                         ({chunkSafehouses.length})
                       </span>
                     )}
                   </Label>
                   <Switch
+                    id="chunk-cleaner-show-safehouses"
                     checked={showSafehouses}
                     onCheckedChange={setShowSafehouses}
                   />
@@ -2802,11 +3232,11 @@ export default function ChunkCleaner() {
                   <div
                     className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 transition-colors ${
                       selectedChunks.size > 0
-                        ? "border-destructive/40 bg-destructive/[0.06]"
+                        ? "border-destructive/40 bg-destructive/5"
                         : "border-border/50 bg-muted/20"
                     }`}
                   >
-                    <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                    <span className="label-micro flex items-center gap-1.5">
                       <span
                         className={`inline-block w-1.5 h-1.5 rounded-full ${
                           selectedChunks.size > 0
@@ -2821,7 +3251,7 @@ export default function ChunkCleaner() {
                       </HelpTip>
                     </span>
                     <span
-                      className={`text-[11px] font-semibold tabular-nums ${selectedChunks.size > 0 ? "text-destructive" : "text-muted-foreground/70"}`}
+                      className={`text-xs font-semibold tabular-nums ${selectedChunks.size > 0 ? "text-destructive" : "text-muted-foreground/70"}`}
                     >
                       {selectedChunks.size > 0
                         ? `${selectedChunks.size} · ${formatSize(selectedSize)}`
@@ -2858,15 +3288,19 @@ export default function ChunkCleaner() {
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </SectionCard>
+          </div>
 
-            {/* Delete Button */}
-            {selectedChunks.size > 0 && (
+          {/* Delete: one button. On phones it rides a bar stuck to the
+              bottom of the screen (the map and the tools sit above it);
+              from lg it sits under the tools. */}
+          {selectedChunks.size > 0 && (
+            <div className="sticky bottom-4 z-20 rounded-xl border border-destructive/40 bg-card p-2 shadow-[0_10px_30px_-12px_hsl(0_0%_0%/0.7)] lg:static lg:col-start-1 lg:row-start-3 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none">
               <DisabledReason reason={!canManageChunks ? t("permissions.noManage") : null} className="w-full">
                 <Button
                   variant="destructive"
-                  className="w-full h-9 text-sm"
+                  className="w-full"
                   disabled={!canManageChunks}
                   onClick={() => {
                     setDeleteVehicles(true);
@@ -2877,412 +3311,10 @@ export default function ChunkCleaner() {
                   {t("deleteButton", { count: selectedChunks.size })}
                 </Button>
               </DisabledReason>
-            )}
-          </div>
-
-          {/* Canvas — primary workspace */}
-          <div className="order-1 lg:order-2">
-            <Card className="flex flex-col h-[24rem] min-h-[320px] sm:h-[30rem] lg:h-[36rem]">
-              <CardContent className="flex-1 p-2 min-h-0">
-                {!selectedSave ? (
-                  loadingSaves ? (
-                    // Genuinely unknown (still fetching, or hasn't started
-                    // yet) -- must not fall through to the "no saves found"
-                    // branch below, which asserts a confirmed, investigated
-                    // fact. Same spinner treatment the chunks-loading branch
-                    // further down already uses for this same card.
-                    <div className="h-full flex items-center justify-center">
-                      <div className="text-center text-muted-foreground">
-                        <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
-                        <p className="mt-3 text-xs font-medium">
-                          {t("save.placeholderLoading")}
-                        </p>
-                      </div>
-                    </div>
-                  ) : hasSaves ? (
-                    <div className="h-full flex items-center justify-center text-muted-foreground">
-                      <div className="text-center max-w-xs">
-                        <FileBox className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                        <p className="font-medium text-foreground text-sm">
-                          {t("canvas.selectSaveTitle")}
-                        </p>
-                        <p className="text-xs mt-1.5 opacity-70">
-                          {t("canvas.selectSaveDesc")}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    /* No saves found — show what was tried, why, and offer one-click fixes. */
-                    <div className="h-full overflow-y-auto p-4 sm:p-6">
-                      <div className="max-w-xl mx-auto space-y-4">
-                        <div className="text-center">
-                          <FileBox className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                          <p className="font-medium text-foreground text-sm">
-                            {t("canvas.noSavesTitle")}
-                          </p>
-                          <p className="text-xs mt-1 text-muted-foreground">
-                            {t("canvas.noSavesDesc")}
-                          </p>
-                        </div>
-
-                        {/* What we tried */}
-                        <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5 space-y-1.5">
-                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            <Info className="w-3 h-3" /> {t("canvas.whatTried")}
-                          </div>
-                          <div className="text-[11px] space-y-1">
-                            <div className="flex gap-2">
-                              <span className="text-muted-foreground shrink-0 w-20">
-                                {t("canvas.dataFolder")}
-                              </span>
-                              <span className="font-mono break-all">
-                                {debugInfo?.zomboidDataPath ??
-                                  t("canvas.dataFolderNotConfigured")}
-                              </span>
-                            </div>
-                            {debugInfo?.savesPath && (
-                              <div className="flex gap-2">
-                                <span className="text-muted-foreground shrink-0 w-20">
-                                  {t("canvas.savesFolder")}
-                                </span>
-                                <span className="font-mono break-all">
-                                  {debugInfo.savesPath}
-                                </span>
-                                {debugInfo.exists ? (
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
-                                ) : (
-                                  <XCircle className="w-3 h-3 text-destructive shrink-0 mt-0.5" />
-                                )}
-                              </div>
-                            )}
-                            {debugInfo?.attempted &&
-                              debugInfo.attempted.length > 1 && (
-                                <div className="flex gap-2">
-                                  <span className="text-muted-foreground shrink-0 w-20">
-                                    {t("canvas.alsoChecked")}
-                                  </span>
-                                  <span className="font-mono break-all opacity-75">
-                                    {debugInfo.attempted.slice(1).join(", ")}
-                                  </span>
-                                </div>
-                              )}
-                          </div>
-                          {(debugInfo?.hint || loadError) && (
-                            <p className="text-[11px] text-warning/90 pt-1 flex gap-1.5">
-                              <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                              <span>{resolveDebugHint(debugInfo) || loadError}</span>
-                            </p>
-                          )}
-                          {/* Structured rejection diagnostics — show why the validator turned the path down. */}
-                          {debugInfo?.rejection && (
-                            <div className="pt-1 space-y-1">
-                              {debugInfo.rejection.tried && (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {t("canvas.tried")}{" "}
-                                  <span className="font-mono break-all">
-                                    {debugInfo.rejection.tried}
-                                  </span>
-                                </div>
-                              )}
-                              {debugInfo.rejection.reason ===
-                                "install-folder" && (
-                                <p className="text-[10px] text-destructive/90">
-                                  {t("canvas.installFolderHint")}
-                                </p>
-                              )}
-                              {debugInfo.rejection.parentSuggestion && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-[10px]"
-                                  onClick={() =>
-                                    void applySuggestedPath(
-                                      debugInfo.rejection!.parentSuggestion!,
-                                    )
-                                  }
-                                >
-                                  <FolderOpen className="w-3 h-3 me-1" />
-                                  {t("canvas.tryParent")}{" "}
-                                  <span className="font-mono ms-1 truncate max-w-[180px]">
-                                    {debugInfo.rejection.parentSuggestion}
-                                  </span>
-                                </Button>
-                              )}
-                              {debugInfo.rejection.checks &&
-                                debugInfo.rejection.reason ===
-                                  "no-zomboid-markers" && (
-                                  <details className="text-[10px] text-muted-foreground">
-                                    <summary className="cursor-pointer hover:text-foreground/80">
-                                      {t("canvas.whyRejected")}
-                                    </summary>
-                                    <ul className="ps-3 pt-1 space-y-0.5">
-                                      {Object.entries(
-                                        debugInfo.rejection.checks,
-                                      ).map(([k, v]) => (
-                                        <li
-                                          key={k}
-                                          className="flex gap-1.5 items-center"
-                                        >
-                                          {v ? (
-                                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />
-                                          ) : (
-                                            <XCircle className="w-2.5 h-2.5 text-destructive/60" />
-                                          )}
-                                          <span className="font-mono">{k}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                  </details>
-                                )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Suggested paths */}
-                        {debugInfo?.suggestedPaths &&
-                          debugInfo.suggestedPaths.length > 0 && (
-                            <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2.5 space-y-2">
-                              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                                <FolderOpen className="w-3 h-3" /> {t("canvas.tryCommonLocation")}
-                              </div>
-                              <ul className="space-y-1">
-                                {debugInfo.suggestedPaths.map((s) => (
-                                  <li
-                                    key={s.path}
-                                    className="flex items-center gap-2"
-                                  >
-                                    <DisabledReason
-                                      reason={!s.exists ? t("canvas.titleFolderMissing") : null}
-                                      className="flex-1"
-                                    >
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void applySuggestedPath(s.path)
-                                        }
-                                        disabled={!s.exists || loadingSaves}
-                                        className="flex-1 text-start text-[11px] font-mono px-2 py-1 rounded border border-border/40 bg-background hover:bg-accent/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors break-all"
-                                        // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27 (rule's own shape-2 guidance): the disabled-reason branch (folder missing) now lives in the DisabledReason wrapper above; this title carries only the enabled-state status hint and is correctly absent, not dead, when the wrapper's reason covers the disable.
-                                        title={
-                                          s.exists
-                                            ? s.hasSaves
-                                              ? t("canvas.titleHasSaves")
-                                              : t("canvas.titleFolderExists")
-                                            : undefined
-                                        }
-                                      >
-                                        {s.path}
-                                      </button>
-                                    </DisabledReason>
-                                    {s.hasSaves ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-[9px] h-4 px-1.5 shrink-0"
-                                      >
-                                        {t("canvas.badgeHasSaves")}
-                                      </Badge>
-                                    ) : s.exists ? (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[9px] h-4 px-1.5 shrink-0 opacity-70"
-                                      >
-                                        {t("canvas.badgeExists")}
-                                      </Badge>
-                                    ) : (
-                                      <span className="text-[9px] text-muted-foreground/60 shrink-0">
-                                        {t("canvas.badgeMissing")}
-                                      </span>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-
-                        {/* How to find it yourself */}
-                        <div className="rounded-md border border-border/60 bg-muted/10 px-3 py-2.5 space-y-1.5">
-                          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            <HelpCircle className="w-3 h-3" /> {t("canvas.howToFind")}
-                          </div>
-                          <ul className="text-[11px] text-muted-foreground space-y-1 list-disc list-inside">
-                            <li>
-                              {t("canvas.windowsPath")}{" "}
-                              <span className="font-mono text-foreground/80">
-                                C:\Users\&lt;you&gt;\Zomboid
-                              </span>
-                            </li>
-                            <li>
-                              {t("canvas.linuxPath")}{" "}
-                              <span className="font-mono text-foreground/80">
-                                ~/Zomboid
-                              </span>{" "}
-                              {t("canvas.linuxHint")}
-                            </li>
-                            <li>
-                              <Trans
-                                i18nKey="canvas.mustContain"
-                                t={t}
-                                components={{
-                                  1: <span className="font-mono text-foreground/80" />,
-                                }}
-                              />
-                            </li>
-                            <li>
-                              <Trans
-                                i18nKey="canvas.pointDirect"
-                                t={t}
-                                components={{
-                                  1: <span className="font-mono text-foreground/80" />,
-                                }}
-                              />
-                            </li>
-                          </ul>
-                        </div>
-
-                        <div className="flex gap-2 justify-center pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={() => {
-                              setShowCustomPath(true);
-                            }}
-                          >
-                            <FolderOpen className="w-3.5 h-3.5 me-1.5" />
-                            {t("canvas.setCustomPath")}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={() => void fetchSaves()}
-                            disabled={loadingSaves}
-                          >
-                            <RefreshCw
-                              className={`w-3.5 h-3.5 me-1.5 ${loadingSaves ? "animate-spin" : ""}`}
-                            />
-                            {t("canvas.tryAgain")}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                ) : loading ? (
-                  <div className="h-full flex items-center justify-center">
-                    <div className="text-center text-muted-foreground w-56 max-w-[80%]">
-                      <RefreshCw className="w-6 h-6 mx-auto animate-spin" />
-                      {scanProgress && scanProgress.total > 0 ? (
-                        <>
-                          <p className="mt-3 text-xs font-medium text-foreground tabular-nums">
-                            {t("canvas.scanningPercent", {
-                              percent: Math.floor(
-                                (scanProgress.scanned / scanProgress.total) * 100,
-                              ),
-                            })}
-                          </p>
-                          <div className="mt-2 h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full bg-primary transition-[width] duration-200 ease-out"
-                              style={{
-                                width: `${Math.min(100, (scanProgress.scanned / scanProgress.total) * 100)}%`,
-                              }}
-                            />
-                          </div>
-                          <p className="mt-1.5 text-[11px] opacity-70 tabular-nums">
-                            {t("canvas.scanProgressDetail", {
-                              chunks: scanProgress.chunks.toLocaleString(i18n.language),
-                              scanned: scanProgress.scanned.toLocaleString(i18n.language),
-                              total: scanProgress.total.toLocaleString(i18n.language),
-                            })}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="mt-2 text-xs">
-                          {scanProgress
-                            ? t("canvas.scanningChunks", {
-                                count: scanProgress.chunks.toLocaleString(i18n.language),
-                              })
-                            : t("canvas.loadingChunks")}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ) : chunks.length === 0 ? (
-                  <div className="h-full flex items-center justify-center">
-                    <EmptyState
-                      type="noFile"
-                      title={t("canvas.noChunksTitle")}
-                      description={t("canvas.noChunksDesc")}
-                      compact
-                    />
-                  </div>
-                ) : (
-                  <div
-                    ref={containerRef}
-                    className="h-full w-full overflow-hidden"
-                  >
-                    {canvasSize.width > 0 && (
-                      <canvas
-                        ref={canvasRef}
-                        width={canvasSize.width}
-                        height={canvasSize.height}
-                        role="img"
-                        aria-label={t("canvas.ariaLabel")}
-                        style={{
-                          width: canvasSize.width,
-                          height: canvasSize.height,
-                          borderRadius: "0.375rem",
-                          border: "1px solid hsl(var(--border))",
-                          cursor: tool === "pan" ? "grab" : "crosshair",
-                        }}
-                        onMouseDown={handleMouseDown}
-                        onMouseMove={handleMouseMove}
-                        onMouseUp={handleMouseUp}
-                        onMouseLeave={handleMouseLeave}
-                        onTouchStart={handleTouchStart}
-                        onTouchMove={handleTouchMove}
-                        onTouchEnd={handleTouchEnd}
-                        onWheel={handleWheel}
-                        onContextMenu={handleContextMenu}
-                      />
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+            </div>
+          )}
         </div>
         )}
-
-        {/* Help — collapsible */}
-        <Collapsible open={showHelp} onOpenChange={setShowHelp}>
-          <CollapsibleTrigger asChild>
-            <button className="flex items-center gap-2 text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors w-full">
-              <Info className="w-3.5 h-3.5" />
-              <span>{showHelp ? t("help.hide") : t("help.show")}</span>
-            </button>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <div className="mt-3 rounded-lg border border-border/40 bg-muted/20 px-4 py-3 text-xs text-muted-foreground space-y-1.5">
-              <p>
-                <strong className="text-foreground/80">{t("help.selectTitle")}</strong> —{" "}
-                {t("help.selectDesc")}
-              </p>
-              <p>
-                <strong className="text-foreground/80">{t("help.navigateTitle")}</strong> —{" "}
-                {t("help.navigateDesc")}
-              </p>
-              <p>
-                <strong className="text-foreground/80">{t("help.deleteTitle")}</strong> —{" "}
-                {t("help.deleteDesc")}
-              </p>
-              <p>
-                <strong className="text-foreground/80">{t("help.shortcutsTitle")}</strong> —{" "}
-                {t("help.shortcutsDesc")}
-              </p>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -3307,19 +3339,21 @@ export default function ChunkCleaner() {
             <AlertDialogBody className="space-y-4">
               <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                 <div>
-                  <Label>{t("deleteDialog.backupLabel")}</Label>
-                  <p className="text-xs text-muted-foreground">
+                  <Label htmlFor="chunk-cleaner-create-backup">{t("deleteDialog.backupLabel")}</Label>
+                  <p id="chunk-cleaner-create-backup-desc" className="text-xs text-muted-foreground">
                     {t("deleteDialog.backupDesc")}
                   </p>
                 </div>
                 <Switch
+                  id="chunk-cleaner-create-backup"
+                  aria-describedby="chunk-cleaner-create-backup-desc"
                   checked={createBackup}
                   onCheckedChange={setCreateBackup}
                 />
               </div>
 
               {!createBackup && (
-                <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+                <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
                   <p className="font-medium text-destructive">
                     {t("deleteDialog.noBackupTitle")}
                   </p>
@@ -3339,11 +3373,11 @@ export default function ChunkCleaner() {
                 return (
                   <div className="flex items-center justify-between p-3 rounded-lg bg-muted">
                     <div className="min-w-0 pe-3">
-                      <Label className="flex items-center gap-1.5">
+                      <Label htmlFor="chunk-cleaner-remove-vehicles" className="flex items-center gap-1.5">
                         <Car className="w-3.5 h-3.5" />
                         {t("deleteDialog.removeVehiclesLabel")}
                       </Label>
-                      <p className="text-xs text-muted-foreground">
+                      <p id="chunk-cleaner-remove-vehicles-desc" className="text-xs text-muted-foreground">
                         {loadedCount > 0
                           ? t("deleteDialog.removeVehiclesLoaded", {
                               count: loadedCount,
@@ -3353,6 +3387,8 @@ export default function ChunkCleaner() {
                       </p>
                     </div>
                     <Switch
+                      id="chunk-cleaner-remove-vehicles"
+                      aria-describedby="chunk-cleaner-remove-vehicles-desc"
                       checked={deleteVehicles}
                       onCheckedChange={setDeleteVehicles}
                     />
@@ -3372,7 +3408,7 @@ export default function ChunkCleaner() {
                   return false;
                 });
                 return overlapping.length > 0 ? (
-                  <div className="rounded-lg border border-warning/25 bg-warning/8 p-3 text-sm">
+                  <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-sm">
                     <p className="font-medium text-warning flex items-center gap-1.5">
                       <Home className="w-3.5 h-3.5" />
                       {t("deleteDialog.safehouseOverlap", {
@@ -3481,7 +3517,7 @@ export default function ChunkCleaner() {
                   {t("serverRunningDialog.noMatchInfo")}
                 </p>
               )}
-              <div className="rounded-lg border border-warning/25 bg-warning/8 p-3 text-xs">
+              <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-xs">
                 <p className="font-medium text-warning mb-1">
                   {t("serverRunningDialog.overrideWarningTitle")}
                 </p>

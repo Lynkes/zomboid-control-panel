@@ -16,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { useToast } from '@/components/ui/use-toast'
 import { templatesApi } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { useUnsavedChangesGuard } from '@/contexts/UnsavedChangesContext'
 
 interface ImportTemplateDialogProps {
   open: boolean
@@ -30,6 +31,9 @@ export function ImportTemplateDialog({ open, onClose, onImported }: ImportTempla
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  // A pasted or loaded template that isn't imported yet: leaving the page
+  // (or the tab) asks first.
+  useUnsavedChangesGuard(open && !importing && text.trim() !== '')
 
   const handleFile = async (file: File) => {
     // bug-hunt-2026-09-06 (client silent-failure lane): fired from the file

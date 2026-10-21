@@ -10,11 +10,18 @@
     "modBadge.updatesAvailable_zero"
   ],
   "skipToContent": "تخطي إلى المحتوى",
+  "notFound": {
+    "title": "الصفحة غير موجودة",
+    "description": "الصفحة التي طلبتها غير موجودة أو لم تعد متاحة في هذا الإصدار من اللوحة.",
+    "goDashboard": "الانتقال إلى لوحة المعلومات",
+    "openServers": "فتح الخوادم"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "لوحة التحكم",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "لوحة التحكم"
+    "shortSubtitle": "لوحة التحكم",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "التنقل الرئيسي",
@@ -23,28 +30,28 @@
     "sections": {
       "server": "الخادم",
       "world": "العالم",
-      "users": "المستخدمون",
+      "players": "اللاعبون",
       "panel": "اللوحة"
     },
     "items": {
-      "serverConsole": "وحدة تحكم الخادم",
-      "onlinePlayers": "اللاعبون المتصلون",
-      "inGameChat": "الدردشة داخل اللعبة",
+      "serverConsole": "وحدة التحكم",
+      "onlinePlayers": "اللاعبون",
+      "inGameChat": "الدردشة",
       "eventsWeather": "الأحداث والطقس",
       "worldMap": "خريطة العالم",
-      "serverConfiguration": "تهيئة الخادم",
-      "serverFiles": "ملفات الخادم",
-      "modManager": "مدير المودات",
+      "serverConfiguration": "التهيئة",
+      "serverFiles": "الملفات",
+      "modManager": "المودات",
       "templates": "القوالب",
-      "scheduledTasks": "المهام المجدولة",
-      "worldBackups": "النسخ الاحتياطية للعالم",
+      "scheduledTasks": "المُجدوِل",
+      "worldBackups": "النسخ الاحتياطية",
       "mapCleanup": "تنظيف الخريطة",
-      "myServers": "خوادمي",
-      "serverSetup": "إعداد الخادم",
-      "browsePublic": "تصفح الخوادم العامة",
+      "myServers": "الخوادم",
+      "serverSetup": "إضافة خادم",
+      "browsePublic": "الخوادم العامة",
       "discord": "Discord",
-      "panelSettings": "إعدادات اللوحة",
-      "debugLogs": "سجلات التصحيح",
+      "panelSettings": "الإعدادات",
+      "debugLogs": "التشخيص",
       "leaderboard": "لوحة المتصدرين"
     },
     "notAvailableRemote": "غير متاح للخوادم البعيدة (RCON فقط)",
@@ -53,7 +60,7 @@
     "noServerBanner": {
       "title": "لا يوجد خادم بعد",
       "description": "يُفتح معظم أقسام اللوحة بمجرد إضافة خادم.",
-      "cta": "إعداد خادم"
+      "cta": "أضف خادمًا"
     }
   },
   "mobileMenu": {
@@ -67,6 +74,7 @@
     "remoteBadgeFull": "عن بُعد",
     "remoteTitle": "خادم بعيد (RCON فقط)",
     "activeBadge": "نشط",
+    "addServer": "إضافة خادم…",
     "manageServers": "إدارة الخوادم",
     "playersOnline_one": "{{count}} لاعب متصل",
     "playersOnline_other": "لاعبون متصلون: {{count}}",
@@ -91,8 +99,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "يتوفر تحديث للوحة: v{{version}}",
     "titleNoVersion": "يتوفر تحديث للوحة",
-    "titleWithVersionOpenSettings": "يتوفر تحديث للوحة: v{{version}}. افتح إعدادات اللوحة.",
-    "titleNoVersionOpenSettings": "يتوفر تحديث للوحة. افتح إعدادات اللوحة.",
+    "titleWithVersionOpenSettings": "يتوفر تحديث للوحة: v{{version}}. افتح الإعدادات.",
+    "titleNoVersionOpenSettings": "يتوفر تحديث للوحة. افتح الإعدادات.",
     "update": "تحديث"
   },
   "footer": {
@@ -151,12 +159,6 @@
   "pageSkeleton": {
     "defaultTitle": "جارٍ تحميل الصفحة",
     "defaultDescription": "جارٍ تجهيز بيانات اللوحة وعناصر التحكم.",
-    "defaultEyebrow": "// اللوحة · جارٍ التحميل",
-    "metrics": {
-      "route": "المسار",
-      "auth": "المصادقة",
-      "socket": "المقبس"
-    },
     "labels": {
       "dashboard": "جارٍ تحميل لوحة المعلومات",
       "named": "جارٍ تحميل {{title}}",
@@ -176,5 +178,52 @@
     "backend": "الواجهة الخلفية",
     "unknown": "غير معروف",
     "checkAgain": "تحقق مرة أخرى"
+  },
+  "serverHeader": {
+    "more": "إجراءات أخرى لـ {{name}}"
+  },
+  "subNav": {
+    "unsaved": "تغييرات غير محفوظة"
+  },
+  "toolbar": {
+    "clearSearch": "مسح البحث"
+  },
+  "stepper": {
+    "ariaLabel": "التقدم",
+    "position": "الخطوة {{current}} من {{total}}",
+    "status": {
+      "done": "مكتملة",
+      "current": "الخطوة الحالية",
+      "upcoming": "لم تبدأ بعد",
+      "locked": "مقفلة"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "إخفاء",
+    "showMore": "عرض المزيد ({{count}})",
+    "showFewer": "عرض أقل"
+  },
+  "saveBar": {
+    "unsaved": "تغييرات غير محفوظة",
+    "changeCount": "تغييرات غير محفوظة: {{count}}",
+    "saving": "جارٍ الحفظ…",
+    "discard": "تجاهل التغييرات",
+    "save": "حفظ التغييرات"
+  },
+  "unsavedChanges": {
+    "title": "المغادرة دون حفظ؟",
+    "description": "في هذه الصفحة تغييرات لم تُحفظ بعد. إذا غادرت الآن فستضيع.",
+    "leave": "تجاهل ومغادرة",
+    "stay": "متابعة التعديل"
+  },
+  "search": {
+    "label": "البحث في الصفحات والأقسام",
+    "placeholder": "بحث…"
+  },
+  "routes": {
+    "dashboardDescription": "حالة الخادم المباشرة واللاعبون وما يحتاج إلى انتباهك بعد ذلك."
+  },
+  "pageHeader": {
+    "breadcrumb": "مسار التنقل"
   }
 }

@@ -182,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Bot do Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Gerencie o bot do Discord, os comandos de barra e as notificações de eventos",
     "statusRunning": "Em execução",
     "statusStopped": "Parado",
     "refreshAria": "Recarregar status",
+    "setupGuide": "Guia de configuração",
+    "closeGuide": "Voltar às configurações do bot",
     "botStatus": {
       "title": "Status do bot",
       "runtimeLabel": "Execução",

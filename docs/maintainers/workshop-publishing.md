@@ -17,7 +17,7 @@ How the panel uses the item is described in
 | Path | What it is |
 | --- | --- |
 | `pz-mod/PanelBridge/` | The bridge source: `media/lua/server/PanelBridge.lua`, `media/lua/client/PanelBridgeClient.lua`, `mod.info`. The panel-installed copy and the Workshop item are built from these same files. |
-| `pz-mod/workshop/published.json` | The item's ID, visibility, last published version and date, and the live-test record (`liveVerified`). Every panel release embeds it; the panel never fetches the ID. |
+| `pz-mod/workshop/published.json` | The item's ID, visibility, last published version and date, the sha256 of that version's uploaded `PanelBridge.lua` (`serverLuaSha256`), and the live-test record (`liveVerified`). Every panel release embeds it; the panel never fetches the ID, and warns when a server's download of that version holds other server Lua. |
 | `pz-mod/workshop/workshop.txt` | The Workshop page template (title, description, tags). No `id=` line: the build adds it. The description's `Mod ID: ZCPB` line is where the panel's Mods page reads the mod ID of an item added by Workshop ID, so the build checks it. |
 | `pz-mod/workshop/{preview,poster,icon}.png`, `art/bridge.svg` | The item's images and their source. `npm run workshop:art` re-renders the PNGs. |
 | `pz-mod/bridge-version.lock.json` | The released bridge version and the hash of its normalized code. |
@@ -145,7 +145,9 @@ release that bumped the bridge, so the uploaded code is the released code.
    profile under Workshop Items and run
    `node scripts/workshop/publish.mjs record --id <id> --visibility unlisted`
    instead. Either way `published.json` gets `workshopId`, `visibility`,
-   `publishedVersion` and `publishedAt`.
+   `publishedVersion` and `publishedAt`. `--from-staged` also records
+   `serverLuaSha256` from the uploaded copy; `--id` sets it to `null`, and
+   panels then skip checking what servers downloaded for that version.
 4. **Move `~/Zomboid/Workshop/ZCPB` out of `~/Zomboid/Workshop`** before
    you test anything on this machine. With Steam on, the game loads
    staged items ahead of Workshop downloads. While
@@ -186,8 +188,11 @@ steamcmd command it would run, and runs nothing. A real run writes the VDF,
 prints which account it publishes as, and runs
 `steamcmd +login <account> +workshop_build_item <vdf> +quit` attached to the
 terminal, where steamcmd asks for the password and Steam Guard code. On
-exit code 0 it records `publishedVersion`, `publishedAt` and `visibility` in
-`published.json` (and `workshopId` when the item had none).
+exit code 0 it records `publishedVersion`, `publishedAt`, `visibility` and
+`serverLuaSha256` (the sha256 of the `PanelBridge.lua` it uploaded) in
+`published.json` (and `workshopId` when the item had none). A change to
+`workshopId` also needs an edit of
+`server/tests/bridgeWorkshopItemIntegrity.test.js`, which pins it.
 
 After a publish:
 

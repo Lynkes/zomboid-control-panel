@@ -252,7 +252,9 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     fireEvent.mouseUp(canvas, { button: 0, clientX: 400, clientY: 300 })
 
     expect(await screen.findByRole('button', { name: 'Heal' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'God' })).toBeInTheDocument()
+    // Powers (God, Invisible, Noclip) have one home, the Players page; the
+    // dossier keeps Heal and the link there.
+    expect(screen.queryByRole('button', { name: 'God' })).toBeNull()
     expect(screen.getAllByText('Kate')).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Open player controls' })).toHaveAttribute('href', '/players?player=Kate')
   })
@@ -294,8 +296,8 @@ describe('WorldMap.tsx dossier: hunger/thirst/fatigue from getServerInfo are act
     fireEvent.click(rosterButton)
 
     await screen.findByRole('button', { name: 'Heal' })
-    expect(screen.queryByText('hunger')).not.toBeInTheDocument()
-    expect(screen.queryByText('thirst')).not.toBeInTheDocument()
-    expect(screen.queryByText('fatigue')).not.toBeInTheDocument()
+    expect(screen.queryByText('Hunger')).not.toBeInTheDocument()
+    expect(screen.queryByText('Thirst')).not.toBeInTheDocument()
+    expect(screen.queryByText('Fatigue')).not.toBeInTheDocument()
   })
 })

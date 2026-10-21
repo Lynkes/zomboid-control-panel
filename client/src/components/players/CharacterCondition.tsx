@@ -33,7 +33,7 @@ export function VitalBar({
     : 'hsl(var(--destructive))'
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="w-24 shrink-0 truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</span>
+      <span className="label-micro w-24 shrink-0 truncate">{label}</span>
       <div className="flex flex-1 items-center gap-1.5">
         <div className="h-1.5 flex-1 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20">
           <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: color }} />
@@ -102,7 +102,7 @@ export function CharacterCondition({
           {t('character.condition.title')}
         </h3>
         {savedAt && (
-          <span className="text-[11px] text-muted-foreground">{t('character.state.savedAt', { when: formatWhen(savedAt, language) })}</span>
+          <span className="text-xs text-muted-foreground">{t('character.state.savedAt', { when: formatWhen(savedAt, language) })}</span>
         )}
       </div>
       {sheet.sectionErrors?.stats && (
@@ -116,8 +116,8 @@ export function CharacterCondition({
               variant="outline"
               className={
                 badge.danger
-                  ? 'gap-1 border-destructive/40 text-[10px] font-mono uppercase tracking-wider text-destructive'
-                  : 'gap-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground'
+                  ? 'gap-1 border-destructive/40 text-[10px] text-destructive'
+                  : 'gap-1 text-[10px] text-muted-foreground'
               }
             >
               {badge.icon}
@@ -157,7 +157,7 @@ export function CharacterCondition({
       {raw.length > 0 && (
         <div className="border-t border-border/40 pt-2">
           <div className="mb-1 flex items-center gap-1">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            <span className="label-micro">
               {t('character.condition.rawStatsLabel')}
             </span>
             <HelpTip label={t('character.condition.rawStatsLabel')}>{t('character.condition.rawStatsTip')}</HelpTip>
@@ -165,7 +165,7 @@ export function CharacterCondition({
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground/85 sm:grid-cols-3">
             {raw.map(({ key, label, value }) => (
               <div key={key} className="flex items-center justify-between gap-2">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">{label}</span>
+                <span className="label-micro">{label}</span>
                 <span className="tabular-nums text-foreground/85">{formatNumber(value, language, 2)}</span>
               </div>
             ))}

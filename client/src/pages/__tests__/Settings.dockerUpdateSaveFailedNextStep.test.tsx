@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { SocketContext } from '@/contexts/SocketContext'
+import { ConfirmProvider } from '@/contexts/ConfirmContext'
+import { UnsavedChangesProvider } from '@/contexts/UnsavedChangesContext'
 import type { Socket } from 'socket.io-client'
 import Settings from '../Settings'
 import { ApiError, configApi, panelUpdateApi } from '@/lib/api'
@@ -189,6 +191,45 @@ describe('Settings > Updates: a Docker update refused because the world could no
     expect(toast.description).not.toContain('process-detection scan')
     expect(toast.action!.props.children).toBe('Open Dashboard')
     expect(toast.layout).toBe('stacked')
+  })
+
+  it('asks before "Open Dashboard" leaves a Settings tab holding unsaved edits', async () => {
+    getAppSettings.mockResolvedValue({ settings: { panelPort: '3001' } })
+    getStatus.mockResolvedValue(dockerStatus)
+    preflight.mockResolvedValue(preflightOk)
+    download.mockRejectedValue(
+      new ApiError('raw English', { status: 503, code: 'SERVER_STOP_NOT_CONFIRMED', data: { code: 'SERVER_STOP_NOT_CONFIRMED' } }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/settings?tab=general']}>
+        <SocketContext.Provider value={createFakeSocket()}>
+          <TooltipProvider>
+            <ConfirmProvider>
+              <UnsavedChangesProvider>
+                <Routes>
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/" element={<div>Dashboard page</div>} />
+                </Routes>
+              </UnsavedChangesProvider>
+            </ConfirmProvider>
+          </TooltipProvider>
+        </SocketContext.Provider>
+      </MemoryRouter>,
+    )
+    const port = await screen.findByLabelText('Panel Port')
+    await waitFor(() => expect(port).toHaveValue(3001))
+    fireEvent.change(port, { target: { value: '3002' } })
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Updates' }))
+
+    const toast = await applyDockerUpdate()
+    act(() => {
+      toast.action!.props.onClick()
+    })
+    const dialog = await screen.findByRole('alertdialog')
+    expect(within(dialog).getByText('Leave without saving?')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Keep editing' }))
+    await act(async () => {})
+    expect(screen.queryByText('Dashboard page')).not.toBeInTheDocument()
   })
 
   it('keeps "Download Failed" (and no Dashboard action) for a real download failure', async () => {

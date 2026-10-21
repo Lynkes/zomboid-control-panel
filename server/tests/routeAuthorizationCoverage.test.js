@@ -172,7 +172,8 @@ const UNGATED_BY_DESIGN = new Map([
 
   // --- mapProxy.js: hardcoded proxy target, validated path segments, no secrets ---
   ["mapProxy.js GET /resolve", "read-only map geometry, no secrets"],
-  ["mapProxy.js GET /vehicles", "read-only, no secrets"],
+  // GET /vehicles left this list 2026-10-20 (access-control audit): saved
+  // vehicle positions are world-position data, now players.view's.
   ["mapProxy.js GET /tiles/:level/:tile", "exempted from authentication entirely (an <img> tag load carries no auth header); proxy target host is a hardcoded constant, level/floor/tile are strictly bounded/regex-validated"],
   ["mapProxy.js GET /toptiles/:level/:tile", "same as /tiles -- img-tag exemption, hardcoded host, validated path segments"],
   ["mapProxy.js GET /b41tiles/:level/:tile", "same as /tiles -- img-tag exemption, hardcoded host, validated path segments"],
@@ -219,13 +220,13 @@ const UNGATED_BY_DESIGN = new Map([
   // panelBridgePingModStatusLeak.test.js for the dedicated regression
   // coverage, including an explicit assert-ABSENT check for
   // players/path/filePath/stats/queue, not just assert-present for
-  // serverName. GET /ping genuinely has no gate -- correctly excluded now
-  // that the response itself no longer has anything worth gating.
-  ["panelBridge.js GET /ping", "response is allow-listed to serverName only (pingModStatusView()) -- modStatus.players/path/filePath no longer reach it; see panelBridgePingModStatusLeak.test.js"],
+  // serverName. GET /ping then left this list too (2026-10-20, access-
+  // control audit): a ping still queues a command to the game, so it now
+  // takes a bridge capability (see its route-level comment).
   ["panelBridge.js GET /commands", "static hardcoded action list (every field a literal in the handler, nothing derived from req/DB/per-install state) -- re-verified against source, confirmed safe"],
 
   // --- rcon.js: password explicitly excluded from what's returned ---
-  ["rcon.js GET /status", "rconService.getConfig() excludes password by construction (host/port/connected/reconnect fields only)"],
+  ["rcon.js GET /status", "rconService.getConfig() excludes password by construction; host/port only go to rcon.execute or servers.manage, everyone else gets connected/reconnect fields only"],
   ["rcon.js GET /health", "connectivity/diagnostic booleans, no credential material"],
   ["rcon.js GET /commands", "static PZ_COMMANDS reference data"],
   ["rcon.js GET /commands/:category", "same static reference data, filtered"],

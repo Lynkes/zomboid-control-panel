@@ -1,0 +1,171 @@
+{
+  "title": "发现的问题",
+  "description": "来自服务器最新日志和面板的错误，每条都附有处理方法。",
+  "rescan": "重新扫描",
+  "scanning": "正在扫描…",
+  "scanDone": "扫描完成",
+  "scanDoneCount": "发现的问题：{{n}}",
+  "scanFailed": "无法扫描问题：{{message}}",
+  "scanFailedFallback": "面板没有响应",
+  "scannedAt": "扫描于 {{time}}",
+  "times": "出现 {{n}} 次",
+  "lastSeen": "最近 {{time}}",
+  "lastSeenLog": "{{time}} 的日志",
+  "modLine": "模组：{{mod}}",
+  "workshopLine": "创意工坊物品",
+  "showLines": "显示日志行（{{n}}）",
+  "hideLines": "隐藏日志行",
+  "fixedNote": "已修复。服务器下次启动后，这条记录会从日志中消失。",
+  "noPermission": "你的角色可以看到这个问题，但不能应用它的修复。",
+  "partialLog": "日志很长：已读取开头和结尾。",
+  "undo": "撤销",
+  "undoneToast": "已撤销",
+  "severity": {
+    "critical": "严重",
+    "warning": "警告",
+    "info": "信息"
+  },
+  "category": {
+    "mods": "模组",
+    "server": "服务器",
+    "network": "网络",
+    "panel": "面板"
+  },
+  "empty": {
+    "title": "未发现问题",
+    "checked": "已检查 {{file}} 的 {{lines}} 行（写入于 {{time}}）、{{panel}} 条面板错误和 {{mods}} 个已安装模组。",
+    "noLog": "在服务器的数据文件夹中找不到它的日志，所以只检查了面板自身的错误（{{panel}}）。"
+  },
+  "kinds": {
+    "luaError": {
+      "title": "{{mod}} 中的 Lua 错误",
+      "titleVanilla": "游戏自带脚本中的 Lua 错误",
+      "why": "某个脚本出错。该脚本的其余部分不再运行，所以模组的一部分无法工作。禁用该模组可停止此错误；模组作者可以修复它。"
+    },
+    "luaFileError": {
+      "title": "无法加载一个 Lua 文件",
+      "why": "游戏在 {{file}} 中发现错误并跳过了它。这通常是为其他游戏版本制作的模组。"
+    },
+    "modRequiredMissing": {
+      "title": "缺少必需的模组 {{mod}}",
+      "why": "某个模组需要“{{mod}}”，但没有已安装的创意工坊物品提供它，因此需要它的模组被跳过。"
+    },
+    "modInfoMissing": {
+      "title": "某个模组文件夹没有 mod.info",
+      "why": "游戏无法读取这个模组：下载不完整，或它不是为 Build 42 制作的。"
+    },
+    "workshopDownload": {
+      "title": "创意工坊物品 {{id}} 没有下载",
+      "why": "服务器无法下载它（已移除、私有或被 Steam 拒绝），并在启动时停止。"
+    },
+    "workshopOutdated": {
+      "title": "有创意工坊模组已更新",
+      "why": "服务器仍在运行旧版本。玩家会获得新版本，在服务器重启前无法加入（“Workshop item version is different than the server's”）。"
+    },
+    "steamUnreachable": {
+      "title": "服务器无法连接 Steam",
+      "why": "它在启动时停止了。请检查这台机器的网络、防火墙或代理，然后重新启动。"
+    },
+    "steamOff": {
+      "title": "服务器在没有 Steam 的情况下运行",
+      "why": "它没有启用 Steam 就启动了，所以 {{n}} 个创意工坊物品都不会加载。请在服务器设置中关闭“无 Steam”。"
+    },
+    "portInUse": {
+      "title": "无法打开游戏端口",
+      "why": "无法打开端口 {{port}}（代码 {{code}}）。另一个程序（通常是这个服务器的第二个副本）正在使用它。请停止它或选择其他端口。"
+    },
+    "rconPortInUse": {
+      "title": "RCON 端口 {{port}} 已被占用",
+      "why": "RCON 无法工作，所以面板无法向服务器发送命令。请选择其他 RCON 端口。"
+    },
+    "rconAuth": {
+      "title": "RCON 密码被拒绝",
+      "why": "有一个 RCON 连接使用了错误的密码。如果是面板，请在这里填写与服务器 .ini 文件中相同的 RCON 密码。"
+    },
+    "outOfMemory": {
+      "title": "服务器内存不足",
+      "why": "Java 内存不足（{{detail}}）。服务器会卡死或停止。请给它更多内存。",
+      "whyPlain": "Java 内存不足。服务器会卡死或停止。请给它更多内存。"
+    },
+    "chunkLoad": {
+      "title": "无法加载地图区块",
+      "why": "部分区块无法读取（{{chunks}}）。它们可能已损坏；地图清理可以重置它们。"
+    },
+    "startupCrash": {
+      "title": "服务器在启动时崩溃",
+      "why": "它在“SERVER STARTED”之前停止了。下面日志的最后几行说明了原因。"
+    },
+    "javaException": {
+      "title": "游戏错误：{{exception}}",
+      "why": "游戏报告了一个意外错误。如果反复出现，它的日志行有助于找到原因。"
+    },
+    "other": {
+      "title": "已记录的错误",
+      "why": "游戏记录了这个错误。很多是无害的；如果有功能不正常，请查看它。"
+    },
+    "panelBridge": {
+      "title": "PanelBridge 错误",
+      "why": "面板的游戏内助手 PanelBridge 报告了一个错误。部分实时功能可能无法工作。"
+    },
+    "panelError": {
+      "title": "面板错误（{{source}}）",
+      "why": "这个错误是面板自身报告的。"
+    }
+  },
+  "fix": {
+    "disableMod": "禁用 {{mod}}",
+    "modsHealthFix": "应用健康检查的修复",
+    "raiseMemory": "提高最大内存：{{current}} GB → {{next}} GB",
+    "restartServer": "重启服务器",
+    "startServer": "启动服务器",
+    "open": "打开",
+    "openModsHealth": "打开 模组 › 健康检查",
+    "openMods": "打开 模组",
+    "openServers": "打开 服务器列表",
+    "openBridge": "打开 PanelBridge 设置",
+    "openChunks": "打开 地图清理",
+    "openLogs": "打开 日志",
+    "openConsole": "打开 控制台"
+  },
+  "confirm": {
+    "title": "你确定吗？",
+    "disableMod": "{{mod}} 将从 Mods= 中移除。从下次重启起，它的物品和建筑可能会从世界中消失。撤销可以把它放回去。",
+    "healthFix": "这会修改模组列表：{{label}}。撤销可以恢复原样。",
+    "restart": "服务器将立即重启，玩家会被断开连接。",
+    "start": "服务器将以当前设置启动。"
+  },
+  "toast": {
+    "applied": "已应用修复",
+    "modDisabled": "已禁用 {{mod}}",
+    "nextRestart": "将在服务器下次重启时生效。",
+    "memory": "最大内存已设为 {{next}} GB",
+    "nextStart": "将在服务器下次启动时生效。",
+    "healthGone": "模组健康检查已没有需要修复的内容。",
+    "restarting": "已请求重启",
+    "starting": "已请求启动",
+    "fixFailed": "无法应用修复：{{message}}"
+  },
+  "fixAll": {
+    "button": "修复所有安全问题",
+    "title": "修复所有安全问题",
+    "description": "这些修复只改动列出的内容，不会重启任何东西，撤销可以恢复全部。",
+    "reason": "在模组列表中修复“{{title}}”。",
+    "memoryReason": "修复“{{title}}”。在下次启动时生效。",
+    "needsDecision": "还有 {{n}} 个问题需要你决定：请使用它们各自的按钮。",
+    "nothing": "这里没有问题有安全的自动修复。请使用每个问题上的按钮。",
+    "apply": "应用 {{n}} 项修复",
+    "cancel": "取消",
+    "close": "关闭",
+    "snapshotStep": "保存模组列表以便撤销",
+    "running": "正在修复 {{current}}/{{total}}：{{label}}",
+    "undoing": "正在撤销…",
+    "doneTitle": "修复已应用",
+    "doneDesc": "已应用：{{applied}}。已解决：{{skipped}}。将在服务器下次启动时生效。",
+    "failedTitle": "停在：{{label}}",
+    "failedDesc": "{{message}}。之前的修复仍然保留（{{applied}}）；撤销会移除它们。",
+    "failedFallback": "面板没有响应",
+    "undoneTitle": "已撤销",
+    "undoneDesc": "这次运行改动的所有内容都已恢复原样。",
+    "undoFailed": "无法撤销：{{message}}"
+  }
+}

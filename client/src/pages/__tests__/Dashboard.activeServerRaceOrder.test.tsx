@@ -170,9 +170,9 @@ const statusOf = (running: boolean): Awaited<ReturnType<typeof serverApi.getStat
 // status span inside that same <header>.
 function liveActivityStatus(): HTMLElement {
   const heading = screen.getByText('Live activity')
-  const header = heading.closest('header')
-  if (!header) throw new Error('Live activity heading has no <header> ancestor')
-  return within(header).getByText(/^(idle|offline)$/)
+  const card = heading.closest('section')
+  if (!card) throw new Error('Live activity heading has no <section> ancestor')
+  return within(card).getByText(/^(idle|offline)$/)
 }
 
 describe('Dashboard.tsx: an older, slower status response must not overwrite a newer one', () => {

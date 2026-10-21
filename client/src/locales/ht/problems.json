@@ -1,0 +1,171 @@
+{
+  "title": "Pwoblèm yo jwenn",
+  "description": "Erè ki soti nan dènye jounal sèvè a ak nan panèl la, chak ak sa pou fè.",
+  "rescan": "Analize ankò",
+  "scanning": "Ap analize…",
+  "scanDone": "Analiz fini",
+  "scanDoneCount": "Pwoblèm yo jwenn: {{n}}",
+  "scanFailed": "Pa t kapab chèche pwoblèm yo: {{message}}",
+  "scanFailedFallback": "panèl la pa t reponn",
+  "scannedAt": "Analize {{time}}",
+  "times": "Wè {{n}}×",
+  "lastSeen": "Dènye fwa {{time}}",
+  "lastSeenLog": "Jounal {{time}}",
+  "modLine": "Mod: {{mod}}",
+  "workshopLine": "Atik Workshop",
+  "showLines": "Montre liy jounal yo ({{n}})",
+  "hideLines": "Kache liy jounal yo",
+  "fixedNote": "Ranje. Antre sa a ap soti nan jounal la nan pwochen demaraj sèvè a.",
+  "noPermission": "Wòl ou ka wè pwoblèm sa a men li pa ka aplike koreksyon li yo.",
+  "partialLog": "Jounal la long: yo li kòmansman l ak fen l.",
+  "undo": "Anile",
+  "undoneToast": "Anile fèt",
+  "severity": {
+    "critical": "Grav",
+    "warning": "Avètisman",
+    "info": "Enfòmasyon"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Sèvè",
+    "network": "Rezo",
+    "panel": "Panèl"
+  },
+  "empty": {
+    "title": "Pa gen pwoblèm",
+    "checked": "Tcheke {{lines}} liy nan {{file}} (ekri {{time}}), {{panel}} erè panèl ak {{mods}} mod ki enstale.",
+    "noLog": "Yo pa t jwenn jounal sèvè a nan dosye done li, kidonk se sèlman erè panèl la menm yo tcheke ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Erè Lua nan {{mod}}",
+      "titleVanilla": "Erè Lua nan pwòp script jwèt la",
+      "why": "Yon script echwe. Rès script sa a kanpe, kidonk yon pati nan mod la pa mache. Dezaktive mod la kanpe erè a; otè l ka korije l."
+    },
+    "luaFileError": {
+      "title": "Yon fichye Lua pa t ka chaje",
+      "why": "Jwèt la jwenn yon erè nan {{file}} epi li sote l. Sa se souvan yon mod ki fèt pou yon lòt vèsyon jwèt la."
+    },
+    "modRequiredMissing": {
+      "title": "Mod obligatwa {{mod}} manke",
+      "why": "Yon mod bezwen \"{{mod}}\", men okenn atik Workshop ki enstale pa bay li, kidonk mod ki bezwen l lan sote."
+    },
+    "modInfoMissing": {
+      "title": "Yon dosye mod pa gen mod.info",
+      "why": "Jwèt la pa ka li mod sa a: telechajman an pa fini, oswa li pa fèt pou Build 42."
+    },
+    "workshopDownload": {
+      "title": "Atik Workshop {{id}} pa t telechaje",
+      "why": "Sèvè a pa t ka telechaje l (retire, prive, oswa Steam refize l) epi li kanpe pandan l ap demare."
+    },
+    "workshopOutdated": {
+      "title": "Yon mod Workshop te mete ajou",
+      "why": "Sèvè a toujou ap kouri ak ansyen vèsyon an. Jwè yo resevwa nouvo a epi yo pa ka antre (\"Workshop item version is different than the server's\") jiskaske sèvè a redemare."
+    },
+    "steamUnreachable": {
+      "title": "Sèvè a pa t ka jwenn Steam",
+      "why": "Li kanpe pandan l t ap demare. Tcheke rezo, firewall oswa proxy machin sa a, epi demare l ankò."
+    },
+    "steamOff": {
+      "title": "Sèvè a ap kouri san Steam",
+      "why": "Li demare san Steam, kidonk okenn nan {{n}} atik Workshop li yo pa chaje. Etenn \"San Steam\" nan paramèt sèvè a."
+    },
+    "portInUse": {
+      "title": "Pò jwèt la pa t ka louvri",
+      "why": "Pò {{port}} pa t ka louvri (kòd {{code}}). Yon lòt pwogram, souvan yon dezyèm kopi sèvè sa a, ap sèvi avè l. Kanpe l oswa chwazi yon lòt pò."
+    },
+    "rconPortInUse": {
+      "title": "Pò RCON {{port}} deja okipe",
+      "why": "RCON pa mache, kidonk panèl la pa ka voye kòmand bay sèvè a. Chwazi yon lòt pò RCON."
+    },
+    "rconAuth": {
+      "title": "Modpas RCON refize",
+      "why": "Yon koneksyon RCON te sèvi ak move modpas. Si se te panèl la, bay sèvè a isit la menm modpas RCON ki nan fichye .ini li a."
+    },
+    "outOfMemory": {
+      "title": "Sèvè a pa t gen ase memwa",
+      "why": "Java pa t gen ase memwa ({{detail}}). Sèvè a jele oswa kanpe. Ba li plis memwa.",
+      "whyPlain": "Java pa t gen ase memwa. Sèvè a jele oswa kanpe. Ba li plis memwa."
+    },
+    "chunkLoad": {
+      "title": "Kèk moso kat pa t ka chaje",
+      "why": "Kèk moso pa t ka li ({{chunks}}). Yo ka domaje; Netwayaj Kat la ka reyinisyalize yo."
+    },
+    "startupCrash": {
+      "title": "Sèvè a kraze pandan l t ap demare",
+      "why": "Li kanpe anvan \"SERVER STARTED\". Dènye liy jounal li yo, anba a, di poukisa."
+    },
+    "javaException": {
+      "title": "Erè jwèt: {{exception}}",
+      "why": "Jwèt la rapòte yon erè ou pa t ap tann. Si li retounen, liy jounal li yo ede jwenn kòz la."
+    },
+    "other": {
+      "title": "Erè ki anrejistre",
+      "why": "Jwèt la anrejistre erè sa a. Anpil pa fè mal; gade l si yon bagay pa mache."
+    },
+    "panelBridge": {
+      "title": "Erè PanelBridge",
+      "why": "PanelBridge, asistan panèl la nan jwèt la, rapòte yon erè. Kèk fonksyon an dirèk ka pa mache."
+    },
+    "panelError": {
+      "title": "Erè panèl ({{source}})",
+      "why": "Se panèl la menm ki rapòte erè sa a."
+    }
+  },
+  "fix": {
+    "disableMod": "Dezaktive {{mod}}",
+    "modsHealthFix": "Aplike koreksyon tchèk sante a",
+    "raiseMemory": "Ogmante memwa maksimòm: {{current}} GB → {{next}} GB",
+    "restartServer": "Redemare sèvè a",
+    "startServer": "Demare sèvè a",
+    "open": "Louvri",
+    "openModsHealth": "Louvri Mods › Tchèk sante",
+    "openMods": "Louvri Mods",
+    "openServers": "Louvri Sèvè yo",
+    "openBridge": "Louvri paramèt PanelBridge yo",
+    "openChunks": "Louvri Netwayaj Kat la",
+    "openLogs": "Louvri Jounal",
+    "openConsole": "Louvri Konsòl"
+  },
+  "confirm": {
+    "title": "Èske ou sèten nèt?",
+    "disableMod": "Yo retire {{mod}} nan Mods=. Apati pwochen redemaraj la, objè ak bilding li yo ka disparèt nan mond lan. Anile remete l.",
+    "healthFix": "Sa chanje lis mod yo: {{label}}. Anile remete l jan l te ye.",
+    "restart": "Sèvè a ap redemare kounye a epi jwè yo ap dekonekte.",
+    "start": "Sèvè a ap demare ak paramèt li genyen kounye a."
+  },
+  "toast": {
+    "applied": "Koreksyon aplike",
+    "modDisabled": "{{mod}} dezaktive",
+    "nextRestart": "Li pran efè nan pwochen redemaraj sèvè a.",
+    "memory": "Memwa maksimòm mete sou {{next}} GB",
+    "nextStart": "Li pran efè nan pwochen demaraj sèvè a.",
+    "healthGone": "Tchèk sante mod yo pa gen anyen ankò pou korije la a.",
+    "restarting": "Redemaraj mande",
+    "starting": "Demaraj mande",
+    "fixFailed": "Pa t kapab aplike koreksyon an: {{message}}"
+  },
+  "fixAll": {
+    "button": "Ranje tout pwoblèm ki san danje",
+    "title": "Ranje tout pwoblèm ki san danje",
+    "description": "Koreksyon sa yo chanje sèlman sa ki nan lis la, anyen pa redemare, epi Anile remete tout bagay.",
+    "reason": "Ranje \"{{title}}\" nan lis mod yo.",
+    "memoryReason": "Ranje \"{{title}}\". Li pran efè nan pwochen demaraj la.",
+    "needsDecision": "{{n}} lòt pwoblèm bezwen desizyon ou: sèvi ak pwòp bouton yo.",
+    "nothing": "Pa gen okenn pwoblèm isit la ki gen yon koreksyon otomatik san danje. Sèvi ak bouton chak pwoblèm.",
+    "apply": "Aplike {{n}} koreksyon",
+    "cancel": "Pa fè l",
+    "close": "Fèmen",
+    "snapshotStep": "Kenbe lis mod yo pou Anile",
+    "running": "Ap ranje {{current}} sou {{total}}: {{label}}",
+    "undoing": "Ap anile…",
+    "doneTitle": "Koreksyon yo aplike",
+    "doneDesc": "Aplike: {{applied}}. Te deja rezoud: {{skipped}}. Yo pran efè nan pwochen demaraj sèvè a.",
+    "failedTitle": "Kanpe nan: {{label}}",
+    "failedDesc": "{{message}}. Koreksyon anvan l yo rete aplike ({{applied}}); Anile retire yo.",
+    "failedFallback": "panèl la pa t reponn",
+    "undoneTitle": "Anile fèt",
+    "undoneDesc": "Tout sa egzekisyon sa a te chanje retounen jan l te ye.",
+    "undoFailed": "Pa t kapab anile: {{message}}"
+  }
+}

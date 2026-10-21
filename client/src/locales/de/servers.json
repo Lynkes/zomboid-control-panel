@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "Verwaltete Server",
-    "description": "Verwalte mehrere Project-Zomboid-Server über ein einziges Panel",
-    "eyebrow": "Flotte",
+    "title": "Alle Server",
+    "description": "Die Project-Zomboid-Server dieses Panels hinzufügen, wechseln, aktualisieren und bearbeiten.",
     "scanAria": "Nach Servern suchen",
     "scanTitle": "Nach Servern suchen",
     "scanNoPermission": "Das Scannen nach Bind-Mount-Installationen erfordert die Berechtigung servers.discover, über die diese Rolle nicht verfügt.",
-    "addRemote": "Remote-Server hinzufügen",
-    "addExisting": "Bestehenden Server hinzufügen",
-    "installNew": "Neuen Server installieren"
+    "publicServers": "Öffentliche Server",
+    "installNoPermission": "Das Installieren eines neuen Servers erfordert die Berechtigung server.install, über die diese Rolle nicht verfügt."
   },
+  "addServer": {
+    "menu": "Server hinzufügen",
+    "listLabel": "Möglichkeiten, einen Server hinzuzufügen",
+    "recommended": "Empfohlen",
+    "fresh": {
+      "label": "Neuen Server installieren",
+      "description": "Den dedizierten Server mit SteamCMD herunterladen, dann Ports, Passwörter und Arbeitsspeicher festlegen."
+    },
+    "existing": {
+      "label": "Vorhandene Serverdateien verwenden",
+      "description": "Das Panel auf einen Server richten, der bereits auf diesem Rechner installiert ist."
+    },
+    "remote": {
+      "label": "Remote-Server verbinden",
+      "description": "Einen Server, der auf einem anderen Rechner läuft, über RCON verwalten."
+    }
+  },
+  "loadingLabel": "Server werden geladen",
   "fetchError": {
     "title": "Server konnten nicht geladen werden",
     "fallback": "Server konnten nicht geladen werden. Das Backend ist möglicherweise nicht erreichbar.",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "Keine Server konfiguriert",
-    "description": "Beginne mit einem Server. Sobald er aktiv ist, werden Dashboard, Spieler, Backups, Mods und Remote-Aktionen verfügbar.",
-    "addLocalTitle": "Vorhandenen lokalen Server hinzufügen",
-    "addLocalDesc": "Verwende dies, wenn Serverdateien bereits auf diesem Rechner vorhanden sind.",
-    "installTitle": "Neuen lokalen Server installieren",
-    "installDesc": "Verwende den Installer, wenn du Dateien, Ports, Passwörter und die Arbeitsspeichereinrichtung in einem Durchgang benötigst.",
-    "connectRemoteTitle": "Remote-Server verbinden",
-    "connectRemoteDesc": "Verwende dies für Server, die über RCON auf einem anderen Rechner laufen.",
-    "step1Label": "Schritt 1",
-    "step1Text": "Einen Server hinzufügen",
-    "step2Label": "Schritt 2",
-    "step2Text": "Ihn aktivieren und RCON überprüfen",
-    "step3Label": "Schritt 3",
-    "step3Text": "Zurück zum Dashboard für die Live-Steuerung"
+    "description": "Beginne mit einem Server. Sobald er aktiv ist, werden Dashboard, Spieler, Backups, Mods und Remote-Aktionen verfügbar."
   },
   "card": {
     "selected": "Ausgewählt",
-    "inactive": "Inaktiv",
     "remote": "Remote",
     "updateAvailable": "Update verfügbar",
     "updateStatusUnknown": "Update status unknown",
@@ -69,8 +72,12 @@
     "statusNotConfigured": "Nicht konfiguriert",
     "statusAuthFailed": "Authentifizierung fehlgeschlagen",
     "statusUnavailable": "Nicht verfügbar",
-    "buildLabel": "Build:",
-    "branchLabel": "Branch:",
+    "buildLabel": "Build",
+    "branchLabel": "Branch",
+    "version": "Version",
+    "detailsPaths": "Pfade",
+    "detailsPathsContainer": "Pfade & Container",
+    "detailsRemote": "Details",
     "stopThisServer": "Diesen Server stoppen",
     "stopConfirmTitle": "{{name}} stoppen?",
     "stopConfirmDescription": "Dadurch werden alle aktuell mit \"{{name}}\" verbundenen Spieler getrennt. Du kannst ihn jederzeit wieder starten.",
@@ -83,7 +90,6 @@
     "configureSftpTitle": "Die SFTP-Brücke für diesen Remote-Server konfigurieren",
     "configureSftp": "SFTP-Brücke konfigurieren",
     "configureSftpTip": "Falls dies noch nicht dein aktiver Server ist, wechselt ein Klick hierauf zuerst deinen aktiven Server, bevor die SFTP-Einrichtung in Einstellungen geöffnet wird.",
-    "updateNow": "Jetzt aktualisieren",
     "activating": "Wird aktiviert...",
     "switchToThisServer": "Zu diesem Server wechseln",
     "added": "Hinzugefügt am {{date}}",
@@ -212,6 +218,11 @@
     "lifecycleCompleteFirst": "Aktiviere den ausgewählten Lebenszyklus-Anbieter oder wechsle vor dem Speichern anderer Servereinstellungen zurück zum aktuellen Anbieter.",
     "title": "Server bearbeiten",
     "description": "Serverkonfiguration aktualisieren",
+    "sectionIdentity": "Identität",
+    "sectionPaths": "Pfade",
+    "sectionNetwork": "Netzwerk & RCON",
+    "sectionLaunch": "Start & Arbeitsspeicher",
+    "sectionDocker": "Docker",
     "remoteTitle": "Remote-Server",
     "remoteDesc": "Für diesen Server ist nur die RCON-Verwaltung verfügbar.",
     "displayNameLabel": "Anzeigename",
@@ -247,6 +258,8 @@
     "rconPasswordLabel": "RCON-Passwort",
     "rconPasswordAria": "RCON-Passwort",
     "adminPasswordLabel": "Admin-Passwort",
+    "rconConfigureRequired": "Das Ändern von RCON-Host, -Port oder -Passwort erfordert die Berechtigung server.configure, über die diese Rolle nicht verfügt.",
+    "rconPasswordReenter": "Gib das RCON-Passwort erneut ein, um einen neuen Host oder Port zu verwenden: Das gespeicherte wird nur an den Host und Port gesendet, für die es gespeichert wurde.",
     "adminPasswordTooltip": "Admin-Passwort des Servers, das als Startargument -adminpassword übergeben wird. Wird beim nächsten Serverstart wirksam.",
     "adminPasswordPlaceholder": "Admin-Passwort festlegen",
     "adminPasswordAria": "Admin-Passwort",
@@ -316,6 +329,10 @@
     "noPermission": "Das Aktualisieren oder Überprüfen von Serverdateien erfordert die Berechtigung server.install, über die diese Rolle nicht verfügt.",
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
+  },
+  "sharedInstallWarning": {
+    "title": "Andere Server nutzen diesen Spielordner",
+    "desc": "Diesen Spielordner nutzen auch: {{names}}. Beim Löschen verschwinden auch ihre Spieldateien; diese Server starten erst wieder, wenn das Spiel neu installiert ist."
   },
   "clearInstallDialog": {
     "title": "Installationsordner leeren?",

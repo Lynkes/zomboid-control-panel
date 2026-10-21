@@ -35,7 +35,6 @@
     "workItems.scheduleActive_few",
     "workItems.scheduleActive_many"
   ],
-  "loading": "Встановлення зв'язку…",
   "autoUpdateResult": {
     "scheduledTitle": "Автоматичне оновлення заплановано",
     "scheduledDescription_one": "Сервер перезапуститься через {{count}} хвилину.",
@@ -75,10 +74,18 @@
   },
   "header": {
     "ariaLabel": "Стан сервера",
-    "everythingNominal": "Усе в нормі",
     "mapTooltip": "Карта (з PanelBridge)",
     "remoteBadge": "віддалений",
-    "noActiveServer": "Немає активного сервера"
+    "noActiveServer": "Немає активного сервера",
+    "state": {
+      "running": "Працює",
+      "stopped": "Зупинено",
+      "unknown": "Стан невідомий",
+      "starting": "Запуск…",
+      "stopping": "Зупинка…",
+      "none": "Немає сервера",
+      "rconOffline": "RCON офлайн"
+    }
   },
   "addresses": {
     "lan": {
@@ -124,20 +131,19 @@
   },
   "actions": {
     "start": "Запустити",
+    "addServer": "Додати сервер",
     "stop": "Зупинити",
     "forceStop": "Примусово зупинити",
+    "forceStopTooltip": "Пробує швидко зберегти, а потім у будь-якому разі негайно зупиняє",
     "restart": "Перезапустити",
     "restartNow": "Перезапустити зараз",
-    "save": "Зберегти",
+    "saveWorld": "Зберегти світ",
     "refreshStatus": "Оновити стан",
     "createBackup": "Створити резервну копію",
-    "bridgeSettings": "Налаштування Bridge",
     "connectRcon": "Підключити RCON",
     "wipeServer": "Очистити сервер",
-    "moreActionsAria": "Більше дій із сервером",
     "addServerFirst": "Спочатку додайте або виберіть сервер",
     "notAvailableRemote": "Недоступно для віддалених серверів (лише RCON)",
-    "forceStopTooltip": "Пробує швидко зберегти, а потім у будь-якому разі негайно зупиняє",
     "connectRconNeedsHostRunning": "Спочатку запустіть сервер",
     "noPermissionControl": "Ваша роль не має дозволу керувати сервером.",
     "noPermissionWipe": "Ваша роль не має дозволу очищати світ.",
@@ -232,7 +238,7 @@
   },
   "verdict": {
     "noServerConfigured": "Сервер не налаштовано",
-    "openSetup": "Відкрити налаштування",
+    "editServer": "Редагувати сервер",
     "panelCannotReach": "Панель не може зв'язатися із сервером",
     "retry": "Повторити",
     "serverStatusUnknown": "Стан сервера невідомий",
@@ -265,45 +271,25 @@
     "lastApplyFailedDesc": "Остання спроба застосування не вдалася — діагностика в «Налаштуваннях».",
     "stagedDesc": "Завантажено й готово. Перезапустіть панель, щоб застосувати.",
     "newVersionDesc": "Доступна нова версія панелі.",
-    "dismissAria": "Приховати сповіщення про оновлення",
-    "dismissTooltip": "Приховати до наступної версії",
     "applyUpdate": "Застосувати оновлення",
     "viewUpdate": "Переглянути оновлення"
   },
   "updateCheckError": {
-    "label": "Не вдається перевірити наявність оновлень панелі",
-    "dismissAria": "Приховати повідомлення про перевірку оновлень",
-    "dismissTooltip": "Приховати, доки це не зміниться"
+    "label": "Не вдається перевірити наявність оновлень панелі"
   },
   "connectionError": {
     "label": "Помилка з'єднання",
     "suffix": ". Деякі функції можуть бути недоступні.",
     "retry": "Повторити"
   },
-  "notConfigured": {
-    "label": "Не налаштовано",
-    "description": "Відкрийте «Налаштування сервера», щоб додати або налаштувати сервер.",
-    "openSetup": "відкрити налаштування →"
-  },
   "quickStart": {
     "dismissAria": "Приховати короткий посібник із запуску",
-    "eyebrow": "Перший сервер",
-    "heading": "Підніміть один сервер, налагодьте RCON, а решту додасте згодом.",
-    "step1Title": "Додайте сервер",
-    "step1Desc": "Додайте наявне встановлення, підключіть віддалений RCON або створіть новий сервер.",
-    "step2Title": "Перевірте з'єднання",
-    "step2Desc": "Підтвердьте шляхи, облікові дані RCON та активний сервер.",
-    "step3Title": "Отримайте живе керування",
-    "step3Desc": "Коли стан, гравці та чат оновлюються — живе керування готове.",
-    "installNewServer": "Встановити новий сервер",
-    "addExistingServer": "Додати наявний сервер",
-    "addRemoteServer": "Додати віддалений сервер",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "Додати сервер",
+    "description": "Виберіть, як ця панель отримає свій перший сервер.",
+    "foundHeading": "Знайдено наявний сервер Project Zomboid",
+    "foundDesc": "готовий до додавання: налаштування RCON уже прочитано з його власної конфігурації.",
+    "reviewAndConnect": "Переглянути й підключити",
+    "setUpDifferently": "Налаштувати інакше"
   },
   "liveActivity": {
     "heading": "Активність у реальному часі",
@@ -347,12 +333,9 @@
   },
   "maintenance": {
     "heading": "Обслуговування",
-    "refreshStatus": "Оновити стан",
     "createBackup": "Створити резервну копію",
-    "wipeServer": "Очистити сервер",
-    "wipeTooltipOnline": "Зупиніть сервер перед очищенням",
-    "wipeTooltipOffline": "Видалити карту / гравців / стан світу",
-    "autoStartLabel": "Автозапуск разом із панеллю"
+    "autoStartLabel": "Автозапуск разом із панеллю",
+    "autoStartDesc": "Запускає сервер разом із панеллю."
   },
   "bridgeOfflineNotice": {
     "title": "Bridge офлайн",
@@ -360,16 +343,11 @@
     "configureLink": "Налаштувати Bridge"
   },
   "workItems": {
-    "players": "Гравці",
     "zombies": "Зомбі",
-    "console": "Консоль",
-    "mods": "Моди",
-    "schedule": "Розклад",
+    "heading": "Коротко",
     "errors": "Помилки",
-    "backups": "Резервні копії",
-    "config": "Конфігурація",
-    "rconReady": "rcon готовий",
-    "rconOffline": "rcon офлайн",
+    "rconReady": "RCON готовий",
+    "rconOffline": "RCON офлайн",
     "modsToUpdate_one": "{{count}} до оновлення",
     "modsToUpdate_other": "{{count}} до оновлення",
     "modsTracked_one": "{{count}} відстежується",

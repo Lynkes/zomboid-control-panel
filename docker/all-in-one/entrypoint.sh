@@ -20,6 +20,11 @@ STEAMCMD=/home/steam/steamcmd/steamcmd.sh
 PZ_APPID=380870
 
 mkdir -p /pz-servers
+# The panel writes the port it listens on here for the HEALTHCHECK; one left
+# by an earlier start must not be read in its place.
+if [ -n "${PANEL_PORT_FILE:-}" ]; then
+  rm -f -- "$PANEL_PORT_FILE"
+fi
 chown -R ${STEAM_UID}:${STEAM_GID} /pz-server /pz-servers /zomboid /app/data /app/logs "$STEAM_HOME" 2>/dev/null || true
 
 if [ ! -x "$STEAMCMD" ]; then

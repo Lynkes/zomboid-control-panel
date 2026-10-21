@@ -27,7 +27,14 @@
     "delete": "刪除",
     "deleteAria": "刪除群組 {{name}}",
     "enforceLabel": "儲存載入順序時維持群組順序",
-    "enforceDesc": "開啟後，儲存載入順序時會把群組成員移回其群組內的順序。"
+    "enforceDesc": "開啟後，儲存載入順序時會把群組成員移回其群組內的順序。",
+    "keepsTogether": "保持在一起",
+    "loadsFirst": "最先載入",
+    "loadsLast": "最後載入",
+    "conflictsBadge_one": "{{count}} 個衝突",
+    "conflictsBadge_other": "{{count}} 個衝突",
+    "conflictsBadgeAria_one": "{{count}} 個檔案衝突涉及 {{name}}。顯示衝突",
+    "conflictsBadgeAria_other": "{{count}} 個檔案衝突涉及 {{name}}。顯示衝突"
   },
   "dialog": {
     "createTitle": "新增模組群組",
@@ -56,7 +63,23 @@
     "create": "建立群組",
     "saveChanges": "儲存變更",
     "saveFailedTitle": "未能儲存群組",
-    "saveFailedFallback": "無法儲存群組。"
+    "saveFailedFallback": "無法儲存群組。",
+    "colorLabel": "顏色",
+    "placementLabel": "自動排序時的位置",
+    "placementAnywhere": "任意位置",
+    "placementFirst": "最先",
+    "placementLast": "最後",
+    "placementHint": "前置函式庫和框架放在最前，補丁和修正放在最後。僅儲存在此瀏覽器中。",
+    "keepTogetherLabel": "在載入順序中保持在一起",
+    "keepTogetherHint": "這些模組會作為一個整體載入，位置就在其中第一個模組目前所在之處。夾在它們之間的模組會移到該整體之後。",
+    "memberCount_one": "{{count}} 個模組",
+    "memberCount_other": "{{count}} 個模組",
+    "autoOrder": "自動排列成員",
+    "autoOrderDone": "已排序：先是依賴項，接著是前置函式庫、核心模組、附加模組和修正補丁。確認無誤後再儲存。",
+    "autoOrderUnchanged": "成員已經是這個順序。",
+    "autoOrderUndo": "復原",
+    "absentWarning_one": "{{count}} 個成員不在此伺服器上。它們會保留位置，並在啟用後載入。",
+    "absentWarning_other": "{{count}} 個成員不在此伺服器上。它們會保留位置，並在啟用後載入。"
   },
   "apply": {
     "confirmTitle": "套用群組順序？",
@@ -113,5 +136,116 @@
     "orderKeptWithConflicts": "儲存時，部分模組被移回其群組內的順序。部分群組彼此矛盾：{{items}}",
     "conflictsTitle": "模組群組彼此矛盾",
     "conflictsDesc": "沒有任何載入順序能滿足所有群組。請檢查這些群組的順序：{{items}}"
+  },
+  "dots": {
+    "inGroups": "所屬群組：{{names}}"
+  },
+  "colors": {
+    "none": "無顏色",
+    "slate": "石板灰",
+    "red": "紅色",
+    "orange": "橙色",
+    "amber": "琥珀色",
+    "lime": "萊姆綠",
+    "green": "綠色",
+    "teal": "藍綠色",
+    "sky": "天藍色",
+    "blue": "藍色",
+    "violet": "紫羅蘭色",
+    "pink": "粉紅色"
+  },
+  "addTo": {
+    "menuItem": "新增到群組…",
+    "selected": "將所選項目新增到群組",
+    "title": "新增到群組",
+    "descriptionOne": "為 {{name}} 選擇群組。它會加入該群組順序的末尾。",
+    "descriptionMany_one": "為 {{count}} 個模組選擇群組。它們會加入該群組順序的末尾。",
+    "descriptionMany_other": "為 {{count}} 個模組選擇群組。它們會加入該群組順序的末尾。",
+    "search": "搜尋群組",
+    "listAria": "群組",
+    "members_one": "{{count}} 個模組",
+    "members_other": "{{count}} 個模組",
+    "alreadyIn": "已在此群組中",
+    "newGroup": "新增群組…",
+    "cancel": "取消",
+    "noGroups": "還沒有群組。點選「新增群組」建立一個。",
+    "noMatches": "沒有群組符合你的搜尋。",
+    "failedFallback": "無法將模組新增到群組。",
+    "doneTitle": "已新增到 {{name}}",
+    "doneDesc_one": "{{count}} 個模組已加入群組。",
+    "doneDesc_other": "{{count}} 個模組已加入群組。",
+    "noModIds": "要等它出現在伺服器上之後，才能得知其 Mod ID。",
+    "pickFirst": "請先勾選要新增的模組。"
+  },
+  "removeFrom": {
+    "menuItem": "從 {{name}} 中移除",
+    "doneTitle": "已從 {{name}} 中移除",
+    "failedTitle": "無法從群組中移除",
+    "failedFallback": "無法變更此群組。",
+    "tooFew": "群組至少需要兩個模組。請改為刪除此群組。"
+  },
+  "sections": {
+    "enableAll": "全部啟用",
+    "enableAllAria": "啟用 {{name}} 的所有模組",
+    "disableAll": "全部停用",
+    "edit": "編輯群組",
+    "actionsAria": "群組 {{name}} 的操作",
+    "enabledOf": "已啟用 {{enabled}} / {{total}}",
+    "allEnabled": "此伺服器上該群組的所有模組均已啟用。",
+    "noneEnabled": "此群組的模組均未啟用。",
+    "notOnServer": "不在此伺服器上：{{ids}}",
+    "ungrouped": "不在任何群組中"
+  },
+  "suggestions": {
+    "title": "建議的群組（{{count}}）",
+    "listAria": "建議的群組",
+    "create": "建立",
+    "createAria": "建立群組 {{name}}",
+    "dismiss": "略過",
+    "dismissAria": "略過建議 {{name}}",
+    "usesTitle": "使用 {{library}} 的模組",
+    "showAll": "顯示全部模組（{{n}}）",
+    "showFewer": "收合",
+    "membersAria": "{{name}} 中的模組",
+    "kind": {
+      "dependency_one": "{{name}} 及依賴它的模組",
+      "dependency_other": "{{name}} 及依賴它的 {{count}} 個模組",
+      "prefix_one": "{{count}} 個名為「{{name}}…」的模組",
+      "prefix_other": "{{count}} 個名為「{{name}}…」的模組",
+      "workshop-item_one": "來自同一個創意工坊專案的 {{count}} 個模組",
+      "workshop-item_other": "來自同一個創意工坊專案的 {{count}} 個模組"
+    },
+    "dismissFailedTitle": "無法略過此建議",
+    "dismissFailedFallback": "無法略過此建議。請重試。"
+  },
+  "enable": {
+    "doneTitle": "已啟用 {{name}}",
+    "doneDesc_one": "{{count}} 個模組已新增到伺服器設定。重新啟動伺服器以載入它們。",
+    "doneDesc_other": "{{count}} 個模組已新增到伺服器設定。重新啟動伺服器以載入它們。",
+    "nothingTitle": "沒有可啟用的模組",
+    "nothingDesc": "此伺服器上 {{name}} 的所有模組均已啟用。",
+    "missingNote_one": "{{count}} 個模組不在此伺服器上，已略過：{{ids}}。",
+    "missingNote_other": "{{count}} 個模組不在此伺服器上，已略過：{{ids}}。",
+    "failedTitle": "無法啟用群組",
+    "failedFallback": "無法啟用此群組的模組。",
+    "unsavedOrder": "請先儲存或捨棄載入順序的變更：此操作會變更載入順序。"
+  },
+  "disable": {
+    "title": "停用 {{name}}？",
+    "description_one": "{{count}} 個模組將從伺服器設定（Mods=）中移除。其檔案仍保留在磁碟上，因此再次啟用此群組會立即完成。",
+    "description_other": "{{count}} 個模組將從伺服器設定（Mods=）中移除。其檔案仍保留在磁碟上，因此再次啟用此群組會立即完成。",
+    "sharedNote": "已保留，因為另一個群組仍有已啟用的模組，並且也包含它們：{{items}}",
+    "confirm": "停用模組",
+    "doneTitle": "已停用 {{name}}",
+    "doneDesc_one": "{{count}} 個模組已從伺服器設定中移除。",
+    "doneDesc_other": "{{count}} 個模組已從伺服器設定中移除。",
+    "keptNote_one": "保留了 {{count}} 個共用模組。",
+    "keptNote_other": "保留了 {{count}} 個共用模組。",
+    "failedTitle": "無法停用群組",
+    "failedFallback": "無法停用此群組的模組。"
+  },
+  "inspector": {
+    "title": "群組",
+    "none": "不在任何群組中。"
   }
 }

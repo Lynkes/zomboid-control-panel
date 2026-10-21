@@ -17,6 +17,7 @@ import {
   RCON_USER_ACTION_TIMEOUT_MS,
 } from '../services/rcon.js';
 import { requirePermission } from '../services/permissions.js';
+import { canSeeRconTarget, withoutRconConfigTarget } from '../utils/rconTargetView.js';
 import { ErrorCode } from '../utils/errorCodes.js';
 
 const router = express.Router();
@@ -131,12 +132,15 @@ router.post('/execute', requirePermission('rcon.execute'), async (req, res) => {
   }
 });
 
-// Get RCON connection status
+// Get RCON connection status. Every signed-in role reads whether RCON is
+// connected; WHERE it connects (host and port) only goes to the roles that
+// work with it (utils/rconTargetView.js; SECURITY 2026-10-20, access-control
+// audit: it went to every role).
 router.get('/status', async (req, res) => {
   try {
     const rconService = req.app.get('rconService');
     const config = rconService.getConfig();
-    res.json(config);
+    res.json((await canSeeRconTarget(req.user)) ? config : withoutRconConfigTarget(config));
   } catch (error) {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
@@ -180,6 +184,22 @@ router.post('/connect', requirePermission('rcon.execute'), async (req, res) => {
       host !== undefined || port !== undefined || password !== undefined;
     if (overridesConnectionTarget && !(await requireCapabilityInline('servers.manage', req, res))) {
       return;
+    }
+    // SECURITY (2026-10-20, access-control audit): the same rule as PUT
+    // /api/servers/:id (routes/servers.js's rconConnectionChanges()): the RCON
+    // host, port and password are server.configure's, and a new host or port
+    // is only used with a password typed for it -- omitting `password` used
+    // to send the STORED one to the caller's host (updateConfig() keeps it).
+    // No page sends an override; the dashboard's reconnect sends none.
+    if (overridesConnectionTarget && !(await requireCapabilityInline('server.configure', req, res))) {
+      return;
+    }
+    if ((host !== undefined || port !== undefined) && password === undefined) {
+      return res.status(400).json({
+        success: false,
+        error: 'Enter the RCON password again to change the RCON host or port: the saved password is only sent to the host and port it was saved for.',
+        code: ErrorCode.SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET,
+      });
     }
 
     // Validate host format if provided (only alphanumeric, dots, hyphens)

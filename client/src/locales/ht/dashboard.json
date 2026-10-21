@@ -1,5 +1,4 @@
 {
-  "loading": "N ap etabli koneksyon…",
   "autoUpdateResult": {
     "scheduledTitle": "Mizajou otomatik pwograme",
     "scheduledDescription_one": "Sèvè a pral rekòmanse nan {{count}} minit.",
@@ -38,10 +37,18 @@
   },
   "header": {
     "ariaLabel": "Estati sèvè",
-    "everythingNominal": "Tout bagay nòmal",
     "mapTooltip": "Kat (soti nan PanelBridge)",
     "remoteBadge": "aleka",
-    "noActiveServer": "Pa gen sèvè aktif"
+    "noActiveServer": "Pa gen sèvè aktif",
+    "state": {
+      "running": "Ap mache",
+      "stopped": "Kanpe",
+      "unknown": "Estati enkoni",
+      "starting": "Ap demare…",
+      "stopping": "Ap kanpe…",
+      "none": "Pa gen sèvè",
+      "rconOffline": "RCON òfliy"
+    }
   },
   "addresses": {
     "lan": {
@@ -87,20 +94,19 @@
   },
   "actions": {
     "start": "Demare",
+    "addServer": "Ajoute yon sèvè",
     "stop": "Sispann",
     "forceStop": "Fòse sispann",
+    "forceStopTooltip": "Eseye fè yon sovgad rapid, epi sispann imedyatman kanmenm",
     "restart": "Redemare",
     "restartNow": "Redemare kounye a",
-    "save": "Sove",
+    "saveWorld": "Sove mond lan",
     "refreshStatus": "Rafrechi estati",
     "createBackup": "Kreye kopi sovgad",
-    "bridgeSettings": "Paramèt pon",
     "connectRcon": "Konekte RCON",
     "wipeServer": "Efase sèvè a",
-    "moreActionsAria": "Plis aksyon sèvè",
     "addServerFirst": "Ajoute oswa chwazi yon sèvè dabò",
     "notAvailableRemote": "Pa disponib pou sèvè aleka (RCON sèlman)",
-    "forceStopTooltip": "Eseye fè yon sovgad rapid, epi sispann imedyatman kanmenm",
     "connectRconNeedsHostRunning": "Demare sèvè a dabò",
     "noPermissionControl": "Wòl ou pa gen pèmisyon pou kontwole sèvè a.",
     "noPermissionWipe": "Wòl ou pa gen pèmisyon pou efase mond lan.",
@@ -151,7 +157,7 @@
   },
   "verdict": {
     "noServerConfigured": "Pa gen sèvè konfigire",
-    "openSetup": "Ouvri konfigirasyon",
+    "editServer": "Modifye sèvè",
     "panelCannotReach": "Panèl la pa ka rive nan sèvè a",
     "retry": "Eseye ankò",
     "serverStatusUnknown": "Estati sèvè enkoni",
@@ -183,45 +189,25 @@
     "lastApplyFailedDesc": "Dènye tantativ aplikasyon echwe — gade Paramèt pou dyagnostik.",
     "stagedDesc": "Telechaje epi pare. Redemare panèl la pou aplike l.",
     "newVersionDesc": "Yon nouvo vèsyon panèl disponib.",
-    "dismissAria": "Kite tonbe notifikasyon mizajou a",
-    "dismissTooltip": "Kite tonbe jiska pwochen vèsyon",
     "applyUpdate": "Aplike mizajou",
     "viewUpdate": "Gade mizajou"
   },
   "updateCheckError": {
-    "label": "Pa kapab tcheke mizajou panèl",
-    "dismissAria": "Kite tonbe avi tcheke mizajou a",
-    "dismissTooltip": "Kite tonbe jiskaske sa chanje"
+    "label": "Pa kapab tcheke mizajou panèl"
   },
   "connectionError": {
     "label": "Erè koneksyon",
     "suffix": ". Gen fonksyon ki ka pa disponib.",
     "retry": "Eseye ankò"
   },
-  "notConfigured": {
-    "label": "Pa konfigire",
-    "description": "Ouvri Konfigirasyon Enstalasyon pou ajoute oswa konfigire yon sèvè.",
-    "openSetup": "ouvri konfigirasyon →"
-  },
   "quickStart": {
     "dismissAria": "Kite tonbe gid demaraj rapid la",
-    "eyebrow": "Premye sèvè",
-    "heading": "Fè yon sèvè fonksyone, RCON aktive, epi ajoute rès la apre.",
-    "step1Title": "Pran yon sèvè",
-    "step1Desc": "Ajoute yon enstalasyon ki egziste, konekte RCON aleka, oswa kreye yon nouvo sèvè.",
-    "step2Title": "Verifye koneksyon an",
-    "step2Desc": "Konfime chemen yo, idantifyan RCON, ak sèvè aktif la.",
-    "step3Title": "Rive nan kontwòl an dirèk",
-    "step3Desc": "Lè estati, jwè, ak chat mete ajou, kontwòl an dirèk pare.",
-    "installNewServer": "Enstale nouvo sèvè",
-    "addExistingServer": "Ajoute sèvè ki egziste",
-    "addRemoteServer": "Ajoute sèvè aleka",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "Ajoute yon sèvè",
+    "description": "Chwazi kijan panèl sa a ap jwenn premye sèvè li.",
+    "foundHeading": "Nou jwenn yon sèvè Project Zomboid ki egziste deja",
+    "foundDesc": "pare pou ajoute, ak paramèt RCON li deja li nan pwòp konfigirasyon li.",
+    "reviewAndConnect": "Revize epi konekte",
+    "setUpDifferently": "Konfigire l yon lòt fason"
   },
   "liveActivity": {
     "heading": "Aktivite an dirèk",
@@ -264,12 +250,9 @@
   },
   "maintenance": {
     "heading": "Antretyen",
-    "refreshStatus": "Rafrechi estati",
     "createBackup": "Kreye kopi sovgad",
-    "wipeServer": "Efase sèvè a",
-    "wipeTooltipOnline": "Sispann sèvè a anvan w efase l",
-    "wipeTooltipOffline": "Efase kat / jwè / eta mond",
-    "autoStartLabel": "Demaraj otomatik lè l lanse"
+    "autoStartLabel": "Demaraj otomatik lè l lanse",
+    "autoStartDesc": "Demare sèvè a lè panèl la demare."
   },
   "bridgeOfflineNotice": {
     "title": "Pon òfliy",
@@ -277,16 +260,11 @@
     "configureLink": "Konfigire pon an"
   },
   "workItems": {
-    "players": "Jwè",
     "zombies": "Zonbi",
-    "console": "Konsòl",
-    "mods": "Mods",
-    "schedule": "Orè",
+    "heading": "Apèsi",
     "errors": "Erè",
-    "backups": "Kopi sovgad",
-    "config": "Konfig",
-    "rconReady": "rcon pare",
-    "rconOffline": "rcon òfliy",
+    "rconReady": "RCON pare",
+    "rconOffline": "RCON òfliy",
     "modsToUpdate_one": "{{count}} pou mete ajou",
     "modsToUpdate_other": "{{count}} pou mete ajou",
     "modsToUpdate_many": "{{count}} pou mete ajou",

@@ -1,5 +1,4 @@
 {
-  "loading": "Establishing link…",
   "autoUpdateResult": {
     "scheduledTitle": "Automatic update scheduled",
     "scheduledDescription_one": "The server will restart in {{count}} minute.",
@@ -37,10 +36,18 @@
   },
   "header": {
     "ariaLabel": "Server status",
-    "everythingNominal": "Everything nominal",
     "mapTooltip": "Map (from PanelBridge)",
     "remoteBadge": "remote",
-    "noActiveServer": "No active server"
+    "noActiveServer": "No active server",
+    "state": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "unknown": "Status unknown",
+      "starting": "Starting…",
+      "stopping": "Stopping…",
+      "none": "No server",
+      "rconOffline": "RCON offline"
+    }
   },
   "addresses": {
     "lan": {
@@ -86,20 +93,19 @@
   },
   "actions": {
     "start": "Start",
+    "addServer": "Add a server",
     "stop": "Stop",
     "forceStop": "Force stop",
+    "forceStopTooltip": "Tries a quick save, then stops immediately either way",
     "restart": "Restart",
     "restartNow": "Restart now",
-    "save": "Save",
+    "saveWorld": "Save world",
     "refreshStatus": "Refresh status",
     "createBackup": "Create backup",
-    "bridgeSettings": "Bridge settings",
     "connectRcon": "Connect RCON",
     "wipeServer": "Wipe server",
-    "moreActionsAria": "More server actions",
     "addServerFirst": "Add or select a server first",
     "notAvailableRemote": "Not available for remote (RCON-only) servers",
-    "forceStopTooltip": "Tries a quick save, then stops immediately either way",
     "connectRconNeedsHostRunning": "Start the server first",
     "noPermissionControl": "Your role doesn't have permission to control the server.",
     "noPermissionWipe": "Your role doesn't have permission to wipe the world.",
@@ -150,7 +156,7 @@
   },
   "verdict": {
     "noServerConfigured": "No server configured",
-    "openSetup": "Open setup",
+    "editServer": "Edit server",
     "panelCannotReach": "Panel cannot reach the server",
     "retry": "Retry",
     "serverStatusUnknown": "Server status unknown",
@@ -181,45 +187,25 @@
     "lastApplyFailedDesc": "Last apply attempt failed — see Settings for diagnostics.",
     "stagedDesc": "Downloaded and ready. Restart the panel to apply.",
     "newVersionDesc": "A new panel version is available.",
-    "dismissAria": "Dismiss update notification",
-    "dismissTooltip": "Dismiss until next version",
     "applyUpdate": "Apply update",
     "viewUpdate": "View update"
   },
   "updateCheckError": {
-    "label": "Can't check for panel updates",
-    "dismissAria": "Dismiss update check notice",
-    "dismissTooltip": "Dismiss until this changes"
+    "label": "Can't check for panel updates"
   },
   "connectionError": {
     "label": "Connection error",
     "suffix": ". Some features may be unavailable.",
     "retry": "Retry"
   },
-  "notConfigured": {
-    "label": "Not configured",
-    "description": "Open Server Setup to add or configure a server.",
-    "openSetup": "open setup →"
-  },
   "quickStart": {
     "dismissAria": "Dismiss quick start guide",
-    "eyebrow": "First server",
-    "heading": "Get one server up, RCON working, then layer on the rest.",
-    "step1Title": "Bring in a server",
-    "step1Desc": "Add an existing install, connect remote RCON, or create a new server.",
-    "step2Title": "Verify connectivity",
-    "step2Desc": "Confirm paths, RCON credentials, and active server.",
-    "step3Title": "Reach live control",
-    "step3Desc": "When status, players, and chat update, live control is ready.",
-    "installNewServer": "Install new server",
-    "addExistingServer": "Add existing server",
-    "addRemoteServer": "Add remote server",
+    "title": "Add a server",
+    "description": "Choose how this panel gets its first server.",
     "foundHeading": "We found an existing Project Zomboid server",
     "foundDesc": "ready to add with its RCON settings already read from its own config.",
     "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "setUpDifferently": "Set up differently instead"
   },
   "liveActivity": {
     "heading": "Live activity",
@@ -261,12 +247,9 @@
   },
   "maintenance": {
     "heading": "Maintenance",
-    "refreshStatus": "Refresh status",
     "createBackup": "Create backup",
-    "wipeServer": "Wipe server",
-    "wipeTooltipOnline": "Stop the server before wiping",
-    "wipeTooltipOffline": "Delete map / players / world state",
-    "autoStartLabel": "Auto-start on launch"
+    "autoStartLabel": "Auto-start on launch",
+    "autoStartDesc": "Starts the server when the panel starts."
   },
   "bridgeOfflineNotice": {
     "title": "Bridge offline",
@@ -274,16 +257,11 @@
     "configureLink": "Configure bridge"
   },
   "workItems": {
-    "players": "Players",
     "zombies": "Zombies",
-    "console": "Console",
-    "mods": "Mods",
-    "schedule": "Schedule",
+    "heading": "At a glance",
     "errors": "Errors",
-    "backups": "Backups",
-    "config": "Config",
-    "rconReady": "rcon ready",
-    "rconOffline": "rcon offline",
+    "rconReady": "RCON ready",
+    "rconOffline": "RCON offline",
     "modsToUpdate_one": "{{count}} to update",
     "modsToUpdate_other": "{{count}} to update",
     "modsTracked_one": "{{count}} tracked",

@@ -56,10 +56,10 @@ function VerdictActionButton({ action }: { action: VerdictAction }) {
     return (
       <Link
         to={action.to}
-        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'h-7 gap-1.5 px-2.5 text-xs')}
+        className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'gap-1.5')}
       >
         {action.label}
-        <ChevronRight className="h-3 w-3" aria-hidden="true" />
+        <ChevronRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
       </Link>
     )
   }
@@ -68,11 +68,11 @@ function VerdictActionButton({ action }: { action: VerdictAction }) {
       <Button
         variant="outline"
         size="sm"
-        className="h-7 gap-1.5 px-2.5 text-xs"
+        className="gap-1.5"
         onClick={action.onClick}
         disabled={action.disabled || action.busy}
       >
-        {action.busy && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
+        {action.busy && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
         {action.label}
       </Button>
     </DisabledReason>
@@ -97,7 +97,7 @@ function Freshness({ lastUpdated, stale }: { lastUpdated: Date | null; stale: bo
   })()
 
   return (
-    <p className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-foreground/35">
+    <p className="flex items-center gap-2 text-xs tabular-nums text-muted-foreground">
       <span className="relative inline-flex h-1.5 w-1.5" aria-hidden="true">
         {!stale && (
           <span
@@ -137,11 +137,11 @@ export function VerdictBand({
   const hasBody = Boolean(verdict.headline || verdict.action) || (showPresence && players.length > 0)
   return (
     <section
-      aria-label="Server verdict"
+      aria-label={t('verdictAria')}
       role={verdict.level === 'critical' ? 'alert' : 'status'}
       className={cn(
         'px-1',
-        hasBody ? 'mt-3 border-b pb-2.5 pt-2' : 'mt-2 pb-1 pt-1',
+        hasBody ? 'border-b pb-3 pt-1' : 'pb-1',
         verdict.level === 'critical'
           ? 'border-destructive/25'
           : verdict.level === 'warning'
@@ -155,12 +155,12 @@ export function VerdictBand({
             {verdict.headline && (
               <h2
                 className={cn(
-                  'max-w-[46ch] text-[13px] font-medium leading-snug',
+                  'max-w-[46ch] text-base font-semibold leading-snug',
                   verdict.level === 'critical'
                     ? 'text-destructive'
                     : verdict.level === 'warning'
                       ? 'text-warning'
-                      : 'text-foreground/95',
+                      : 'text-foreground',
                 )}
               >
                 {verdict.headline}
@@ -168,7 +168,7 @@ export function VerdictBand({
               </h2>
             )}
             {verdict.detail && (
-              <p className="mt-1 max-w-[70ch] font-mono text-[10px] leading-4 text-foreground/45">
+              <p className="mt-1 max-w-[70ch] text-sm leading-5 text-muted-foreground">
                 {verdict.detail}
               </p>
             )}
@@ -185,26 +185,27 @@ export function VerdictBand({
           <ul className="flex flex-wrap items-baseline gap-x-5 gap-y-1.5">
             {players.slice(0, 10).map(player => (
               <li key={player.name} className="min-w-0">
+                {/* Straight to this player's card on Players (?player=). */}
                 <Link
-                  to="/players"
+                  to={`/players?player=${encodeURIComponent(player.name)}`}
                   className="group flex items-baseline gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
                 >
                   <span className="h-1.5 w-1.5 shrink-0 self-center rounded-full bg-success" aria-hidden="true" />
                   <span
-                    className="truncate text-[13px] font-medium text-foreground/90 transition-colors group-hover:text-primary"
+                    className="truncate text-sm font-medium text-foreground transition-colors group-hover:text-primary"
                     dir="auto"
                     title={player.name}
                   >
                     {player.name}
                   </span>
                   {player.since && (
-                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-foreground/35">{player.since}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{player.since}</span>
                   )}
                 </Link>
               </li>
             ))}
             {players.length > 10 && (
-              <li className="font-mono text-[11px] tabular-nums text-foreground/35">
+              <li className="text-xs tabular-nums text-muted-foreground">
                 {t('andMore', { count: players.length - 10 })}
               </li>
             )}
@@ -233,7 +234,7 @@ export interface WorkItem {
 }
 
 const WORK_STATE_TONE: Record<'default' | 'good' | 'warning' | 'bad', string> = {
-  default: 'text-foreground/40',
+  default: 'text-muted-foreground',
   good: 'text-success/80',
   warning: 'text-warning',
   bad: 'text-destructive',
@@ -241,23 +242,25 @@ const WORK_STATE_TONE: Record<'default' | 'good' | 'warning' | 'bad', string> = 
 
 /**
  * Destinations carrying their own state, so the numbers sit on the thing you
- * act on instead of in a separate read-only panel.
+ * act on instead of in a separate read-only panel. Rows run edge to edge
+ * inside a flush SectionCard.
  */
 export function WorkList({ items }: { items: WorkItem[] }) {
+  const { t } = useTranslation('dashboardVerdict')
   return (
-    <nav aria-label="Server sections" className="divide-y divide-border/25">
+    <nav aria-label={t('workListAria')} className="divide-y divide-border/40">
       {items.map(({ id, to, icon: Icon, label, state, tone }) => (
         <Link
           key={id}
           to={to}
-          className="group flex items-center gap-3 py-2.5 ps-1 pe-1.5 transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+          className="group flex min-h-11 items-center gap-3 px-4 py-2 transition-colors hover:bg-accent/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
-          <Icon className="h-3.5 w-3.5 shrink-0 text-foreground/35 transition-colors group-hover:text-foreground/70" aria-hidden="true" />
-          <span className="shrink-0 text-sm text-foreground/85 transition-colors group-hover:text-foreground">{label}</span>
+          <Icon className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" aria-hidden="true" />
+          <span className="shrink-0 text-sm text-foreground">{label}</span>
           {state && (
             <span
               className={cn(
-                'ms-auto min-w-0 truncate text-end font-mono text-[11px] tabular-nums',
+                'ms-auto min-w-0 truncate text-end text-xs tabular-nums',
                 WORK_STATE_TONE[tone ?? 'default'],
               )}
             >
@@ -266,7 +269,7 @@ export function WorkList({ items }: { items: WorkItem[] }) {
           )}
           <ChevronRight
             className={cn(
-              'h-3 w-3 shrink-0 text-foreground/20 transition-colors group-hover:text-foreground/50',
+              'h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-foreground rtl:-scale-x-100',
               !state && 'ms-auto',
             )}
             aria-hidden="true"

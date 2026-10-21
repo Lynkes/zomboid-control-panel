@@ -13,6 +13,8 @@
  *     "Remember password". Only the access token is cached by default,
  *     plus the panel's trusted-device token for each panel and username
  *     (see rememberDeviceToken()).
+ *   - Never over plain http:// to a host outside the user's own network,
+ *     unless they allowed that one origin (urlPolicy.js, loaded first).
  */
 
 const browserAPI = (typeof browser !== 'undefined' && browser.cookies) ? browser : chrome;
@@ -20,6 +22,9 @@ const browserAPI = (typeof browser !== 'undefined' && browser.cookies) ? browser
 const $ = (id) => document.getElementById(id);
 const ui = {
   panelUrl: $('panel-url'),
+  allowHttpRow: $('allow-http-row'),
+  allowHttp: $('allow-http'),
+  allowHttpLabel: $('allow-http-label'),
   username: $('username'),
   password: $('password'),
   rememberPassword: $('remember-password'),
@@ -31,6 +36,9 @@ const ui = {
 };
 
 const STORAGE_KEYS = ['panelUrl', 'username', 'password', 'rememberPassword', 'accessToken'];
+// Origins (scheme://host:port) the user allowed over plain http:// although
+// they are not on their own network. One entry per origin, never a wildcard.
+const INSECURE_ORIGINS_KEY = 'insecureHttpOrigins';
 
 function storageGet(keys) {
   return new Promise((resolve) => {
@@ -78,7 +86,49 @@ function requestOrigin(origin) {
   });
 }
 
+async function readInsecureOrigins() {
+  const stored = await storageGet([INSECURE_ORIGINS_KEY]);
+  const origins = stored[INSECURE_ORIGINS_KEY];
+  return Array.isArray(origins) ? origins.filter((origin) => typeof origin === 'string') : [];
+}
+
+// Every request that carries the password or the Steam cookies goes through
+// this first: a URL urlPolicy.js refuses never gets a request.
+async function assertPanelUrlAllowed(panelUrl) {
+  const result = checkPanelUrl(panelUrl, await readInsecureOrigins());
+  if (!result.ok) {
+    showHttpOverride(result);
+    throw new Error(panelUrlProblem(result));
+  }
+  return result;
+}
+
+// The "Allow plain HTTP" box shows only for the http:// origin in the URL
+// field that the policy refuses (or that the user already allowed).
+function showHttpOverride(result) {
+  if (!ui.allowHttpRow) return;
+  const relevant = !!(result && result.origin && (result.reason === 'insecure' || result.insecureAllowed));
+  ui.allowHttpRow.hidden = !relevant;
+  if (!relevant) return;
+  ui.allowHttpRow.dataset.origin = result.origin;
+  ui.allowHttp.checked = !!result.insecureAllowed;
+  ui.allowHttpLabel.textContent =
+    'Allow plain HTTP for ' + result.origin + ': the panel password and your Steam cookies are sent to it ' +
+    'unencrypted. Only for a panel on a network you trust.';
+}
+
+async function refreshHttpOverride() {
+  const panelUrl = normaliseUrl(ui.panelUrl.value);
+  showHttpOverride(panelUrl ? checkPanelUrl(panelUrl, await readInsecureOrigins()) : null);
+}
+
+async function setOriginAllowedOverHttp(origin, allowed) {
+  const others = (await readInsecureOrigins()).filter((entry) => entry !== origin);
+  await storageSet({ [INSECURE_ORIGINS_KEY]: allowed ? [...others, origin] : others });
+}
+
 async function ensurePanelPermission(panelUrl) {
+  await assertPanelUrlAllowed(panelUrl);
   const origin = new URL(panelUrl).origin + '/*';
   const granted = await requestOrigin(origin);
   if (!granted) {
@@ -101,15 +151,10 @@ function setStatus(el, msg, kind = 'info') {
   el.className = 'status ' + (kind || 'info');
 }
 
+// Without a scheme: http:// for a host on the user's own network (a LAN
+// setup stays short), https:// for anything else.
 function normaliseUrl(raw) {
-  let u = (raw || '').trim();
-  if (!u) return '';
-  // Add http:// if no scheme — keeps LAN setups easy. Users on a VPS will
-  // type https:// explicitly.
-  if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
-  // Strip trailing slash
-  u = u.replace(/\/+$/, '');
-  return u;
+  return normalisePanelUrl(raw);
 }
 
 function isSendReady() {
@@ -152,7 +197,12 @@ async function saveSettings(silent = false) {
     await storageRemove(['password']);
   }
   ui.panelUrl.value = panelUrl;
-  if (!silent) setStatus(ui.setupStatus, 'Saved.', 'success');
+  await refreshHttpOverride();
+  if (!silent) {
+    const check = panelUrl ? checkPanelUrl(panelUrl, await readInsecureOrigins()) : { ok: true };
+    if (check.ok) setStatus(ui.setupStatus, 'Saved.', 'success');
+    else setStatus(ui.setupStatus, 'Saved, but nothing is sent yet: ' + panelUrlProblem(check), 'error');
+  }
 }
 
 // SECURITY (2026-10-05, A1): the trusted-device token the panel hands back
@@ -200,10 +250,15 @@ async function rememberDeviceToken(panelUrl, username, token) {
 }
 
 async function loginToPanel(panelUrl, username, password) {
+  await assertPanelUrlAllowed(panelUrl);
   // Undefined (never signed in from here) is dropped by JSON.stringify.
   const deviceToken = await getDeviceToken(panelUrl, username);
   const res = await fetch(panelUrl + '/api/auth/login', {
     method: 'POST',
+    // A redirect would re-send the password wherever it points (a 307 to an
+    // http:// address or another host), past the check above. The panel
+    // never redirects its API.
+    redirect: 'error',
     // Default credentials mode on purpose: a proxy in front of the panel that
     // signs people in itself (Basic auth, Cloudflare Access, Authelia, a
     // client certificate) needs the browser's credentials for this request.
@@ -245,8 +300,11 @@ async function readSteamCookies() {
 }
 
 async function pushCookies(panelUrl, token, sessionid, steamLoginSecure) {
+  await assertPanelUrlAllowed(panelUrl);
   const res = await fetch(panelUrl + '/api/mods/collection/extension-push', {
     method: 'POST',
+    // Same as loginToPanel(): the Steam cookies never follow a redirect.
+    redirect: 'error',
     // Default credentials mode for an authenticating proxy; see loginToPanel().
     headers: {
       'Content-Type': 'application/json',
@@ -336,6 +394,7 @@ async function doSend() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
+  await refreshHttpOverride();
   ui.saveBtn.addEventListener('click', () => saveSettings());
   ui.testBtn.addEventListener('click', doTest);
   ui.sendBtn.addEventListener('click', doSend);
@@ -346,6 +405,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshSendButton(!!stored.accessToken);
   };
   ui.panelUrl.addEventListener('input', refresh);
+  ui.panelUrl.addEventListener('input', refreshHttpOverride);
+  ui.allowHttp.addEventListener('change', async () => {
+    const origin = ui.allowHttpRow.dataset.origin;
+    if (!origin) return;
+    await setOriginAllowedOverHttp(origin, ui.allowHttp.checked);
+    await refreshHttpOverride();
+  });
   ui.username.addEventListener('input', refresh);
   ui.password.addEventListener('input', refresh);
   ui.rememberPassword.addEventListener('change', async () => {

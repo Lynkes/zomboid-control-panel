@@ -1,12 +1,11 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { useNavigate, useSearchParams, Link as RouterLink } from "react-router-dom";
-import { usePageShortcut } from "../hooks/useKeyboardShortcuts";
+import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
-  Save,
   Server,
   Link,
   Clock,
+  Package,
   Shield,
   AlertTriangle,
   Eye,
@@ -24,8 +23,6 @@ import {
   Archive,
   Info,
   Trash2,
-  HardDrive,
-  RotateCcw,
   Settings2,
   Globe,
   RotateCw,
@@ -37,6 +34,7 @@ import {
   ExternalLink,
   FolderOpen,
   Palette,
+  SlidersHorizontal,
   Check,
   Heart,
   Coffee,
@@ -47,25 +45,16 @@ import {
   Bookmark,
   BookmarkPlus,
   ChevronRight,
-  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { KOFI_URL } from "@/lib/supportLinks";
 import { reportClientError } from "@/lib/client-errors";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { PageHeader } from "@/components/PageHeader";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import Users from "@/pages/Users";
 import RolesPermissions from "@/pages/RolesPermissions";
 import OidcSettings from "@/pages/OidcSettings";
 import { PasswordInput } from "@/components/PasswordInput";
-import { NumberInput } from "@/components/NumberInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -75,8 +64,13 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { SectionCard } from "@/components/ui/section-card";
+import { SubNav, SubNavLayout } from "@/components/ui/sub-nav";
+import { StatusPill } from "@/components/ui/status-pill";
+import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
+import { SaveBar } from "@/components/SaveBar";
+import { useGuardedNavigate, useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -91,22 +85,18 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { ToastAction } from "@/components/ui/toast";
-import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
 import {
   apiFetch,
   handleResponse,
   configApi,
   panelBridgeApi,
-  backupApi,
   authApi,
   serversApi,
   serverApi,
   panelUpdateApi,
   modsApi,
   ApiError,
-  BackupStatus,
-  ServerBackupArchive,
   PanelUpdateStatus,
   PanelUpdatePreflight,
   PanelUpdateMessage,
@@ -118,12 +108,6 @@ import { rememberTrustedDeviceFrom } from "@/lib/trustedDevice";
 import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
 import { readRunningPanelPort, resolveRestartOrigin } from "@/lib/panelRestartTarget";
 import { extractSaveWarnings } from "@/lib/saveWarnings";
-import {
-  RestoreNotStartedError,
-  RestoreOutcomeUnknownError,
-  newRestoreRequestId,
-  restoreBackupAndConfirm,
-} from "@/lib/restoreOutcome";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import {
   getAllowOutOfRangeSandboxValues,
@@ -144,15 +128,9 @@ import { platformTranslationKey, useRuntimeInfo } from "@/hooks/useRuntimeInfo";
 import { useRequestGuard } from "@/hooks/useRequestGuard";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
 import { bridgeDiagnosticParams, type BridgeDiagnostic } from "@/lib/bridgeDiagnostics";
-import { BackupRestartOverlapNotice } from "@/components/BackupRestartOverlapNotice";
-import { BackupScheduleNextRun, BackupScheduleValidity } from "@/components/BackupSchedulePreview";
-import {
-  backupScheduleErrorText,
-  precheckBackupSchedule,
-  useBackupScheduleCheck,
-} from "@/hooks/useBackupScheduleCheck";
 import { BridgeDeliveryPanel } from "@/components/bridge/BridgeDeliveryPanel";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from "@/lib/passwordPolicy";
 import {
   Dialog,
   DialogContent,
@@ -168,11 +146,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface AppSettings {
   // Bridge Settings
@@ -236,6 +209,49 @@ interface AppSettings {
   // Empty string = auto-detect (first non-internal interface found).
   lanIpAddress: string;
 }
+
+// The tab each shared setting is edited on, so the section rail can mark the
+// tabs that hold unsaved edits (one save bar saves them all).
+const SETTING_TAB: Record<keyof AppSettings, string> = {
+  panelBridgeAutoUpdate: "bridge",
+  panelBridgeSftpEnabled: "bridge",
+  panelBridgeSftpHost: "bridge",
+  panelBridgeSftpPort: "bridge",
+  panelBridgeSftpUsername: "bridge",
+  panelBridgeSftpPassword: "bridge",
+  panelBridgeSftpBridgePath: "bridge",
+  panelBridgeSftpPollIntervalSeconds: "bridge",
+  panelBridgeSftpLogPath: "bridge",
+  panelBridgeSftpConfigPath: "bridge",
+  autoStartServer: "connection",
+  autoExportOnLogin: "backups",
+  autoExportMaxPerPlayer: "backups",
+  modCheckInterval: "mods",
+  modAutoRestart: "mods",
+  modRestartDelay: "mods",
+  serverAutoUpdate: "mods",
+  serverAutoUpdateWarningMinutes: "mods",
+  steamUpdateAccount: "mods",
+  steamApiKey: "mods",
+  workshopCollectionId: "mods",
+  workshopCollectionAutoSync: "mods",
+  steamSessionId: "mods",
+  steamLoginSecure: "mods",
+  darkMode: "general",
+  autoReconnect: "connection",
+  reconnectInterval: "connection",
+  panelPort: "general",
+  httpsEnabled: "https",
+  httpsPort: "https",
+  httpsKeyPath: "https",
+  httpsCertPath: "https",
+  corsAllowedOrigins: "access",
+  corsAllowAll: "access",
+  corsAllowPrivateNetworks: "access",
+  corsDebug: "access",
+  enablePublicIpLookup: "access",
+  lanIpAddress: "access",
+};
 
 interface CorsDiagnostics {
   allowAll: boolean;
@@ -398,7 +414,11 @@ export default function Settings() {
   const [originalSettings, setOriginalSettings] = useState<AppSettings | null>(
     null,
   );
-  const [loading, setLoading] = useState(false);
+  // True from the first render: the skeleton shows until the settings are
+  // in. Starting false rendered every tab once with the defaults, then
+  // unmounted it behind the skeleton, so an embedded tab (Users) mounted
+  // twice and lost what its first mount had read (the SSO link result).
+  const [loading, setLoading] = useState(true);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
   // Escape hatch for the Server Settings and Sandbox tabs' range validation
   // (ServerConfig.tsx), per bernanas' request via the 2026-09-09 dispatch;
@@ -433,12 +453,21 @@ export default function Settings() {
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restartOriginRef = useRef<string | null>(null);
+  // The bootId of the process asked to restart (its answer to the restart
+  // request). The reconnect poll waits for a different one: the version
+  // alone can't tell the old process from the new.
+  const restartBootIdRef = useRef<string | null>(null);
   // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
   // pass): set only when the reconnect poll below gives up -- distinct from
   // `restarting` (which just drives the button spinner) so the page can show
   // a persistent, actionable message instead of leaving the user staring at
   // a spinner tied to a navigation that already silently gave up.
   const [restartWaitFailed, setRestartWaitFailed] = useState(false);
+  // A restart-and-apply that came back on another version than the one
+  // being applied: the update was rolled back.
+  const [restartRolledBack, setRestartRolledBack] = useState<
+    { running: string; expected: string } | null
+  >(null);
   const [panelUpdateStatus, setPanelUpdateStatus] =
     useState<PanelUpdateStatus | null>(null);
   const [panelUpdateStatusError, setPanelUpdateStatusError] = useState<
@@ -474,7 +503,6 @@ export default function Settings() {
   const canManageDiagnostics = can("diagnostics.manage"); // Access tab: Reload CORS Rules, Clear Blocked Log
   const canConfigureServerSettings = can("server.configure"); // Connection tab: Test (RCON recheck)
   const canSetupBridge = can("bridge.setup"); // Bridge tab: every write action on it
-  const canManageBackups = can("backups.manage"); // Backups tab: the Schedule field's live check (POST /backup/validate-schedule is gated on it)
   // GET /config/app-settings leaves host paths and account names out for a
   // role without panel.settings, unless it holds the capability that edits
   // them (server/routes/config.js, appSettingsViewFor()), so these fields
@@ -640,159 +668,41 @@ export default function Settings() {
     useState<string>("");
   const [installingMod, setInstallingMod] = useState(false);
 
-  // Backup state
-  const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null);
-  const [backups, setBackups] = useState<ServerBackupArchive[]>([]);
-  const [backupsLoadError, setBackupsLoadError] = useState(false);
-  const [backupStatusLoadError, setBackupStatusLoadError] = useState(false);
-  const [backupLoading, setBackupLoading] = useState(false);
-  const [creatingBackup, setCreatingBackup] = useState(false);
-  const [restoringBackup, setRestoringBackup] = useState<string | null>(null);
-  const [restoreConfirmBackup, setRestoreConfirmBackup] = useState<
-    string | null
-  >(null);
-  const [backupSchedule, setBackupSchedule] = useState("0 */6 * * *");
-  const [backupMaxCount, setBackupMaxCount] = useState(10);
-  // pz-bughunt round 17 (every write that trusts the server-side active
-  // server): backupApi.createBackup/deleteBackup/restoreBackup/updateSettings
-  // all resolve "the active server" server-side with no server id sent, the
-  // same shape as Mods.tsx's saveModOrder/Backups.tsx's own equivalent write
-  // paths (see Backups.tsx's serverChangedSinceLoad). This mini-panel is a
-  // second, independent island of the same backup UI embedded in Settings,
-  // and its own activeServerChanged handler used to only refetch the
-  // servers list and app-wide settings -- backups/backupStatus/backupSchedule/
-  // backupMaxCount were never refreshed AND nothing blocked a write from
-  // firing against the now-different active server using values loaded for
-  // the previous one. Mirrors Backups.tsx's own serverChangedSinceLoad shape
-  // exactly: true unconditionally on every activeServerChanged (this panel's
-  // data is ALWAYS "for some server", there is no clean/dirty distinction
-  // the way app settings has isDirty), cleared once a fresh refetch lands.
-  const [backupPanelServerChanged, setBackupPanelServerChanged] = useState(false);
-  // pz-bughunt round 18: the active server's own id, captured whenever this
-  // panel (re)loads its backup data (see fetchBackupActiveServerId below,
-  // called alongside fetchBackupStatus/fetchBackups in both the mount
-  // effect and the activeServerChanged handler). Sent as expectedServerId
-  // on the write calls below as defense in depth alongside
-  // backupPanelServerChanged -- see server/routes/backup.js's POST
-  // /settings for the server-side check this enables (409
-  // BACKUP_ACTIVE_SERVER_CHANGED on a real mismatch). null means "no
-  // active server was resolved at that load", a real, checkable value, not
-  // "unknown" -- matches getActiveServer()'s own `?.id ?? null` shape.
-  const [backupActiveServerId, setBackupActiveServerId] = useState<
-    string | number | null
-  >(null);
-
   // Track if there are unsaved changes
   const isDirty =
     originalSettings !== null &&
     JSON.stringify(settings) !== JSON.stringify(originalSettings);
+  // Which settings differ from what was loaded: the rail marks their tabs
+  // and the save bar counts them.
+  const changedSettingKeys = originalSettings
+    ? (Object.keys(SETTING_TAB) as (keyof AppSettings)[]).filter(
+        (key) => JSON.stringify(settings[key]) !== JSON.stringify(originalSettings[key]),
+      )
+    : [];
+  const dirtyTabs = new Set(changedSettingKeys.map((key) => SETTING_TAB[key]));
+  // Single Sign-On saves on its own (OidcSettings' save bar). While it holds
+  // edits, its tab stays mounted (hidden) when another tab opens: an
+  // unmounted tab would reload from the server and drop them, and a tab
+  // switch doesn't ask.
+  const [ssoDirty, setSsoDirty] = useState(false);
+  if (ssoDirty) dirtyTabs.add("sso");
 
-  // Section navigation via tabs
+  // Section navigation via tabs, in the rail's groups. Each tab's
+  // description becomes the page header's description when it is open.
   const settingsSections = [
-    {
-      id: "general",
-      label: t("tabs.general.label"),
-      icon: Settings2,
-      group: t("tabs.groups.panel"),
-      tip: t("tabs.general.tip"),
-      description: t("tabs.general.description"),
-    },
-    {
-      id: "updates",
-      label: t("tabs.updates.label"),
-      icon: Download,
-      group: t("tabs.groups.panel"),
-      tip: t("tabs.updates.tip"),
-      description: t("tabs.updates.description"),
-    },
-    {
-      id: "https",
-      label: t("tabs.https.label"),
-      icon: Lock,
-      group: t("tabs.groups.panel"),
-      tip: t("tabs.https.tip"),
-      description: t("tabs.https.description"),
-    },
-    {
-      id: "access",
-      label: t("tabs.access.label"),
-      icon: Globe,
-      group: t("tabs.groups.panel"),
-      tip: t("tabs.access.tip"),
-      description: t("tabs.access.description"),
-    },
-    {
-      id: "security",
-      label: t("tabs.security.label"),
-      icon: Shield,
-      group: t("tabs.groups.panel"),
-      tip: t("tabs.security.tip"),
-      description: t("tabs.security.description"),
-    },
-    {
-      id: "users",
-      label: t("tabs.users.label"),
-      icon: UsersIcon,
-      group: t("tabs.groups.accessControl"),
-      tip: t("tabs.users.tip"),
-      description: t("tabs.users.description"),
-    },
-    {
-      id: "roles",
-      label: t("tabs.roles.label"),
-      icon: ShieldCheck,
-      group: t("tabs.groups.accessControl"),
-      tip: t("tabs.roles.tip"),
-      description: t("tabs.roles.description"),
-    },
-    {
-      id: "sso",
-      label: t("tabs.sso.label"),
-      icon: KeyRound,
-      group: t("tabs.groups.accessControl"),
-      tip: t("tabs.sso.tip"),
-      description: t("tabs.sso.description"),
-    },
-    {
-      id: "connection",
-      label: t("tabs.connection.label"),
-      icon: Link,
-      group: t("tabs.groups.gameServer"),
-      tip: t("tabs.connection.tip"),
-      description: t("tabs.connection.description"),
-    },
-    {
-      id: "bridge",
-      label: t("tabs.bridge.label"),
-      icon: Zap,
-      group: t("tabs.groups.gameServer"),
-      tip: t("tabs.bridge.tip"),
-      description: t("tabs.bridge.description"),
-    },
-    {
-      id: "mods",
-      label: t("tabs.mods.label"),
-      icon: Clock,
-      group: t("tabs.groups.automation"),
-      tip: t("tabs.mods.tip"),
-      description: t("tabs.mods.description"),
-    },
-    {
-      id: "backups",
-      label: t("tabs.backups.label"),
-      icon: Archive,
-      group: t("tabs.groups.automation"),
-      tip: t("tabs.backups.tip"),
-      description: t("tabs.backups.description"),
-    },
-    {
-      id: "about",
-      label: t("tabs.about.label"),
-      icon: Info,
-      group: t("tabs.groups.system"),
-      tip: t("tabs.about.tip"),
-      description: t("tabs.about.description"),
-    },
+    { id: "general", label: t("tabs.general.label"), icon: Settings2, group: "panel", description: t("tabs.general.description") },
+    { id: "updates", label: t("tabs.updates.label"), icon: Download, group: "panel", description: t("tabs.updates.description") },
+    { id: "https", label: t("tabs.https.label"), icon: Lock, group: "panel", description: t("tabs.https.description") },
+    { id: "access", label: t("tabs.access.label"), icon: Globe, group: "panel", description: t("tabs.access.description") },
+    { id: "security", label: t("tabs.security.label"), icon: Shield, group: "panel", description: t("tabs.security.description") },
+    { id: "users", label: t("tabs.users.label"), icon: UsersIcon, group: "accessControl", description: t("tabs.users.description") },
+    { id: "roles", label: t("tabs.roles.label"), icon: ShieldCheck, group: "accessControl", description: t("tabs.roles.description") },
+    { id: "sso", label: t("tabs.sso.label"), icon: KeyRound, group: "accessControl", description: t("tabs.sso.description") },
+    { id: "connection", label: t("tabs.connection.label"), icon: Link, group: "gameServer", description: t("tabs.connection.description") },
+    { id: "bridge", label: t("tabs.bridge.label"), icon: Zap, group: "gameServer", description: t("tabs.bridge.description") },
+    { id: "mods", label: t("tabs.mods.label"), icon: Package, group: "automation", description: t("tabs.mods.description") },
+    { id: "backups", label: t("tabs.backups.label"), icon: Archive, group: "automation", description: t("tabs.backups.description") },
+    { id: "about", label: t("tabs.about.label"), icon: Info, group: "system", description: t("tabs.about.description") },
   ].filter((section) => {
     // UX only -- see AuthContext's `can()` doc comment. Hiding these two
     // tabs from a role that can't use them is purely cosmetic tidiness;
@@ -807,11 +717,11 @@ export default function Settings() {
     return true;
   });
   const settingsGroups = settingsSections.reduce<
-    { name: string; sections: typeof settingsSections }[]
+    { id: string; sections: typeof settingsSections }[]
   >((groups, section) => {
-    const existing = groups.find((group) => group.name === section.group);
+    const existing = groups.find((group) => group.id === section.group);
     if (existing) existing.sections.push(section);
-    else groups.push({ name: section.group, sections: [section] });
+    else groups.push({ id: section.group, sections: [section] });
     return groups;
   }, []);
   // Keeps older ?tab= links and in-app deep links working after the rename.
@@ -827,44 +737,36 @@ export default function Settings() {
     return validTabs.includes(resolved) ? resolved : null;
   };
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState(
-    () => resolveTabId(searchParams.get("tab")) ?? "general",
-  );
+  // Asks first while a tab holds unsaved edits (the update toast's "Open
+  // Dashboard" leaves the page).
+  const navigate = useGuardedNavigate();
+  // The selected tab lives in ?tab=: a reload, a link from another page
+  // (Diagnostics' fixes, the command palette) or an in-page
+  // <Link to="/settings?tab=roles"> opens it. An unknown tab, or one this
+  // role can't see, reads as General.
+  const activeSection = resolveTabId(searchParams.get("tab")) ?? "general";
 
-  // Sync active tab to URL
+  // Writes ?tab= in place (switching tabs is not a step Back should walk
+  // through) and keeps every other parameter.
   const handleTabChange = useCallback(
     (value: string) => {
-      setActiveSection(value);
-      setSearchParams({ tab: value }, { replace: true });
+      setSearchParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          next.set("tab", value);
+          return next;
+        },
+        { replace: true },
+      );
     },
     [setSearchParams],
   );
 
-  // Sync URL back to active tab -- catches ?tab= changes that don't go
-  // through handleTabChange above (e.g. an in-page <Link to="/settings?tab=roles">
-  // from an embedded tab's own content, which updates the URL without
-  // remounting this component, so the mount-time useState initializer above
-  // never re-runs on its own).
-  useEffect(() => {
-    const resolved = resolveTabId(searchParams.get("tab"));
-    if (resolved && resolved !== activeSection) {
-      setActiveSection(resolved);
-    }
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps -- resolveTabId/activeSection intentionally excluded: recomputed fresh each render off settingsSections (stable per render), including them would re-run this on every activeSection change instead of only on external URL changes
-
-  // Warn before leaving with unsaved changes
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirty) {
-        e.preventDefault();
-        e.returnValue = "";
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [isDirty]);
+  // Leaving with unsaved edits asks first (sidebar, links, palette,
+  // shortcuts, reload). The save bar registers the same guard on the tabs
+  // that show it; this covers the embedded tabs too, where an edit made on
+  // General would otherwise be dropped silently.
+  useUnsavedChangesGuard(isDirty || ssoDirty);
 
   // Clean up restart redirect timer/poll on unmount
   useEffect(
@@ -961,15 +863,20 @@ export default function Settings() {
       // fresh download can still retry, but that means status.updateAvailable
       // stays true with status.stagedUpdate now null, and neither branch below
       // would otherwise touch panelUpdateReady -- leaving it stuck at whatever
-      // it was before the apply failed. Checked first and explicitly so a
-      // stuck-true "ready" from before the failure can't survive it.
-      if (
+      // it was before the apply failed. Checked explicitly so a stuck-true
+      // "ready" from before the failure can't survive it.
+      //
+      // A staged bundle is checked BEFORE that failure: it can only be the
+      // re-download the failure banner asks for (canRetryApply:false means
+      // the old one was gone), and testing the failure first kept "Restart
+      // and Apply" disabled after that re-download.
+      if (status.stagedUpdate) {
+        setPanelUpdateReady(true);
+      } else if (
         status.lastApplyResult?.status === "failed" &&
         status.lastApplyResult.canRetryApply === false
       ) {
         setPanelUpdateReady(false);
-      } else if (status.stagedUpdate) {
-        setPanelUpdateReady(true);
       } else if (!status.updateAvailable) {
         setPanelUpdateReady(false);
       }
@@ -1228,15 +1135,6 @@ export default function Settings() {
     }
   };
 
-  // Ctrl+S to save settings
-  usePageShortcut(
-    "s",
-    () => {
-      if (isDirty && !saving) handleSave();
-    },
-    { ctrl: true },
-  );
-
   const handleReloadCorsRules = async () => {
     if (!canManageDiagnostics) return;
     setCorsUpdating(true);
@@ -1303,18 +1201,26 @@ export default function Settings() {
   // something this page can tell the user, in-app, instead of something
   // they're left to discover by staring at a dead tab.
   const pollForPanelReconnect = useCallback(
-    // expectedVersion: only meaningful for the update-apply caller. Passing
-    // it means "don't treat the OLD process still answering during the
-    // handoff window as success" -- without it, any 200 from /api/health is
-    // enough (the plain "Restart Panel" button has no version to compare
-    // against, and doesn't need one).
+    // The process is back when /api/health answers with a bootId other than
+    // the one the restart request answered with (restartBootIdRef): the old
+    // process keeps answering while it hands off, and in the all-in-one
+    // container while it saves and stops the game servers first.
+    //
+    // expectedVersion: only meaningful for the update-apply caller. A new
+    // process on another version means the update was rolled back (Start.bat
+    // or the startup check restored the previous build), which is reported
+    // instead of waiting for a version that will never come. Without a
+    // bootId to compare (none in the restart answer), the version is the
+    // only signal and any other answer is waited out, as before.
     (expectedVersion?: string | null) => {
       // Fixed by restartPanelWithReconnect before the restart (see there):
       // the origin this page is already on, or the new one only when the
       // panel's port really changes.
-      const origin = restartOriginRef.current ?? `${window.location.protocol}//${window.location.host}`;
+      const pageOrigin = `${window.location.protocol}//${window.location.host}`;
+      const origin = restartOriginRef.current ?? pageOrigin;
       const newUrl = `${origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
       const deadline = Date.now() + RESTART_RECONNECT_TIMEOUT_MS;
+      const previousBootId = restartBootIdRef.current;
 
       if (restartPollRef.current) clearInterval(restartPollRef.current);
       const poll = async () => {
@@ -1328,10 +1234,34 @@ export default function Settings() {
         try {
           const res = await fetch(`${origin}/api/health`, { cache: "no-store" });
           if (!res.ok) return;
-          const data = await res.json().catch(() => null);
-          if (expectedVersion && data?.version !== expectedVersion) return;
+          const data = (await res.json().catch(() => null)) as
+            | { version?: unknown; bootId?: unknown }
+            | null;
+          const version = typeof data?.version === "string" ? data.version : null;
+          if (previousBootId) {
+            // Still the process that was asked to restart. (A build too old
+            // to report a bootId is a different process by definition.)
+            if (data?.bootId === previousBootId) return;
+          } else if (expectedVersion && version !== expectedVersion) {
+            return;
+          }
           if (restartPollRef.current) clearInterval(restartPollRef.current);
           restartPollRef.current = null;
+          // Rolled back, on this same address: say so here and show why
+          // (the Updates card's failed-apply details). Another address can't
+          // be read from here; that page shows the failure on its Updates
+          // card.
+          if (
+            expectedVersion &&
+            version &&
+            version !== expectedVersion &&
+            origin === pageOrigin
+          ) {
+            setRestarting(false);
+            setRestartRolledBack({ running: version, expected: expectedVersion });
+            void fetchPanelUpdateStatus();
+            return;
+          }
           window.location.href = newUrl;
         } catch {
           // Not up yet (or, if the panel port genuinely changed, possibly
@@ -1344,7 +1274,7 @@ export default function Settings() {
       restartPollRef.current = setInterval(poll, RESTART_RECONNECT_POLL_INTERVAL_MS);
       poll();
     },
-    [],
+    [fetchPanelUpdateStatus],
   );
 
   const restartPanelWithReconnect = useCallback(
@@ -1357,6 +1287,8 @@ export default function Settings() {
       if (user?.role !== "admin") return;
       setRestarting(true);
       setRestartWaitFailed(false);
+      setRestartRolledBack(null);
+      restartBootIdRef.current = null;
       try {
         // Where the restarted panel will answer. Behind a reverse proxy, with
         // a remapped Docker port or on the HTTPS port it is this page's own
@@ -1368,7 +1300,11 @@ export default function Settings() {
           settings.panelPort,
           await readRunningPanelPort(serverApi.getPanelInfo),
         );
-        await serverApi.restartPanel();
+        const restartResult = (await serverApi.restartPanel()) as
+          | { bootId?: unknown }
+          | undefined;
+        restartBootIdRef.current =
+          typeof restartResult?.bootId === "string" ? restartResult.bootId : null;
         toast({
           title: t("toasts.restartingPanel.title"),
           description,
@@ -1406,8 +1342,9 @@ export default function Settings() {
   // it just resumes waiting with a fresh deadline. `expectedVersion` is
   // intentionally not re-threaded here (there is no staged-update state left
   // to compare against once the message is showing -- the page doesn't know
-  // which flow led here); a plain "did anything answer" check is the right
-  // relaxation for a manual, user-initiated retry.
+  // which flow led here); "a process other than the one asked to restart
+  // answers" (restartBootIdRef, kept) is the right relaxation for a manual,
+  // user-initiated retry.
   const retryRestartReconnectWait = useCallback(() => {
     setRestartWaitFailed(false);
     setRestarting(true);
@@ -1488,24 +1425,27 @@ export default function Settings() {
       // couldn't be reached (a failed check is not a passed check).
       const pre = await fetchPanelUpdatePreflight();
       if (!pre || !pre.ok) {
+        // The blocker in the reader's language (blockerDetails carries its
+        // key), like the blocked-update card, not the server's English.
         throw new Error(
-          pre?.blockers[0] || t("errors.updateBlockedByPreflight"),
+          (pre
+            ? translatePanelUpdateMessages(pre.blockers, pre.blockerDetails)[0]
+            : undefined) || t("errors.updateBlockedByPreflight"),
         );
       }
 
       // POST /panel/update-download always responds non-2xx on failure, so
       // handleResponse() throws into the catch below -- this never sees
       // result.success === false.
-      const result = await panelUpdateApi.download(isDockerPanelUpdate);
+      await panelUpdateApi.download(isDockerPanelUpdate);
 
       if (!isDockerPanelUpdate) setPanelUpdateReady(true);
+      // Translated text only: the server's result.message is English.
       toast({
         title: isDockerPanelUpdate ? t("toasts.dockerUpdateStarted.title") : t("toasts.updateDownloaded.title"),
-        description:
-          result.message ||
-          (isDockerPanelUpdate
-            ? t("toasts.updateDownloadedDescDocker")
-            : t("toasts.updateDownloadedDescBinary")),
+        description: isDockerPanelUpdate
+          ? t("toasts.updateDownloadedDescDocker")
+          : t("toasts.updateDownloadedDescBinary"),
         variant: "success" as const,
       });
       await fetchPanelUpdateStatus();
@@ -1529,7 +1469,7 @@ export default function Settings() {
           getUserErrorMessage(error, t("toasts.downloadFailed.fallback")),
         variant: "destructive",
         action: failure === "serverNotStopped" ? (
-          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => navigate("/")}>
+          <ToastAction altText={t("toasts.updateNotApplied.openDashboardAlt")} onClick={() => void navigate("/")}>
             {t("toasts.updateNotApplied.openDashboard")}
           </ToastAction>
         ) : undefined,
@@ -1537,6 +1477,9 @@ export default function Settings() {
         // the text a column too narrow to read in the toast's 15 s.
         layout: failure === "serverNotStopped" ? "stacked" : undefined,
       });
+      // The card's "Downloading" state came from the progress events; read
+      // the real state back instead of leaving it there after a failure.
+      void fetchPanelUpdateStatus();
     } finally {
       setDownloadingPanelUpdate(false);
     }
@@ -1615,6 +1558,8 @@ export default function Settings() {
           downloadProgress: bounded,
         };
       });
+      // A failed download (any tab's) ends with this; fetch its error.
+      if (data.status === "failed") fetchPanelUpdateStatus();
     };
 
     const handlePanelUpdateReady = (data: { version?: string }) => {
@@ -1880,344 +1825,6 @@ export default function Settings() {
       }
     };
   }, [fetchBridgeStatus, fetchServers]);
-
-  // Backup functions
-  const fetchBackupStatus = useCallback(async () => {
-    try {
-      const status = await backupApi.getStatus();
-      setBackupStatus(status);
-      setBackupSchedule(status.schedule);
-      setBackupMaxCount(status.maxBackups);
-      setBackupStatusLoadError(false);
-    } catch (error) {
-      reportClientError("Failed to fetch backup status.", error);
-      setBackupStatusLoadError(true);
-    }
-  }, []);
-
-  const fetchBackups = useCallback(async () => {
-    try {
-      const data = await backupApi.listBackups();
-      setBackups(data.backups || []);
-      setBackupsLoadError(false);
-    } catch (error) {
-      reportClientError("Failed to fetch backups.", error);
-      setBackupsLoadError(true);
-    }
-  }, []);
-
-  // pz-bughunt round 18: see backupActiveServerId's own comment above.
-  // Failure here just leaves the previous captured id in place -- the
-  // expectedServerId it feeds is defense in depth on top of
-  // backupPanelServerChanged, not the only thing standing between a click
-  // and a wrong-server write, so there's nothing to surface to the user
-  // over a failed refresh of it specifically.
-  const fetchBackupActiveServerId = useCallback(async () => {
-    try {
-      const { server } = await serversApi.getResolvedActive();
-      setBackupActiveServerId(server?.id ?? null);
-    } catch {
-      // Leave the previously captured value in place.
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchBackupStatus();
-    fetchBackups();
-    fetchBackupActiveServerId();
-  }, [fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
-
-  // See backupPanelServerChanged's own comment above. A second, independent
-  // 'activeServerChanged' listener (socket.on supports multiple handlers for
-  // one event) rather than folding into the fetchServers/fetchSettings
-  // effect above -- that effect is declared before fetchBackupStatus/
-  // fetchBackups exist yet, and this keeps the backup-panel guard's own
-  // diff scoped and easy to reason about independently of the pre-existing
-  // servers/app-settings reload logic.
-  useEffect(() => {
-    if (!socket) return;
-    const handleBackupPanelServerChanged = () => {
-      setBackupPanelServerChanged(true);
-      // The confirm dialog's own captured backup name shouldn't resolve
-      // against whichever server the backend now considers active --
-      // same reasoning as Backups.tsx closing its own restore/delete
-      // dialogs on this same event.
-      setRestoreConfirmBackup(null);
-      Promise.all([
-        fetchBackupStatus(),
-        fetchBackups(),
-        fetchBackupActiveServerId(),
-      ]).finally(() => setBackupPanelServerChanged(false));
-    };
-    socket.on("activeServerChanged", handleBackupPanelServerChanged);
-    return () => {
-      socket.off("activeServerChanged", handleBackupPanelServerChanged);
-    };
-  }, [socket, fetchBackupStatus, fetchBackups, fetchBackupActiveServerId]);
-
-  const handleCreateBackup = async () => {
-    if (backupPanelServerChanged) {
-      toast({
-        title: settingsFallback(
-          "toasts.backupPanelServerChanged.title",
-          "Active server changed",
-        ),
-        description: settingsFallback(
-          "toasts.backupPanelServerChanged.description",
-          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
-        ),
-        variant: "destructive",
-      });
-      return;
-    }
-    setCreatingBackup(true);
-    try {
-      const result = await backupApi.createBackup();
-      if (result.success && result.backup) {
-        toast({
-          title: t("toasts.backupCreated.title"),
-          description: t("toasts.backupCreated.description", { name: result.backup.name, seconds: result.duration?.toFixed(1) }),
-          variant: "success" as const,
-        });
-        await fetchBackups();
-        await fetchBackupStatus();
-      } else {
-        throw new Error(result.message || t("toasts.backupFailed.fallback"));
-      }
-    } catch (error) {
-      toast({
-        title: t("toasts.backupFailed.title"),
-        description:
-          getUserErrorMessage(error, t("toasts.backupFailed.fallback")),
-        variant: "destructive",
-      });
-    } finally {
-      setCreatingBackup(false);
-    }
-  };
-
-  const handleDeleteBackup = async (name: string) => {
-    if (backupPanelServerChanged) {
-      toast({
-        title: settingsFallback(
-          "toasts.backupPanelServerChanged.title",
-          "Active server changed",
-        ),
-        description: settingsFallback(
-          "toasts.backupPanelServerChanged.description",
-          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
-        ),
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      // DELETE /backup/:name always responds non-2xx on failure, so
-      // handleResponse() throws into the catch below -- this never sees
-      // result.success === false.
-      await backupApi.deleteBackup(name);
-      toast({
-        title: t("toasts.backupDeleted.title"),
-        description: t("toasts.backupDeleted.description", { name }),
-        variant: "success" as const,
-      });
-      await fetchBackups();
-    } catch (error) {
-      toast({
-        title: t("toasts.deleteFailed.title"),
-        description:
-          getUserErrorMessage(error, t("toasts.deleteFailed.fallback")),
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleRestoreBackup = async (name: string) => {
-    if (backupPanelServerChanged) {
-      toast({
-        title: settingsFallback(
-          "toasts.backupPanelServerChanged.title",
-          "Active server changed",
-        ),
-        description: settingsFallback(
-          "toasts.backupPanelServerChanged.description",
-          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
-        ),
-        variant: "destructive",
-      });
-      return;
-    }
-    setRestoringBackup(name);
-    try {
-      // GH#166: the same call as the Backups page -- a lost response (a
-      // long restore past the client timeout, a proxy cutting it) reads the
-      // real outcome back from the status instead of reporting a failure
-      // for a restore that finished. A failed or refused restore lands in
-      // the catch below, never as success: false here.
-      const { duration } = await restoreBackupAndConfirm(name, newRestoreRequestId());
-      toast({
-        title: t("toasts.backupRestored.title"),
-        description: t("toasts.backupRestored.description", { name, seconds: (duration || 0).toFixed(1) }),
-        variant: "success" as const,
-      });
-      await fetchBackups();
-    } catch (error) {
-      // Nothing could say how it ended: not a failure, and the Backups
-      // page's own words for it.
-      if (error instanceof RestoreOutcomeUnknownError) {
-        toast({
-          title: t("restoreResult.unknownTitle", { ns: "backups" }),
-          description: t("restoreResult.unknownDetail", { ns: "backups" }),
-          variant: "warning",
-        });
-        return;
-      }
-      toast({
-        title: t("toasts.restoreFailed.title"),
-        // A proxy's refusal: its error page is no reason to show -- the
-        // Backups page's own words for it.
-        description:
-          error instanceof RestoreNotStartedError
-            ? t("restoreResult.notStartedProxy", { ns: "backups", status: error.status })
-            : getUserErrorMessage(error, t("toasts.restoreFailed.fallback")),
-        variant: "destructive",
-      });
-    } finally {
-      setRestoringBackup(null);
-      setRestoreConfirmBackup(null);
-    }
-  };
-
-  // The Schedule field below edits the same saved schedule as the Backups
-  // page's Backup Frequency picker, and is judged by the same server check
-  // (useBackupScheduleCheck): live as it's typed, and again on Save. It used
-  // to be a local regex here -- no numeric bounds, no month/weekday names,
-  // no 5-minute floor -- so "99 * * * *" passed and then failed to save,
-  // "0 3 * * MON" was refused though the Backups page and the server accept
-  // it, and the two editors disagreed about the one setting they share.
-  // Only while the field is on screen: this tab, scheduled backups on.
-  // Computed on every render of the whole page, not just this tab's -- a
-  // status payload without a schedule (fetchBackupStatus() copies whatever
-  // came back) must not take every other tab down with it.
-  const backupScheduleInput = (backupSchedule ?? "").trim();
-  const { check: backupScheduleCheck, pending: backupScheduleCheckPending } =
-    useBackupScheduleCheck(
-      backupScheduleInput,
-      activeSection === "backups" && Boolean(backupStatus?.enabled) && canManageBackups,
-    );
-
-  const handleSaveBackupSettings = async () => {
-    if (backupLoading) return;
-    if (backupPanelServerChanged) {
-      toast({
-        title: settingsFallback(
-          "toasts.backupPanelServerChanged.title",
-          "Active server changed",
-        ),
-        description: settingsFallback(
-          "toasts.backupPanelServerChanged.description",
-          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
-        ),
-        variant: "destructive",
-      });
-      return;
-    }
-    // Busy before the first await: the pre-check below is a round trip of
-    // its own, and a Save left enabled during it lets a double click send
-    // two POST /backup/settings.
-    setBackupLoading(true);
-    try {
-      // Same pre-check as the Backups page's Save, so a bad expression gets
-      // the server's specific reason ("more often than every 5 minutes")
-      // rather than a generic failed save. If the check itself can't run,
-      // the save goes ahead and POST /backup/settings -- identical rules --
-      // decides.
-      const rejected = await precheckBackupSchedule(backupScheduleInput);
-      if (rejected) {
-        toast({
-          title: t("toasts.invalidSchedule.title"),
-          description: backupScheduleErrorText(rejected, t("toasts.invalidSchedule.description")),
-          variant: "destructive",
-        });
-        return;
-      }
-      // pz-bughunt round 18: expectedServerId is defense in depth alongside
-      // backupPanelServerChanged above.
-      await backupApi.updateSettings(
-        {
-          enabled: backupStatus?.enabled || false,
-          schedule: backupScheduleInput,
-          maxBackups: backupMaxCount,
-        },
-        backupActiveServerId,
-      );
-      await fetchBackupStatus();
-      toast({
-        title: t("toasts.backupSettingsSaved.title"),
-        description: t("toasts.backupSettingsSaved.description"),
-        variant: "success" as const,
-      });
-    } catch (error) {
-      toast({
-        title: t("toasts.backupSettingsSaveFailed.title"),
-        description:
-          getUserErrorMessage(error, t("toasts.backupSettingsSaveFailed.fallback")),
-        variant: "destructive",
-      });
-    } finally {
-      setBackupLoading(false);
-    }
-  };
-
-  const toggleBackupEnabled = async (enabled: boolean) => {
-    if (backupPanelServerChanged) {
-      toast({
-        title: settingsFallback(
-          "toasts.backupPanelServerChanged.title",
-          "Active server changed",
-        ),
-        description: settingsFallback(
-          "toasts.backupPanelServerChanged.description",
-          "The active server changed. This panel is refreshing for the server that is active now -- try again once it's done.",
-        ),
-        variant: "destructive",
-      });
-      return;
-    }
-    setBackupLoading(true);
-    try {
-      // pz-bughunt round 18: same defense-in-depth expectedServerId as
-      // handleSaveBackupSettings above.
-      await backupApi.updateSettings({ enabled }, backupActiveServerId);
-      await fetchBackupStatus();
-      toast({
-        title: enabled
-          ? t("toasts.scheduledBackupsEnabled.title")
-          : t("toasts.scheduledBackupsDisabled.title"),
-        description: enabled
-          ? t("toasts.scheduledBackupsEnabled.description")
-          : t("toasts.scheduledBackupsDisabled.description"),
-        variant: "success" as const,
-      });
-    } catch (error) {
-      toast({
-        title: t("toasts.backupsUpdateFailed.title"),
-        description:
-          getUserErrorMessage(error, t("toasts.backupsUpdateFailed.fallback")),
-        variant: "destructive",
-      });
-    } finally {
-      setBackupLoading(false);
-    }
-  };
-
-  const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    if (bytes < 1024 * 1024 * 1024)
-      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-  };
 
   // Listen for real-time bridge status updates via Socket.IO
   // Use ref to avoid stale closure issues with fetchBridgeStatus
@@ -2782,11 +2389,15 @@ export default function Settings() {
       toast({ title: t("toasts.passwordsDontMatch.title"), variant: "destructive" });
       return;
     }
-    if (newPassword.length < 6) {
+    if (!meetsPasswordMinLength(newPassword)) {
       toast({
         title: t("toasts.passwordTooShort.title"),
         variant: "destructive",
       });
+      return;
+    }
+    if (exceedsPasswordMaxBytes(newPassword)) {
+      toast({ title: t("PASSWORD_TOO_LONG_BYTES", { ns: "errors" }), variant: "destructive" });
       return;
     }
     setChangingPassword(true);
@@ -2902,11 +2513,15 @@ export default function Settings() {
       toast({ title: t("toasts.passwordsDontMatch.title"), variant: "destructive" });
       return;
     }
-    if (localPasswordResetPassword.length < 6) {
+    if (!meetsPasswordMinLength(localPasswordResetPassword)) {
       toast({
         title: t("toasts.passwordTooShort.title"),
         variant: "destructive",
       });
+      return;
+    }
+    if (exceedsPasswordMaxBytes(localPasswordResetPassword)) {
+      toast({ title: t("PASSWORD_TOO_LONG_BYTES", { ns: "errors" }), variant: "destructive" });
       return;
     }
 
@@ -2954,262 +2569,287 @@ export default function Settings() {
     }
   };
 
+  // Bridge tab header: what the bridge is doing right now, and how it works.
+  const bridgeHeaderStatus = bridgeStatus ? (
+    <BridgeStatusBadge
+      // modConnected alone is whether the mod is alive
+      // (debounced -- stays true through a brief poll
+      // miss). canSendCommands is a live, undebounced
+      // check of whether the panel can actually write to
+      // the bridge (dir writable, status file fresh) --
+      // it can go false while modConnected is still true.
+      // Badge must reflect both, or it reads "Connected"
+      // right next to a Ping button that's about to throw.
+      connected={bridgeStatus.modConnected && bridgeStatus.connection?.canSendCommands === true}
+      running={bridgeStatus.isRunning}
+      loading={bridgeLoading}
+      bridgePath={bridgeStatus.bridgePath}
+      summary={resolveBridgeDiagText(bridgeStatus.connection?.summary)}
+      interactive={false}
+    />
+  ) : undefined;
+  const bridgeHowItWorksDialog = (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          aria-label={t("bridge.howItWorksButton")}
+        >
+          <Info className="h-4 w-4" aria-hidden="true" />
+          <span className="hidden sm:inline">{t("bridge.howItWorksButton")}</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" />
+            {t("bridge.dialogTitle")}
+          </DialogTitle>
+          <DialogDescription>
+            {t("bridge.dialogDesc")}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-5 text-sm">
+          {/* What it unlocks */}
+          <div>
+            <p className="label-micro mb-2">
+              {t("bridge.unlocksTitle")}
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="font-medium text-foreground">
+                  {t("bridge.unlockWeatherTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("bridge.unlockWeatherDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="font-medium text-foreground">
+                  {t("bridge.unlockPlayerTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("bridge.unlockPlayerDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="font-medium text-foreground">
+                  {t("bridge.unlockWorldTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("bridge.unlockWorldDesc")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                <p className="font-medium text-foreground">
+                  {t("bridge.unlockChatTitle")}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t("bridge.unlockChatDesc")}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* How it works */}
+          <div>
+            <p className="label-micro mb-2">
+              {t("bridge.howItWorksTitle")}
+            </p>
+            <p className="text-muted-foreground mb-3">
+              <Trans t={t} i18nKey="bridge.howItWorksDesc" components={{ b: <strong className="text-foreground" /> }} />
+            </p>
+          </div>
+
+          {/* Setup steps */}
+          <div>
+            <p className="label-micro mb-2">
+              {t("bridge.setupTitle")}
+            </p>
+            <ol className="space-y-2">
+              <li className="flex gap-3 items-start">
+                <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
+                  1
+                </span>
+                <div>
+                  <p className="font-medium">
+                    {t("bridge.setupStep1Title")}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {t("bridge.setupStep1Desc")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3 items-start">
+                <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
+                  2
+                </span>
+                <div>
+                  <p className="font-medium">
+                    {t("bridge.setupStep2Title")}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    {t("bridge.setupStep2Desc")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3 items-start">
+                <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
+                  3
+                </span>
+                <div>
+                  <p className="font-medium">
+                    {t("bridge.setupStep3Title")}
+                  </p>
+                  <p className="text-muted-foreground text-xs">
+                    <Trans t={t} i18nKey="bridge.setupStep3Desc" components={{ b1: <strong className="text-warning" />, b: <strong className="text-primary" /> }} />
+                  </p>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          {/* Requirement */}
+          <div className="rounded-lg border border-warning/35 bg-warning/10 px-3 py-2 text-xs">
+            <p>
+              <Trans t={t} i18nKey="bridge.requiresLuaChecksum" components={{ b: <strong /> }} />
+            </p>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
+  const activeSectionMeta = settingsSections.find((s) => s.id === activeSection);
+  // pz-pam-r28: the header follows the active tab ("Settings › Roles &
+  // Permissions"), so landing on ?tab=roles from a link names the screen.
+  // Falls back to the generic title for any unknown/legacy tab id.
+  const pageTitle = activeSectionMeta?.label ?? t("pageHeader.title");
+  const pageDescription =
+    activeSectionMeta?.description ?? t("pageHeader.defaultDescription");
+  // Users, Roles & Permissions and Single Sign-On are embedded pages with
+  // their own saving; every other tab edits the shared app-settings object,
+  // which the save bar saves.
+  const editsSharedSettings =
+    activeSection !== "users" && activeSection !== "roles" && activeSection !== "sso";
+  const saveDisabledReason = !canSavePanelSettings
+    ? t("permissions.noPanelSettings")
+    : corsOriginValidationError ?? undefined;
+
   if (loading && !originalSettings) {
     return (
       <PageSkeleton
         variant="form"
-        eyebrow={t("pageHeader.eyebrow")}
-        title={t("pageHeader.title")}
-        description={t("pageHeader.defaultDescription")}
+        title={pageTitle}
+        description={pageDescription}
       />
     );
   }
 
   if (settingsLoadError && !originalSettings) {
     return (
-      <div className="page-transition">
+      <div className="page-transition space-y-6">
         <PageHeader
           title={t("pageHeader.title")}
           description={t("pageHeader.defaultDescription")}
-          eyebrow={t("pageHeader.eyebrow")}
-          tone="config"
-          icon={<Settings2 className="w-5 h-5" />}
         />
-        <Card className="border-2 border-destructive/50 bg-destructive/5 mt-4">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base font-semibold">
-                  {t("pageHeader.loadFailedTitle")}
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {t("pageHeader.loadFailedDesc", { error: settingsLoadError })}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchSettings}
-                disabled={loading}
-              >
-                <RefreshCw
-                  className={cn("w-4 h-4 me-2", loading && "animate-spin")}
-                />
-                {t("pageHeader.retry")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <PageAlerts
+          alerts={[
+            {
+              id: "settings-load-failed",
+              tone: "error",
+              title: t("pageHeader.loadFailedTitle"),
+              description: t("pageHeader.loadFailedDesc", { error: settingsLoadError }),
+              action: { label: t("pageHeader.retry"), onClick: fetchSettings },
+            },
+          ]}
+        />
       </div>
     );
   }
 
+  // bug-hunt-2026-09-07 (client silent-failure lane, update-failure-states
+  // pass): the one thing this whole lane exists to prevent -- restarting the
+  // panel and it never coming back, with nothing in-app to show for it.
+  // Page-level, independent of which tab is active, since a dead-panel wait
+  // isn't scoped to the Updates card -- the plain "Restart Panel" button in
+  // General can trigger this exact state too.
+  const pageAlerts: PageAlert[] = [];
+  if (restartWaitFailed) {
+    pageAlerts.push({
+      id: "restart-wait-failed",
+      tone: "error",
+      title: t("restartWait.failedTitle"),
+      description: <span className="break-words">{t("restartWait.failedDescription")}</span>,
+      action: { label: t("restartWait.checkAgain"), onClick: retryRestartReconnectWait },
+    });
+  }
+  if (restartRolledBack) {
+    pageAlerts.push({
+      id: "restart-rolled-back",
+      tone: "error",
+      title: t("restartWait.rolledBackTitle"),
+      description: (
+        <span className="break-words">
+          {t("restartWait.rolledBackDescription", {
+            running: restartRolledBack.running,
+            expected: restartRolledBack.expected,
+          })}
+        </span>
+      ),
+      action:
+        activeSection === "updates"
+          ? undefined
+          : { label: t("tabs.updates.label"), onClick: () => handleTabChange("updates") },
+    });
+  }
+
   return (
-    <div className="page-transition">
-      <AutoUpdateResultBanner />
-      {/* Unsaved Changes Warning */}
-      {isDirty && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="relative mb-5 overflow-hidden rounded-lg border border-warning/45 bg-warning/[0.08] shadow-sm"
-        >
-          <div
-            className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-warning via-warning/80 to-warning/30"
-            aria-hidden="true"
-          />
-          <div className="flex flex-col gap-3 p-4 ps-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-warning/40 bg-warning/15 text-warning">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="relative inline-flex w-2 h-2"
-                    aria-hidden="true"
-                  >
-                    <span className="absolute inset-0 rounded-full bg-warning/50 animate-ping motion-reduce:hidden" />
-                    <span className="relative w-2 h-2 rounded-full bg-warning" />
-                  </span>
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-warning">
-                    {t("unsavedBanner.label")}
-                  </p>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t("unsavedBanner.description")}
-                </p>
-              </div>
-            </div>
-            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
-              <Button
-                onClick={handleSave}
-                disabled={saving || Boolean(corsOriginValidationError) || !canSavePanelSettings}
-                size="sm"
-                variant="warning"
-                className="self-start gap-2 sm:self-auto"
-              >
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {t("unsavedBanner.saveButton")}
-              </Button>
-            </DisabledReason>
-          </div>
-        </div>
-      )}
-
-      {/* bug-hunt-2026-09-07 (client silent-failure lane, update-failure-
-          states pass): the one thing this whole lane exists to prevent --
-          restarting the panel and it never coming back, with nothing in-app
-          to show for it. Placed at the top of the page, independent of which
-          section is active, since a dead-panel wait isn't scoped to the
-          Updates card -- the plain "Restart Panel" button in General can
-          trigger this exact state too. */}
-      {restartWaitFailed && (
-        /* aria-live only -- Alert itself already sets role="alert" below; a
-           second role="alert" here just makes the two ambiguous to any
-           role-based query (assistive tech and tests alike). */
-        <div aria-live="assertive" className="mb-5">
-          <Alert variant="destructive">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertTitle>{t("restartWait.failedTitle")}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <span className="break-words">{t("restartWait.failedDescription")}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={retryRestartReconnectWait}
-                className="self-start"
-              >
-                {t("restartWait.checkAgain")}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        </div>
-      )}
-
+    <div className="page-transition space-y-6">
       <PageHeader
-        title={
-          // pz-pam-r28: was hardcoded to the generic "Settings" on every
-          // tab -- landing on ?tab=roles from the USERS sidebar section's
-          // "Roles & Permissions" link never showed that label anywhere in
-          // the page chrome. Falls back to the generic title for the
-          // General tab and any unknown/legacy tab id.
-          settingsSections.find((s) => s.id === activeSection)?.label ??
-          t("pageHeader.title")
-        }
-        description={
-          settingsSections.find((s) => s.id === activeSection)?.description ??
-          t("pageHeader.defaultDescription")
-        }
-        eyebrow={t("pageHeader.eyebrow")}
-        tone="config"
-        icon={<Settings2 className="w-5 h-5" />}
-        actions={
-          // pz-pam-r28: Users/Roles/SSO are embedded standalone components
-          // (RolesPermissions.tsx's own comment: "rendered inside a
-          // Settings tab panel instead of as its own route") with their
-          // own per-row save mechanics -- this button only ever saves the
-          // general app-settings object, so it stayed visible but
-          // semantically inert (always "No Changes") on those 3 tabs.
-          activeSection === "users" || activeSection === "roles" || activeSection === "sso"
-            ? undefined
-            : (
-              <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
-              <Button
-                variant="command"
-                onClick={handleSave}
-                disabled={saving || !isDirty || Boolean(corsOriginValidationError) || !canSavePanelSettings}
-                size="lg"
-                className="w-full sm:w-auto gap-2"
-              >
-                {saving ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Save className="w-5 h-5" />
-                )}
-                {saving
-                  ? t("saveButton.saving")
-                  : isDirty
-                    ? t("saveButton.save")
-                    : t("saveButton.noChanges")}
-              </Button>
-              </DisabledReason>
-            )
-        }
+        breadcrumb={[{ label: t("pageHeader.title") }]}
+        title={pageTitle}
+        description={pageDescription}
+        status={activeSection === "bridge" ? bridgeHeaderStatus : undefined}
+        actions={activeSection === "bridge" ? bridgeHowItWorksDialog : undefined}
       />
+      <AutoUpdateResultBanner />
+      <PageAlerts alerts={pageAlerts} />
 
       <Tabs
         value={activeSection}
         onValueChange={handleTabChange}
-        className="mt-6 lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)] lg:items-start lg:gap-7"
+        orientation="vertical"
       >
-        <div className="relative lg:contents">
-          <TabsList
-            aria-label={t("ariaLabel")}
-            className="mb-4 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto rounded-md border border-border/50 bg-muted/30 p-1 lg:sticky lg:top-4 lg:order-1 lg:mb-0 lg:flex-col lg:items-stretch lg:gap-px lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-          >
-            {settingsGroups.map((group) => (
-              <React.Fragment key={group.name}>
-                <p
-                  role="presentation"
-                  className="hidden lg:block px-2 pb-1.5 pt-5 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60 lg:first:pt-0"
-                >
-                  {group.name}
-                </p>
-                {group.sections.map((section) => {
-                  const Icon = section.icon;
-                  return (
-                    <Tooltip key={section.id}>
-                      <TooltipTrigger asChild>
-                        <TabsTrigger
-                          value={section.id}
-                          className="settings-tab-trigger shrink-0 flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground/70 hover:bg-muted/50 hover:text-foreground data-[state=active]:bg-primary/10 data-[state=active]:text-primary data-[state=active]:shadow-none lg:w-full lg:justify-start lg:px-2.5"
-                        >
-                          <Icon className="w-4 h-4 shrink-0" />
-                          <span className="truncate">{section.label}</span>
-                        </TabsTrigger>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-[220px]">
-                        <p className="text-xs">{section.tip}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </TabsList>
-          {/* Static scroll-continuation cue for the horizontal strip on mobile/tablet --
-              the strip always has more sections than fit, so this isn't scroll-position-tracked,
-              just a constant "there's more this way" edge like the sticky sidebar gets for free
-              on lg: via the group labels being visibly cut off at the viewport bottom instead. */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 end-0 flex w-10 items-center justify-end rounded-e-md bg-gradient-to-l rtl:bg-gradient-to-r from-muted to-transparent pe-1.5 lg:hidden"
-          >
-            <ChevronRight className="h-4 w-4 text-muted-foreground/80 rtl:-scale-x-100" />
-          </div>
-        </div>
-
-        {/* Tab Content */}
-        <div className="space-y-5 lg:order-2">
-          <TabsContent value="general" className="mt-0">
-            {/* Panel Settings */}
-            <Card id="settings-general">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-primary" />
-                  {t("general.cardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("general.cardDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+        <SubNavLayout
+          nav={
+            <SubNav
+              kind="tabs"
+              ariaLabel={t("ariaLabel")}
+              value={activeSection}
+              onValueChange={handleTabChange}
+              groups={settingsGroups.map((group) => ({
+                id: group.id,
+                label: t(`tabs.groups.${group.id}`),
+                items: group.sections.map((section) => ({
+                  id: section.id,
+                  label: section.label,
+                  icon: section.icon,
+                  dirty: dirtyTabs.has(section.id),
+                })),
+              }))}
+            />
+          }
+        >
+          <TabsContent value="general" className="mt-0 space-y-6">
+            <SectionCard
+              id="settings-general"
+              icon={Server}
+              title={t("general.cardTitle")}
+              description={t("general.cardDescription")}
+            >
                 <div className="max-w-xs">
                   <Label htmlFor="panel-port">{t("general.portLabel")}</Label>
                   <Input
@@ -3301,18 +2941,14 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
+            </SectionCard>
 
-                <div className="rounded-xl border border-border/70 bg-background/40 p-4 space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium flex items-center gap-2">
-                      <Palette className="w-4 h-4 text-primary" />
-                      {t("general.appearanceTitle")}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("general.appearanceDesc")}
-                    </p>
-                  </div>
-
+            <SectionCard
+              id="settings-appearance"
+              icon={Palette}
+              title={t("general.appearanceTitle")}
+              description={t("general.appearanceDesc")}
+            >
                   <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/25 p-3">
                     <div>
                       <Label className="text-sm font-medium">{t("general.themeLabel")}</Label>
@@ -3332,23 +2968,18 @@ export default function Settings() {
                     </div>
                     <DateFormatSelect id="settings-date-format" />
                   </div>
-                </div>
+            </SectionCard>
 
-                <div className="rounded-xl border border-border/70 bg-background/40 p-4 space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-warning" />
-                      {settingsFallback("general.sandboxRangeOverrideTitle", "Setting Value Ranges")}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {settingsFallback(
-                        "general.sandboxRangeOverrideDesc",
-                        "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
-                      )}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-lg border border-warning/40 bg-warning/10 p-3">
+            <SectionCard
+              id="settings-value-ranges"
+              icon={SlidersHorizontal}
+              title={settingsFallback("general.sandboxRangeOverrideTitle", "Setting Value Ranges")}
+              description={settingsFallback(
+                "general.sandboxRangeOverrideDesc",
+                "Controls whether the Server Settings and Sandbox tabs' Save buttons block a value outside its known minimum/maximum.",
+              )}
+            >
+                  <div className="flex items-center justify-between gap-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
                     <div>
                       <Label className="text-sm font-medium text-warning">
                         {settingsFallback("general.sandboxRangeOverrideLabel", "Allow values outside the known range")}
@@ -3366,20 +2997,16 @@ export default function Settings() {
                       aria-label={settingsFallback("ariaLabels.sandboxRangeOverride", "Allow values outside the known range")}
                     />
                   </div>
-                </div>
-
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
           <TabsContent value="access" className="mt-0">
-                <div className="rounded-xl border border-border/70 bg-background/40 p-4 space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{t("access.cardTitle")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("access.cardDesc")}
-                    </p>
-                  </div>
+            <SectionCard
+              id="settings-access"
+              icon={Globe}
+              title={t("access.cardTitle")}
+              description={t("access.cardDesc")}
+            >
 
                   <Alert className="border-border/60 bg-muted/40">
                     <Globe className="h-4 w-4 text-primary" />
@@ -3639,56 +3266,40 @@ export default function Settings() {
                       </ScrollArea>
                     </div>
                   )}
-                </div>
-
+            </SectionCard>
           </TabsContent>
 
           <TabsContent value="updates" className="mt-0">
-                <div className="rounded-xl border border-border/70 bg-muted/30 p-4 space-y-4">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-medium">{t("updates.autoUpdateTitle")}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t("updates.autoUpdateDesc")}
-                      </p>
-                    </div>
-                    {checkingPanelUpdate || panelUpdateStatus?.isChecking ? (
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/60 px-2.5 py-0.5 text-xs font-semibold text-foreground/85">
-                        {t("updates.statusChecking")}
-                      </span>
-                    ) : downloadingPanelUpdate ||
-                      panelUpdateStatus?.isDownloading ? (
-                      <span className="inline-flex items-center rounded-full border border-primary/35 bg-primary/12 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                        {t("updates.statusDownloading")}
-                      </span>
-                    ) : panelUpdateStatus?.updateAvailable ? (
-                      <span className="inline-flex items-center rounded-full border border-warning/35 bg-warning/12 px-2.5 py-0.5 text-xs font-semibold text-warning">
-                        {t("updates.statusUpdateAvailable")}
-                      </span>
-                    ) : panelUpdateStatusError ? (
-                      <span className="inline-flex items-center rounded-full border border-destructive/35 bg-destructive/12 px-2.5 py-0.5 text-xs font-semibold text-destructive">
-                        {t("updates.statusCannotReach")}
-                      </span>
-                    ) : !panelUpdateStatus?.latestVersion ? (
-                      // impeccable-2026-08-31: this used to be !panelUpdateStatus,
-                      // which only guards a null response -- a real-but-never-
-                      // checked status object (currentVersion set, latestVersion
-                      // still unset -- see the "Latest: Not checked yet" /
-                      // "Last Check: Never" fields a few lines below) is truthy,
-                      // so it fell through to the "Up to date" branch and showed
-                      // that badge next to a card plainly saying it was never
-                      // checked. latestVersion is the same field the two detail
-                      // cells below already gate on -- reusing it here instead
-                      // of a bare existence check.
-                      <span className="inline-flex items-center rounded-full border border-border/60 bg-background/60 px-2.5 py-0.5 text-xs font-semibold text-foreground/80">
-                        {t("updates.statusNotChecked")}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                        {t("updates.statusUpToDate")}
-                      </span>
-                    )}
-                  </div>
+            <SectionCard
+              id="settings-updates"
+              icon={Download}
+              title={t("updates.autoUpdateTitle")}
+              description={t("updates.autoUpdateDesc")}
+              status={
+                checkingPanelUpdate || panelUpdateStatus?.isChecking ? (
+                  <StatusPill size="sm" tone="busy" label={t("updates.statusChecking")} />
+                ) : downloadingPanelUpdate || panelUpdateStatus?.isDownloading ? (
+                  <StatusPill size="sm" tone="busy" label={t("updates.statusDownloading")} />
+                ) : panelUpdateStatus?.updateAvailable ? (
+                  <StatusPill size="sm" tone="warn" label={t("updates.statusUpdateAvailable")} />
+                ) : panelUpdateStatusError ? (
+                  <StatusPill size="sm" tone="error" label={t("updates.statusCannotReach")} />
+                ) : !panelUpdateStatus?.latestVersion ? (
+                  // impeccable-2026-08-31: this used to be !panelUpdateStatus,
+                  // which only guards a null response -- a real-but-never-
+                  // checked status object (currentVersion set, latestVersion
+                  // still unset -- see the "Latest: Not checked yet" /
+                  // "Last Check: Never" fields a few lines below) is truthy,
+                  // so it fell through to the "Up to date" branch and showed
+                  // that badge next to a card plainly saying it was never
+                  // checked. latestVersion is the same field the two detail
+                  // cells below already gate on.
+                  <StatusPill size="sm" tone="idle" label={t("updates.statusNotChecked")} />
+                ) : (
+                  <StatusPill size="sm" tone="ok" label={t("updates.statusUpToDate")} />
+                )
+              }
+            >
 
                   {panelUpdateStatusError && (
                     <Alert variant="destructive">
@@ -4332,22 +3943,17 @@ export default function Settings() {
                       ? t("updates.footerDockerHandled")
                       : t("updates.footerAutoUpdateDevMode")}
                   </p>
-                </div>
+            </SectionCard>
           </TabsContent>
 
           <TabsContent value="https" className="mt-0">
             {/* HTTPS Settings */}
-            <Card id="settings-https">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-primary" />
-                  {t("https.cardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("https.cardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <SectionCard
+              id="settings-https"
+              icon={Lock}
+              title={t("https.cardTitle")}
+              description={t("https.cardDesc")}
+            >
                 <Alert className="border-border/60 bg-muted/40">
                   <Lock className="h-4 w-4 text-primary" />
                   <AlertTitle>{t("https.recommendedTitle")}</AlertTitle>
@@ -4513,23 +4119,17 @@ export default function Settings() {
                       )}
                   </div>
                 )}
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
-          <TabsContent value="connection" className="mt-0 space-y-5">
+          <TabsContent value="connection" className="mt-0 space-y-6">
             {/* RCON Settings */}
-            <Card id="settings-rcon">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Link className="w-4 h-4 text-primary" />
-                  {t("connection.cardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("connection.cardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <SectionCard
+              id="settings-rcon"
+              icon={Link}
+              title={t("connection.cardTitle")}
+              description={t("connection.cardDesc")}
+            >
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                   <DisabledReason reason={!canConfigureServerSettings ? t("permissions.noServerConfigure") : null}>
                     <Button
@@ -4606,20 +4206,14 @@ export default function Settings() {
                     <li>{t("connection.step3")}</li>
                   </ol>
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
 
-            <Card id="settings-server-startup">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Server className="w-4 h-4 text-primary" />
-                  {t("connection.startupCardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("connection.startupCardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <SectionCard
+              id="settings-server-startup"
+              icon={Server}
+              title={t("connection.startupCardTitle")}
+              description={t("connection.startupCardDesc")}
+            >
                 <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/25 p-3">
                   <div className="space-y-1">
                     <Label
@@ -4642,195 +4236,31 @@ export default function Settings() {
                     />
                   </DisabledReason>
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
-          <TabsContent value="bridge" className="mt-0">
-            {/* Panel Bridge - Advanced Features */}
-            <Card id="settings-bridge">
-              <CardHeader className="pb-4">
-                {/* impeccable-2026-08-31: this used to be a plain flex row
-                    with no responsive stacking -- on mobile the title +
-                    description column got squeezed into a narrow space next
-                    to the badge, wrapping the description into 5 short
-                    lines instead of its normal 2-3. Same fix shape as the
-                    Updates card's header a few tabs over. */}
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-primary" />
-                      {t("bridge.cardTitle")}
-                    </CardTitle>
-                    <CardDescription className="flex items-center gap-2">
-                      {t("bridge.cardDesc")}
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <button className="inline-flex items-center gap-1 text-xs text-primary hover:underline whitespace-nowrap">
-                            <Info className="w-3.5 h-3.5" />
-                            {t("bridge.howItWorksButton")}
-                          </button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-                          <DialogHeader>
-                            <DialogTitle className="flex items-center gap-2">
-                              <Zap className="w-4 h-4 text-primary" />
-                              {t("bridge.dialogTitle")}
-                            </DialogTitle>
-                            <DialogDescription>
-                              {t("bridge.dialogDesc")}
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="space-y-5 text-sm">
-                            {/* What it unlocks */}
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                                {t("bridge.unlocksTitle")}
-                              </p>
-                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                                  <p className="font-medium text-foreground">
-                                    {t("bridge.unlockWeatherTitle")}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t("bridge.unlockWeatherDesc")}
-                                  </p>
-                                </div>
-                                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                                  <p className="font-medium text-foreground">
-                                    {t("bridge.unlockPlayerTitle")}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t("bridge.unlockPlayerDesc")}
-                                  </p>
-                                </div>
-                                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                                  <p className="font-medium text-foreground">
-                                    {t("bridge.unlockWorldTitle")}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t("bridge.unlockWorldDesc")}
-                                  </p>
-                                </div>
-                                <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                                  <p className="font-medium text-foreground">
-                                    {t("bridge.unlockChatTitle")}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {t("bridge.unlockChatDesc")}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* How it works */}
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                                {t("bridge.howItWorksTitle")}
-                              </p>
-                              <p className="text-muted-foreground mb-3">
-                                <Trans t={t} i18nKey="bridge.howItWorksDesc" components={{ b: <strong className="text-foreground" /> }} />
-                              </p>
-                            </div>
-
-                            {/* Setup steps */}
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-                                {t("bridge.setupTitle")}
-                              </p>
-                              <ol className="space-y-2">
-                                <li className="flex gap-3 items-start">
-                                  <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
-                                    1
-                                  </span>
-                                  <div>
-                                    <p className="font-medium">
-                                      {t("bridge.setupStep1Title")}
-                                    </p>
-                                    <p className="text-muted-foreground text-xs">
-                                      {t("bridge.setupStep1Desc")}
-                                    </p>
-                                  </div>
-                                </li>
-                                <li className="flex gap-3 items-start">
-                                  <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
-                                    2
-                                  </span>
-                                  <div>
-                                    <p className="font-medium">
-                                      {t("bridge.setupStep2Title")}
-                                    </p>
-                                    <p className="text-muted-foreground text-xs">
-                                      {t("bridge.setupStep2Desc")}
-                                    </p>
-                                  </div>
-                                </li>
-                                <li className="flex gap-3 items-start">
-                                  <span className="flex-none w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center mt-0.5">
-                                    3
-                                  </span>
-                                  <div>
-                                    <p className="font-medium">
-                                      {t("bridge.setupStep3Title")}
-                                    </p>
-                                    <p className="text-muted-foreground text-xs">
-                                      <Trans t={t} i18nKey="bridge.setupStep3Desc" components={{ b1: <strong className="text-warning" />, b: <strong className="text-primary" /> }} />
-                                    </p>
-                                  </div>
-                                </li>
-                              </ol>
-                            </div>
-
-                            {/* Requirement */}
-                            <div className="rounded-lg border border-warning/35 bg-warning/10 px-3 py-2 text-xs">
-                              <p>
-                                <Trans t={t} i18nKey="bridge.requiresLuaChecksum" components={{ b: <strong /> }} />
-                              </p>
-                            </div>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    </CardDescription>
-                  </div>
-                  {bridgeStatus && (
-                    <BridgeStatusBadge
-                      // modConnected alone is whether the mod is alive
-                      // (debounced -- stays true through a brief poll
-                      // miss). canSendCommands is a live, undebounced
-                      // check of whether the panel can actually write to
-                      // the bridge (dir writable, status file fresh) --
-                      // it can go false while modConnected is still true.
-                      // Badge must reflect both, or it reads "Connected"
-                      // right next to a Ping button that's about to throw.
-                      connected={bridgeStatus.modConnected && bridgeStatus.connection?.canSendCommands === true}
-                      running={bridgeStatus.isRunning}
-                      loading={bridgeLoading}
-                      bridgePath={bridgeStatus.bridgePath}
-                      summary={resolveBridgeDiagText(bridgeStatus.connection?.summary)}
-                      interactive={false}
-                    />
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {/* pz-bughunt round 21 (UX sense check, part 1): this tab
-                    used to be one flat ~860-line space-y-4 stack in a single
-                    Card -- the operator's named worst scroll offender.
-                    Split into 4 collapsible sections (status+setup open by
-                    default; remote RCON+SFTP; remote config+logs; install
-                    and updates), same Collapsible idiom Scheduler.tsx's own
-                    Cron Help section already uses. */}
-                <Collapsible defaultOpen>
-                  <div className="rounded-xl border border-border/40 bg-card/40">
-                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
-                      <span className="flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-primary" />
-                        {t("bridge.sectionStatusSetup")}
-                      </span>
-                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-4 px-4 pb-4 pt-0">
+          <TabsContent value="bridge" className="mt-0 space-y-6">
+            {/* pz-bughunt round 21 (UX sense check, part 1): this tab
+                used to be one flat ~860-line stack -- the operator's named
+                worst scroll offender. Four collapsible sections (status and
+                setup open by default; remote RCON and SFTP; remote config
+                and logs; install and updates), each its own card. The
+                bridge's live checks have a full view in Diagnostics. */}
+            <SectionCard
+              id="settings-bridge"
+              collapsible
+              defaultOpen
+              icon={Zap}
+              title={t("bridge.sectionStatusSetup")}
+              actions={
+                <Button asChild variant="ghost" size="sm" className="gap-1.5">
+                  <RouterLink to="/debug?tab=bridge">
+                    {t("bridge.openInDiagnostics")}
+                    <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
+                  </RouterLink>
+                </Button>
+              }
+            >
                 {/* Status Display - when connected */}
                 {bridgeStatus?.modConnected && bridgeStatus.modStatus && (
                   <Alert
@@ -5276,10 +4706,7 @@ export default function Settings() {
                     </Button>
                   </div>
                 )}
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
+            </SectionCard>
 
                 {/* A refused SFTP host key, from any caller (bridge, Files,
                     log viewer, config mirror). Outside the collapsed
@@ -5287,8 +4714,8 @@ export default function Settings() {
                     fingerprints are shown so the operator trusts the key
                     they compared, not whatever comes next. */}
                 {hostKeyRefusals.length > 0 && (
-                  <div id="sftp-host-key" role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-xs">
-                    <p className="flex items-start gap-2 text-destructive"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{t("bridge.hostKeyMismatchWarning")}</p>
+                  <div id="sftp-host-key" role="alert" className="space-y-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-xs">
+                    <p className="flex items-start gap-2 text-sm font-medium text-foreground"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />{t("bridge.hostKeyMismatchWarning")}</p>
                     {hostKeyRefusals.map((refusal) => {
                       const id = `${refusal.host}:${refusal.port}`;
                       return (
@@ -5317,17 +4744,12 @@ export default function Settings() {
                   </div>
                 )}
 
-                <Collapsible>
-                  <div className="rounded-xl border border-border/40 bg-card/40">
-                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
-                      <span className="flex items-center gap-2">
-                        <Link className="w-4 h-4 text-primary" />
-                        {t("bridge.remoteConnectionTitle")}
-                      </span>
-                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-4 px-4 pb-4 pt-0">
+            <SectionCard
+              collapsible
+              defaultOpen={false}
+              icon={Link}
+              title={t("bridge.remoteConnectionTitle")}
+            >
                   <p className="text-xs text-muted-foreground">
                     {t("bridge.remoteConnectionDesc")}
                   </p>
@@ -5402,22 +4824,14 @@ export default function Settings() {
                       {bridgeStatus?.transport?.type === "sftp" && <div className="space-y-1 text-xs text-muted-foreground"><p>SFTP {bridgeStatus.transport.running ? t("bridge.sftpRunning") : t("bridge.sftpStopped")}{bridgeStatus.transport.lastLatencyMs != null ? t("bridge.lastSyncSuffix", { ms: bridgeStatus.transport.lastLatencyMs }) : ""}</p>{bridgeStatus.transport.lastError && <p className="text-warning">{getSftpStatusMessage(bridgeStatus.transport)}</p>}</div>}
                     </div>
                   </div>
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
+            </SectionCard>
 
-                <Collapsible>
-                  <div className="rounded-xl border border-border/40 bg-card/40">
-                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
-                      <span className="flex items-center gap-2">
-                        <FolderOpen className="w-4 h-4 text-primary" />
-                        {t("bridge.sectionRemoteConfigLogs")}
-                      </span>
-                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-4 px-4 pb-4 pt-0">
+            <SectionCard
+              collapsible
+              defaultOpen={false}
+              icon={FolderOpen}
+              title={t("bridge.sectionRemoteConfigLogs")}
+            >
 
                   <p className="text-xs text-muted-foreground">
                     <Trans t={t} i18nKey="bridge.serverLogsNote" components={{ b: <strong className="text-foreground" /> }} />
@@ -5567,22 +4981,14 @@ export default function Settings() {
                       </div>
                     )}
                   </div>
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
+            </SectionCard>
 
-                <Collapsible>
-                  <div className="rounded-xl border border-border/40 bg-card/40">
-                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:text-primary transition-colors">
-                      <span className="flex items-center gap-2">
-                        <Download className="w-4 h-4 text-primary" />
-                        {t("bridge.sectionInstallUpdates")}
-                      </span>
-                      <ChevronDown className="w-4 h-4 shrink-0 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-4 px-4 pb-4 pt-0">
+            <SectionCard
+              collapsible
+              defaultOpen={false}
+              icon={Download}
+              title={t("bridge.sectionInstallUpdates")}
+            >
 
                 {/* Auto-update toggle */}
                 <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/25 p-4">
@@ -5663,29 +5069,17 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
-          <TabsContent value="mods" className="mt-0 space-y-5">
+          <TabsContent value="mods" className="mt-0 space-y-6">
             {/* Mod Update Settings */}
-            <Card id="settings-mods">
-              <CardHeader className="pb-4">
-                <div className="flex items-center gap-3">
-                  <CardTitle className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    {t("mods.cardTitle")}
-                  </CardTitle>
-                </div>
-                <CardDescription>
-                  {t("mods.cardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
+            <SectionCard
+              id="settings-mods"
+              icon={Clock}
+              title={t("mods.cardTitle")}
+              description={t("mods.cardDesc")}
+            >
                 <div className="max-w-xs space-y-2">
                   <Label htmlFor="mod-check-interval" className="text-base">
                     {t("mods.checkIntervalLabel")}
@@ -5809,8 +5203,7 @@ export default function Settings() {
                     </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
 
             {/* Workshop Collection Sync ──────────────────────────────────────── */}
             <WorkshopCollectionSyncCard
@@ -5826,17 +5219,12 @@ export default function Settings() {
             />
 
             {/* API Keys */}
-            <Card id="settings-api-keys">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="w-4 h-4 text-primary" />
-                  {t("mods.apiKeysCardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("mods.apiKeysCardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
+            <SectionCard
+              id="settings-api-keys"
+              icon={Key}
+              title={t("mods.apiKeysCardTitle")}
+              description={t("mods.apiKeysCardDesc")}
+            >
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <Label htmlFor="steam-api-key" className="text-base">
@@ -5847,19 +5235,11 @@ export default function Settings() {
                   that a key is stored on the server. */}
                     {settings.steamApiKey &&
                     settings.steamApiKey.startsWith("•") ? (
-                      <span className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success">
-                        <Check className="w-3 h-3" aria-hidden="true" />{" "}
-                        {t("mods.configured")}
-                      </span>
+                      <StatusPill size="sm" tone="ok" label={t("mods.configured")} />
                     ) : settings.steamApiKey ? (
-                      <span className="inline-flex items-center gap-1 rounded border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[11px] font-medium text-warning">
-                        <AlertTriangle className="w-3 h-3" aria-hidden="true" />{" "}
-                        {t("mods.pendingSave")}
-                      </span>
+                      <StatusPill size="sm" tone="warn" label={t("mods.pendingSave")} />
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded border border-muted-foreground/30 bg-muted/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                        {t("mods.notConfigured")}
-                      </span>
+                      <StatusPill size="sm" tone="idle" label={t("mods.notConfigured")} />
                     )}
                   </div>
                   <div className="relative max-w-md">
@@ -5917,419 +5297,89 @@ export default function Settings() {
                     </ol>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
-          <TabsContent value="backups" className="mt-0 space-y-5">
-            {/* World Backups */}
-            <Card id="settings-backups">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <Archive className="w-4 h-4 text-primary" />
-                      {t("backups.cardTitle")}
-                    </CardTitle>
-                    <CardDescription>
-                      {t("backups.cardDesc")}
-                    </CardDescription>
-                  </div>
-                  <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
-                    <Button
-                      onClick={handleCreateBackup}
-                      disabled={creatingBackup || !backupStatus?.savesExists || backupPanelServerChanged}
-                      className="gap-2"
-                    >
-                      {creatingBackup ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Archive className="w-4 h-4" />
-                      )}
-                      {creatingBackup ? t("backups.creatingButton") : t("backups.backupNowButton")}
-                    </Button>
-                  </DisabledReason>
+          <TabsContent value="backups" className="mt-0 space-y-6">
+            <SectionCard
+              id="settings-character-exports"
+              icon={User}
+              title={t("backups.characterExportsCardTitle")}
+              description={t("backups.characterExportsCardDesc")}
+            >
+              <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/25 p-3">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="auto-export-on-login"
+                    className="text-sm font-medium"
+                  >
+                    {t("backups.autoExportLabel")}
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("backups.autoExportDesc")}
+                  </p>
                 </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Status */}
-                {backupStatus && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-muted/50 rounded-xl">
-                    <div className="flex items-center gap-2">
-                      <HardDrive className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm">
-                        {backupStatus.savesExists ? (
-                          <span className="text-primary">
-                            {t("backups.savesFolderFound")}
-                          </span>
-                        ) : (
-                          <span className="text-destructive">
-                            {t("backups.savesFolderNotFound")}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Archive className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm">
-                        {t("backups.backupsStored", { count: backupStatus.backupCount })}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-muted-foreground" />
-                      <span className="text-sm">
-                        {backupStatus.lastBackup
-                          ? t("backups.lastBackup", { date: formatDateTime(backupStatus.lastBackup.created, { seconds: true }) })
-                          : t("backups.noBackupsYet")}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Scheduled Backups */}
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label className="text-base">{t("backups.scheduledLabel")}</Label>
-                      <p className="text-sm text-muted-foreground">
-                        {!backupStatus && backupStatusLoadError
-                          ? t("backups.statusLoadFailed")
-                          : t("backups.scheduledDesc")}
-                      </p>
-                    </div>
-                    <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
-                      <Switch
-                        checked={backupStatus?.enabled || false}
-                        onCheckedChange={toggleBackupEnabled}
-                        disabled={backupLoading || (!backupStatus && backupStatusLoadError) || backupPanelServerChanged}
-                        aria-label={t("ariaLabels.enableScheduledBackups")}
-                      />
-                    </DisabledReason>
-                  </div>
-
-                  {backupStatus?.enabled && (
-                    <div className="grid grid-cols-1 gap-4 border-s-2 border-primary/20 ps-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-1.5">
-                          <Label htmlFor="backup-schedule">{t("backups.scheduleLabel")}</Label>
-                          <HelpTip label={t("backups.scheduleLabel")}>{t("backups.scheduleTip")}</HelpTip>
-                        </div>
-                        <Input
-                          id="backup-schedule"
-                          value={backupSchedule}
-                          onChange={(e) => setBackupSchedule(e.target.value)}
-                          placeholder="0 */6 * * *"
-                          // Left-to-right in every language, as on the
-                          // Backups page: in an RTL page a cron's neutral
-                          // '*' and '/' would otherwise lay out reversed.
-                          dir="ltr"
-                          className="font-mono"
-                          maxLength={100}
-                          aria-describedby="backup-schedule-help"
-                        />
-                        <p id="backup-schedule-help" className="text-xs text-muted-foreground">
-                          {t("backups.scheduleHelp")}
-                        </p>
-                        {/* The Backups page's custom-cron field shows the
-                            same two things, from the same check. */}
-                        <BackupScheduleValidity check={backupScheduleCheck} pending={backupScheduleCheckPending} />
-                        <BackupScheduleNextRun
-                          check={backupScheduleCheck}
-                          pending={backupScheduleCheckPending}
-                          backupsEnabled={backupStatus.enabled}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="backup-max">{t("backups.maxBackupsLabel")}</Label>
-                        <NumberInput
-                          id="backup-max"
-                          min={1}
-                          max={100}
-                          value={backupMaxCount}
-                          onChange={setBackupMaxCount}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          className="max-w-24"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          {t("backups.maxBackupsHelp")}
-                        </p>
-                      </div>
-                      {/* This field edits the same schedule as the Backups
-                          page, so it warns about the same restart
-                          collisions, the same way: for what is typed, from
-                          the live check, with the saved schedule's (GET
-                          /backup/status) standing in until that check has
-                          answered. */}
-                      <BackupRestartOverlapNotice
-                        overlaps={
-                          backupScheduleCheck
-                            ? backupScheduleCheck.valid ? backupScheduleCheck.restartOverlaps : undefined
-                            : backupScheduleInput === backupStatus.schedule ? backupStatus.restartOverlaps : undefined
-                        }
-                        live
-                        stale={backupScheduleCheckPending}
-                        hideTimeZone={Boolean(backupScheduleCheck?.valid)}
-                        className="sm:col-span-2"
-                      />
-                      <div className="sm:col-span-2">
-                        <DisabledReason reason={backupPanelServerChanged ? t("toasts.backupPanelServerChanged.description") : null}>
-                          <Button
-                            onClick={handleSaveBackupSettings}
-                            disabled={backupLoading || backupPanelServerChanged}
-                            variant="outline"
-                            size="sm"
-                          >
-                            {backupLoading && (
-                              <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                            )}
-                            {t("backups.saveScheduleButton")}
-                          </Button>
-                        </DisabledReason>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Backup List */}
-                <div className="space-y-2">
-                  <p className="text-base font-medium">{t("backups.existingBackupsTitle")}</p>
-                  {backups.length === 0 ? (
-                    <EmptyState
-                      compact
-                      type={backupsLoadError ? "disconnected" : "empty"}
-                      title={backupsLoadError ? t("backups.loadFailedTitle") : t("backups.emptyTitle")}
-                      description={
-                        backupsLoadError
-                          ? t("backups.loadFailedDescription")
-                          : // impeccable-2026-08-31: this used to always say "Click Backup Now
-                            // to create one" even when Backup Now is disabled because the saves
-                            // folder wasn't found (see the status row above) -- pointing the
-                            // operator at a dead control instead of the actual blocker.
-                            !backupStatus?.savesExists
-                            ? t("backups.emptyDescriptionSavesNotFound")
-                            : t("backups.emptyDescription")
-                      }
-                    />
-                  ) : (
-                    <ScrollArea className="h-[200px] rounded-lg border">
-                      <div className="p-2 space-y-2">
-                        {backups.map((backup) => (
-                          <div
-                            key={backup.name}
-                            className="flex items-center justify-between p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                          >
-                            <div className="flex items-center gap-3 min-w-0">
-                              <Archive className="w-4 h-4 text-primary flex-shrink-0" />
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium truncate">
-                                  {backup.name}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatBytes(backup.size)} •{" "}
-                                  {formatDateTime(backup.created, { seconds: true })}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <AlertDialog
-                                open={restoreConfirmBackup === backup.name}
-                                onOpenChange={(open) =>
-                                  !open && setRestoreConfirmBackup(null)
-                                }
-                              >
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() =>
-                                      setRestoreConfirmBackup(backup.name)
-                                    }
-                                    disabled={restoringBackup !== null}
-                                    className="text-warning hover:text-warning hover:bg-warning/10"
-                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the "(server must be stopped)" parenthetical is a general precondition note, not tied to the actual disable condition (another restore already in progress, self-evident via the spinner). Triaged 2026-08-27.
-                                    title={t("backups.restoreTitle")}
-                                  >
-                                    {restoringBackup === backup.name ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <RotateCcw className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle className="flex items-center gap-2">
-                                      <AlertTriangle className="w-5 h-5 text-warning" />
-                                      {t("backups.restoreDialogTitle")}
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription className="text-start space-y-2">
-                                      <p>
-                                        <Trans t={t} i18nKey="backups.restoreDialogIntro" values={{ name: backup.name }} components={{ b: <strong /> }} />
-                                      </p>
-                                      <ul className="list-disc list-inside text-sm space-y-1">
-                                        <li>
-                                          <Trans t={t} i18nKey="backups.restoreMustBeStopped" components={{ b: <strong /> }} />
-                                        </li>
-                                        <li>
-                                          {t("backups.restorePreBackup")}
-                                        </li>
-                                        <li>{t("backups.restoreCannotUndo")}</li>
-                                      </ul>
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                      {t("backups.cancel")}
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() =>
-                                        handleRestoreBackup(backup.name)
-                                      }
-                                      className="bg-warning text-warning-foreground hover:bg-warning/90"
-                                    >
-                                      {t("backups.restoreButton")}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  backupApi.downloadBackup(backup.name)
-                                }
-                                title={t("backups.downloadTitle")}
-                              >
-                                <Download className="w-4 h-4" />
-                              </Button>
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    title={t("backups.deleteTitle")}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>
-                                      {t("backups.deleteDialogTitle")}
-                                    </AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      {t("backups.deleteDialogDesc", { name: backup.name })}
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>
-                                      {t("backups.cancel")}
-                                    </AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() =>
-                                        handleDeleteBackup(backup.name)
-                                      }
-                                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                    >
-                                      {t("backups.deleteButton")}
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  )}
-                </div>
-
-                {/* Path Info */}
-                {backupStatus?.savesPath && (
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <p>
-                      <strong>{t("backups.savesPathLabel")}</strong> {backupStatus.savesPath}
-                    </p>
-                    <p>
-                      <strong>{t("backups.backupsPathLabel")}</strong> {backupStatus.backupsPath}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card id="settings-character-exports">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <User className="w-4 h-4 text-primary" />
-                  {t("backups.characterExportsCardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("backups.characterExportsCardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/25 p-3">
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor="auto-export-on-login"
-                      className="text-sm font-medium"
-                    >
-                      {t("backups.autoExportLabel")}
-                    </Label>
-                    <p className="text-xs text-muted-foreground">
-                      {t("backups.autoExportDesc")}
-                    </p>
-                  </div>
-                  <Switch
-                    id="auto-export-on-login"
-                    checked={settings.autoExportOnLogin}
-                    onCheckedChange={(value) =>
-                      updateSetting("autoExportOnLogin", value)
+                <Switch
+                  id="auto-export-on-login"
+                  checked={settings.autoExportOnLogin}
+                  onCheckedChange={(value) =>
+                    updateSetting("autoExportOnLogin", value)
+                  }
+                  aria-label={t("ariaLabels.exportCharacterOnJoin")}
+                />
+              </div>
+              {settings.autoExportOnLogin && (
+                <div className="max-w-xs space-y-1.5">
+                  <Label htmlFor="auto-export-max">
+                    {t("backups.copiesKeptLabel")}
+                  </Label>
+                  <Input
+                    id="auto-export-max"
+                    type="number"
+                    min="1"
+                    max="50"
+                    inputMode="numeric"
+                    value={settings.autoExportMaxPerPlayer}
+                    onChange={(e) =>
+                      updateSetting("autoExportMaxPerPlayer", e.target.value)
                     }
-                    aria-label={t("ariaLabels.exportCharacterOnJoin")}
+                    onWheel={(e) => e.currentTarget.blur()}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    {t("backups.copiesKeptHelp")}
+                  </p>
                 </div>
-                {settings.autoExportOnLogin && (
-                  <div className="max-w-xs space-y-1.5">
-                    <Label htmlFor="auto-export-max">
-                      {t("backups.copiesKeptLabel")}
-                    </Label>
-                    <Input
-                      id="auto-export-max"
-                      type="number"
-                      min="1"
-                      max="50"
-                      inputMode="numeric"
-                      value={settings.autoExportMaxPerPlayer}
-                      onChange={(e) =>
-                        updateSetting("autoExportMaxPerPlayer", e.target.value)
-                      }
-                      onWheel={(e) => e.currentTarget.blur()}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t("backups.copiesKeptHelp")}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+              )}
+            </SectionCard>
+
+            {/* World backups, their schedule and how many are kept have one
+                home: the World Backups page. This tab used to carry a second,
+                smaller copy of that screen (its own list, restore, delete
+                and schedule editor) that could disagree with it. */}
+            <SectionCard
+              id="settings-world-backups"
+              icon={Archive}
+              title={t("backups.worldBackupsLinkTitle")}
+              description={t("backups.worldBackupsLinkDesc")}
+              actions={
+                <Button asChild variant="outline" size="sm" className="gap-2">
+                  <RouterLink to="/backups?panel=schedule">
+                    {t("backups.openWorldBackups")}
+                    <ChevronRight className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
+                  </RouterLink>
+                </Button>
+              }
+            />
           </TabsContent>
 
           <TabsContent value="security" className="mt-0">
             {/* Security & Authentication */}
-            <Card id="settings-security">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-primary" />
-                  {t("security.cardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("security.cardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
+            <SectionCard
+              id="settings-security"
+              icon={Shield}
+              title={t("security.cardTitle")}
+              description={t("security.cardDesc")}
+            >
                 {/* Account Info */}
                 {authEnabled && user && (
                   <div className="p-4 rounded-xl bg-muted/50 space-y-4">
@@ -6363,7 +5413,7 @@ export default function Settings() {
                         )
                           return;
                         if (newPassword !== confirmPassword) return;
-                        if (newPassword.length < 6) return;
+                        if (!meetsPasswordMinLength(newPassword)) return;
                         handleChangePassword();
                       }}
                     >
@@ -6452,7 +5502,7 @@ export default function Settings() {
                             <XCircle className="w-3 h-3" /> {t("security.passwordsDontMatch")}
                           </p>
                         )}
-                      {newPassword && newPassword.length < 6 && (
+                      {newPassword && !meetsPasswordMinLength(newPassword) && (
                         <p
                           className="text-xs text-destructive flex items-center gap-1"
                           role="alert"
@@ -6468,7 +5518,7 @@ export default function Settings() {
                           !newPassword ||
                           !confirmPassword ||
                           newPassword !== confirmPassword ||
-                          newPassword.length < 6
+                          !meetsPasswordMinLength(newPassword)
                         }
                         className="gap-2"
                       >
@@ -6744,7 +5794,7 @@ export default function Settings() {
                                       </p>
                                     )}
                                   {localPasswordResetPassword &&
-                                    localPasswordResetPassword.length < 6 && (
+                                    !meetsPasswordMinLength(localPasswordResetPassword) && (
                                       <p
                                         className="text-xs text-destructive flex items-center gap-1"
                                         role="alert"
@@ -6763,7 +5813,7 @@ export default function Settings() {
                                       !localPasswordResetConfirm ||
                                       localPasswordResetPassword !==
                                         localPasswordResetConfirm ||
-                                      localPasswordResetPassword.length < 6
+                                      !meetsPasswordMinLength(localPasswordResetPassword)
                                     }
                                   >
                                     {resettingLocalPassword ? (
@@ -6909,8 +5959,7 @@ export default function Settings() {
                     </p>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
 
           <TabsContent value="users" className="mt-0">
@@ -6921,22 +5970,25 @@ export default function Settings() {
             <RolesPermissions embedded />
           </TabsContent>
 
-          <TabsContent value="sso" className="mt-0">
-            <OidcSettings embedded />
+          <TabsContent
+            value="sso"
+            forceMount={ssoDirty || undefined}
+            className="mt-0 data-[state=inactive]:hidden"
+          >
+            <OidcSettings
+              embedded
+              active={activeSection === "sso"}
+              onDirtyChange={setSsoDirty}
+            />
           </TabsContent>
 
-          <TabsContent value="about" className="mt-0 space-y-5">
-            <Card id="settings-elsewhere">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <ExternalLink className="w-4 h-4 text-primary" />
-                  {t("about.elsewhereCardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("about.elsewhereCardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+          <TabsContent value="about" className="mt-0 space-y-6">
+            <SectionCard
+              id="settings-elsewhere"
+              icon={ExternalLink}
+              title={t("about.elsewhereCardTitle")}
+              description={t("about.elsewhereCardDesc")}
+            >
                 <ul className="divide-y divide-border/50">
                   {[
                     {
@@ -6953,6 +6005,11 @@ export default function Settings() {
                       href: "/scheduler",
                       label: t("about.elsewhereScheduler.label"),
                       detail: t("about.elsewhereScheduler.detail"),
+                    },
+                    {
+                      href: "/backups?panel=schedule",
+                      label: t("about.elsewhereBackups.label"),
+                      detail: t("about.elsewhereBackups.detail"),
                     },
                     {
                       href: "/server-config",
@@ -6978,34 +6035,29 @@ export default function Settings() {
                             {item.detail}
                           </span>
                         </span>
-                        <ExternalLink
-                          className="w-3.5 h-3.5 shrink-0 text-muted-foreground/60 group-hover:text-primary"
+                        {/* An in-app link: a chevron, not the new-tab icon. */}
+                        <ChevronRight
+                          className="w-4 h-4 shrink-0 text-muted-foreground/60 group-hover:text-primary rtl:-scale-x-100"
                           aria-hidden="true"
                         />
                       </RouterLink>
                     </li>
                   ))}
                 </ul>
-              </CardContent>
-            </Card>
+            </SectionCard>
 
             {/* About */}
-            <Card id="settings-about">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2">
-                  <Server className="w-4 h-4 text-primary" />
-                  {t("about.aboutCardTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("about.aboutCardDesc")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
+            <SectionCard
+              id="settings-about"
+              icon={Server}
+              title={t("about.aboutCardTitle")}
+              description={t("about.aboutCardDesc")}
+            >
                 {/* Version row */}
                 <div className="rounded-xl border border-border/60 bg-muted/30 p-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                      <p className="label-micro mb-1">
                         {t("about.installedVersionLabel")}
                       </p>
                       <p className="text-lg font-semibold tabular-nums">
@@ -7013,7 +6065,7 @@ export default function Settings() {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                      <p className="label-micro mb-1">
                         {t("about.latestAvailableLabel")}
                       </p>
                       <p className="text-lg font-semibold tabular-nums flex items-center gap-2">
@@ -7021,9 +6073,7 @@ export default function Settings() {
                           <>
                             v{panelUpdateStatus.latestVersion}
                             {panelUpdateStatus.updateAvailable ? (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-warning/50 bg-warning/10 px-2 py-0.5 text-[10px] font-medium text-warning">
-                                {t("about.updateAvailableBadge")}
-                              </span>
+                              <StatusPill size="sm" tone="warn" label={t("about.updateAvailableBadge")} />
                             ) : (
                               /* impeccable-2026-08-31: installed/latest matching used to render as
                                  two bare numbers with no affirmative status -- the operator has to
@@ -7031,9 +6081,7 @@ export default function Settings() {
                                  with a status pill (statusUpToDate); this reuses that pattern instead
                                  of leaving the "everything's fine" case silent next to the "update
                                  available" case, which does get a badge. */
-                              <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                                {t("about.upToDateBadge")}
-                              </span>
+                              <StatusPill size="sm" tone="ok" label={t("about.upToDateBadge")} />
                             )}
                           </>
                         ) : (
@@ -7124,10 +6172,9 @@ export default function Settings() {
                   <span aria-hidden="true">·</span>
                   <span>{t("about.mitLicensed")}</span>
                 </div>
-              </CardContent>
-            </Card>
+            </SectionCard>
           </TabsContent>
-        </div>
+        </SubNavLayout>
       </Tabs>
 
       <AlertDialog
@@ -7161,6 +6208,24 @@ export default function Settings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* The one save for the shared settings: it shows while any tab
+          holds an edit (the rail marks which), saves all of them, and says
+          why Save is off. Users, Roles & Permissions and Single Sign-On
+          save on their own, so it stays out of their way there. */}
+      {editsSharedSettings && (
+        <SaveBar
+          dirty={isDirty}
+          saving={saving}
+          onSave={handleSave}
+          onDiscard={() => {
+            if (originalSettings) setSettings(originalSettings);
+          }}
+          changeCount={changedSettingKeys.length}
+          disabledReason={saveDisabledReason}
+          saveLabel={t("unsavedBanner.saveButton")}
+        />
+      )}
     </div>
   );
 }
@@ -7655,17 +6720,12 @@ function WorkshopCollectionSyncCard({
   };
 
   return (
-    <Card id="settings-workshop-collection">
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2">
-          <RefreshCw className="w-4 h-4 text-primary" />
-          {t("workshopSync.cardTitle")}
-        </CardTitle>
-        <CardDescription>
-          {t("workshopSync.cardDesc")}
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-7">
+    <SectionCard
+      id="settings-workshop-collection"
+      icon={RefreshCw}
+      title={t("workshopSync.cardTitle")}
+      description={t("workshopSync.cardDesc")}
+    >
         <div className="grid gap-6 border-b border-border/40 pb-6 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,.8fr)]">
         {/* Collection ID */}
         <div className="space-y-2 lg:order-1">
@@ -7737,13 +6797,9 @@ function WorkshopCollectionSyncCard({
             <div className="flex items-center gap-2">
               <Label className="text-base">{t("workshopSync.cookiesLabel")}</Label>
             {credsConfigured ? (
-              <span className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/10 px-1.5 py-0.5 text-[11px] font-medium text-success">
-                <Check className="w-3 h-3" /> {t("workshopSync.configured")}
-              </span>
+              <StatusPill size="sm" tone="ok" label={t("workshopSync.configured")} />
             ) : (
-              <span className="inline-flex items-center gap-1 rounded border border-muted-foreground/30 bg-muted/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                {t("workshopSync.notConfigured")}
-              </span>
+              <StatusPill size="sm" tone="idle" label={t("workshopSync.notConfigured")} />
             )}
             </div>
             <button
@@ -8489,7 +7545,6 @@ function WorkshopCollectionSyncCard({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </CardContent>
-    </Card>
+    </SectionCard>
   );
 }

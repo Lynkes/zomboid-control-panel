@@ -20,7 +20,11 @@
       <h2>1. Panel connection</h2>
       <label>
         <span>Panel URL</span>
-        <input type="text" id="panel-url" placeholder="http://garage:3001" autocomplete="off" spellcheck="false">
+        <input type="text" id="panel-url" placeholder="https://panel.example.com or 192.168.1.20:3001" autocomplete="off" spellcheck="false">
+      </label>
+      <label class="checkbox" id="allow-http-row" hidden>
+        <input type="checkbox" id="allow-http">
+        <span id="allow-http-label">Allow plain HTTP for this panel</span>
       </label>
       <label>
         <span>Username</span>
@@ -60,11 +64,15 @@
         and <code>steamLoginSecure</code> cookies) and to the panel URL you
         configured above. By default your password is <strong>not</strong>
         stored — only your panel URL, username, and a short-lived access
-        token. Tick "Remember password" only on a trusted machine.
+        token. Tick "Remember password" only on a trusted machine. Plain
+        <code>http://</code> is used only for a panel on your own network
+        (or one you explicitly allow); anything else needs
+        <code>https://</code>.
       </p>
     </section>
   </main>
 
+  <script src="urlPolicy.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

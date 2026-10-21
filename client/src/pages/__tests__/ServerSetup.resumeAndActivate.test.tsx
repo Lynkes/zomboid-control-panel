@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io-client'
 import ServerSetup, { INSTALL_INFLIGHT_KEY } from '../ServerSetup'
 import { serverApi, serversApi } from '@/lib/api'
 import enServerSetup from '../../locales/en/serverSetup.json'
+import enServers from '../../locales/en/servers.json'
 
 // 2026-08-26 install-failure hunt (finding #7) + god's follow-up dispatch:
 // install:complete/install:log are heard by exactly one file in the whole
@@ -163,7 +164,7 @@ async function reachFullInstallButton(installPath: string, serverName: string, s
 describe('ServerSetup -- resume banner for an install left running by a previous page load', () => {
   it('shows nothing when no marker was left behind', async () => {
     renderServerSetup()
-    await screen.findByText(enServerSetup.modeSelect.title)
+    await screen.findByRole('list', { name: enServers.addServer.listLabel })
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
   })
 
@@ -177,7 +178,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
     await screen.findByText(enServerSetup.resumeBanner.title)
     expect(screen.getByText(/\/srv\/pz-fresh/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: enServerSetup.resumeBanner.dismissButton }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
     expect(localStorage.getItem(INSTALL_INFLIGHT_KEY)).toBeNull()
@@ -192,7 +193,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
 
     // Give the mount effect a tick, then confirm the banner never appears
     // and the stale marker was cleaned up rather than left to nag forever.
-    await screen.findByText(enServerSetup.modeSelect.title)
+    await screen.findByRole('list', { name: enServers.addServer.listLabel })
     expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
     expect(localStorage.getItem(INSTALL_INFLIGHT_KEY)).toBeNull()
   })
@@ -209,7 +210,7 @@ describe('ServerSetup -- resume banner for an install left running by a previous
 
     // Landed past the mode-select screen (its title is gone) and the install
     // path field carries the marker's value forward instead of starting blank.
-    await waitFor(() => expect(screen.queryByText(enServerSetup.modeSelect.title)).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('list', { name: enServers.addServer.listLabel })).not.toBeInTheDocument())
     expect(screen.getByDisplayValue('/srv/pz-continue')).toBeInTheDocument()
   })
 })
@@ -289,6 +290,32 @@ describe('ServerSetup -- install:complete create-vs-activate messaging (finding 
     )
   })
 
+  // The profile used to get a hardcoded 127.0.0.1 even when the server saved
+  // RCON_HOST (two-container Docker setup) as the RCON host.
+  it('creates the profile with the RCON host the server reported', async () => {
+    create.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.create>>)
+    activate.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.activate>>)
+    const fake = createFakeSocket()
+    await reachFullInstallButton(successPayload.installPath, successPayload.serverName, fake.socket)
+
+    fake.trigger('install:complete', { ...successPayload, rconHost: 'projectzomboid' })
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: 'projectzomboid' }))
+  })
+
+  it('falls back to 127.0.0.1 when an older server reports no RCON host', async () => {
+    create.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.create>>)
+    activate.mockResolvedValue({ server: { id: 42 } } as unknown as Awaited<ReturnType<typeof serversApi.activate>>)
+    const fake = createFakeSocket()
+    await reachFullInstallButton(successPayload.installPath, successPayload.serverName, fake.socket)
+
+    fake.trigger('install:complete', successPayload)
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ rconHost: '127.0.0.1' }))
+  })
+
   it('clears the in-flight marker as soon as an outcome is heard, success or failure', async () => {
     create.mockRejectedValue(new Error('db write failed'))
     const fake = createFakeSocket()
@@ -357,5 +384,33 @@ describe('ServerSetup -- install:log/install:complete are scoped to the install 
       ),
     )
     expect(create).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Bug pass before the UX release: the wizard's step now lives in the URL
+// (?mode=fresh&step=4), so a reload in the middle of an install lands back on
+// the wizard, not on the choice of mode -- the only screen that showed this
+// banner. The install log even tells the operator to reload.
+describe('ServerSetup -- the resume banner after a reload on a wizard step', () => {
+  it('shows on the step the URL reopens, and Continue setup still works from there', async () => {
+    localStorage.setItem(
+      INSTALL_INFLIGHT_KEY,
+      JSON.stringify({ installPath: '/srv/pz-reloaded', serverName: 'reloaded', startedAt: Date.now() - 60_000 }),
+    )
+    render(
+      <MemoryRouter initialEntries={['/server-setup?mode=fresh&step=4']}>
+        <SocketContext.Provider value={null}>
+          <TooltipProvider>
+            <ServerSetup />
+          </TooltipProvider>
+        </SocketContext.Provider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText(enServerSetup.resumeBanner.title)).toBeInTheDocument()
+    expect(screen.getByText(/\/srv\/pz-reloaded/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: enServerSetup.resumeBanner.continueButton }))
+    expect(await screen.findByText(enServerSetup.full.step2.title)).toBeInTheDocument()
+    expect(screen.queryByText(enServerSetup.resumeBanner.title)).not.toBeInTheDocument()
   })
 })

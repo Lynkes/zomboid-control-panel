@@ -119,7 +119,7 @@ beforeEach(() => {
 const CLIMATE_SLIDER_ORDER = ['fog', 'wind', 'temperature', 'clouds', 'humidity', 'precipitation'] as const
 
 async function getClimateSliders() {
-  const climateNav = await screen.findByText('Climate trim')
+  const climateNav = await screen.findByRole('button', { name: 'Climate trim' })
   climateNav.click()
   const sliders = await waitFor(() => {
     const found = screen.getAllByRole('slider')

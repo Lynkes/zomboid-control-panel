@@ -1,0 +1,21 @@
+{
+  "title": "Befehlspalette",
+  "description": "Tippe, um eine Seite, einen Bereich einer Seite oder einen Server zum Wechseln zu finden.",
+  "inputLabel": "Seiten, Bereiche und Server durchsuchen",
+  "placeholder": "Zu einer Seite, einem Bereich oder einem Server…",
+  "resultsLabel": "Ergebnisse",
+  "noResults": "Nichts passt zu „{{query}}“.",
+  "switchServer": "Zu {{name}} wechseln",
+  "showShortcuts": "Tastenkombinationen anzeigen",
+  "groups": {
+    "pages": "Seiten",
+    "sections": "Bereiche",
+    "servers": "Server",
+    "actions": "Aktionen"
+  },
+  "hints": {
+    "move": "↑ ↓ zum Bewegen",
+    "open": "Enter zum Öffnen",
+    "close": "Esc zum Schließen"
+  }
+}

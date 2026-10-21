@@ -56,8 +56,21 @@ interface FileDiffViewerProps {
   modBId: string
   modAName: string
   modBName: string
-  severity: 'high' | 'medium' | 'low'
+  severity: 'high' | 'medium' | 'low' | 'info'
   categoryLabel?: string
+  /** Why this is a conflict, already translated (the scan's reason). */
+  reason?: string | null
+  /** A short tag next to the file ("Intended" for a declared patch's override). */
+  badge?: string | null
+  /**
+   * False when there is no single file to compare: each mod has its own file
+   * (definitions or Lua names clashing across files, fileA / fileB) or the
+   * clash is declared in mod.info. The row then opens to what is known
+   * instead of asking the server for a diff it cannot make.
+   */
+  comparable?: boolean
+  fileA?: string
+  fileB?: string
   /** Mod name that wins this file given the current load order. */
   winnerName?: string | null
   /** Loser-side label to show alongside ("X loses"). Optional, derived from
@@ -84,7 +97,7 @@ function overlapKindShortLabel(kind: 'lua-symbols' | 'lua-shadow' | 'script-defs
   return t(`overlapKindShort.${kind}`)
 }
 
-export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBId, modAName, modBName, severity, categoryLabel, winnerName, loserName, overlap }: FileDiffViewerProps) {
+export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBId, modAName, modBName, severity, categoryLabel, reason, badge, comparable = true, fileA, fileB, winnerName, loserName, overlap }: FileDiffViewerProps) {
   const { t } = useTranslation('fileDiffViewer')
   const [expanded, setExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -142,13 +155,13 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
   }, [file, modAId, modBId, t])
 
   const handleClick = useCallback(() => {
-    if (diff) {
+    if (diff || !comparable) {
       setExpanded(prev => !prev)
     } else {
       setExpanded(true)
       fetchDiff()
     }
-  }, [diff, fetchDiff])
+  }, [diff, comparable, fetchDiff])
 
   return (
     <div className="group">
@@ -162,11 +175,16 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
         }`}
       >
         <div aria-hidden="true" className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-          severity === 'high' ? 'bg-destructive' : severity === 'medium' ? 'bg-warning' : 'bg-primary/50'
+          severity === 'high' ? 'bg-destructive' : severity === 'medium' ? 'bg-warning' : severity === 'info' ? 'bg-muted-foreground/50' : 'bg-primary/50'
         }`} />
         <code className="font-mono text-[11px] flex-1 min-w-0 truncate text-foreground/80">
           {file}
         </code>
+        {badge && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0 border border-success/30 bg-success/10 text-foreground">
+            {badge}
+          </span>
+        )}
         {overlap && overlap.total > 0 && (
           <span
             className={`text-[10px] px-1.5 py-0.5 rounded shrink-0 font-medium ${
@@ -205,13 +223,26 @@ export const FileDiffViewer = memo(function FileDiffViewer({ file, modAId, modBI
         ) : (
           <ChevronDown aria-hidden="true" className={`w-3 h-3 text-muted-foreground/40 shrink-0 transition-transform duration-150 ${
             expanded ? 'rotate-180' : ''
-          } ${diff ? 'opacity-100' : 'opacity-40'}`} />
+          } ${diff || !comparable ? 'opacity-100' : 'opacity-40'}`} />
         )}
       </button>
 
       {/* Expanded diff panel */}
       {expanded && (
         <div className="diff-panel-enter ms-5 me-2 mt-1.5 mb-2.5 rounded-md border border-border/50 overflow-hidden bg-background/50">
+          {reason && (
+            <p className="px-3 py-2 border-b border-border/30 text-[11px] leading-relaxed text-muted-foreground">{reason}</p>
+          )}
+          {!comparable && (fileA || fileB) && (
+            <dl className="px-3 py-2 border-b border-border/30 space-y-0.5 text-[11px]">
+              {[[modAName, fileA], [modBName, fileB]].map(([name, path], i) => path ? (
+                <div key={i} className="flex min-w-0 gap-2">
+                  <dt className="max-w-[40%] shrink-0 truncate text-muted-foreground" title={name}>{name}</dt>
+                  <dd className="min-w-0 truncate font-mono text-foreground/80" title={path}>{path}</dd>
+                </div>
+              ) : null)}
+            </dl>
+          )}
           {overlap && overlap.total > 0 && overlap.kind !== 'lua-shadow' && overlap.items.length > 0 && (
             <div className="px-3 py-2 border-b border-border/30 bg-muted/20">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1">
@@ -310,9 +341,9 @@ function TextDiffView({ diff, modAName, modBName }: { diff: TextDiff; modAName: 
                 key={`${hIdx}-${lIdx}`}
                 className={`diff-line flex ${
                   line.type === 'add'
-                    ? 'bg-success/8 diff-line-add'
+                    ? 'bg-success/10 diff-line-add'
                     : line.type === 'remove'
-                    ? 'bg-destructive/8 diff-line-remove'
+                    ? 'bg-destructive/10 diff-line-remove'
                     : ''
                 }`}
               >

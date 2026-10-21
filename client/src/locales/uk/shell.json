@@ -6,11 +6,18 @@
     "modBadge.updatesAvailable_many"
   ],
   "skipToContent": "Перейти до вмісту",
+  "notFound": {
+    "title": "Сторінку не знайдено",
+    "description": "Запитаної сторінки не існує або її більше немає в цій версії панелі.",
+    "goDashboard": "До інформаційної панелі",
+    "openServers": "Відкрити сервери"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Панель керування",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Панель керування"
+    "shortSubtitle": "Панель керування",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Основна навігація",
@@ -19,28 +26,28 @@
     "sections": {
       "server": "Сервер",
       "world": "Світ",
-      "users": "Користувачі",
+      "players": "Гравці",
       "panel": "Панель"
     },
     "items": {
-      "serverConsole": "Консоль сервера",
-      "onlinePlayers": "Гравці онлайн",
-      "inGameChat": "Чат у грі",
+      "serverConsole": "Консоль",
+      "onlinePlayers": "Гравці",
+      "inGameChat": "Чат",
       "eventsWeather": "Події та погода",
       "worldMap": "Карта світу",
-      "serverConfiguration": "Конфігурація сервера",
-      "serverFiles": "Файли сервера",
-      "modManager": "Керування модами",
+      "serverConfiguration": "Конфігурація",
+      "serverFiles": "Файли",
+      "modManager": "Моди",
       "templates": "Шаблони",
-      "scheduledTasks": "Заплановані завдання",
-      "worldBackups": "Резервні копії світу",
+      "scheduledTasks": "Планувальник",
+      "worldBackups": "Резервні копії",
       "mapCleanup": "Очищення карти",
-      "myServers": "Мої сервери",
+      "myServers": "Сервери",
       "serverSetup": "Додати сервер",
-      "browsePublic": "Переглянути публічні сервери",
+      "browsePublic": "Публічні сервери",
       "discord": "Discord",
-      "panelSettings": "Налаштування панелі",
-      "debugLogs": "Журнали налагодження",
+      "panelSettings": "Налаштування",
+      "debugLogs": "Діагностика",
       "leaderboard": "Таблиця лідерів"
     },
     "notAvailableRemote": "Недоступно для віддалених серверів (лише RCON)",
@@ -49,7 +56,7 @@
     "noServerBanner": {
       "title": "Сервера ще немає",
       "description": "Більшість можливостей панелі розблокується, щойно ви додасте сервер.",
-      "cta": "Налаштувати сервер"
+      "cta": "Додати сервер"
     }
   },
   "mobileMenu": {
@@ -63,6 +70,7 @@
     "remoteBadgeFull": "Віддалений",
     "remoteTitle": "Віддалений сервер (лише RCON)",
     "activeBadge": "Активний",
+    "addServer": "Додати сервер…",
     "manageServers": "Керувати серверами",
     "playersOnline_one": "{{count}} гравець онлайн",
     "playersOnline_other": "{{count}} гравців онлайн",
@@ -83,8 +91,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Доступне оновлення панелі: v{{version}}",
     "titleNoVersion": "Доступне оновлення панелі",
-    "titleWithVersionOpenSettings": "Доступне оновлення панелі: v{{version}}. Відкрити налаштування панелі.",
-    "titleNoVersionOpenSettings": "Доступне оновлення панелі. Відкрити налаштування панелі.",
+    "titleWithVersionOpenSettings": "Доступне оновлення панелі: v{{version}}. Відкрити налаштування.",
+    "titleNoVersionOpenSettings": "Доступне оновлення панелі. Відкрити налаштування.",
     "update": "Оновити"
   },
   "footer": {
@@ -143,12 +151,6 @@
   "pageSkeleton": {
     "defaultTitle": "Завантаження сторінки",
     "defaultDescription": "Підготовка даних і елементів керування панелі.",
-    "defaultEyebrow": "// ПАНЕЛЬ · ЗАВАНТАЖЕННЯ",
-    "metrics": {
-      "route": "маршрут",
-      "auth": "автентифікація",
-      "socket": "сокет"
-    },
     "labels": {
       "dashboard": "Завантаження інформаційної панелі",
       "named": "Завантаження: {{title}}",
@@ -168,5 +170,52 @@
     "backend": "Серверна частина",
     "unknown": "невідомо",
     "checkAgain": "Перевірити ще раз"
+  },
+  "serverHeader": {
+    "more": "Інші дії для {{name}}"
+  },
+  "subNav": {
+    "unsaved": "незбережені зміни"
+  },
+  "toolbar": {
+    "clearSearch": "Очистити пошук"
+  },
+  "stepper": {
+    "ariaLabel": "Перебіг",
+    "position": "Крок {{current}} з {{total}}",
+    "status": {
+      "done": "виконано",
+      "current": "поточний крок",
+      "upcoming": "ще не розпочато",
+      "locked": "заблоковано"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Приховати",
+    "showMore": "Показати ще {{count}}",
+    "showFewer": "Показати менше"
+  },
+  "saveBar": {
+    "unsaved": "Незбережені зміни",
+    "changeCount": "Незбережені зміни: {{count}}",
+    "saving": "Збереження…",
+    "discard": "Скасувати зміни",
+    "save": "Зберегти зміни"
+  },
+  "unsavedChanges": {
+    "title": "Вийти без збереження?",
+    "description": "На цій сторінці є ще не збережені зміни. Якщо вийти зараз, вони будуть втрачені.",
+    "leave": "Відкинути й вийти",
+    "stay": "Продовжити редагування"
+  },
+  "search": {
+    "label": "Пошук сторінок і розділів",
+    "placeholder": "Пошук…"
+  },
+  "routes": {
+    "dashboardDescription": "Стан сервера наживо, гравці та те, що далі потребує вашої уваги."
+  },
+  "pageHeader": {
+    "breadcrumb": "Навігаційний ланцюжок"
   }
 }

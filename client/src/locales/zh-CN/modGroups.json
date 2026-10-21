@@ -27,7 +27,14 @@
     "delete": "删除",
     "deleteAria": "删除模组组 {{name}}",
     "enforceLabel": "保存加载顺序时保持模组组顺序",
-    "enforceDesc": "开启后，保存加载顺序时会把模组组的成员移回其组内顺序。"
+    "enforceDesc": "开启后，保存加载顺序时会把模组组的成员移回其组内顺序。",
+    "keepsTogether": "保持在一起",
+    "loadsFirst": "最先加载",
+    "loadsLast": "最后加载",
+    "conflictsBadge_one": "{{count}} 个冲突",
+    "conflictsBadge_other": "{{count}} 个冲突",
+    "conflictsBadgeAria_one": "{{count}} 个文件冲突涉及 {{name}}。显示冲突",
+    "conflictsBadgeAria_other": "{{count}} 个文件冲突涉及 {{name}}。显示冲突"
   },
   "dialog": {
     "createTitle": "新建模组组",
@@ -56,7 +63,23 @@
     "create": "创建模组组",
     "saveChanges": "保存更改",
     "saveFailedTitle": "未能保存模组组",
-    "saveFailedFallback": "无法保存模组组。"
+    "saveFailedFallback": "无法保存模组组。",
+    "colorLabel": "颜色",
+    "placementLabel": "自动排序时的位置",
+    "placementAnywhere": "任意位置",
+    "placementFirst": "最先",
+    "placementLast": "最后",
+    "placementHint": "前置库和框架放在最前，补丁和修复放在最后。仅保存在此浏览器中。",
+    "keepTogetherLabel": "在加载顺序中保持在一起",
+    "keepTogetherHint": "这些模组作为一个整体加载，位置就在其中第一个模组当前所在之处。夹在它们之间的模组会移到该整体之后。",
+    "memberCount_one": "{{count}} 个模组",
+    "memberCount_other": "{{count}} 个模组",
+    "autoOrder": "自动排列成员",
+    "autoOrderDone": "已排序：先是依赖项，然后是前置库、核心模组、附加模组和修复补丁。检查无误后再保存。",
+    "autoOrderUnchanged": "成员已经是这个顺序。",
+    "autoOrderUndo": "撤销",
+    "absentWarning_one": "{{count}} 个成员不在此服务器上。它们会保留位置，并在启用后加载。",
+    "absentWarning_other": "{{count}} 个成员不在此服务器上。它们会保留位置，并在启用后加载。"
   },
   "apply": {
     "confirmTitle": "应用模组组顺序？",
@@ -113,5 +136,116 @@
     "orderKeptWithConflicts": "保存时，部分模组被移回其组内顺序。部分模组组互相矛盾：{{items}}",
     "conflictsTitle": "模组组互相矛盾",
     "conflictsDesc": "没有任何加载顺序能满足所有模组组。请检查这些模组组的顺序：{{items}}"
+  },
+  "dots": {
+    "inGroups": "所属模组组：{{names}}"
+  },
+  "colors": {
+    "none": "无颜色",
+    "slate": "石板灰",
+    "red": "红色",
+    "orange": "橙色",
+    "amber": "琥珀色",
+    "lime": "青柠绿",
+    "green": "绿色",
+    "teal": "蓝绿色",
+    "sky": "天蓝色",
+    "blue": "蓝色",
+    "violet": "紫罗兰色",
+    "pink": "粉色"
+  },
+  "addTo": {
+    "menuItem": "添加到模组组…",
+    "selected": "将所选添加到模组组",
+    "title": "添加到模组组",
+    "descriptionOne": "为 {{name}} 选择模组组。它会加入该组顺序的末尾。",
+    "descriptionMany_one": "为 {{count}} 个模组选择模组组。它们会加入该组顺序的末尾。",
+    "descriptionMany_other": "为 {{count}} 个模组选择模组组。它们会加入该组顺序的末尾。",
+    "search": "搜索模组组",
+    "listAria": "模组组",
+    "members_one": "{{count}} 个模组",
+    "members_other": "{{count}} 个模组",
+    "alreadyIn": "已在此模组组中",
+    "newGroup": "新建模组组…",
+    "cancel": "取消",
+    "noGroups": "还没有模组组。点击「新建模组组」创建一个。",
+    "noMatches": "没有模组组符合你的搜索。",
+    "failedFallback": "无法将模组添加到模组组。",
+    "doneTitle": "已添加到 {{name}}",
+    "doneDesc_one": "{{count}} 个模组已加入该模组组。",
+    "doneDesc_other": "{{count}} 个模组已加入该模组组。",
+    "noModIds": "只有当它出现在服务器上后，才能知道其 Mod ID。",
+    "pickFirst": "请先勾选要添加的模组。"
+  },
+  "removeFrom": {
+    "menuItem": "从 {{name}} 中移除",
+    "doneTitle": "已从 {{name}} 中移除",
+    "failedTitle": "无法从模组组中移除",
+    "failedFallback": "无法更改该模组组。",
+    "tooFew": "模组组至少需要两个模组。请改为删除该模组组。"
+  },
+  "sections": {
+    "enableAll": "全部启用",
+    "enableAllAria": "启用 {{name}} 的所有模组",
+    "disableAll": "全部禁用",
+    "edit": "编辑模组组",
+    "actionsAria": "模组组 {{name}} 的操作",
+    "enabledOf": "已启用 {{enabled}} / {{total}}",
+    "allEnabled": "此服务器上该组的所有模组均已启用。",
+    "noneEnabled": "该组的模组均未启用。",
+    "notOnServer": "不在此服务器上：{{ids}}",
+    "ungrouped": "不在任何模组组中"
+  },
+  "suggestions": {
+    "title": "建议的模组组（{{count}}）",
+    "listAria": "建议的模组组",
+    "create": "创建",
+    "createAria": "创建模组组 {{name}}",
+    "dismiss": "忽略",
+    "dismissAria": "忽略建议 {{name}}",
+    "usesTitle": "使用 {{library}} 的模组",
+    "showAll": "显示全部模组（{{n}}）",
+    "showFewer": "收起",
+    "membersAria": "{{name}} 中的模组",
+    "kind": {
+      "dependency_one": "{{name}} 及依赖它的模组",
+      "dependency_other": "{{name}} 及依赖它的 {{count}} 个模组",
+      "prefix_one": "{{count}} 个名为「{{name}}…」的模组",
+      "prefix_other": "{{count}} 个名为「{{name}}…」的模组",
+      "workshop-item_one": "来自同一创意工坊项目的 {{count}} 个模组",
+      "workshop-item_other": "来自同一创意工坊项目的 {{count}} 个模组"
+    },
+    "dismissFailedTitle": "无法忽略该建议",
+    "dismissFailedFallback": "无法忽略该建议。请重试。"
+  },
+  "enable": {
+    "doneTitle": "已启用 {{name}}",
+    "doneDesc_one": "{{count}} 个模组已添加到服务器配置。重启服务器以加载它们。",
+    "doneDesc_other": "{{count}} 个模组已添加到服务器配置。重启服务器以加载它们。",
+    "nothingTitle": "没有可启用的模组",
+    "nothingDesc": "此服务器上 {{name}} 的所有模组均已启用。",
+    "missingNote_one": "{{count}} 个模组不在此服务器上，已跳过：{{ids}}。",
+    "missingNote_other": "{{count}} 个模组不在此服务器上，已跳过：{{ids}}。",
+    "failedTitle": "无法启用模组组",
+    "failedFallback": "无法启用该组的模组。",
+    "unsavedOrder": "请先保存或放弃加载顺序的更改：此操作会更改加载顺序。"
+  },
+  "disable": {
+    "title": "禁用 {{name}}？",
+    "description_one": "{{count}} 个模组将从服务器配置（Mods=）中移除。其文件仍保留在磁盘上，因此再次启用该模组组会立即完成。",
+    "description_other": "{{count}} 个模组将从服务器配置（Mods=）中移除。其文件仍保留在磁盘上，因此再次启用该模组组会立即完成。",
+    "sharedNote": "已保留，因为另一个模组组仍有已启用的模组，并且也包含它们：{{items}}",
+    "confirm": "禁用模组",
+    "doneTitle": "已禁用 {{name}}",
+    "doneDesc_one": "{{count}} 个模组已从服务器配置中移除。",
+    "doneDesc_other": "{{count}} 个模组已从服务器配置中移除。",
+    "keptNote_one": "保留了 {{count}} 个共享模组。",
+    "keptNote_other": "保留了 {{count}} 个共享模组。",
+    "failedTitle": "无法禁用模组组",
+    "failedFallback": "无法禁用该组的模组。"
+  },
+  "inspector": {
+    "title": "模组组",
+    "none": "不在任何模组组中。"
   }
 }

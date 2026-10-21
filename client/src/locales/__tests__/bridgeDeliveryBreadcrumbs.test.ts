@@ -25,7 +25,9 @@ describe('PanelBridge delivery breadcrumbs name the real screens', () => {
 
   it.each(locales)('%s', (locale) => {
     const delivery = ns(locale, 'bridgeDelivery')
-    const serverConfigNav = get(ns(locale, 'shell'), 'nav.items.serverConfiguration')
+    // The page as its own header names it (the sidebar shows a short form
+    // of it, "Configuration", under SERVER).
+    const serverConfigNav = get(ns(locale, 'serverconfig'), 'pageHeader.title')
     const serverSettingsTab = get(ns(locale, 'serverconfig'), 'tabs.serverSettings')
     const rawToggle = get(ns(locale, 'serverconfig'), 'editorToolbar.raw')
     const modsTab = get(ns(locale, 'settings'), 'tabs.mods.label')

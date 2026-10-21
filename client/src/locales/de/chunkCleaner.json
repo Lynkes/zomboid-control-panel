@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Kartenbereinigung",
     "description": "Beschädigte oder übermäßig geplünderte Kartenbereiche unwiderruflich löschen, damit sich die Welt sauber neu generieren kann.",
+    "warningTitle": "Das Löschen von Chunks lässt sich nicht rückgängig machen",
     "warning": "Das Löschen von Chunks entfernt diese Bereiche unwiderruflich — Bauten, Loot und Zombies gehen dabei verloren. Stoppe zuerst den Server und lass Backups aktiviert."
   },
   "activePathDefaultLabel": "Aktiver Datenpfad des Servers",
@@ -64,7 +65,8 @@
     "all": "Alle",
     "clear": "Leeren",
     "invert": "Umkehren",
-    "selectAllTip": "\"Alle\" wählt jeden Chunk aus, den dieser Spielstand jemals erzeugt hat — nicht nur die gerade sichtbaren. Das Löschen dieser Auswahl setzt die gesamte Karte zurück."
+    "selectAllTip": "\"Alle\" wählt jeden Chunk aus, den dieser Spielstand jemals erzeugt hat — nicht nur die gerade sichtbaren. Das Löschen dieser Auswahl setzt die gesamte Karte zurück.",
+    "title": "Kartenwerkzeuge"
   },
   "deleteButton_one": "{{count}} Chunk unwiderruflich löschen",
   "deleteButton_other": "{{count}} Chunks unwiderruflich löschen",

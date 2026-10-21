@@ -116,6 +116,24 @@ export const ErrorCode = Object.freeze({
   /** server/routes/auth.js -- POST /api/auth/reset-password, newPassword
    * exceeds 128 characters. */
   RESET_PASSWORD_TOO_LONG: "RESET_PASSWORD_TOO_LONG",
+  /* --- access-control audit 2026-10-20 (accounts) --- */
+  /** server/middleware/requireLoginsOn.js -- 403 from the account and role
+   * writes (POST/PATCH/DELETE /api/auth/users*, /api/permissions/roles*,
+   * regenerate-jwt-secret, recovery codes) while panel logins are off
+   * (authEnabled: false): a change made then would outlive the setting. */
+  ACCOUNT_CHANGES_NEED_LOGINS: "ACCOUNT_CHANGES_NEED_LOGINS",
+  /** server/services/passwordPolicy.js -- a new password (setup, account
+   * creation, change, reset, recovery) is shorter than PASSWORD_MIN_LENGTH.
+   * Existing passwords keep working. */
+  PASSWORD_TOO_SHORT: "PASSWORD_TOO_SHORT",
+  /** server/services/passwordPolicy.js -- a new password is longer than bcrypt
+   * reads (PASSWORD_MAX_BYTES in UTF-8): anything past that would be
+   * ignored, so two passwords sharing those bytes would both sign in. */
+  PASSWORD_TOO_LONG_BYTES: "PASSWORD_TOO_LONG_BYTES",
+  /** server/services/passwordPolicy.js -- a new password is on the built-in
+   * list of the most common passwords, or one character repeated. */
+  PASSWORD_TOO_COMMON: "PASSWORD_TOO_COMMON",
+  /* --- end access-control audit 2026-10-20 (accounts) --- */
   /** server/routes/auth.js -- POST /api/auth/reset-password, no
    * reset-token.txt exists on disk. Sent only to a caller on the panel host
    * (security sweep 2026-10-05, A2); anyone else gets RESET_TOKEN_INVALID. */
@@ -524,6 +542,15 @@ export const ErrorCode = Object.freeze({
   /** server/routes/backup.js -- GET /api/backup/download/:name, no file at
    * the resolved path. */
   BACKUP_NOT_FOUND: "BACKUP_NOT_FOUND",
+  /** server/services/backupService.js -- GET /api/backup/:name/snapshot, the
+   * archive's panel-server-snapshot.json inflates past the 1 MiB read cap
+   * (counted on the real bytes, not the size the zip records). */
+  BACKUP_SNAPSHOT_TOO_LARGE: "BACKUP_SNAPSHOT_TOO_LARGE",
+  /** server/services/backupRestoreExtract.js -- POST /api/backup/restore/:name
+   * (and the restore's result/status): an entry, or the whole archive,
+   * inflated past the size the archive records, so the extraction stopped
+   * and the live world was left alone. */
+  BACKUP_ARCHIVE_SIZE_MISMATCH: "BACKUP_ARCHIVE_SIZE_MISMATCH",
   /** server/services/backupService.js -- POST /api/backup/create (and the
    * scheduled backup), the server's own Saves/Multiplayer/<name> folder is
    * missing and no other folder can safely be taken for it. */
@@ -640,6 +667,26 @@ export const ErrorCode = Object.freeze({
    * that has one) and the caller's role doesn't hold files.manage
    * (RCE-STARTCMD). */
   SERVER_LAUNCH_TARGET_ADMIN_ONLY: "SERVER_LAUNCH_TARGET_ADMIN_ONLY",
+  /* --- access-control audit 2026-10-20 (servers) --- */
+  /** server/routes/servers.js -- PUT /:id (403): the edit changes the RCON
+   * host, port or password, and the caller's role doesn't hold
+   * server.configure (the capability that governs the RCON connection
+   * everywhere else). Also POST / (403) when a server imported from an ini
+   * would point that ini's RCON password at a host other than this one. */
+  SERVER_RCON_CHANGE_REQUIRES_CONFIGURE: "SERVER_RCON_CHANGE_REQUIRES_CONFIGURE",
+  /** server/routes/servers.js -- PUT /:id (400): the RCON host or port
+   * changes but no RCON password was entered. The stored password is never
+   * sent to a host or port it was not saved for. Also server/routes/rcon.js
+   * POST /connect (400) for a host/port override without a password. */
+  SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET: "SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): the active server's RCON settings changed and the
+   * panel could not reconnect with them. */
+  SERVER_RCON_RECONNECT_FAILED: "SERVER_RCON_RECONNECT_FAILED",
+  /** server/routes/servers.js -- PUT /:id's `warningDetails` entry (the
+   * request succeeded): reloading the RCON connection after the edit threw. */
+  SERVER_RCON_RELOAD_FAILED: "SERVER_RCON_RELOAD_FAILED",
+  /* --- end access-control audit 2026-10-20 (servers) --- */
   /** server/services/scheduler.js -- performRestart()'s returned failure
    * when the pre-restart world save fails: the restart is called off and the
    * server is left running (forwarded by a failed Restart's
@@ -890,6 +937,18 @@ export const ErrorCode = Object.freeze({
    * being correctly emitted by /wipe, so it stays in active use rather than
    * moving to that allowlist. */
   DELETE_FILES_CONFIRM_REQUIRED: "DELETE_FILES_CONFIRM_REQUIRED",
+  /** server/routes/server.js -- POST /api/server/delete-files, other server
+   * profiles use the same game folder (Quick Setup reuses the active
+   * server's install on purpose) and the request did not pass
+   * `confirmShared: true`. params.names lists them; the client shows them in
+   * its confirmation before sending the flag. */
+  DELETE_FILES_FOLDER_SHARED: "DELETE_FILES_FOLDER_SHARED",
+  /** server/routes/server.js (sites: /delete-files, /install, /quick-setup,
+   * /steam-update) -- another profile that uses the same game folder is
+   * running. These routes used to check only the first profile with that
+   * path, so a stopped profile's Delete files / Update could wipe or patch
+   * the files of a running one. params.name names it. */
+  INSTALL_FOLDER_SHARED_SERVER_RUNNING: "INSTALL_FOLDER_SHARED_SERVER_RUNNING",
   /** server/routes/server.js -- POST /api/server/list-directory, path exists
    * but isn't a directory. */
   PATH_NOT_A_DIRECTORY: "PATH_NOT_A_DIRECTORY",
@@ -1217,14 +1276,28 @@ export const ErrorCode = Object.freeze({
   /** server/routes/mods.js -- POST /groups/import, the document is not a mod group export (wrong
    * kind or schema, or a name/description/modIds outside the limits). */
   MODS_GROUP_IMPORT_INVALID: "MODS_GROUP_IMPORT_INVALID",
-  /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce) -- a field is missing or
-   * outside its limits. Sends `{ field }`: "name", "description", "modIds" or "enforce". */
+  /** server/routes/mods.js -- (sites: POST/PUT /groups, PUT /groups/enforce, POST
+   * /groups/:id/disable, POST /groups/suggestions/dismiss) -- a field is missing or outside its
+   * limits. Sends `{ field }`: "name", "description", "modIds", "color", "keepTogether",
+   * "placement", "enforce", "keepShared" or "key". */
   MODS_GROUP_INVALID: "MODS_GROUP_INVALID",
   /** server/routes/mods.js -- (sites: POST /groups, POST /groups/import) -- the panel already holds
    * the most mod groups it keeps. Sends `{ max }`. */
   MODS_GROUP_LIMIT_REACHED: "MODS_GROUP_LIMIT_REACHED",
   /** server/routes/mods.js -- PUT/DELETE /groups/:id, no stored mod group with that id. */
   MODS_GROUP_NOT_FOUND: "MODS_GROUP_NOT_FOUND",
+  /** server/routes/modsSmart.js -- POST /health/fix, the body is not { issueId, action, params? }.
+   * Sends `{ field }`: "issueId", "action" or "params". */
+  MODS_HEALTH_FIX_INVALID: "MODS_HEALTH_FIX_INVALID",
+  /** server/routes/modsSmart.js -- POST /health/fix, the issue does not offer that action (with
+   * those params): a fix is always one of the issue's own fixes. */
+  MODS_HEALTH_FIX_NOT_OFFERED: "MODS_HEALTH_FIX_NOT_OFFERED",
+  /** server/routes/modsSmart.js -- POST /health/fix, the recomputed health check has no issue with
+   * that id any more (fixed, or the mod list changed). */
+  MODS_HEALTH_ISSUE_GONE: "MODS_HEALTH_ISSUE_GONE",
+  /** server/routes/modsSmart.js -- POST /autofix/restore, no "Fix everything" snapshot with that
+   * id for the active server (the panel restarted, it expired, or another server is active). */
+  MODS_AUTOFIX_SNAPSHOT_NOT_FOUND: "MODS_AUTOFIX_SNAPSHOT_NOT_FOUND",
   /** server/routes/mods.js -- DELETE /ignored-pairs, modIdA/modIdB missing or fail MOD_ID_RE. Own
    * wording from MODS_IGNORED_PAIR_INVALID_IDS above (POST route's fuller
    * message) -- kept separate. */
@@ -1305,10 +1378,34 @@ export const ErrorCode = Object.freeze({
   /** server/routes/mods.js -- (sites: PUT /presets/:id modIds field, POST /save-order) -- `modIds`
    * present but not an array. Identical wording, shared code. */
   MODS_MOD_IDS_ARRAY_REQUIRED: "MODS_MOD_IDS_ARRAY_REQUIRED",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, `text` is not a string or holds a control
+   * character other than a tab or a line break. */
+  MODS_NOTE_INVALID: "MODS_NOTE_INVALID",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, a new note while the panel already keeps the
+   * most mod notes it holds. Sends `{ max }`. */
+  MODS_NOTE_LIMIT_REACHED: "MODS_NOTE_LIMIT_REACHED",
+  /** server/routes/mods.js -- PUT /notes/:workshopId, the trimmed text is longer than the limit.
+   * Sends `{ max }`. */
+  MODS_NOTE_TOO_LONG: "MODS_NOTE_TOO_LONG",
   /** server/routes/mods.js -- (sites: POST /batch-remove, /batch-delete-disk-mods, /batch-purge) --
    * after filtering to /^\d{1,15}$/, zero ids survived. Identical wording,
    * shared code. */
   MODS_NO_VALID_WORKSHOP_IDS: "MODS_NO_VALID_WORKSHOP_IDS",
+  /** server/routes/modsSmart.js -- POST /order-rules, the rule would close a loop with the stored
+   * rules and the require= links of the active server's mods. Sends `{ count }` (mods in the loop);
+   * the body also carries `details: { cycle, edges }`. */
+  MODS_ORDER_RULE_CYCLE: "MODS_ORDER_RULE_CYCLE",
+  /** server/routes/modsSmart.js -- POST /order-rules, a field is missing or invalid. Sends
+   * `{ field }`: "before", "after", "self", "note", "source" or "replaceOpposite". */
+  MODS_ORDER_RULE_INVALID: "MODS_ORDER_RULE_INVALID",
+  /** server/routes/modsSmart.js -- POST /order-rules, the panel already keeps the most order rules
+   * it keeps. Sends `{ max }`. */
+  MODS_ORDER_RULE_LIMIT: "MODS_ORDER_RULE_LIMIT",
+  /** server/routes/modsSmart.js -- DELETE /order-rules/:id, no stored rule with that id. */
+  MODS_ORDER_RULE_NOT_FOUND: "MODS_ORDER_RULE_NOT_FOUND",
+  /** server/routes/modsSmart.js -- POST /load-order/plan, a body field is invalid. Sends
+   * `{ field }`: "order", "mode", "groups" or "conflictPairs". */
+  MODS_PLAN_INVALID: "MODS_PLAN_INVALID",
   /** server/routes/mods.js -- POST /presets, trimmed name is empty or exceeds 100 chars. */
   MODS_PRESET_NAME_LENGTH_INVALID: "MODS_PRESET_NAME_LENGTH_INVALID",
   /** server/routes/mods.js -- POST /presets, `name` missing or not a string. */
@@ -1690,6 +1787,12 @@ export const ErrorCode = Object.freeze({
    * has none of the recognised sections. Sends
    * `{ sections: validSections.join(", ") }`. */
   PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION: "PANELBRIDGE_CHARACTER_DATA_NO_VALID_SECTION",
+  /** 400, server/routes/panelBridge.js (utils/characterImport.js says
+   * why) -- POST /character/import or POST
+   * /command importPlayerData: `data.perks` is not an object of perk
+   * entries, or an entry's level is not a whole number from 0 to 10 (a huge
+   * level used to freeze the game server, one LevelPerk call per level). */
+  PANELBRIDGE_CHARACTER_PERK_INVALID: "PANELBRIDGE_CHARACTER_PERK_INVALID",
   /** server/routes/panelBridge.js -- POST /zombies/clear-near (or
    * similar), `count` outside 1-100. */
   PANELBRIDGE_HORDE_COUNT_INVALID: "PANELBRIDGE_HORDE_COUNT_INVALID",
@@ -1759,6 +1862,11 @@ export const ErrorCode = Object.freeze({
    * changed again, or the panel restarted since the refusal), so nothing
    * was pinned. The operator runs Verify again and compares the new key. */
   SFTP_HOST_KEY_NOT_PRESENTED: "SFTP_HOST_KEY_NOT_PRESENTED",
+  /** 400, utils/sftpSavedTarget.js -- a PanelBridge SFTP request (Verify,
+   * Start, remote logs, remote config) or an app-settings save names another
+   * host, port or username than the saved ones without entering a password:
+   * the saved password is only used with the saved target. */
+  SFTP_PASSWORD_REQUIRED: "SFTP_PASSWORD_REQUIRED",
   /** Same file, sibling of SFTP_CHROOTED_ACCOUNT above -- wrong username or
    * password, or the account can't complete the SSH handshake at all. */
   SFTP_AUTH_FAILED: "SFTP_AUTH_FAILED",

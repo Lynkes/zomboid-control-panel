@@ -1,27 +1,33 @@
 {
   "pageHeader": {
     "title": "控制台",
-    "description": "服务器日志输出与 RCON 命令"
+    "description": "查看活动服务器的日志，并在其上运行 RCON 命令。",
+    "target": "命令在 {{server}} 上运行"
   },
-  "checkingServerTarget": "正在检查目标服务器",
+  "checkingServerTarget": "正在确认活动服务器…",
   "emptyState": {
     "title": "未配置活动服务器",
-    "description": "打开控制台前，先在「我的服务器」中添加或选择一个服务器。"
+    "description": "添加一个服务器，或在「服务器列表」页面选择一个，即可使用控制台。",
+    "action": "添加服务器"
   },
   "tabs": {
     "serverLog": "服务器日志",
     "rconConsole": "RCON 控制台"
   },
+  "actions": {
+    "editServer": "编辑服务器",
+    "openRcon": "打开 RCON 控制台"
+  },
   "unavailable": {
     "remoteTitle": "远程服务器不支持服务器日志",
     "remoteDesc": "远程服务器仅提供 RCON，如需实时命令，使用 RCON 标签页。",
     "notConfiguredTitle": "未配置服务器日志路径",
-    "notConfiguredDesc": "先在「我的服务器」中设置服务器安装路径或 Zomboid 数据路径。",
+    "notConfiguredDesc": "先在「服务器列表」页面设置服务器安装路径或 Zomboid 数据路径。",
     "noPermissionTitle": "此角色无法查看服务器日志",
     "noPermissionDesc": "读取服务器日志需要 server.world_events 权限，此角色没有该权限。请向管理员申请访问权限。"
   },
   "serverLog": {
-    "pathLabel": "路径",
+    "pathLabel": "日志文件",
     "loadingPath": "加载中…",
     "resumeAria": "恢复自动更新",
     "pauseAria": "暂停自动更新",
@@ -34,7 +40,7 @@
     "filterOffTooltip": "过滤重复消息（加入提示、空闲心跳等）",
     "filterWithCount": "过滤 −{{count}}",
     "filter": "过滤",
-    "all": "全部",
+    "all": "全部行",
     "disableAutoScrollAria": "禁用自动滚动",
     "enableAutoScrollAria": "启用自动滚动",
     "autoScrollOnTooltip": "自动滚动已开启——跟随最新一行",
@@ -42,7 +48,7 @@
     "followOn": "跟随开启",
     "followOff": "跟随关闭",
     "refreshAria": "刷新日志",
-    "clear": "清除",
+    "clear": "清除日志",
     "clearTooltip": "删除服务器控制台日志文件——此操作无法撤销",
     "clearConfirmTitle": "删除服务器 {{server}} 的控制台日志？",
     "clearConfirmDesc": "此操作将永久删除磁盘上的 server-console.txt 文件，而不仅仅是当前显示内容，且无法撤销。",
@@ -67,33 +73,34 @@
     "hidden": "已隐藏",
     "loaded": "已加载",
     "updatesSuspended": "更新已暂停",
-    "pollInterval": "轮询 · 2 秒"
+    "pollInterval": "每 2 秒"
   },
   "rcon": {
     "linkLabel": "连接",
-    "checking": "检查中…",
+    "checking": "正在检查 RCON…",
     "notConfigured": "RCON 未配置",
-    "unknown": "未知",
+    "unknown": "RCON 状态未知",
     "online": "RCON 在线",
     "offline": "RCON 离线",
-    "recheck": "重新检查",
-    "notConfiguredTitle": "RCON 未配置",
-    "notConfiguredDesc": "使用实时命令前，先在「我的服务器」中设置主机、端口和密码。",
-    "hostUnreachableTitle": "主机不可达",
-    "hostUnreachableDesc": "启动服务器，然后在面板设置中确认 RCON 主机、端口和密码。",
-    "authFailedTitle": "身份验证失败",
-    "authFailedDesc": "主机可达——请在「我的服务器」中确认 RCON 密码。",
-    "droppedTitle": "连接已断开",
+    "recheck": "重新检查 RCON",
+    "recheckAria": "重新检查 RCON 连接",
+    "notConfiguredTitle": "此服务器未配置 RCON",
+    "notConfiguredDesc": "在「服务器列表」页面设置此服务器的 RCON 主机、端口和密码后即可运行命令。",
+    "hostUnreachableTitle": "RCON 主机不可达",
+    "hostUnreachableDesc": "启动服务器，然后在「服务器列表」页面检查其 RCON 主机、端口和密码。",
+    "authFailedTitle": "RCON 身份验证失败",
+    "authFailedDesc": "主机有响应，但拒绝了 RCON 密码。请在「服务器列表」页面检查。",
+    "droppedTitle": "RCON 连接已断开",
     "droppedDesc": "执行命令时 RCON 断开了连接。主机、端口和密码刚刚已确认无误 -- 请在确信连接已恢复后，点击上方的\"重新检查\"。",
-    "outputLabel": "RCON 输出",
+    "outputLabel": "输出",
     "entries_one": "{{count}} 条记录",
     "entries_other": "{{count}} 条记录",
-    "clear": "清除",
+    "clear": "清除输出",
     "clearTooltip": "清除可见输出（不会删除历史记录）",
     "outputAria": "RCON 命令输出",
     "noCommandsTitle": "尚无命令",
     "noCommandsDesc": "运行 RCON 命令后，响应将显示于此。",
-    "quickLabel": "快捷",
+    "quickLabel": "快捷命令",
     "quickTip": "点击后会把该命令填入下方命令框——需要点击\"运行\"（或按 Enter）才会真正执行。",
     "commandLabel": "命令",
     "commandTip": "这里的命令会立即在正在运行的服务器上执行，没有确认步骤——即使是会停止服务器或移除玩家的命令也是如此。如果不确定某条命令的作用，请先查清楚再执行；大多数命令无法撤销。",
@@ -102,7 +109,7 @@
     "inputAria": "RCON 命令输入框",
     "executeAria": "执行命令",
     "run": "运行",
-    "keyboardHint": "// enter · 运行 · ↑↓ 历史记录",
+    "keyboardHint": "按 Enter 运行命令 · ↑ ↓ 浏览历史记录",
     "noResponseFallback": "无响应",
     "noPermission": "您的角色没有执行 RCON 命令的权限。",
     "disconnectedUseRecheck": "RCON 当前无法访问 -- 请先点击上方的\"重新检查\"，然后再试一次。",
@@ -120,7 +127,7 @@
   },
   "broadcast": {
     "toggleLabel": "广播",
-    "toggleSubtitle": "向全体在线玩家发送消息",
+    "toggleSubtitle": "向所有在线玩家发送消息。",
     "templates": {
       "restart15": {
         "label": "15 分钟重启",
@@ -177,7 +184,7 @@
     "send": "发送"
   },
   "history": {
-    "toggleLabel": "历史记录",
+    "toggleLabel": "命令历史",
     "entries_one": "{{count}} 条记录",
     "entries_other": "{{count}} 条记录",
     "truncatedHint": "（最近的——更早的命令可能未显示）",

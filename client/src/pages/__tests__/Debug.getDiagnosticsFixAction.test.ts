@@ -126,7 +126,13 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
   // promote the duplicated destination to manualRoute so the primary button
   // itself navigates, and drop only the link/flag that duplicated it --
   // a genuinely distinct secondary link (e.g. server.rconPassword's
-  // Settings link, disk.free's Chunk Cleaner link) stays.
+  // Servers link, disk.free's Chunk Cleaner link) stays.
+  //
+  // UX restructure (2026-10-20): a fix that names Settings opens the tab
+  // holding the fix (?tab=general for the panel's restart and its data and
+  // log folders, ?tab=updates for panel updates), never bare /settings; the
+  // Zomboid data folder and the RCON password live on the server itself,
+  // edited on the Servers page.
   const manualRouteFixes: Array<{
     ids: string[]
     manualRoute: string
@@ -135,32 +141,59 @@ describe('getDiagnosticsFixAction fallback branch (uncovered check ids)', () => 
     openMods?: boolean
   }> = [
     { ids: ['mods.workshopCrash'], manualRoute: '/mods' },
-    { ids: ['server.zomboidData'], manualRoute: '/settings' },
+    { ids: ['server.zomboidData'], manualRoute: '/servers' },
     { ids: ['server.startScript', 'server.jre', 'server.jreWorks'], manualRoute: '/server-finder' },
     { ids: ['server.ini'], manualRoute: '/server-config' },
     {
       ids: ['server.rconPassword'],
       manualRoute: '/server-config',
-      links: [{ to: '/settings', label: 'fixActions.links.openSettings' }],
+      links: [{ to: '/servers', label: 'fixActions.links.openServers' }],
     },
     { ids: ['server.bridgeMod'], manualRoute: '/settings?tab=bridge' },
     { ids: ['server.configDrift'], manualRoute: '/server-config' },
-    { ids: ['scheduler', 'services.error'], manualRoute: '/settings' },
+    { ids: ['scheduler', 'services.error'], manualRoute: '/settings?tab=general' },
     // Settings › PanelBridge, not Server Finder (the public server browser,
     // which has nothing for the bridge).
     { ids: ['bridge.writable', 'bridge.heartbeat'], manualRoute: '/settings?tab=bridge' },
-    { ids: ['db.exists'], manualRoute: '/settings' },
-    { ids: ['logs.writable'], manualRoute: '/settings' },
+    { ids: ['db.exists'], manualRoute: '/settings?tab=general' },
+    { ids: ['logs.writable'], manualRoute: '/settings?tab=general' },
     {
       ids: ['disk.free'],
       manualRoute: '/backups',
       links: [{ to: '/chunks', label: 'fixActions.links.openChunkCleaner' }],
     },
     { ids: ['storage.saveSize'], manualRoute: '/chunks' },
-    { ids: ['runtime.heap', 'runtime.hostMem'], manualRoute: '/settings' },
-    { ids: ['update.panel', 'updates.error'], manualRoute: '/settings' },
+    { ids: ['runtime.heap', 'runtime.hostMem'], manualRoute: '/settings?tab=general' },
+    { ids: ['update.panel', 'updates.error'], manualRoute: '/settings?tab=updates' },
     { ids: ['update.mods'], manualRoute: '/mods' },
   ]
+
+  it('server.zomboidData opens Servers under the Open Servers label, not Settings', () => {
+    const action = getDiagnosticsFixAction(fallbackCheck({ id: 'server.zomboidData', category: 'server' }), t)
+    expect(action?.label).toBe('fixActions.serverZomboidData.label')
+    expect(action?.manualRoute).toBe('/servers')
+  })
+
+  // The automated RCON reconnect keeps its fix button; its Settings link
+  // opens the Connection tab (the reconnect settings and the RCON test).
+  it('rcon.connected links to Settings › Connection, not bare /settings', () => {
+    const action = getDiagnosticsFixAction(fallbackCheck({ id: 'rcon.connected', category: 'services' }), t)
+    expect(action?.automated).toBe(true)
+    expect(action?.links).toEqual([{ to: '/settings?tab=connection', label: 'fixActions.links.openSettings' }])
+  })
+
+  // No fix in the whole switch may send the operator to bare /settings: a
+  // fix names the tab that holds it.
+  it.each([
+    'server.zomboidData', 'server.rconPassword', 'rcon.connected', 'scheduler', 'services.error',
+    'db.exists', 'logs.writable', 'runtime.heap', 'runtime.hostMem', 'update.panel', 'updates.error',
+    'bridge.configured', 'worldmap.bridge.configured', 'bridge.writable', 'bridge.heartbeat', 'server.bridgeMod',
+  ])('%s never links to bare /settings', (id) => {
+    const action = getDiagnosticsFixAction(fallbackCheck({ id, category: 'server' }), t)
+    const targets = [action?.manualRoute, ...(action?.links ?? []).map((link) => link.to)].filter(Boolean)
+    expect(targets.length).toBeGreaterThan(0)
+    for (const target of targets) expect(target).not.toBe('/settings')
+  })
 
   for (const fix of manualRouteFixes) {
     it.each(fix.ids)(

@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-08-26 Tier 1: POST /rcon/execute (server/routes/rcon.js) is
 // correctly gated server-side by requirePermission('rcon.execute') -- traced
@@ -89,7 +90,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )
@@ -139,7 +140,7 @@ describe('Console.tsx: RCON execute is gated on rcon.execute, not just page acce
     renderConsole()
     await openRconTab()
 
-    const broadcastToggle = await screen.findByText('broadcast')
+    const broadcastToggle = await screen.findByText('Broadcast')
     fireEvent.click(broadcastToggle)
 
     const textarea = await screen.findByLabelText(/broadcast message/i)
@@ -165,7 +166,7 @@ describe('Console.tsx: RCON execute is gated on rcon.execute, not just page acce
     const runButton = screen.getByRole('button', { name: /execute command/i })
     expect(runButton).not.toBeDisabled()
 
-    const broadcastToggle = await screen.findByText('broadcast')
+    const broadcastToggle = await screen.findByText('Broadcast')
     fireEvent.click(broadcastToggle)
     const textarea = await screen.findByLabelText(/broadcast message/i)
     fireEvent.change(textarea, { target: { value: 'server restarting' } })

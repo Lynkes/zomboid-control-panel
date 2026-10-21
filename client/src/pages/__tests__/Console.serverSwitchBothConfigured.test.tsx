@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (console page hunt, stale-server races).
 // Console.activeServerChanged.test.tsx only switches from a server WITH a log
@@ -110,7 +111,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

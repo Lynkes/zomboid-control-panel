@@ -35,6 +35,7 @@ import {
   Copy,
   ChevronDown,
   ChevronRight,
+  History,
   Wifi,
   WifiOff,
   Server,
@@ -74,7 +75,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
+import { Segmented } from "@/components/ui/segmented";
+import { SubNav, SubNavLayout, type SubNavGroup } from "@/components/ui/sub-nav";
+import { PageAlerts } from "@/components/PageAlerts";
+import { useUrlParamState } from "@/hooks/useUrlParamState";
+import { useGuardedNavigate } from "@/contexts/UnsavedChangesContext";
 import {
   Select,
   SelectContent,
@@ -96,6 +102,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { ProblemsFound } from "@/components/diagnostics/ProblemsFound";
 import { NumberInput } from "@/components/NumberInput";
 import { cn, copyText } from "@/lib/utils";
 import { formatElapsed } from "@/lib/durationText";
@@ -523,7 +530,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.serverZomboidData.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/servers",
         note: t("fixActions.serverZomboidData.note"),
       };
     case "server.startScript":
@@ -591,7 +598,7 @@ export function getDiagnosticsFixAction(
         label: t("fixActions.serverRconPassword.label"),
         automated: false,
         manualRoute: "/server-config",
-        links: [{ to: "/settings", label: L("openSettings") }],
+        links: [{ to: "/servers", label: L("openServers") }],
         note: t("fixActions.serverRconPassword.note"),
       };
     case "server.bridgeMod":
@@ -644,7 +651,7 @@ export function getDiagnosticsFixAction(
         label: t("fixActions.rconConnected.label"),
         automated: true,
         openServerConfig: true,
-        links: [{ to: "/settings", label: L("openSettings") }],
+        links: [{ to: "/settings?tab=connection", label: L("openSettings") }],
         note: t("fixActions.rconConnected.note"),
       };
     case "modChecker":
@@ -671,7 +678,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.servicesStuck.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/settings?tab=general",
         note: t("fixActions.servicesStuck.note"),
       };
     case "discord.bot":
@@ -725,7 +732,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.dbExistsOrWritable.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/settings?tab=general",
         note: t("fixActions.dbExistsOrWritable.note"),
       };
     case "db.writable":
@@ -753,7 +760,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.logsWritable.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/settings?tab=general",
         note: t("fixActions.logsWritable.note"),
       };
     case "disk.free":
@@ -781,7 +788,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.runtimeHeapOrHostMem.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/settings?tab=general",
         note: t("fixActions.runtimeHeapOrHostMem.note"),
       };
     case "runtime.timeSkew":
@@ -797,7 +804,7 @@ export function getDiagnosticsFixAction(
       return {
         label: t("fixActions.updatePanelOrError.label"),
         automated: false,
-        manualRoute: "/settings",
+        manualRoute: "/settings?tab=updates",
         note: t("fixActions.updatePanelOrError.note"),
       };
     case "update.mods":
@@ -1003,6 +1010,21 @@ export function getHealthHeadline(
   return { tone: "healthy", title: t("healthTab.healthy") };
 }
 
+// The rail's order (and ?tab= ids): Now -- what the server is doing this
+// second; History -- what happened; System -- what this panel is made of.
+const DEBUG_TABS = [
+  "diagnostics",
+  "worldmap",
+  "bridge",
+  "performance",
+  "activity",
+  "logs",
+  "crashes",
+  "health",
+  "system",
+] as const;
+type DebugTab = (typeof DEBUG_TABS)[number];
+
 export default function Debug() {
   const { t, i18n } = useTranslation("debug");
   const { formatDateTime } = useDateFormat();
@@ -1059,7 +1081,14 @@ export default function Debug() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [timeFormat, setTimeFormat] = useState<TimeFormat>("time");
-  const [activeTab, setActiveTab] = useState("diagnostics");
+  // ?tab= keeps the section across a reload and lets other pages link to
+  // one (/debug?tab=logs); an unknown value reads as Checks & Fixes.
+  const [activeTab, setActiveTab] = useUrlParamState<DebugTab>(
+    "tab",
+    DEBUG_TABS,
+    "diagnostics",
+  );
+  const navigate = useGuardedNavigate();
   const [expandedLogs, setExpandedLogs] = useState<Set<string>>(new Set());
   const [diagnostics, setDiagnostics] = useState<DiagnosticsResult | null>(
     null,
@@ -1332,7 +1361,9 @@ export default function Debug() {
       try {
         if (!action.automated) {
           if (action.manualRoute) {
-            window.location.assign(action.manualRoute);
+            // In-app navigation (not a full page load), so it also works
+            // under the demo's HashRouter and asks before dropping edits.
+            void navigate(action.manualRoute);
             return;
           }
           toast({
@@ -1445,51 +1476,70 @@ export default function Debug() {
           });
           void wsDropped; // count already reflected in droppedTotal
         } else if (check.id === "mods.maps") {
+          // Success toasts below are built from the result's fields in the
+          // reader's language; result.message is the server's English.
           const result = await modsApi.repairMapEntries();
+          const removed = result.removed ?? [];
+          const added = result.added ?? [];
+          const sentences: string[] = [];
+          if (removed.length > 0)
+            sentences.push(
+              t("diagnostics.mapEntriesRemoved", {
+                count: removed.length,
+                list: removed.join(", "),
+              }),
+            );
+          if (added.length > 0)
+            sentences.push(
+              t("diagnostics.mapEntriesAdded", {
+                count: added.length,
+                list: added.join(", "),
+              }),
+            );
+          const sentenceSep = i18n.language.startsWith("zh") ? "" : " ";
           toast({
             title: t("diagnostics.mapEntriesRepairedTitle"),
-            description: `${result.message}${restartHint}`,
+            description:
+              sentences.length > 0
+                ? `${sentences.join(sentenceSep)}${restartHint}`
+                : t("diagnostics.mapEntriesAllValid"),
           });
         } else if (check.id === "mods.duplicates") {
           const result = await modsApi.deduplicateModIds();
+          const removed = result.removed ?? [];
           toast({
             title: t("diagnostics.duplicatesCleanedTitle"),
-            description: `${result.message}${restartHint}`,
+            description:
+              removed.length > 0
+                ? `${t("diagnostics.duplicatesRemoved", {
+                    count: result.removedCount ?? removed.length,
+                    list: removed.join(", "),
+                  })}${restartHint}`
+                : t("diagnostics.duplicatesNone"),
           });
         } else if (check.id === "server.process") {
           // /server/start always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees result.success === false.
-          const result = (await serverApi.start()) as {
-            success?: boolean;
-            message?: string;
-            error?: string;
-          };
+          await serverApi.start();
           toast({
             title: t("diagnostics.serverStartingTitle"),
-            description:
-              result?.message || t("diagnostics.serverStartingFallback"),
+            description: t("diagnostics.serverStartingFallback"),
           });
         } else if (check.id === "rcon.connected") {
           // /rcon/connect always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- the connected check below is always true when reached.
-          const result = (await rconApi.connect()) as {
-            success?: boolean;
-            connected?: boolean;
-            message?: string;
-            error?: string;
-          };
+          await rconApi.connect();
           toast({
             title: t("diagnostics.rconReconnectedTitle"),
-            description:
-              result?.message || t("diagnostics.rconReconnectedFallback"),
+            description: t("diagnostics.rconReconnectedFallback"),
           });
         } else if (check.id === "db.backup") {
           // /backup/create always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees result.success === false.
-          const result = await backupApi.createBackup({ includeDb: true });
+          const result = await backupApi.createBackup();
           const backupName = result?.backup?.name
             ? ` (${result.backup.name})`
             : "";
@@ -1505,6 +1555,7 @@ export default function Debug() {
             success?: boolean;
             deleted?: number;
             failed?: number;
+            truncated?: boolean;
             message?: string;
             error?: string;
             code?: string;
@@ -1521,13 +1572,22 @@ export default function Debug() {
               { status: res.status, code: data?.code },
             );
           }
+          const lockSentences = [
+            t("diagnostics.staleLocksRemovedFallback", {
+              count: data?.deleted ?? 0,
+            }),
+          ];
+          if ((data?.failed ?? 0) > 0)
+            lockSentences.push(
+              t("diagnostics.staleLocksSomeFailed", { count: data?.failed }),
+            );
+          if (data?.truncated)
+            lockSentences.push(t("diagnostics.staleLocksTruncated"));
           toast({
             title: t("diagnostics.staleLocksRemovedTitle"),
-            description:
-              data?.message ||
-              t("diagnostics.staleLocksRemovedFallback", {
-                count: data?.deleted ?? 0,
-              }),
+            description: lockSentences.join(
+              i18n.language.startsWith("zh") ? "" : " ",
+            ),
           });
         } else if (
           check.id === "bridge.configured" ||
@@ -1560,8 +1620,7 @@ export default function Debug() {
           if (result.alreadyValid) {
             toast({
               title: t("diagnostics.alreadyValidTitle"),
-              description:
-                result.message || t("diagnostics.alreadyValidFallback"),
+              description: t("diagnostics.alreadyValidFallback"),
             });
           } else {
             // SandboxVars.lua has no live-reload path (PZ's own /reloadoptions
@@ -1571,13 +1630,10 @@ export default function Debug() {
             // whether the server happened to be running when it was repaired.
             toast({
               title: t("diagnostics.sandboxRepairedTitle"),
-              description:
-                (result.message
-                  ? `${result.message}${restartHint}`
-                  : t("diagnostics.sandboxRepairedFallback", {
-                      count: result.changes?.length ?? 0,
-                      restartHint,
-                    })),
+              description: t("diagnostics.sandboxRepairedFallback", {
+                count: result.changes?.length ?? 0,
+                restartHint,
+              }),
             });
           }
         } else if (check.id === "server.sandboxVars") {
@@ -1587,7 +1643,7 @@ export default function Debug() {
           // VERSION-only content PZ falls back to implicitly, just written
           // out as a real, editable file. Always responds non-2xx on
           // failure, so this never sees result.success === false.
-          const result = await serverFilesApi.saveSandbox({
+          await serverFilesApi.saveSandbox({
             VERSION: 4,
             settings: {},
             ZombieLore: {},
@@ -1598,9 +1654,7 @@ export default function Debug() {
           });
           toast({
             title: t("diagnostics.sandboxCreatedTitle"),
-            description:
-              (result.message || t("diagnostics.sandboxCreatedFallback")) +
-              restartHint,
+            description: t("diagnostics.sandboxCreatedFallback") + restartHint,
           });
         } else if (check.id === "db.writable") {
           // POST /api/debug/fix-writability always responds non-2xx on
@@ -1630,35 +1684,26 @@ export default function Debug() {
           }
           toast({
             title: t("diagnostics.dbWritableFixedTitle"),
-            description:
-              data?.message || t("diagnostics.dbWritableFixedFallback"),
+            description: t("diagnostics.dbWritableFixedFallback"),
           });
         } else if (check.id === "modChecker") {
           // /mods/start always responds non-2xx on failure, so
           // handleResponse() throws into this handler's surrounding catch
           // -- this never sees a false success.
-          const result = (await modsApi.start()) as {
-            success?: boolean;
-            message?: string;
-          };
+          await modsApi.start();
           toast({
             title: t("diagnostics.modCheckerStartedTitle"),
-            description:
-              result?.message || t("diagnostics.modCheckerStartedFallback"),
+            description: t("diagnostics.modCheckerStartedFallback"),
           });
         } else if (check.id === "discord.bot") {
           // /discord/start always responds non-2xx on failure (including a
           // still-bad token -- describeStartFailure() supplies the real
           // reason), so handleResponse() throws into this handler's
           // surrounding catch -- this never sees a false success.
-          const result = (await discordApi.start()) as {
-            success?: boolean;
-            message?: string;
-          };
+          await discordApi.start();
           toast({
             title: t("diagnostics.discordReconnectedTitle"),
-            description:
-              result?.message || t("diagnostics.discordReconnectedFallback"),
+            description: t("diagnostics.discordReconnectedFallback"),
           });
         }
 
@@ -1676,7 +1721,7 @@ export default function Debug() {
         setFixingDiagnosticsCheckId(null);
       }
     },
-    [fetchDiagnostics, toast, authFetch, confirm, t, i18n.language, can],
+    [fetchDiagnostics, toast, authFetch, confirm, t, i18n.language, can, setActiveTab, navigate],
   );
 
   // Fetch world-map specific diagnostics
@@ -2783,7 +2828,7 @@ export default function Debug() {
       if (data.success) {
         toast({
           title: t("systemTab.pathsUpdatedTitle"),
-          description: data.message,
+          description: t("systemTab.pathsUpdatedDesc"),
           variant: "success" as const,
         });
         setEditingPaths(false);
@@ -3045,22 +3090,90 @@ export default function Debug() {
     }
   };
 
+  // Badges on the rail: open problems in Checks & Fixes and World Map, and
+  // how many crash dumps there are ("20+" once the route's cap is hit).
+  const problemBadge = (summary: { fail: number; warn: number } | undefined) =>
+    summary && (summary.fail > 0 || summary.warn > 0) ? (
+      <Badge
+        variant={summary.fail > 0 ? "destructive" : "outline"}
+        className="h-5 px-1.5 text-[10px]"
+      >
+        {summary.fail + summary.warn}
+      </Badge>
+    ) : undefined;
+  const tabGroups: SubNavGroup[] = [
+    {
+      id: "now",
+      label: t("tabs.groups.now"),
+      items: [
+        { id: "diagnostics", label: t("tabs.diagnostics"), icon: CheckCircle, badge: problemBadge(diagnostics?.summary) },
+        { id: "worldmap", label: t("tabs.worldMap"), icon: MapIcon, badge: problemBadge(worldMapDiag?.summary) },
+        { id: "bridge", label: t("tabs.bridge"), icon: Zap },
+        { id: "performance", label: t("tabs.performance"), icon: TrendingUp },
+      ],
+    },
+    {
+      id: "history",
+      label: t("tabs.groups.history"),
+      items: [
+        { id: "activity", label: t("tabs.activity"), icon: History },
+        { id: "logs", label: t("tabs.logs"), icon: Terminal },
+        {
+          id: "crashes",
+          label: t("tabs.crashes"),
+          icon: AlertCircle,
+          badge:
+            crashLogs.length > 0 ? (
+              <Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+                {crashLogsTotalCount > crashLogs.length ? `${crashLogs.length}+` : crashLogs.length}
+              </Badge>
+            ) : undefined,
+        },
+      ],
+    },
+    {
+      id: "system",
+      label: t("tabs.groups.system"),
+      items: [
+        { id: "health", label: t("tabs.health"), icon: Activity },
+        { id: "system", label: t("tabs.system"), icon: Database },
+      ],
+    },
+  ];
+  const selectTab = (value: string) => {
+    if ((DEBUG_TABS as readonly string[]).includes(value)) setActiveTab(value as DebugTab);
+  };
+
   return (
     <div className="space-y-6 page-transition">
       <PageHeader
         title={t("pageHeader.title")}
         description={t("pageHeader.description")}
-        icon={<Bug className="w-5 h-5 text-primary" />}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <>
+            {/* One outline secondary, then the one command primary, last.
+                Below sm the secondary keeps only its icon (and its name). */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => downloadLogs("txt", false)}
+                  aria-label={t("headerActions.fullLogTxt")}
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span className="hidden sm:inline">{t("headerActions.fullLogTxt")}</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("headerActions.fullLogTooltip")}</TooltipContent>
+            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="command"
-                  size="lg"
+                  size="sm"
                   onClick={downloadLogArchive}
                   disabled={downloadingLogArchive}
-                  className="gap-2"
                 >
                   {downloadingLogArchive ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -3074,21 +3187,7 @@ export default function Debug() {
               </TooltipTrigger>
               <TooltipContent>{t("headerActions.supportBundleTooltip")}</TooltipContent>
             </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => downloadLogs("txt", false)}
-                  className="gap-2"
-                >
-                  <FileDown className="w-4 h-4" />
-                  {t("headerActions.fullLogTxt")}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("headerActions.fullLogTooltip")}</TooltipContent>
-            </Tooltip>
-          </div>
+          </>
         }
       />
 
@@ -3100,172 +3199,43 @@ export default function Debug() {
           description={t("permissionDenied.description")}
         />
       ) : (
-      <Tabs
-        value={activeTab}
-        onValueChange={setActiveTab}
-        className="space-y-4"
-      >
-        {/*
-          Tab strip is organised into three operational zones, separated by
-          thin vertical dividers so the eight tabs read as three clusters
-          rather than a uniform row:
-            • Now      — what's the server doing right this second
-            • History  — what happened
-            • System   — what this panel itself is made of
-        */}
-        {/* flex-nowrap + overflow-x-auto rather than flex-wrap: at 9 tabs,
-            wrapping strands the last one ("Environment") alone on its own
-            row on desktop. shrink-0 on every trigger and divider keeps the
-            strip scrolling instead of squeezing icons/labels to fit. Unlike
-            Settings' version of this same fix, there's no lg: breakpoint
-            where this page switches to a vertical sidebar -- the strip stays
-            horizontal (and can still overflow) at every width, so the scroll
-            cue below is never lg:hidden.
-            justify-start overrides TabsList's base: centering an overflowing
-            row overflows symmetrically on both sides, and scrollLeft can't
-            go negative, so whatever hangs off the left edge (including the
-            default-active first tab) is permanently unreachable.
-            DELIBERATELY KEPT even though the base TabsList now ships its own
-            overflow-safe .justify-safe-center (justify-content: safe center,
-            with a plain `center` fallback line for browsers that don't
-            understand the `safe` keyword) -- `safe` support is not
-            universal, and on a browser without it the base's fallback IS
-            plain center, which reproduces the original shipped bug. This is
-            the one page known to overflow, so this override is unconditional
-            protection independent of browser support, not leftover
-            redundancy from a workaround. Do not delete it as "the base
-            handles this now" -- it doesn't, for every browser. */}
-        <div className="relative">
-        <TabsList className="flex h-auto flex-nowrap items-center justify-start gap-1 overflow-x-auto rounded-lg border border-border/60 bg-gradient-to-b from-muted/50 to-muted/25 p-1.5 w-full shadow-inner">
-          {/* Zone: Now */}
-          <TabsTrigger value="diagnostics" className="gap-2 shrink-0">
-            <CheckCircle className="w-4 h-4" />
-            {t("tabs.diagnostics")}
-            {diagnostics &&
-              (diagnostics.summary.fail > 0 ||
-                diagnostics.summary.warn > 0) && (
-                <Badge
-                  variant={
-                    diagnostics.summary.fail > 0 ? "destructive" : "outline"
-                  }
-                  className="ms-1 h-5 px-1.5 text-[10px]"
-                >
-                  {diagnostics.summary.fail + diagnostics.summary.warn}
-                </Badge>
-              )}
-          </TabsTrigger>
-          <TabsTrigger value="worldmap" className="gap-2 shrink-0">
-            <MapIcon className="w-4 h-4" />
-            {t("tabs.worldMap")}
-            {worldMapDiag &&
-              (worldMapDiag.summary.fail > 0 ||
-                worldMapDiag.summary.warn > 0) && (
-                <Badge
-                  variant={
-                    worldMapDiag.summary.fail > 0 ? "destructive" : "outline"
-                  }
-                  className="ms-1 h-5 px-1.5 text-[10px]"
-                >
-                  {worldMapDiag.summary.fail + worldMapDiag.summary.warn}
-                </Badge>
-              )}
-          </TabsTrigger>
-          <TabsTrigger value="bridge" className="gap-2 shrink-0">
-            <Bug className="w-4 h-4" />
-            {t("tabs.bridge")}
-          </TabsTrigger>
-          <TabsTrigger value="performance" className="gap-2 shrink-0">
-            <TrendingUp className="w-4 h-4" />
-            {t("tabs.performance")}
-          </TabsTrigger>
-
-          {/* Zone divider: Now → History */}
-          <span
-            aria-hidden
-            className="mx-1 h-5 w-px shrink-0 self-center bg-border/60"
-          />
-
-          {/* Zone: History */}
-          <TabsTrigger value="activity" className="gap-2 shrink-0">
-            <Zap className="w-4 h-4" />
-            {t("tabs.activity")}
-          </TabsTrigger>
-          <TabsTrigger value="logs" className="gap-2 shrink-0">
-            <Terminal className="w-4 h-4" />
-            {t("tabs.logs")}
-          </TabsTrigger>
-          <TabsTrigger value="crashes" className="gap-2 shrink-0">
-            <AlertCircle className="w-4 h-4" />
-            {t("tabs.crashes")}
-            {crashLogs.length > 0 && (
-              <Badge variant="outline" className="ms-1 h-5 px-1.5 text-[10px]">
-                {crashLogsTotalCount > crashLogs.length ? `${crashLogs.length}+` : crashLogs.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-
-          {/* Zone divider: History → System */}
-          <span
-            aria-hidden
-            className="mx-1 h-5 w-px shrink-0 self-center bg-border/60"
-          />
-
-          {/* Zone: System (panel self-introspection) */}
-          <TabsTrigger value="health" className="gap-2 shrink-0">
-            <Activity className="w-4 h-4" />
-            {t("tabs.health")}
-          </TabsTrigger>
-          <TabsTrigger value="system" className="gap-2 shrink-0">
-            <Database className="w-4 h-4" />
-            {t("tabs.system")}
-          </TabsTrigger>
-        </TabsList>
-        {/* Static scroll-continuation cue -- not scroll-position-tracked, just
-            a constant "there's more this way" edge. Same pattern as
-            Settings.tsx's sub-tab strip and RolesPermissions.tsx's matrix. */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 end-0 flex w-10 items-center justify-end rounded-e-lg bg-gradient-to-l rtl:bg-gradient-to-r from-muted to-transparent pe-1.5"
+      <Tabs value={activeTab} onValueChange={selectTab} orientation="vertical">
+        <SubNavLayout
+          nav={
+            <SubNav
+              kind="tabs"
+              groups={tabGroups}
+              value={activeTab}
+              onValueChange={selectTab}
+              ariaLabel={t("tabs.ariaLabel")}
+            />
+          }
         >
-          <ChevronRight className="h-4 w-4 text-muted-foreground/80 rtl:-scale-x-100" />
-        </div>
-        </div>
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
-        <TabsContent value="diagnostics" className="space-y-4">
+        <TabsContent value="diagnostics" className="mt-0 space-y-4">
+          {/* First: what the logs say went wrong, with the fix for each. */}
+          <ProblemsFound />
           <p className="text-sm text-muted-foreground">
             {t("diagnostics.tabSubtitle")}
           </p>
           {diagnosticsError && (
-            <Card className="border-2 border-destructive/50 bg-destructive/5">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base font-semibold">
-                      {t("worldMapTab.couldNotReachTitle")}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {t("worldMapTab.couldNotReachDesc", { error: diagnosticsError })}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={fetchDiagnostics}
-                    disabled={refreshingDiagnostics}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "w-4 h-4 me-2",
-                        refreshingDiagnostics && "animate-spin",
-                      )}
-                    />
-                    {t("worldMapTab.retry")}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <PageAlerts
+              alerts={[
+                {
+                  id: "diagnostics-unreachable",
+                  tone: "error",
+                  title: t("worldMapTab.couldNotReachTitle"),
+                  description: t("worldMapTab.couldNotReachDesc", { error: diagnosticsError }),
+                  action: {
+                    label: t("worldMapTab.retry"),
+                    onClick: () => {
+                      if (!refreshingDiagnostics) void fetchDiagnostics();
+                    },
+                  },
+                },
+              ]}
+            />
           )}
           {diagnosticsError && !diagnostics ? null : (
           <>
@@ -3374,12 +3344,7 @@ export default function Debug() {
                           onClick={fetchDiagnostics}
                           disabled={refreshingDiagnostics}
                         >
-                          <RefreshCw
-                            className={cn(
-                              "w-4 h-4 me-2",
-                              refreshingDiagnostics && "animate-spin",
-                            )}
-                          />
+                          {refreshingDiagnostics ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <RefreshCw className="w-4 h-4 me-2" />}
                           {t("common.rerun")}
                         </Button>
                       </div>
@@ -3538,7 +3503,7 @@ export default function Debug() {
                                     >
                                       <Button
                                         size="sm"
-                                        className="h-7 px-2 text-[11px]"
+                                        className="h-7 px-2 text-xs"
                                         variant={
                                           fixAction.automated
                                             ? "default"
@@ -3566,7 +3531,7 @@ export default function Debug() {
                                         asChild
                                         size="sm"
                                         variant="ghost"
-                                        className="h-7 px-2 text-[11px]"
+                                        className="h-7 px-2 text-xs"
                                       >
                                         <Link to="/server-config">
                                           {t("common.openServerConfig")}
@@ -3578,7 +3543,7 @@ export default function Debug() {
                                         asChild
                                         size="sm"
                                         variant="ghost"
-                                        className="h-7 px-2 text-[11px]"
+                                        className="h-7 px-2 text-xs"
                                       >
                                         <Link to="/mods">{t("common.openMods")}</Link>
                                       </Button>
@@ -3589,13 +3554,13 @@ export default function Debug() {
                                         asChild
                                         size="sm"
                                         variant="ghost"
-                                        className="h-7 px-2 text-[11px]"
+                                        className="h-7 px-2 text-xs"
                                       >
                                         <Link to={link.to}>{link.label}</Link>
                                       </Button>
                                     ))}
                                     {fixAction.note && (
-                                      <span className="text-[11px] text-muted-foreground">
+                                      <span className="text-xs text-muted-foreground">
                                         {fixAction.note}
                                       </span>
                                     )}
@@ -3630,7 +3595,7 @@ export default function Debug() {
         </TabsContent>
 
         {/* World Map Tab — dedicated diagnostics for the live map */}
-        <TabsContent value="worldmap" className="space-y-4">
+        <TabsContent value="worldmap" className="mt-0 space-y-4">
           {(() => {
             const wm = worldMapDiag;
             const overall = wm?.overall;
@@ -3778,35 +3743,22 @@ export default function Debug() {
             return (
               <>
                 {worldMapError && (
-                  <Card className="border-2 border-destructive/50 bg-destructive/5">
-                    <CardContent className="pt-6">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-base font-semibold">
-                            {t("worldMapTab.couldNotReachTitle")}
-                          </h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {t("worldMapTab.couldNotReachDesc", { error: worldMapError })}
-                          </p>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={fetchWorldMapDiag}
-                          disabled={refreshingWorldMap}
-                        >
-                          <RefreshCw
-                            className={cn(
-                              "w-4 h-4 me-2",
-                              refreshingWorldMap && "animate-spin",
-                            )}
-                          />
-                          {t("worldMapTab.retry")}
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <PageAlerts
+                    alerts={[
+                      {
+                        id: "worldmap-unreachable",
+                        tone: "error",
+                        title: t("worldMapTab.couldNotReachTitle"),
+                        description: t("worldMapTab.couldNotReachDesc", { error: worldMapError }),
+                        action: {
+                          label: t("worldMapTab.retry"),
+                          onClick: () => {
+                            if (!refreshingWorldMap) void fetchWorldMapDiag();
+                          },
+                        },
+                      },
+                    ]}
+                  />
                 )}
                 {worldMapError && !wm ? null : (
                   <>
@@ -3904,12 +3856,7 @@ export default function Debug() {
                               onClick={fetchWorldMapDiag}
                               disabled={refreshingWorldMap}
                             >
-                              <RefreshCw
-                                className={cn(
-                                  "w-4 h-4 me-2",
-                                  refreshingWorldMap && "animate-spin",
-                                )}
-                              />
+                              {refreshingWorldMap ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <RefreshCw className="w-4 h-4 me-2" />}
                               {t("common.rerun")}
                             </Button>
                           </div>
@@ -4024,7 +3971,7 @@ export default function Debug() {
                                       href={probe.url}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                                      className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
                                       title={t("worldMapTab.openExternalTitle")}
                                     >
                                       <ExternalLink className="w-3 h-3" />
@@ -4103,7 +4050,7 @@ export default function Debug() {
                                             />
                                             <div
                                               className={cn(
-                                                "text-[9px] font-medium leading-tight",
+                                                "text-[10px] font-medium leading-tight",
                                                 tile.errTone === "destructive"
                                                   ? "text-destructive"
                                                   : "text-warning",
@@ -4138,7 +4085,7 @@ export default function Debug() {
                                         )}
                                       </div>
                                       <div className="min-w-0">
-                                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                                        <div className="label-micro">
                                           {tile.label}
                                         </div>
                                         <div className="mt-1">
@@ -4198,7 +4145,7 @@ export default function Debug() {
                         {wm?.bridge ? (
                           <div className="grid grid-cols-2 gap-2 text-sm">
                             <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <div className="label-micro">
                                 {t("worldMapTab.configuredLabel")}
                               </div>
                               <div className="font-medium">
@@ -4206,7 +4153,7 @@ export default function Debug() {
                               </div>
                             </div>
                             <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <div className="label-micro">
                                 {t("worldMapTab.serviceRunningLabel")}
                               </div>
                               <div className="font-medium flex items-center gap-1">
@@ -4224,7 +4171,7 @@ export default function Debug() {
                               </div>
                             </div>
                             <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <div className="label-micro">
                                 {t("worldMapTab.modConnectedLabel")}
                               </div>
                               <div className="font-medium">
@@ -4270,7 +4217,7 @@ export default function Debug() {
                             })()}
                             {wm.bridge.consecutiveFailures > 0 && (
                               <div className="col-span-2 p-2 rounded border border-warning/30 bg-warning/5">
-                                <div className="text-[10px] uppercase tracking-wide text-warning">
+                                <div className="text-micro font-semibold uppercase text-warning">
                                   {t("worldMapTab.consecutiveFailuresLabel")}
                                 </div>
                                 <div className="font-medium">
@@ -4280,7 +4227,7 @@ export default function Debug() {
                             )}
                             {wm.bridge.bridgePath && (
                               <div className="col-span-2 p-2 rounded border bg-card">
-                                <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-0.5">
+                                <div className="label-micro mb-0.5">
                                   {t("worldMapTab.bridgePathLabel")}
                                 </div>
                                 <CopyablePath
@@ -4290,10 +4237,10 @@ export default function Debug() {
                               </div>
                             )}
                             <div className="col-span-2 p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              <div className="label-micro">
                                 {t("worldMapTab.requiredHandlersLabel")}
                               </div>
-                              <div className="text-[11px] text-muted-foreground mb-1.5">
+                              <div className="text-xs text-muted-foreground mb-1.5">
                                 {t("worldMapTab.requiredHandlersDesc")}
                               </div>
                               <div className="flex gap-1 flex-wrap">
@@ -4434,7 +4381,7 @@ export default function Debug() {
                                   r?.ok &&
                                   Array.isArray(r.sample) &&
                                   r.sample.length > 0 && (
-                                    <div className="text-[11px] text-muted-foreground mt-1 space-y-0.5">
+                                    <div className="text-xs text-muted-foreground mt-1 space-y-0.5">
                                       {(
                                         r.sample as Array<{
                                           name?: string;
@@ -4475,7 +4422,7 @@ export default function Debug() {
                                     </div>
                                   )}
                                 {id === "players" && r?.ok && r.count === 0 && (
-                                  <div className="text-[11px] text-muted-foreground mt-1 italic">
+                                  <div className="text-xs text-muted-foreground mt-1 italic">
                                     {t("worldMapTab.noPlayersOnlineHint")}
                                   </div>
                                 )}
@@ -4654,7 +4601,7 @@ export default function Debug() {
                                   <div className="text-sm font-medium">
                                     {t("worldMapTab.gunshotLabel")}
                                   </div>
-                                  <div className="text-[11px] text-muted-foreground">
+                                  <div className="text-xs text-muted-foreground">
                                     {t("worldMapTab.gunshotDesc")}
                                   </div>
                                 </div>
@@ -4706,7 +4653,7 @@ export default function Debug() {
                                   <div className="text-sm font-medium">
                                     {t("worldMapTab.lightningLabel")}
                                   </div>
-                                  <div className="text-[11px] text-muted-foreground">
+                                  <div className="text-xs text-muted-foreground">
                                     {t("worldMapTab.lightningDesc")}
                                   </div>
                                 </div>
@@ -4934,8 +4881,963 @@ export default function Debug() {
           })()}
         </TabsContent>
 
+        {/* Bridge Tab — the 7 PanelBridge debug/diagnostics handlers
+            (getStats/checkAPI/getAvailableHandlers/getDebugLog/
+            setDebugMode/clearErrors/debugItemScript). Gated on
+            bridge.diagnostics specifically -- narrower than whatever
+            permission gates this whole page, so a role with page access
+            can still lack this tab's data (see bridgeDiagFetch above). */}
+        <TabsContent value="bridge" className="mt-0 space-y-4">
+          {bridgeDiagPermissionDenied ? (
+            <EmptyState
+              type="accessDenied"
+              icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
+              title={t("bridgeTab.permissionDeniedTitle")}
+              description={t("bridgeTab.permissionDeniedDesc")}
+            />
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h3 className="text-sm font-medium">{t("bridgeTab.heading")}</h3>
+                  <p className="text-xs text-muted-foreground">
+                    {t("bridgeTab.headingDesc")}
+                  </p>
+                </div>
+                <BridgeStatusBadge
+                  connected={bridgeDiagConnected && bridgeDiagHealthy}
+                  running={bridgeDiagRunning}
+                  loading={bridgeDiagStatusLoading}
+                  interactive={false}
+                />
+              </div>
+
+              {!bridgeDiagStatusLoading && !bridgeDiagConnected && (
+                <div className="p-2.5 rounded-md border border-warning/40 bg-warning/5 text-xs flex items-start gap-2">
+                  <WifiOff className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                  <div>{t("bridgeTab.notConnectedDesc")}</div>
+                </div>
+              )}
+
+              {/* Stats + debug mode + error log */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Activity className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.statsTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.statsDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeBridgeStats}
+                      disabled={!bridgeDiagConnected || probeLoading === "bridgeStats"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "bridgeStats" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ms-1.5">{t("common.refresh")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {!bridgeDiagConnected ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.offlineNoData")}
+                    </div>
+                  ) : !probeResults["bridgeStats"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["bridgeStats"].ok ? (
+                    <div className="p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-sm flex items-start gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
+                      <div className="text-destructive">
+                        {probeResults["bridgeStats"].error}
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
+                      const stats = probeResults["bridgeStats"].sample as {
+                        version?: string;
+                        uptime?: number;
+                        commandsProcessed?: number;
+                        commandsSucceeded?: number;
+                        commandsFailed?: number;
+                        debugMode?: boolean;
+                        lastError?: { timestamp?: number; message?: string } | null;
+                        recentErrors?: Array<{ timestamp?: number; message?: string }>;
+                        detectedVersion?: {
+                          build?: string;
+                          isB42?: boolean;
+                          isB41?: boolean;
+                        };
+                      };
+                      const uptimeSec = Math.max(0, Math.round(stats.uptime ?? 0));
+                      const h = Math.floor(uptimeSec / 3600);
+                      const m = Math.floor((uptimeSec % 3600) / 60);
+                      const s = uptimeSec % 60;
+                      const uptimeLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+                      const errCount = stats.recentErrors?.length ?? 0;
+                      return (
+                        <>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                            <div className="p-2 rounded border bg-card">
+                              <div className="label-micro">
+                                {t("bridgeTab.versionLabel")}
+                              </div>
+                              <div className="font-medium font-mono">
+                                {stats.version ?? t("common.notAvailable")}
+                              </div>
+                            </div>
+                            <div className="p-2 rounded border bg-card">
+                              <div className="label-micro">
+                                {t("bridgeTab.uptimeLabel")}
+                              </div>
+                              <div className="font-medium">{uptimeLabel}</div>
+                            </div>
+                            <div className="p-2 rounded border bg-card">
+                              <div className="label-micro">
+                                {t("bridgeTab.commandsLabel")}
+                              </div>
+                              <div className="font-medium">
+                                {stats.commandsSucceeded ?? 0} / {stats.commandsProcessed ?? 0}
+                              </div>
+                            </div>
+                            <div
+                              className={cn(
+                                "p-2 rounded border",
+                                (stats.commandsFailed ?? 0) > 0
+                                  ? "border-warning/40 bg-warning/5"
+                                  : "bg-card",
+                              )}
+                            >
+                              <div className="label-micro">
+                                {t("bridgeTab.commandsFailedLabel")}
+                              </div>
+                              <div className="font-medium">{stats.commandsFailed ?? 0}</div>
+                            </div>
+                          </div>
+
+                          {stats.detectedVersion && (
+                            <div className="p-2 rounded border bg-card text-sm">
+                              <div className="label-micro mb-1">
+                                {t("bridgeTab.detectedVersionLabel")}
+                              </div>
+                              <div className="font-mono">
+                                {stats.detectedVersion.build ?? t("common.notAvailable")}
+                                {" · "}
+                                {stats.detectedVersion.isB42
+                                  ? "B42"
+                                  : stats.detectedVersion.isB41
+                                    ? "B41"
+                                    : t("common.notAvailable")}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {t("bridgeTab.detectedVersionCaveat")}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between gap-2 p-2 rounded border bg-card">
+                            <div>
+                              <div className="text-sm font-medium">
+                                {t("bridgeTab.debugModeLabel")}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {t("bridgeTab.debugModeDesc")}
+                              </div>
+                            </div>
+                            <DisabledReason
+                              reason={
+                                !can("bridge.diagnostics")
+                                  ? t("bridgeTab.noPermission")
+                                  : null
+                              }
+                            >
+                              <Switch
+                                checked={stats.debugMode === true}
+                                disabled={
+                                  !can("bridge.diagnostics") ||
+                                  actionLoading === "bridgeDebugMode"
+                                }
+                                onCheckedChange={(checked) =>
+                                  toggleBridgeDebugMode(checked)
+                                }
+                              />
+                            </DisabledReason>
+                          </div>
+
+                          <div className="p-2 rounded border bg-card">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium">
+                                {t("bridgeTab.errorLogLabel", { count: errCount })}
+                              </div>
+                              <DisabledReason
+                                reason={
+                                  !can("bridge.diagnostics")
+                                    ? t("bridgeTab.noPermission")
+                                    : errCount === 0
+                                      ? t("bridgeTab.noErrorsToClear")
+                                      : null
+                                }
+                              >
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={clearBridgeErrors}
+                                  disabled={
+                                    !can("bridge.diagnostics") ||
+                                    errCount === 0 ||
+                                    actionLoading === "bridgeClearErrors"
+                                  }
+                                >
+                                  {actionLoading === "bridgeClearErrors" ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                  <span className="ms-1.5">
+                                    {t("bridgeTab.clearErrorsButton")}
+                                  </span>
+                                </Button>
+                              </DisabledReason>
+                            </div>
+                            {stats.lastError?.message && (
+                              <div className="text-xs text-destructive mt-1.5 break-all">
+                                {stats.lastError.message}
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* checkAPI */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Search className="w-4 h-4 text-primary" />
+                    {t("bridgeTab.checkApiTitle")}
+                  </CardTitle>
+                  <CardDescription>{t("bridgeTab.checkApiDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.checkApiObjectLabel")}</Label>
+                      <Select value={checkApiObject} onValueChange={setCheckApiObject}>
+                        <SelectTrigger className="h-8 w-44 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ClimateManager">ClimateManager</SelectItem>
+                          <SelectItem value="GameTime">GameTime</SelectItem>
+                          <SelectItem value="World">World</SelectItem>
+                          <SelectItem value="ChatServer">ChatServer</SelectItem>
+                          <SelectItem value="SandboxOptions">SandboxOptions</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1 flex-1 min-w-[10rem]">
+                      <Label className="text-xs">{t("bridgeTab.checkApiMethodLabel")}</Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        placeholder={t("bridgeTab.checkApiMethodPlaceholder")}
+                        value={checkApiMethod}
+                        onChange={(e) => setCheckApiMethod(e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeCheckApi}
+                      disabled={!bridgeDiagConnected || probeLoading === "checkApi"}
+                    >
+                      {probeLoading === "checkApi" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ms-1.5">{t("bridgeTab.checkApiRunButton")}</span>
+                    </Button>
+                  </div>
+
+                  {probeResults["checkApi"] &&
+                    (!probeResults["checkApi"].ok ? (
+                      <div className="text-sm text-destructive">
+                        {probeResults["checkApi"].error}
+                      </div>
+                    ) : (
+                      (() => {
+                        const r = probeResults["checkApi"].sample as {
+                          object?: string;
+                          available?: boolean;
+                          type?: string;
+                          method?: string;
+                          methodAvailable?: boolean;
+                          methods?: string[];
+                          methodsError?: string;
+                        };
+                        return (
+                          <div className="p-2.5 rounded border bg-card text-sm space-y-1.5">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant={r.available ? "outline" : "destructive"}>
+                                {r.available
+                                  ? t("bridgeTab.checkApiAvailable")
+                                  : t("bridgeTab.checkApiUnavailable")}
+                              </Badge>
+                              {r.method && (
+                                <Badge
+                                  variant={r.methodAvailable ? "outline" : "destructive"}
+                                  className="font-mono"
+                                >
+                                  {r.method}: {r.methodAvailable ? "✓" : "✗"}
+                                </Badge>
+                              )}
+                            </div>
+                            {r.methods && r.methods.length > 0 && (
+                              <div className="flex flex-wrap gap-1 pt-1">
+                                {r.methods.map((m) => (
+                                  <Badge
+                                    key={m}
+                                    variant="outline"
+                                    className="text-[10px] font-mono"
+                                  >
+                                    {m}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                            {r.methodsError && (
+                              <div className="text-xs text-muted-foreground">
+                                {r.methodsError}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ))}
+                </CardContent>
+              </Card>
+
+              {/* getAvailableHandlers */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <Terminal className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.handlersTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.handlersDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeAvailableHandlers}
+                      disabled={!bridgeDiagConnected || probeLoading === "availableHandlers"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "availableHandlers" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ms-1.5">{t("bridgeTab.handlersRunButton")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {!probeResults["availableHandlers"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["availableHandlers"].ok ? (
+                    <div className="text-sm text-destructive">
+                      {probeResults["availableHandlers"].error}
+                    </div>
+                  ) : (
+                    (() => {
+                      const data = probeResults["availableHandlers"].sample as {
+                        handlers?: string[];
+                        count?: number;
+                      };
+                      const all = data.handlers ?? [];
+                      const q = handlerSearchQuery.trim().toLowerCase();
+                      const filtered = q
+                        ? all.filter((h) => h.toLowerCase().includes(q))
+                        : all;
+                      return (
+                        <>
+                          <div className="flex items-center gap-2">
+                            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                            <Input
+                              className="h-8 text-xs"
+                              placeholder={t("bridgeTab.handlersSearchPlaceholder")}
+                              value={handlerSearchQuery}
+                              onChange={(e) => setHandlerSearchQuery(e.target.value)}
+                            />
+                            <span className="text-xs text-muted-foreground shrink-0">
+                              {t("bridgeTab.handlersCount", {
+                                shown: filtered.length,
+                                total: data.count ?? all.length,
+                              })}
+                            </span>
+                          </div>
+                          <ScrollArea className="h-48 rounded border bg-card p-2">
+                            <div className="flex flex-wrap gap-1">
+                              {filtered.map((h) => (
+                                <Badge
+                                  key={h}
+                                  variant="outline"
+                                  className="text-[10px] font-mono"
+                                >
+                                  {h}
+                                </Badge>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </>
+                      );
+                    })()
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* getDebugLog */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <FileText className="w-4 h-4 text-primary" />
+                    {t("bridgeTab.debugLogTitle")}
+                  </CardTitle>
+                  <CardDescription>{t("bridgeTab.debugLogDesc")}</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-end gap-2 flex-wrap">
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.debugLogLimitLabel")}</Label>
+                      <NumberInput
+                        className="h-8 w-24 text-xs"
+                        value={debugLogLimit}
+                        min={1}
+                        max={200}
+                        clamp={(v) => Math.min(200, Math.max(1, Math.round(v)))}
+                        onChange={(v) => setDebugLogLimit(Number.isFinite(v) ? v : 50)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t("bridgeTab.debugLogLevelLabel")}</Label>
+                      <Select
+                        value={debugLogMinLevel}
+                        onValueChange={(v) =>
+                          setDebugLogMinLevel(v as typeof debugLogMinLevel)
+                        }
+                      >
+                        <SelectTrigger className="h-8 w-32 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DEBUG">{t("common.levelDebug")}</SelectItem>
+                          <SelectItem value="INFO">{t("common.levelInfo")}</SelectItem>
+                          <SelectItem value="WARN">{t("common.levelWarn")}</SelectItem>
+                          <SelectItem value="ERROR">{t("common.levelError")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeDebugLog}
+                      disabled={!bridgeDiagConnected || probeLoading === "debugLog"}
+                    >
+                      {probeLoading === "debugLog" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ms-1.5">{t("bridgeTab.debugLogRunButton")}</span>
+                    </Button>
+                  </div>
+
+                  {probeResults["debugLog"] &&
+                    (!probeResults["debugLog"].ok ? (
+                      <div className="text-sm text-destructive">
+                        {probeResults["debugLog"].error}
+                      </div>
+                    ) : (
+                      (() => {
+                        const data = probeResults["debugLog"].sample as {
+                          entries?: Array<{
+                            timestamp?: number;
+                            level?: string;
+                            message?: string;
+                          }>;
+                          totalEntries?: number;
+                        };
+                        const entries = data.entries ?? [];
+                        return (
+                          <>
+                            <div className="text-xs text-muted-foreground">
+                              {t("bridgeTab.debugLogShown", {
+                                shown: entries.length,
+                                total: data.totalEntries ?? entries.length,
+                              })}
+                            </div>
+                            <ScrollArea className="h-64 rounded border bg-card">
+                              <div className="divide-y divide-border/40">
+                                {entries.length === 0 ? (
+                                  <div className="p-3 text-sm text-muted-foreground">
+                                    {t("bridgeTab.debugLogEmpty")}
+                                  </div>
+                                ) : (
+                                  entries
+                                    .slice()
+                                    .reverse()
+                                    .map((logEntry, i) => (
+                                      <div
+                                        key={i}
+                                        className="p-2 text-xs font-mono flex items-start gap-2"
+                                      >
+                                        <Badge
+                                          variant={
+                                            logEntry.level === "ERROR"
+                                              ? "destructive"
+                                              : "outline"
+                                          }
+                                          className="text-[10px] shrink-0"
+                                        >
+                                          {logEntry.level}
+                                        </Badge>
+                                        <span className="text-muted-foreground shrink-0">
+                                          {formatTime(logEntry.timestamp, { seconds: true })}
+                                        </span>
+                                        <span className="break-all">{logEntry.message}</span>
+                                      </div>
+                                    ))
+                                )}
+                              </div>
+                            </ScrollArea>
+                          </>
+                        );
+                      })()
+                    ))}
+                </CardContent>
+              </Card>
+
+              {/* debugItemScript -- fixed, zero-argument self-test */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <ShieldAlert className="w-4 h-4 text-primary" />
+                        {t("bridgeTab.selfTestTitle")}
+                      </CardTitle>
+                      <CardDescription>{t("bridgeTab.selfTestDesc")}</CardDescription>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={probeSelfTest}
+                      disabled={!bridgeDiagConnected || probeLoading === "selfTest"}
+                      className="shrink-0"
+                    >
+                      {probeLoading === "selfTest" ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <PlayCircle className="w-3.5 h-3.5" />
+                      )}
+                      <span className="ms-1.5">{t("bridgeTab.selfTestRunButton")}</span>
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {!probeResults["selfTest"] ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t("bridgeTab.notYetProbed")}
+                    </div>
+                  ) : !probeResults["selfTest"].ok ? (
+                    <div className="text-sm text-destructive">
+                      {probeResults["selfTest"].error}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-start p-1.5 font-medium">
+                              {t("bridgeTab.selfTestItemColumn")}
+                            </th>
+                            {[
+                              "getTypeString",
+                              "getType",
+                              "getCategory",
+                              "getDisplayCategory",
+                              "getBodyLocation",
+                              "getSubCategory",
+                              "getCategories",
+                              "getTypeToItem",
+                              "getScriptObjectType",
+                            ].map((m) => (
+                              <th
+                                key={m}
+                                className="text-start p-1.5 font-mono font-medium whitespace-nowrap"
+                              >
+                                {m}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(
+                            probeResults["selfTest"].sample as Array<
+                              Record<string, string>
+                            >
+                          ).map((probe, i) => (
+                            <tr key={i} className="border-b border-border/30">
+                              <td className="p-1.5 font-mono">{probe.id}</td>
+                              {[
+                                "getTypeString",
+                                "getType",
+                                "getCategory",
+                                "getDisplayCategory",
+                                "getBodyLocation",
+                                "getSubCategory",
+                                "getCategories",
+                                "getTypeToItem",
+                                "getScriptObjectType",
+                              ].map((m) => (
+                                <td
+                                  key={m}
+                                  className={cn(
+                                    "p-1.5 font-mono whitespace-nowrap",
+                                    probe[m] === "nil"
+                                      ? "text-muted-foreground"
+                                      : probe[m]?.startsWith("ERROR")
+                                        ? "text-destructive"
+                                        : "text-primary",
+                                  )}
+                                >
+                                  {probe[m]}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
+        {/* Performance Tab */}
+        <TabsContent value="performance" className="mt-0 space-y-4">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Activity className="w-4 h-4" />
+              {performanceStats.spanMs > 0 ? (
+                <span>
+                  {t("performanceTab.showingSnapshots", {
+                    count: performanceHistory.length,
+                    duration: formatElapsed(performanceStats.spanMs / 1000),
+                  })}
+                </span>
+              ) : (
+                <span>
+                  {t("performanceTab.recordedEvery60s")}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Select
+                value={perfRange}
+                onValueChange={(v) => setPerfRange(v as "1h" | "6h" | "24h")}
+              >
+                <SelectTrigger
+                  className="w-[132px] h-8"
+                  aria-label={t("performanceTab.timeRangeAria")}
+                >
+                  <Clock className="w-3.5 h-3.5 me-1" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1h">{t("performanceTab.lastHour")}</SelectItem>
+                  <SelectItem value="6h">{t("performanceTab.last6h")}</SelectItem>
+                  <SelectItem value="24h">{t("performanceTab.last24h")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={downloadPerformanceCsv}
+                    disabled={performanceHistory.length === 0}
+                  >
+                    <Download className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("performanceTab.exportCsvTooltip")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchPerformanceHistory}
+                    disabled={refreshingPerformance}
+                    aria-label={t("common.refresh")}
+                  >
+                    {refreshingPerformance ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("performanceTab.refreshNowTooltip")}</TooltipContent>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Current Snapshot Cards */}
+          {(() => {
+            const latest =
+              performanceHistory.length > 0
+                ? performanceHistory[performanceHistory.length - 1]
+                : null;
+            const cpuTone =
+              latest?.cpuLoad != null
+                ? latest.cpuLoad >= 90
+                  ? "destructive"
+                  : latest.cpuLoad >= 75
+                    ? "warning"
+                    : null
+                : null;
+            const hostPct =
+              latest?.hostMemUsedGB != null && latest.hostMemGB
+                ? (latest.hostMemUsedGB / latest.hostMemGB) * 100
+                : null;
+            const hostTone =
+              hostPct != null
+                ? hostPct >= 90
+                  ? "destructive"
+                  : hostPct >= 75
+                    ? "warning"
+                    : null
+                : null;
+            const pzTone =
+              latest?.pzMemMB != null
+                ? latest.pzMemMB > 7600
+                  ? "destructive"
+                  : latest.pzMemMB > 6000
+                    ? "warning"
+                    : null
+                : null;
+            const fmtBool = (b: boolean) => (b ? t("common.running") : t("common.stopped"));
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <Card
+                  className={cn(
+                    hostTone === "destructive" && "border-destructive/50",
+                    hostTone === "warning" && "border-warning/50",
+                  )}
+                >
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.hostRam")}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xl font-bold mt-1",
+                        hostTone === "destructive" && "text-destructive",
+                        hostTone === "warning" && "text-warning",
+                      )}
+                    >
+                      {latest?.hostMemUsedGB != null
+                        // bug-hunt-2026-09-08 (Arabic render pass, dwight):
+                        // same "number / number" bidi-neutral-run reversal
+                        // DashboardPerformanceCharts hit (6a6e26ee) -- this
+                        // page has its own separate host-RAM display that
+                        // never got that fix. <bdi> isolates the whole
+                        // expression (used/total/unit together, same as
+                        // Servers.tsx's memory-range fix, 09040e60) from the
+                        // surrounding RTL paragraph.
+                        ? <bdi>{`${latest.hostMemUsedGB} / ${latest.hostMemGB} GB`}</bdi>
+                        : t("common.notAvailable")}
+                    </p>
+                    {performanceStats.hostGB.avg != null && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("performanceTab.avgMaxGB", {
+                          avg: performanceStats.hostGB.avg.toFixed(1),
+                          max: performanceStats.hostGB.max!.toFixed(1),
+                        })}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card
+                  className={cn(
+                    cpuTone === "destructive" && "border-destructive/50",
+                    cpuTone === "warning" && "border-warning/50",
+                  )}
+                >
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.hostCpu")}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xl font-bold mt-1",
+                        cpuTone === "destructive" && "text-destructive",
+                        cpuTone === "warning" && "text-warning",
+                      )}
+                    >
+                      {latest?.cpuLoad != null ? `${latest.cpuLoad}%` : t("common.notAvailable")}
+                    </p>
+                    {performanceStats.cpu.avg != null && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("performanceTab.avgMaxPct", {
+                          avg: performanceStats.cpu.avg.toFixed(1),
+                          max: performanceStats.cpu.max!.toFixed(1),
+                        })}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card
+                  className={cn(
+                    pzTone === "destructive" && "border-destructive/50",
+                    pzTone === "warning" && "border-warning/50",
+                  )}
+                >
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.pzServerRam")}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xl font-bold mt-1",
+                        pzTone === "destructive" && "text-destructive",
+                        pzTone === "warning" && "text-warning",
+                      )}
+                    >
+                      {latest?.pzMemMB != null
+                        ? `${(latest.pzMemMB / 1024).toFixed(1)} GB`
+                        : t("common.notAvailable")}
+                    </p>
+                    {performanceStats.pzMB.avg != null && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("performanceTab.avgGB", {
+                          avg: (performanceStats.pzMB.avg / 1024).toFixed(1),
+                        })}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.pzPeak")}
+                    </p>
+                    <p className="text-xl font-bold mt-1">
+                      {performanceStats.pzMB.max != null
+                        ? `${(performanceStats.pzMB.max / 1024).toFixed(1)} GB`
+                        : t("common.notAvailable")}
+                    </p>
+                    {performanceStats.pzMB.count > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("performanceTab.acrossSamples", { count: performanceStats.pzMB.count })}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.players")}
+                    </p>
+                    <p className="text-xl font-bold mt-1">
+                      {latest?.playerCount ?? t("common.notAvailable")}
+                    </p>
+                    {performanceStats.players.max != null && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("performanceTab.peakAvg", {
+                          peak: performanceStats.players.max,
+                          avg: performanceStats.players.avg!.toFixed(1),
+                        })}
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
+                      {t("performanceTab.server")}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xl font-bold mt-1",
+                        latest?.serverRunning
+                          ? "text-success"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {latest ? fmtBool(latest.serverRunning) : t("common.notAvailable")}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {t("performanceTab.sampleCount", { count: performanceHistory.length })}
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
+            );
+          })()}
+
+          {/* Charts */}
+          <Suspense
+            fallback={
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                {[0, 1].map((index) => (
+                  <Card key={index}>
+                    <CardHeader className="pb-3">
+                      <div className="h-5 w-32 rounded bg-muted/60" />
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-[250px] animate-pulse rounded-lg bg-muted/40" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            }
+          >
+            {activeTab === "performance" && performanceHistory.length > 0 ? (
+              <DebugPerformanceCharts performanceHistory={performanceHistory} />
+            ) : null}
+            {activeTab === "performance" && performanceHistory.length === 0 && (
+              <EmptyState
+                compact
+                type="noData"
+                title={t("performanceTab.collectingTitle")}
+                description={t("performanceTab.collectingDesc")}
+              />
+            )}
+          </Suspense>
+        </TabsContent>
+
         {/* Activity Tab — Unified command/event timeline */}
-        <TabsContent value="activity" className="space-y-4">
+        <TabsContent value="activity" className="mt-0 space-y-4">
           <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between flex-wrap gap-2">
@@ -5055,12 +5957,7 @@ export default function Debug() {
                     disabled={refreshingActivity}
                     aria-label={t("activityTab.refreshNowAria")}
                   >
-                    <RefreshCw
-                      className={cn(
-                        "w-4 h-4",
-                        refreshingActivity && "animate-spin",
-                      )}
-                    />
+                    {refreshingActivity ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   </Button>
                 </div>
               </div>
@@ -5345,128 +6242,7 @@ export default function Debug() {
         </TabsContent>
 
         {/* Logs Tab */}
-        <TabsContent value="logs" className="space-y-4">
-          {/* Stats Bar — tactical filter chips */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {(() => {
-              const tiles = [
-                {
-                  key: "all",
-                  label: t("logsTab.statTotal"),
-                  value: logStats.total,
-                  tone: "muted",
-                  Icon: Terminal,
-                },
-                {
-                  key: "error",
-                  label: t("logsTab.statErrors"),
-                  value: logStats.errors,
-                  tone: "destructive",
-                  Icon: AlertCircle,
-                },
-                {
-                  key: "warn",
-                  label: t("logsTab.statWarnings"),
-                  value: logStats.warnings,
-                  tone: "warning",
-                  Icon: AlertTriangle,
-                },
-                {
-                  key: "info",
-                  label: t("logsTab.statInfo"),
-                  value: logStats.info,
-                  tone: "primary",
-                  Icon: Info,
-                },
-                {
-                  key: "debug",
-                  label: t("logsTab.statDebug"),
-                  value: logStats.debug,
-                  tone: "muted",
-                  Icon: Bug,
-                },
-              ];
-              const toneStyles: Record<
-                string,
-                { chip: string; value: string; ring: string; hover: string }
-              > = {
-                primary: {
-                  chip: "border-primary/30 bg-primary/[0.06] text-primary",
-                  value: "text-primary",
-                  ring: "ring-primary/50",
-                  hover: "hover:border-primary/30",
-                },
-                warning: {
-                  chip: "border-warning/40 bg-warning/10 text-warning",
-                  value: "text-warning",
-                  ring: "ring-warning/50",
-                  hover: "hover:border-warning/30",
-                },
-                destructive: {
-                  chip: "border-destructive/40 bg-destructive/[0.08] text-destructive",
-                  value: "text-destructive",
-                  ring: "ring-destructive/50",
-                  hover: "hover:border-destructive/30",
-                },
-                muted: {
-                  chip: "border-border/55 bg-muted/30 text-muted-foreground",
-                  value: "text-foreground",
-                  ring: "ring-foreground/30",
-                  hover: "hover:border-border",
-                },
-              };
-              return tiles.map((tile) => {
-                const s = toneStyles[tile.tone];
-                const isActive = levelFilter === tile.key;
-                return (
-                  <Card
-                    key={tile.key}
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={isActive}
-                    aria-label={t("logsTab.filterAria", { label: tile.label })}
-                    onClick={() => setLevelFilter(tile.key as typeof levelFilter)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setLevelFilter(tile.key as typeof levelFilter);
-                      }
-                    }}
-                    className={cn(
-                      "cursor-pointer transition-all border-border/60",
-                      s.hover,
-                      isActive && `ring-1 ${s.ring}`,
-                    )}
-                  >
-                    <CardContent className="flex items-center gap-3 p-3.5">
-                      <div
-                        className={cn(
-                          "grid h-10 w-10 shrink-0 place-items-center rounded-md border",
-                          s.chip,
-                        )}
-                      >
-                        <tile.Icon className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {tile.label}
-                        </p>
-                        <p
-                          className={cn(
-                            "text-xl font-semibold leading-tight tabular-nums",
-                            s.value,
-                          )}
-                        >
-                          {tile.value.toLocaleString(i18n.language)}
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                );
-              });
-            })()}
-          </div>
-
+        <TabsContent value="logs" className="mt-0 space-y-4">
           {/* Logs Card */}
           <Card>
             <CardHeader className="pb-4">
@@ -5524,12 +6300,7 @@ export default function Debug() {
                             onClick={fetchLogs}
                             disabled={refreshingLogs}
                           >
-                            <RefreshCw
-                              className={cn(
-                                "w-4 h-4",
-                                refreshingLogs && "animate-spin",
-                              )}
-                            />
+                            {refreshingLogs ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>{t("logsTab.refreshLogsTooltip")}</TooltipContent>
@@ -5601,31 +6372,28 @@ export default function Debug() {
                       <button
                         onClick={() => setSearchQuery("")}
                         aria-label={t("logsTab.clearLogSearchAria")}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     )}
                   </div>
 
-                  {/* Level Filter */}
-                  <Select
+                  {/* Level filter with each level's count: one control in
+                      the toolbar instead of a row of five stat tiles above
+                      the log plus a second level dropdown here. */}
+                  <Segmented
+                    ariaLabel={t("logsTab.levelPlaceholder")}
                     value={levelFilter}
-                    onValueChange={(v) =>
-                      setLevelFilter(v as typeof levelFilter)
-                    }
-                  >
-                    <SelectTrigger className="w-full sm:w-[120px]">
-                      <SelectValue placeholder={t("logsTab.levelPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t("logsTab.allLevels")}</SelectItem>
-                      <SelectItem value="error">{t("logsTab.statErrors")}</SelectItem>
-                      <SelectItem value="warn">{t("logsTab.statWarnings")}</SelectItem>
-                      <SelectItem value="info">{t("logsTab.statInfo")}</SelectItem>
-                      <SelectItem value="debug">{t("logsTab.statDebug")}</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    onValueChange={(v) => setLevelFilter(v as typeof levelFilter)}
+                    items={[
+                      { value: "all", label: t("logsTab.allLevels"), count: logStats.total },
+                      { value: "error", label: t("logsTab.statErrors"), count: logStats.errors },
+                      { value: "warn", label: t("logsTab.statWarnings"), count: logStats.warnings },
+                      { value: "info", label: t("logsTab.statInfo"), count: logStats.info },
+                      { value: "debug", label: t("logsTab.statDebug"), count: logStats.debug },
+                    ]}
+                  />
 
                   {/* Source Filter */}
                   <Select value={sourceFilter} onValueChange={setSourceFilter}>
@@ -5789,11 +6557,11 @@ export default function Debug() {
                         <Archive className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-primary">
-                          {t("logsTab.recommendedEyebrow")}
-                        </p>
-                        <p className="mt-0.5 text-sm font-semibold text-foreground">
+                        <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
                           {t("logsTab.supportBundleTitle")}
+                          <Badge variant="outline" className="h-5 border-primary/40 px-1.5 text-[10px] font-medium text-primary">
+                            {t("logsTab.recommendedEyebrow")}
+                          </Badge>
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {t("logsTab.supportBundleDesc")}
@@ -5801,8 +6569,8 @@ export default function Debug() {
                       </div>
                     </div>
                     <Button
-                      variant="command"
-                      size="lg"
+                      variant="outline"
+                      size="sm"
                       onClick={downloadLogArchive}
                       disabled={downloadingLogArchive}
                       className="gap-2 self-start sm:self-auto"
@@ -5819,7 +6587,7 @@ export default function Debug() {
 
                 {/* Individual files */}
                 <div>
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className="label-micro mb-2">
                     {t("logsTab.individualFiles")}{" "}
                     <span className="ms-1 font-mono tabular-nums normal-case tracking-normal text-muted-foreground/70">
                       · {logFiles.length}
@@ -5870,7 +6638,7 @@ export default function Debug() {
         </TabsContent>
 
         {/* Crashes Tab */}
-        <TabsContent value="crashes" className="space-y-4">
+        <TabsContent value="crashes" className="mt-0 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Crash Log List */}
             <Card className="lg:col-span-1">
@@ -5909,12 +6677,7 @@ export default function Debug() {
                     disabled={refreshingCrashLogs}
                     aria-label={t("crashesTab.refreshCrashLogsAria")}
                   >
-                    <RefreshCw
-                      className={cn(
-                        "w-4 h-4",
-                        refreshingCrashLogs && "animate-spin",
-                      )}
-                    />
+                    {refreshingCrashLogs ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   </Button>
                 </div>
               </CardHeader>
@@ -6069,338 +6832,28 @@ export default function Debug() {
           </div>
         </TabsContent>
 
-        {/* Performance Tab */}
-        <TabsContent value="performance" className="space-y-4">
-          {/* Toolbar */}
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Activity className="w-4 h-4" />
-              {performanceStats.spanMs > 0 ? (
-                <span>
-                  {t("performanceTab.showingSnapshots", {
-                    count: performanceHistory.length,
-                    duration: formatElapsed(performanceStats.spanMs / 1000),
-                  })}
-                </span>
-              ) : (
-                <span>
-                  {t("performanceTab.recordedEvery60s")}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Select
-                value={perfRange}
-                onValueChange={(v) => setPerfRange(v as "1h" | "6h" | "24h")}
-              >
-                <SelectTrigger
-                  className="w-[132px] h-8"
-                  aria-label={t("performanceTab.timeRangeAria")}
-                >
-                  <Clock className="w-3.5 h-3.5 me-1" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="1h">{t("performanceTab.lastHour")}</SelectItem>
-                  <SelectItem value="6h">{t("performanceTab.last6h")}</SelectItem>
-                  <SelectItem value="24h">{t("performanceTab.last24h")}</SelectItem>
-                </SelectContent>
-              </Select>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={downloadPerformanceCsv}
-                    disabled={performanceHistory.length === 0}
-                  >
-                    <Download className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("performanceTab.exportCsvTooltip")}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={fetchPerformanceHistory}
-                    disabled={refreshingPerformance}
-                    aria-label={t("common.refresh")}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "w-4 h-4",
-                        refreshingPerformance && "animate-spin",
-                      )}
-                    />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("performanceTab.refreshNowTooltip")}</TooltipContent>
-              </Tooltip>
-            </div>
-          </div>
-
-          {/* Current Snapshot Cards */}
-          {(() => {
-            const latest =
-              performanceHistory.length > 0
-                ? performanceHistory[performanceHistory.length - 1]
-                : null;
-            const cpuTone =
-              latest?.cpuLoad != null
-                ? latest.cpuLoad >= 90
-                  ? "destructive"
-                  : latest.cpuLoad >= 75
-                    ? "warning"
-                    : null
-                : null;
-            const hostPct =
-              latest?.hostMemUsedGB != null && latest.hostMemGB
-                ? (latest.hostMemUsedGB / latest.hostMemGB) * 100
-                : null;
-            const hostTone =
-              hostPct != null
-                ? hostPct >= 90
-                  ? "destructive"
-                  : hostPct >= 75
-                    ? "warning"
-                    : null
-                : null;
-            const pzTone =
-              latest?.pzMemMB != null
-                ? latest.pzMemMB > 7600
-                  ? "destructive"
-                  : latest.pzMemMB > 6000
-                    ? "warning"
-                    : null
-                : null;
-            const fmtBool = (b: boolean) => (b ? t("common.running") : t("common.stopped"));
-            return (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <Card
-                  className={cn(
-                    hostTone === "destructive" && "border-destructive/50",
-                    hostTone === "warning" && "border-warning/50",
-                  )}
-                >
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.hostRam")}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-xl font-bold mt-1",
-                        hostTone === "destructive" && "text-destructive",
-                        hostTone === "warning" && "text-warning",
-                      )}
-                    >
-                      {latest?.hostMemUsedGB != null
-                        // bug-hunt-2026-09-08 (Arabic render pass, dwight):
-                        // same "number / number" bidi-neutral-run reversal
-                        // DashboardPerformanceCharts hit (6a6e26ee) -- this
-                        // page has its own separate host-RAM display that
-                        // never got that fix. <bdi> isolates the whole
-                        // expression (used/total/unit together, same as
-                        // Servers.tsx's memory-range fix, 09040e60) from the
-                        // surrounding RTL paragraph.
-                        ? <bdi>{`${latest.hostMemUsedGB} / ${latest.hostMemGB} GB`}</bdi>
-                        : t("common.notAvailable")}
-                    </p>
-                    {performanceStats.hostGB.avg != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {t("performanceTab.avgMaxGB", {
-                          avg: performanceStats.hostGB.avg.toFixed(1),
-                          max: performanceStats.hostGB.max!.toFixed(1),
-                        })}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card
-                  className={cn(
-                    cpuTone === "destructive" && "border-destructive/50",
-                    cpuTone === "warning" && "border-warning/50",
-                  )}
-                >
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.hostCpu")}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-xl font-bold mt-1",
-                        cpuTone === "destructive" && "text-destructive",
-                        cpuTone === "warning" && "text-warning",
-                      )}
-                    >
-                      {latest?.cpuLoad != null ? `${latest.cpuLoad}%` : t("common.notAvailable")}
-                    </p>
-                    {performanceStats.cpu.avg != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {t("performanceTab.avgMaxPct", {
-                          avg: performanceStats.cpu.avg.toFixed(1),
-                          max: performanceStats.cpu.max!.toFixed(1),
-                        })}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card
-                  className={cn(
-                    pzTone === "destructive" && "border-destructive/50",
-                    pzTone === "warning" && "border-warning/50",
-                  )}
-                >
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.pzServerRam")}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-xl font-bold mt-1",
-                        pzTone === "destructive" && "text-destructive",
-                        pzTone === "warning" && "text-warning",
-                      )}
-                    >
-                      {latest?.pzMemMB != null
-                        ? `${(latest.pzMemMB / 1024).toFixed(1)} GB`
-                        : t("common.notAvailable")}
-                    </p>
-                    {performanceStats.pzMB.avg != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {t("performanceTab.avgGB", {
-                          avg: (performanceStats.pzMB.avg / 1024).toFixed(1),
-                        })}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.pzPeak")}
-                    </p>
-                    <p className="text-xl font-bold mt-1">
-                      {performanceStats.pzMB.max != null
-                        ? `${(performanceStats.pzMB.max / 1024).toFixed(1)} GB`
-                        : t("common.notAvailable")}
-                    </p>
-                    {performanceStats.pzMB.count > 0 && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {t("performanceTab.acrossSamples", { count: performanceStats.pzMB.count })}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.players")}
-                    </p>
-                    <p className="text-xl font-bold mt-1">
-                      {latest?.playerCount ?? t("common.notAvailable")}
-                    </p>
-                    {performanceStats.players.max != null && (
-                      <p className="text-[11px] text-muted-foreground mt-0.5">
-                        {t("performanceTab.peakAvg", {
-                          peak: performanceStats.players.max,
-                          avg: performanceStats.players.avg!.toFixed(1),
-                        })}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4">
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {t("performanceTab.server")}
-                    </p>
-                    <p
-                      className={cn(
-                        "text-xl font-bold mt-1",
-                        latest?.serverRunning
-                          ? "text-success"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {latest ? fmtBool(latest.serverRunning) : t("common.notAvailable")}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {t("performanceTab.sampleCount", { count: performanceHistory.length })}
-                    </p>
-                  </CardContent>
-                </Card>
-              </div>
-            );
-          })()}
-
-          {/* Charts */}
-          <Suspense
-            fallback={
-              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                {[0, 1].map((index) => (
-                  <Card key={index}>
-                    <CardHeader className="pb-3">
-                      <div className="h-5 w-32 rounded bg-muted/60" />
-                    </CardHeader>
-                    <CardContent>
-                      <div className="h-[250px] animate-pulse rounded-lg bg-muted/40" />
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            }
-          >
-            {activeTab === "performance" && performanceHistory.length > 0 ? (
-              <DebugPerformanceCharts performanceHistory={performanceHistory} />
-            ) : null}
-            {activeTab === "performance" && performanceHistory.length === 0 && (
-              <EmptyState
-                compact
-                type="noData"
-                title={t("performanceTab.collectingTitle")}
-                description={t("performanceTab.collectingDesc")}
-              />
-            )}
-          </Suspense>
-        </TabsContent>
-
         {/* Health Tab */}
-        <TabsContent value="health" className="space-y-4">
+        <TabsContent value="health" className="mt-0 space-y-4">
           <p className="text-sm text-muted-foreground">
             {t("healthTab.tabSubtitle")}
           </p>
           {healthError && (
-            <Card className="border-2 border-destructive/50 bg-destructive/5">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-6 h-6 text-destructive shrink-0 mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="text-base font-semibold">
-                      {t("healthTab.couldNotReachTitle")}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {t("worldMapTab.couldNotReachDesc", { error: healthError })}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={fetchHealthStatus}
-                    disabled={refreshingHealth}
-                  >
-                    <RefreshCw
-                      className={cn(
-                        "w-4 h-4 me-2",
-                        refreshingHealth && "animate-spin",
-                      )}
-                    />
-                    {t("worldMapTab.retry")}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <PageAlerts
+              alerts={[
+                {
+                  id: "health-unreachable",
+                  tone: "error",
+                  title: t("healthTab.couldNotReachTitle"),
+                  description: t("worldMapTab.couldNotReachDesc", { error: healthError }),
+                  action: {
+                    label: t("worldMapTab.retry"),
+                    onClick: () => {
+                      if (!refreshingHealth) void fetchHealthStatus();
+                    },
+                  },
+                },
+              ]}
+            />
           )}
           {healthError && !healthStatus ? null : (() => {
           const headline = getHealthHeadline(healthStatus, t);
@@ -6584,12 +7037,7 @@ export default function Debug() {
                   onClick={fetchHealthStatus}
                   disabled={refreshingHealth}
                 >
-                  <RefreshCw
-                    className={cn(
-                      "w-4 h-4 me-2",
-                      refreshingHealth && "animate-spin",
-                    )}
-                  />
+                  {refreshingHealth ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : <RefreshCw className="w-4 h-4 me-2" />}
                   {t("common.refresh")}
                 </Button>
               </div>
@@ -6709,7 +7157,7 @@ export default function Debug() {
         </TabsContent>
 
         {/* System Tab */}
-        <TabsContent value="system" className="space-y-4">
+        <TabsContent value="system" className="mt-0 space-y-4">
           {/* System Info Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
@@ -6789,7 +7237,7 @@ export default function Debug() {
             <CardContent className="space-y-4">
               {editingPaths ? (
                 <div className="space-y-4">
-                  <div className="rounded-lg border border-warning/25 bg-warning/8 p-3 text-sm">
+                  <div className="rounded-lg border border-warning/25 bg-warning/10 p-3 text-sm">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 w-4 h-4 shrink-0 text-warning" />
                       <div>
@@ -6870,13 +7318,13 @@ export default function Debug() {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3 font-mono text-sm">
+                <div className="space-y-3 text-sm">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 p-3 rounded-lg bg-muted/50">
                     <span className="text-muted-foreground sm:w-32 sm:shrink-0">
                       {t("systemTab.databaseLabel")}
                     </span>
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="break-all min-w-0 flex-1">
+                      <span className={cn("break-all min-w-0 flex-1", systemInfo?.dbPath && "font-mono")}>
                         {systemInfo?.dbPath || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
                       </span>
                       {systemInfo?.dbPath && (
@@ -6913,7 +7361,7 @@ export default function Debug() {
                       {t("systemTab.logsFolderLabel")}
                     </span>
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="break-all min-w-0 flex-1">
+                      <span className={cn("break-all min-w-0 flex-1", systemInfo?.logsPath && "font-mono")}>
                         {systemInfo?.logsPath || (systemInfoFailed ? t("systemTab.unavailable") : "-")}
                       </span>
                       {systemInfo?.logsPath && (
@@ -6950,669 +7398,7 @@ export default function Debug() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* Bridge Tab — the 7 PanelBridge debug/diagnostics handlers
-            (getStats/checkAPI/getAvailableHandlers/getDebugLog/
-            setDebugMode/clearErrors/debugItemScript). Gated on
-            bridge.diagnostics specifically -- narrower than whatever
-            permission gates this whole page, so a role with page access
-            can still lack this tab's data (see bridgeDiagFetch above). */}
-        <TabsContent value="bridge" className="space-y-4">
-          {bridgeDiagPermissionDenied ? (
-            <EmptyState
-              type="accessDenied"
-              icon={<ShieldAlert className="h-14 w-14 text-muted-foreground/40" />}
-              title={t("bridgeTab.permissionDeniedTitle")}
-              description={t("bridgeTab.permissionDeniedDesc")}
-            />
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div>
-                  <h3 className="text-sm font-medium">{t("bridgeTab.heading")}</h3>
-                  <p className="text-xs text-muted-foreground">
-                    {t("bridgeTab.headingDesc")}
-                  </p>
-                </div>
-                <BridgeStatusBadge
-                  connected={bridgeDiagConnected && bridgeDiagHealthy}
-                  running={bridgeDiagRunning}
-                  loading={bridgeDiagStatusLoading}
-                  interactive={false}
-                />
-              </div>
-
-              {!bridgeDiagStatusLoading && !bridgeDiagConnected && (
-                <div className="p-2.5 rounded-md border border-warning/40 bg-warning/5 text-xs flex items-start gap-2">
-                  <WifiOff className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
-                  <div>{t("bridgeTab.notConnectedDesc")}</div>
-                </div>
-              )}
-
-              {/* Stats + debug mode + error log */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Activity className="w-4 h-4 text-primary" />
-                        {t("bridgeTab.statsTitle")}
-                      </CardTitle>
-                      <CardDescription>{t("bridgeTab.statsDesc")}</CardDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={probeBridgeStats}
-                      disabled={!bridgeDiagConnected || probeLoading === "bridgeStats"}
-                      className="shrink-0"
-                    >
-                      {probeLoading === "bridgeStats" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      )}
-                      <span className="ms-1.5">{t("common.refresh")}</span>
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {!bridgeDiagConnected ? (
-                    <div className="text-sm text-muted-foreground">
-                      {t("bridgeTab.offlineNoData")}
-                    </div>
-                  ) : !probeResults["bridgeStats"] ? (
-                    <div className="text-sm text-muted-foreground">
-                      {t("bridgeTab.notYetProbed")}
-                    </div>
-                  ) : !probeResults["bridgeStats"].ok ? (
-                    <div className="p-2.5 rounded-md border border-destructive/40 bg-destructive/10 text-sm flex items-start gap-2">
-                      <AlertCircle className="w-3.5 h-3.5 text-destructive shrink-0 mt-0.5" />
-                      <div className="text-destructive">
-                        {probeResults["bridgeStats"].error}
-                      </div>
-                    </div>
-                  ) : (
-                    (() => {
-                      const stats = probeResults["bridgeStats"].sample as {
-                        version?: string;
-                        uptime?: number;
-                        commandsProcessed?: number;
-                        commandsSucceeded?: number;
-                        commandsFailed?: number;
-                        debugMode?: boolean;
-                        lastError?: { timestamp?: number; message?: string } | null;
-                        recentErrors?: Array<{ timestamp?: number; message?: string }>;
-                        detectedVersion?: {
-                          build?: string;
-                          isB42?: boolean;
-                          isB41?: boolean;
-                        };
-                      };
-                      const uptimeSec = Math.max(0, Math.round(stats.uptime ?? 0));
-                      const h = Math.floor(uptimeSec / 3600);
-                      const m = Math.floor((uptimeSec % 3600) / 60);
-                      const s = uptimeSec % 60;
-                      const uptimeLabel = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
-                      const errCount = stats.recentErrors?.length ?? 0;
-                      return (
-                        <>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                            <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {t("bridgeTab.versionLabel")}
-                              </div>
-                              <div className="font-medium font-mono">
-                                {stats.version ?? t("common.notAvailable")}
-                              </div>
-                            </div>
-                            <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {t("bridgeTab.uptimeLabel")}
-                              </div>
-                              <div className="font-medium">{uptimeLabel}</div>
-                            </div>
-                            <div className="p-2 rounded border bg-card">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {t("bridgeTab.commandsLabel")}
-                              </div>
-                              <div className="font-medium">
-                                {stats.commandsSucceeded ?? 0} / {stats.commandsProcessed ?? 0}
-                              </div>
-                            </div>
-                            <div
-                              className={cn(
-                                "p-2 rounded border",
-                                (stats.commandsFailed ?? 0) > 0
-                                  ? "border-warning/40 bg-warning/5"
-                                  : "bg-card",
-                              )}
-                            >
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                {t("bridgeTab.commandsFailedLabel")}
-                              </div>
-                              <div className="font-medium">{stats.commandsFailed ?? 0}</div>
-                            </div>
-                          </div>
-
-                          {stats.detectedVersion && (
-                            <div className="p-2 rounded border bg-card text-sm">
-                              <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                                {t("bridgeTab.detectedVersionLabel")}
-                              </div>
-                              <div className="font-mono">
-                                {stats.detectedVersion.build ?? t("common.notAvailable")}
-                                {" · "}
-                                {stats.detectedVersion.isB42
-                                  ? "B42"
-                                  : stats.detectedVersion.isB41
-                                    ? "B41"
-                                    : t("common.notAvailable")}
-                              </div>
-                              <div className="text-[11px] text-muted-foreground mt-1">
-                                {t("bridgeTab.detectedVersionCaveat")}
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="flex items-center justify-between gap-2 p-2 rounded border bg-card">
-                            <div>
-                              <div className="text-sm font-medium">
-                                {t("bridgeTab.debugModeLabel")}
-                              </div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {t("bridgeTab.debugModeDesc")}
-                              </div>
-                            </div>
-                            <DisabledReason
-                              reason={
-                                !can("bridge.diagnostics")
-                                  ? t("bridgeTab.noPermission")
-                                  : null
-                              }
-                            >
-                              <Switch
-                                checked={stats.debugMode === true}
-                                disabled={
-                                  !can("bridge.diagnostics") ||
-                                  actionLoading === "bridgeDebugMode"
-                                }
-                                onCheckedChange={(checked) =>
-                                  toggleBridgeDebugMode(checked)
-                                }
-                              />
-                            </DisabledReason>
-                          </div>
-
-                          <div className="p-2 rounded border bg-card">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="text-sm font-medium">
-                                {t("bridgeTab.errorLogLabel", { count: errCount })}
-                              </div>
-                              <DisabledReason
-                                reason={
-                                  !can("bridge.diagnostics")
-                                    ? t("bridgeTab.noPermission")
-                                    : errCount === 0
-                                      ? t("bridgeTab.noErrorsToClear")
-                                      : null
-                                }
-                              >
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={clearBridgeErrors}
-                                  disabled={
-                                    !can("bridge.diagnostics") ||
-                                    errCount === 0 ||
-                                    actionLoading === "bridgeClearErrors"
-                                  }
-                                >
-                                  {actionLoading === "bridgeClearErrors" ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  ) : (
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  )}
-                                  <span className="ms-1.5">
-                                    {t("bridgeTab.clearErrorsButton")}
-                                  </span>
-                                </Button>
-                              </DisabledReason>
-                            </div>
-                            {stats.lastError?.message && (
-                              <div className="text-[11px] text-destructive mt-1.5 font-mono break-all">
-                                {stats.lastError.message}
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* checkAPI */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Search className="w-4 h-4 text-primary" />
-                    {t("bridgeTab.checkApiTitle")}
-                  </CardTitle>
-                  <CardDescription>{t("bridgeTab.checkApiDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t("bridgeTab.checkApiObjectLabel")}</Label>
-                      <Select value={checkApiObject} onValueChange={setCheckApiObject}>
-                        <SelectTrigger className="h-8 w-44 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="ClimateManager">ClimateManager</SelectItem>
-                          <SelectItem value="GameTime">GameTime</SelectItem>
-                          <SelectItem value="World">World</SelectItem>
-                          <SelectItem value="ChatServer">ChatServer</SelectItem>
-                          <SelectItem value="SandboxOptions">SandboxOptions</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-1 flex-1 min-w-[10rem]">
-                      <Label className="text-xs">{t("bridgeTab.checkApiMethodLabel")}</Label>
-                      <Input
-                        className="h-8 text-xs font-mono"
-                        placeholder={t("bridgeTab.checkApiMethodPlaceholder")}
-                        value={checkApiMethod}
-                        onChange={(e) => setCheckApiMethod(e.target.value)}
-                      />
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={probeCheckApi}
-                      disabled={!bridgeDiagConnected || probeLoading === "checkApi"}
-                    >
-                      {probeLoading === "checkApi" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <PlayCircle className="w-3.5 h-3.5" />
-                      )}
-                      <span className="ms-1.5">{t("bridgeTab.checkApiRunButton")}</span>
-                    </Button>
-                  </div>
-
-                  {probeResults["checkApi"] &&
-                    (!probeResults["checkApi"].ok ? (
-                      <div className="text-sm text-destructive">
-                        {probeResults["checkApi"].error}
-                      </div>
-                    ) : (
-                      (() => {
-                        const r = probeResults["checkApi"].sample as {
-                          object?: string;
-                          available?: boolean;
-                          type?: string;
-                          method?: string;
-                          methodAvailable?: boolean;
-                          methods?: string[];
-                          methodsError?: string;
-                        };
-                        return (
-                          <div className="p-2.5 rounded border bg-card text-sm space-y-1.5">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant={r.available ? "outline" : "destructive"}>
-                                {r.available
-                                  ? t("bridgeTab.checkApiAvailable")
-                                  : t("bridgeTab.checkApiUnavailable")}
-                              </Badge>
-                              {r.method && (
-                                <Badge
-                                  variant={r.methodAvailable ? "outline" : "destructive"}
-                                  className="font-mono"
-                                >
-                                  {r.method}: {r.methodAvailable ? "✓" : "✗"}
-                                </Badge>
-                              )}
-                            </div>
-                            {r.methods && r.methods.length > 0 && (
-                              <div className="flex flex-wrap gap-1 pt-1">
-                                {r.methods.map((m) => (
-                                  <Badge
-                                    key={m}
-                                    variant="outline"
-                                    className="text-[10px] font-mono"
-                                  >
-                                    {m}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            {r.methodsError && (
-                              <div className="text-[11px] text-muted-foreground">
-                                {r.methodsError}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()
-                    ))}
-                </CardContent>
-              </Card>
-
-              {/* getAvailableHandlers */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Terminal className="w-4 h-4 text-primary" />
-                        {t("bridgeTab.handlersTitle")}
-                      </CardTitle>
-                      <CardDescription>{t("bridgeTab.handlersDesc")}</CardDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={probeAvailableHandlers}
-                      disabled={!bridgeDiagConnected || probeLoading === "availableHandlers"}
-                      className="shrink-0"
-                    >
-                      {probeLoading === "availableHandlers" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      )}
-                      <span className="ms-1.5">{t("bridgeTab.handlersRunButton")}</span>
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {!probeResults["availableHandlers"] ? (
-                    <div className="text-sm text-muted-foreground">
-                      {t("bridgeTab.notYetProbed")}
-                    </div>
-                  ) : !probeResults["availableHandlers"].ok ? (
-                    <div className="text-sm text-destructive">
-                      {probeResults["availableHandlers"].error}
-                    </div>
-                  ) : (
-                    (() => {
-                      const data = probeResults["availableHandlers"].sample as {
-                        handlers?: string[];
-                        count?: number;
-                      };
-                      const all = data.handlers ?? [];
-                      const q = handlerSearchQuery.trim().toLowerCase();
-                      const filtered = q
-                        ? all.filter((h) => h.toLowerCase().includes(q))
-                        : all;
-                      return (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                            <Input
-                              className="h-8 text-xs"
-                              placeholder={t("bridgeTab.handlersSearchPlaceholder")}
-                              value={handlerSearchQuery}
-                              onChange={(e) => setHandlerSearchQuery(e.target.value)}
-                            />
-                            <span className="text-[11px] text-muted-foreground shrink-0">
-                              {t("bridgeTab.handlersCount", {
-                                shown: filtered.length,
-                                total: data.count ?? all.length,
-                              })}
-                            </span>
-                          </div>
-                          <ScrollArea className="h-48 rounded border bg-card p-2">
-                            <div className="flex flex-wrap gap-1">
-                              {filtered.map((h) => (
-                                <Badge
-                                  key={h}
-                                  variant="outline"
-                                  className="text-[10px] font-mono"
-                                >
-                                  {h}
-                                </Badge>
-                              ))}
-                            </div>
-                          </ScrollArea>
-                        </>
-                      );
-                    })()
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* getDebugLog */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <FileText className="w-4 h-4 text-primary" />
-                    {t("bridgeTab.debugLogTitle")}
-                  </CardTitle>
-                  <CardDescription>{t("bridgeTab.debugLogDesc")}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-end gap-2 flex-wrap">
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t("bridgeTab.debugLogLimitLabel")}</Label>
-                      <NumberInput
-                        className="h-8 w-24 text-xs"
-                        value={debugLogLimit}
-                        min={1}
-                        max={200}
-                        clamp={(v) => Math.min(200, Math.max(1, Math.round(v)))}
-                        onChange={(v) => setDebugLogLimit(Number.isFinite(v) ? v : 50)}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label className="text-xs">{t("bridgeTab.debugLogLevelLabel")}</Label>
-                      <Select
-                        value={debugLogMinLevel}
-                        onValueChange={(v) =>
-                          setDebugLogMinLevel(v as typeof debugLogMinLevel)
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-32 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="DEBUG">{t("common.levelDebug")}</SelectItem>
-                          <SelectItem value="INFO">{t("common.levelInfo")}</SelectItem>
-                          <SelectItem value="WARN">{t("common.levelWarn")}</SelectItem>
-                          <SelectItem value="ERROR">{t("common.levelError")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={probeDebugLog}
-                      disabled={!bridgeDiagConnected || probeLoading === "debugLog"}
-                    >
-                      {probeLoading === "debugLog" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <PlayCircle className="w-3.5 h-3.5" />
-                      )}
-                      <span className="ms-1.5">{t("bridgeTab.debugLogRunButton")}</span>
-                    </Button>
-                  </div>
-
-                  {probeResults["debugLog"] &&
-                    (!probeResults["debugLog"].ok ? (
-                      <div className="text-sm text-destructive">
-                        {probeResults["debugLog"].error}
-                      </div>
-                    ) : (
-                      (() => {
-                        const data = probeResults["debugLog"].sample as {
-                          entries?: Array<{
-                            timestamp?: number;
-                            level?: string;
-                            message?: string;
-                          }>;
-                          totalEntries?: number;
-                        };
-                        const entries = data.entries ?? [];
-                        return (
-                          <>
-                            <div className="text-[11px] text-muted-foreground">
-                              {t("bridgeTab.debugLogShown", {
-                                shown: entries.length,
-                                total: data.totalEntries ?? entries.length,
-                              })}
-                            </div>
-                            <ScrollArea className="h-64 rounded border bg-card">
-                              <div className="divide-y divide-border/40">
-                                {entries.length === 0 ? (
-                                  <div className="p-3 text-sm text-muted-foreground">
-                                    {t("bridgeTab.debugLogEmpty")}
-                                  </div>
-                                ) : (
-                                  entries
-                                    .slice()
-                                    .reverse()
-                                    .map((logEntry, i) => (
-                                      <div
-                                        key={i}
-                                        className="p-2 text-xs font-mono flex items-start gap-2"
-                                      >
-                                        <Badge
-                                          variant={
-                                            logEntry.level === "ERROR"
-                                              ? "destructive"
-                                              : "outline"
-                                          }
-                                          className="text-[9px] shrink-0"
-                                        >
-                                          {logEntry.level}
-                                        </Badge>
-                                        <span className="text-muted-foreground shrink-0">
-                                          {formatTime(logEntry.timestamp, { seconds: true })}
-                                        </span>
-                                        <span className="break-all">{logEntry.message}</span>
-                                      </div>
-                                    ))
-                                )}
-                              </div>
-                            </ScrollArea>
-                          </>
-                        );
-                      })()
-                    ))}
-                </CardContent>
-              </Card>
-
-              {/* debugItemScript -- fixed, zero-argument self-test */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <ShieldAlert className="w-4 h-4 text-primary" />
-                        {t("bridgeTab.selfTestTitle")}
-                      </CardTitle>
-                      <CardDescription>{t("bridgeTab.selfTestDesc")}</CardDescription>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={probeSelfTest}
-                      disabled={!bridgeDiagConnected || probeLoading === "selfTest"}
-                      className="shrink-0"
-                    >
-                      {probeLoading === "selfTest" ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <PlayCircle className="w-3.5 h-3.5" />
-                      )}
-                      <span className="ms-1.5">{t("bridgeTab.selfTestRunButton")}</span>
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {!probeResults["selfTest"] ? (
-                    <div className="text-sm text-muted-foreground">
-                      {t("bridgeTab.notYetProbed")}
-                    </div>
-                  ) : !probeResults["selfTest"].ok ? (
-                    <div className="text-sm text-destructive">
-                      {probeResults["selfTest"].error}
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-start p-1.5 font-medium">
-                              {t("bridgeTab.selfTestItemColumn")}
-                            </th>
-                            {[
-                              "getTypeString",
-                              "getType",
-                              "getCategory",
-                              "getDisplayCategory",
-                              "getBodyLocation",
-                              "getSubCategory",
-                              "getCategories",
-                              "getTypeToItem",
-                              "getScriptObjectType",
-                            ].map((m) => (
-                              <th
-                                key={m}
-                                className="text-start p-1.5 font-mono font-medium whitespace-nowrap"
-                              >
-                                {m}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(
-                            probeResults["selfTest"].sample as Array<
-                              Record<string, string>
-                            >
-                          ).map((probe, i) => (
-                            <tr key={i} className="border-b border-border/30">
-                              <td className="p-1.5 font-mono">{probe.id}</td>
-                              {[
-                                "getTypeString",
-                                "getType",
-                                "getCategory",
-                                "getDisplayCategory",
-                                "getBodyLocation",
-                                "getSubCategory",
-                                "getCategories",
-                                "getTypeToItem",
-                                "getScriptObjectType",
-                              ].map((m) => (
-                                <td
-                                  key={m}
-                                  className={cn(
-                                    "p-1.5 font-mono whitespace-nowrap",
-                                    probe[m] === "nil"
-                                      ? "text-muted-foreground"
-                                      : probe[m]?.startsWith("ERROR")
-                                        ? "text-destructive"
-                                        : "text-primary",
-                                  )}
-                                >
-                                  {probe[m]}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </TabsContent>
+        </SubNavLayout>
       </Tabs>
       )}
     </div>

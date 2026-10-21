@@ -70,7 +70,7 @@ const STOPPED = { ...BASE, id: 3, name: 'other-stopped-server', serverName: 'c-c
 const hoursAgo = (hours: number) => new Date(Date.now() - (hours * 3600 + 5) * 1000).toISOString()
 
 function cardFor(serverName: string): HTMLElement {
-  const card = screen.getByText(serverName).closest('.overflow-hidden.transition-colors')
+  const card = screen.getByText(serverName).closest('article')
   if (!card) throw new Error(`could not find card container for ${serverName}`)
   return card as HTMLElement
 }

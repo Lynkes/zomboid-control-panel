@@ -1,20 +1,16 @@
 {
   "pageHeader": {
-    "title": "事件主控台",
-    "description": "天氣、時間、音效、玩家操作與PanelBridge 工具",
-    "eyebrow": "世界控制",
+    "title": "事件與天氣",
+    "description": "更改天氣和時間、播放音效、生成屍群和載具，或執行 PanelBridge 工具。",
     "refreshPlayers": "重新整理玩家"
   },
   "common": {
     "playersUnavailable": "玩家列表無法使用",
     "playersUnavailableTitle": "玩家列表無法使用",
-    "noPermissionEndangerOrImpersonate": "此操作需要 players.endanger_or_impersonate 權限，此角色沒有該權限。"
+    "noPermissionEndangerOrImpersonate": "此操作需要 players.endanger_or_impersonate 權限，此角色沒有該權限。",
+    "noPermissionRconExecute": "此操作會執行 RCON 命令，需要 rcon.execute 權限，此角色沒有該權限。"
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "線上",
-    "offline": "離線",
-    "configureLink": "設定 →",
     "eventTarget": "事件目標",
     "allOnline": "全部線上",
     "specific": "指定",
@@ -35,7 +31,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge 已離線",
-    "description": "這些控制項需要 PanelBridge 模組。請在<1>設定</1>中連線，然後啟動 PZ 伺服器。"
+    "description": "這些控制項需要 PanelBridge 模組。請在設定中連線，然後啟動 PZ 伺服器。",
+    "action": "開啟 PanelBridge 設定"
   },
   "groups": {
     "weather": "天氣",
@@ -235,7 +232,7 @@
   "utilities": {
     "sublabel": "電力與供水系統",
     "refresh": "重新整理",
-    "b42Warning": "b42 多人遊戲 · 沙盒更改尚不會同步到已連線的客戶端",
+    "b42Warning": "Build 42 多人遊戲：沙盒更改尚不會同步到已連線的客戶端。",
     "power": "電力",
     "water": "供水",
     "statusOnline": "線上",
@@ -298,7 +295,10 @@
     "clearNear": "清除 {{target}} 附近",
     "clearNearConfirmTitle": "清除該玩家附近的殭屍？",
     "clearNearConfirmDescTargeted": "這會立即清除 {{player}} 所選半徑內的所有殭屍——包括其正在戰鬥的殭屍。殭屍會隨時間重新生成，但這會立刻結束該玩家當前的這場戰鬥。",
-    "clearNearConfirmDescRandom": "這會立即清除一名隨機線上玩家所選半徑內的所有殭屍——包括其正在戰鬥的殭屍。殭屍會隨時間重新生成，但這會立刻結束該玩家當前的這場戰鬥。"
+    "clearNearConfirmDescRandom": "這會立即清除一名隨機線上玩家所選半徑內的所有殭屍——包括其正在戰鬥的殭屍。殭屍會隨時間重新生成，但這會立刻結束該玩家當前的這場戰鬥。",
+    "spawnConfirmTitle": "生成 {{size}} 隻殭屍？",
+    "spawnConfirmDescTargeted": "由 {{size}} 隻殭屍組成的屍群會立即出現在 {{player}} 附近，並一直留在世界中，直到被消滅或清除。",
+    "spawnConfirmDescRandom": "由 {{size}} 隻殭屍組成的屍群會立即出現在一名隨機線上玩家附近，並一直留在世界中，直到被消滅或清除。"
   },
   "vehicles": {
     "sublabel": "RCON · 在玩家旁生成",
@@ -399,8 +399,6 @@
     "lastRun": "上次執行：{{time}}",
     "notRunYet": "尚未執行",
     "bridgeFileLink": "PanelBridge 檔案連結：{{summary}}",
-    "bridgeConnectionRequiredTitle": "需要 PanelBridge 連線",
-    "bridgeConnectionRequiredDesc": "這些操作需要有效的 PanelBridge 連線。請先在設定中進行設定。",
     "moderationConfirmTitle": "執行{{operation}}？",
     "moderationConfirmDescription": "這將通過即時 PanelBridge傳送真實的管理命令{{target}}{{reason}}。請在繼續之前仔細核對上方的值。",
     "moderationConfirmTarget": "，目標為 {{target}}",

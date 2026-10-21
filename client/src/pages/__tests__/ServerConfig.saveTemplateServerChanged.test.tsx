@@ -106,7 +106,7 @@ describe('ServerConfig.tsx: Save as Template also blocks once the active server 
     await waitFor(() => expect(getIni).toHaveBeenCalledTimes(1))
     await makeServerChangedSinceLoadTrue()
 
-    fireEvent.click(screen.getByRole('button', { name: /saved configs/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^config snapshots$/i }))
     const templatesDialog = await screen.findByRole('dialog')
     fireEvent.click(within(templatesDialog).getByRole('button', { name: /save current config/i }))
 

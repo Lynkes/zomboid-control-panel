@@ -167,6 +167,19 @@ function tileButton(label: string) {
   return tile
 }
 
+// Teleport sits in the player's "..." menu and Voice ban in the page header's
+// "More" menu. Radix opens a DropdownMenuTrigger on pointerdown.
+async function openMenuDialog(triggerName: string, item: string | RegExp) {
+  const trigger = screen.getByRole('button', { name: triggerName })
+  fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+  fireEvent.click(trigger)
+  const menu = await screen.findByRole('menu')
+  fireEvent.click(within(menu).getByRole('menuitem', { name: item }))
+  return screen.findByRole('dialog')
+}
+const openTeleport = () => openMenuDialog('More player actions', 'Teleport…')
+const openVoiceBan = () => openMenuDialog('More actions', /^Voice ban…/)
+
 async function openDialog(label: string) {
   fireEvent.click(tileButton(label))
   return screen.findByRole('dialog')
@@ -183,12 +196,12 @@ describe('Players.tsx: the teleport dialog follows the selected player', () => {
     await renderWithTwoPlayers()
     await selectPlayer('Alice')
 
-    const first = await openDialog(en.actionTiles.teleportLabel)
+    const first = await openTeleport()
     expect(within(first).getByLabelText(en.teleportDialog.targetLabel)).toHaveValue('Alice')
     await cancelDialog()
 
     await selectPlayer('Bob')
-    const second = await openDialog(en.actionTiles.teleportLabel)
+    const second = await openTeleport()
     expect(within(second).getByLabelText(en.teleportDialog.targetLabel)).toHaveValue('Bob')
     expect(within(second).getByText(/Bob/, { selector: 'p' })).toBeInTheDocument()
 
@@ -204,11 +217,11 @@ describe('Players.tsx: the teleport dialog follows the selected player', () => {
     await renderWithTwoPlayers()
     await selectPlayer('Alice')
 
-    const first = await openDialog(en.actionTiles.teleportLabel)
+    const first = await openTeleport()
     fireEvent.change(within(first).getByLabelText(en.teleportDialog.targetLabel), { target: { value: 'SomeoneElse' } })
     await cancelDialog()
 
-    const second = await openDialog(en.actionTiles.teleportLabel)
+    const second = await openTeleport()
     expect(within(second).getByLabelText(en.teleportDialog.targetLabel)).toHaveValue('Alice')
   })
 })
@@ -236,12 +249,12 @@ describe('Players.tsx: the voice-ban dialog does not carry a typed name over to 
     await renderWithTwoPlayers()
     await selectPlayer('Alice')
 
-    const first = await openDialog(en.actionTiles.voiceBanLabel)
+    const first = await openVoiceBan()
     fireEvent.change(within(first).getByPlaceholderText(en.voiceBanDialog.usernamePlaceholder), { target: { value: 'Mallory' } })
     await cancelDialog()
 
     await selectPlayer('Bob')
-    const second = await openDialog(en.actionTiles.voiceBanLabel)
+    const second = await openVoiceBan()
     expect(within(second).getByPlaceholderText(en.voiceBanDialog.usernamePlaceholder)).toHaveValue('Bob')
   })
 })

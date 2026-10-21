@@ -1,10 +1,17 @@
 {
   "skipToContent": "跳至主內容",
+  "notFound": {
+    "title": "找不到頁面",
+    "description": "你要求的頁面不存在，或此版本的面板已不再提供。",
+    "goDashboard": "前往儀表板",
+    "openServers": "開啟伺服器列表"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "控制面板",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "控制面板"
+    "shortSubtitle": "控制面板",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "主要導覽",
@@ -13,28 +20,28 @@
     "sections": {
       "server": "伺服器",
       "world": "世界",
-      "users": "使用者",
+      "players": "玩家",
       "panel": "面板"
     },
     "items": {
-      "serverConsole": "伺服器主控台",
-      "onlinePlayers": "線上玩家",
-      "inGameChat": "遊戲內聊天",
+      "serverConsole": "主控台",
+      "onlinePlayers": "玩家",
+      "inGameChat": "聊天",
       "eventsWeather": "事件與天氣",
       "worldMap": "世界地圖",
       "serverConfiguration": "伺服器設定",
-      "serverFiles": "伺服器檔案",
-      "modManager": "模組管理",
+      "serverFiles": "檔案",
+      "modManager": "模組",
       "templates": "模板",
       "scheduledTasks": "排程任務",
-      "worldBackups": "伺服器備份",
+      "worldBackups": "備份",
       "mapCleanup": "區塊重設",
-      "myServers": "我的伺服器",
-      "serverSetup": "伺服器安裝",
-      "browsePublic": "瀏覽公共伺服器",
+      "myServers": "伺服器列表",
+      "serverSetup": "新增伺服器",
+      "browsePublic": "公共伺服器",
       "discord": "Discord",
-      "panelSettings": "面板設定",
-      "debugLogs": "除錯日誌",
+      "panelSettings": "設定",
+      "debugLogs": "診斷",
       "leaderboard": "排行榜"
     },
     "notAvailableRemote": "遠端（僅 RCON）伺服器不支援此功能",
@@ -43,7 +50,7 @@
     "noServerBanner": {
       "title": "還沒有伺服器",
       "description": "新增一個伺服器後，面板的大部分功能就會解鎖。",
-      "cta": "設定伺服器"
+      "cta": "新增伺服器"
     }
   },
   "mobileMenu": {
@@ -57,6 +64,7 @@
     "remoteBadgeFull": "遠端",
     "remoteTitle": "遠端（僅 RCON）伺服器",
     "activeBadge": "活動",
+    "addServer": "新增伺服器…",
     "manageServers": "管理伺服器",
     "playersOnline_one": "{{count}} 名玩家線上",
     "playersOnline_other": "{{count}} 名玩家線上",
@@ -73,8 +81,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "面板更新可用：v{{version}}",
     "titleNoVersion": "面板更新可用",
-    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打開面板設定。",
-    "titleNoVersionOpenSettings": "面板更新可用。打開面板設定。",
+    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打開設定。",
+    "titleNoVersionOpenSettings": "面板更新可用。打開設定。",
     "update": "更新"
   },
   "footer": {
@@ -133,12 +141,6 @@
   "pageSkeleton": {
     "defaultTitle": "正在載入頁面",
     "defaultDescription": "正在準備面板資料與控制項。",
-    "defaultEyebrow": "// 面板 · 載入中",
-    "metrics": {
-      "route": "路由",
-      "auth": "驗證",
-      "socket": "Socket"
-    },
     "labels": {
       "dashboard": "正在載入儀表板",
       "named": "正在載入：{{title}}",
@@ -158,5 +160,52 @@
     "backend": "後端",
     "unknown": "未知",
     "checkAgain": "重新檢查"
+  },
+  "serverHeader": {
+    "more": "{{name}} 的更多操作"
+  },
+  "subNav": {
+    "unsaved": "有未儲存的變更"
+  },
+  "toolbar": {
+    "clearSearch": "清除搜尋"
+  },
+  "stepper": {
+    "ariaLabel": "進度",
+    "position": "第 {{current}} 步，共 {{total}} 步",
+    "status": {
+      "done": "已完成",
+      "current": "目前步驟",
+      "upcoming": "尚未開始",
+      "locked": "已鎖定"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "關閉",
+    "showMore": "再顯示 {{count}} 則",
+    "showFewer": "收合"
+  },
+  "saveBar": {
+    "unsaved": "有未儲存的變更",
+    "changeCount": "未儲存的變更：{{count}}",
+    "saving": "正在儲存…",
+    "discard": "捨棄變更",
+    "save": "儲存變更"
+  },
+  "unsavedChanges": {
+    "title": "不儲存就離開？",
+    "description": "此頁面有尚未儲存的變更。現在離開會失去這些變更。",
+    "leave": "捨棄並離開",
+    "stay": "繼續編輯"
+  },
+  "search": {
+    "label": "搜尋頁面與分區",
+    "placeholder": "搜尋…"
+  },
+  "routes": {
+    "dashboardDescription": "伺服器即時狀態、玩家，以及接下來需要你處理的事項。"
+  },
+  "pageHeader": {
+    "breadcrumb": "導覽路徑"
   }
 }

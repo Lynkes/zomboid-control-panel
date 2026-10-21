@@ -176,22 +176,8 @@ describe('WorldMap.tsx: a known-unreachable bridge must be explained to the user
     )
   })
 
-  it('dossier God button shows the real bridge-unhealthy reason on failure, not a bare "Error" toast', async () => {
-    await setUp([{ name: 'Kate', x: 10000, y: 10000 }])
-    sendCommand.mockRejectedValue(new Error(STALE_BRIDGE_MESSAGE))
-
-    renderWorldMap()
-
-    fireEvent.click(await screen.findByRole('button', { name: /pan to kate/i }))
-    fireEvent.click(await screen.findByRole('button', { name: 'God' }))
-
-    await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setGodMode', { username: 'Kate', enabled: true }))
-    await waitFor(() =>
-      expect(toastSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ description: STALE_BRIDGE_MESSAGE, variant: 'destructive' }),
-      ),
-    )
-  })
+  // The dossier's God button (the second site this file covered) is gone:
+  // God Mode has one home, the Players page's Powers tab.
 
   // The third fixed site -- the context-menu Heal item at a player marker's
   // right-click position -- is the identical code shape as the dossier Heal

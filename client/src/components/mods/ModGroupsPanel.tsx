@@ -1,14 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle,
-  ChevronRight,
   Download,
   ListOrdered,
   Loader2,
   Pencil,
   Plus,
   RefreshCw,
+  ShieldAlert,
   Trash2,
   Upload,
   Wand2,
@@ -18,27 +18,31 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { SectionCard } from '@/components/ui/section-card'
 import { Switch } from '@/components/ui/switch'
 import { useToast } from '@/components/ui/use-toast'
 import { useConfirm } from '@/contexts/ConfirmContext'
-import { modsApi, type ModGroup, type ModGroupInput, type ModGroupsStatus } from '@/lib/api'
-import { reportClientWarning } from '@/lib/client-errors'
+import { modsApi, type ModGroup, type ModGroupSuggestion } from '@/lib/api'
 import { getUserErrorMessage } from '@/lib/errorMessage'
-import { useLocalStorageState } from '@/lib/modsShared'
 import {
   buildGroupDocument,
   downloadJsonFile,
   groupExportFileName,
   parseGroupDocument,
 } from '@/lib/modGroups'
-import { ModGroupDialog } from './ModGroupDialog'
+import type { GroupConflictSummary } from '@/lib/modGroupTools'
+import { GroupDot } from './GroupDots'
+import { GroupSuggestions } from './GroupSuggestions'
+import { useGroupSuggestions } from './useGroupSuggestions'
+import { ModGroupDialog, type ModGroupDialogValues } from './ModGroupDialog'
+import { saveGroupValues } from './groupActions'
+import { useApplyGroupOrder } from './useApplyGroupOrder'
+import { useModGroupsStore, type ModGroupsStore } from './useModGroupsStore'
 
-// How many mod IDs a group row (or the Apply confirmation) names before it
-// says "+N more".
+// How many mod IDs a group row names before it says "+N more".
 const LISTED_IDS = 3
-const LISTED_MOVES = 12
 
-type Editor = { group: ModGroup | null; initialModIds?: readonly string[] }
+type Editor = { group: ModGroup | null; initialModIds?: readonly string[]; initialName?: string; fromSuggestion?: boolean }
 
 /** A request from the Load order tab: create a group from the mods picked there. */
 export interface CreateGroupRequest {
@@ -70,6 +74,14 @@ export interface ModGroupsPanelProps {
   createRequest?: CreateGroupRequest | null
   /** Called once a group created from `createRequest` was saved. */
   onCreatedFromRequest?: () => void
+  /** The page's groups store; without one the panel loads its own. */
+  store?: ModGroupsStore
+  /** Mod ID to its `require=` entries, for the dialog's "Auto-order members". */
+  requires?: ReadonlyMap<string, readonly string[]>
+  /** File conflicts touching each group (from the cached conflict scan). */
+  conflictsByGroup?: ReadonlyMap<string, GroupConflictSummary>
+  /** Opens the Conflicts view filtered to a group's mods. */
+  onShowConflicts?: (group: ModGroup, summary: GroupConflictSummary) => void
 }
 
 /**
@@ -77,7 +89,7 @@ export interface ModGroupsPanelProps {
  * mods that must load in one fixed order, shared by every admin of the panel.
  * The server keeps them in order whenever the load order is saved (while
  * "Keep group order" is on) and can apply them on demand (Apply group order).
- * Create / edit lives in ModGroupDialog.
+ * Create / edit lives in ModGroupDialog; suggested groups sit under the list.
  */
 export function ModGroupsPanel({
   canManage,
@@ -89,24 +101,25 @@ export function ModGroupsPanel({
   onOrderApplied,
   createRequest,
   onCreatedFromRequest,
+  store: sharedStore,
+  requires,
+  conflictsByGroup,
+  onShowConflicts,
 }: ModGroupsPanelProps) {
   const { t } = useTranslation('modGroups')
   const { toast } = useToast()
   const confirm = useConfirm()
-  const [open, setOpen] = useLocalStorageState('zcp:mods:groupsPanelOpen', true)
-  const [groups, setGroups] = useState<ModGroup[]>([])
-  const [enforce, setEnforce] = useState(false)
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
-  const [status, setStatus] = useState<ModGroupsStatus | null>(null)
+  const ownStore = useModGroupsStore({ enabled: !sharedStore, savedModIds })
+  const store = sharedStore ?? ownStore
+  const { groups, enforce, loadState, status, placements } = store
   const [editor, setEditor] = useState<Editor | null>(null)
-  const [applying, setApplying] = useState(false)
   const [savingEnforce, setSavingEnforce] = useState(false)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const applyingRef = useRef(false)
   const aliveRef = useRef(true)
-  const groupsSeq = useRef(0)
-  const statusSeq = useRef(0)
+  // Read again when the active server's saved mod list changes (a server switch too).
+  const suggestionsKey = useMemo(() => [...(savedModIds ?? [])].sort().join(';'), [savedModIds])
+  const suggestions = useGroupSuggestions(canManage && loadState === 'ready', suggestionsKey)
 
   useEffect(() => {
     aliveRef.current = true
@@ -118,51 +131,10 @@ export function ModGroupsPanel({
     if (!createRequest || handledRequestNonce.current === createRequest.nonce) return
     handledRequestNonce.current = createRequest.nonce
     if (!canManage) return
-    setOpen(true)
     setEditor({ group: null, initialModIds: createRequest.modIds })
-  }, [createRequest, canManage, setOpen])
+  }, [createRequest, canManage])
 
-  const loadGroups = useCallback(async () => {
-    const seq = ++groupsSeq.current
-    try {
-      const data = await modsApi.getGroups()
-      if (!aliveRef.current || seq !== groupsSeq.current) return
-      setGroups(Array.isArray(data?.groups) ? data.groups : [])
-      setEnforce(data?.enforce === true)
-      setLoadState('ready')
-    } catch (error) {
-      if (!aliveRef.current || seq !== groupsSeq.current) return
-      reportClientWarning('Failed to load mod groups.', error)
-      setLoadState('error')
-    }
-  }, [])
-
-  const loadStatus = useCallback(async () => {
-    const seq = ++statusSeq.current
-    try {
-      const data = await modsApi.getGroupsStatus()
-      if (!aliveRef.current || seq !== statusSeq.current) return
-      setStatus(data && Array.isArray(data.groups) ? data : null)
-    } catch (error) {
-      if (!aliveRef.current || seq !== statusSeq.current) return
-      // The list still works without the in-order badges.
-      reportClientWarning('Failed to load the mod groups status.', error)
-      setStatus(null)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadGroups()
-  }, [loadGroups])
-
-  // Read again whenever the saved load order changes: a save, an Apply, a mod
-  // added or removed on another tab, a switch of the active server.
-  const savedOrderKey = useMemo(() => (savedModIds ? savedModIds.join('\n') : ''), [savedModIds])
-  useEffect(() => {
-    void loadStatus()
-  }, [loadStatus, savedOrderKey])
-
-  const groupsById = useMemo(() => new Map(groups.map((g) => [g.id, g])), [groups])
+  const groupsById = store.groupsById
   const statusById = useMemo(
     () => new Map((status?.groups ?? []).map((entry) => [entry.id, entry])),
     [status],
@@ -178,22 +150,17 @@ export function ModGroupsPanel({
       ? `${ids.slice(0, LISTED_IDS).join(', ')} ${t('panel.andMore', { n: ids.length - LISTED_IDS })}`
       : ids.join(', ')
 
-  const refreshAll = async () => {
-    await Promise.all([loadGroups(), loadStatus()])
-  }
-
-  const saveGroup = async (values: ModGroupInput) => {
+  const saveGroup = async (values: ModGroupDialogValues) => {
     const editing = editor?.group ?? null
+    await saveGroupValues(values, editing, store)
     if (editing) {
-      await modsApi.updateGroup(editing.id, values)
       toast({ title: t('toast.updatedTitle'), description: t('toast.updatedDesc', { name: values.name }) })
     } else {
-      await modsApi.createGroup(values)
       toast({ title: t('toast.createdTitle'), description: t('toast.createdDesc', { name: values.name }) })
-      if (editor?.initialModIds) onCreatedFromRequest?.()
+      if (editor?.initialModIds && !editor.fromSuggestion) onCreatedFromRequest?.()
+      if (editor?.fromSuggestion) void suggestions.reload()
     }
     setEditor(null)
-    await refreshAll()
   }
 
   const handleDelete = async (group: ModGroup) => {
@@ -213,7 +180,7 @@ export function ModGroupsPanel({
         variant: 'destructive',
       })
     }
-    await refreshAll()
+    await store.reload()
   }
 
   const handleExport = (group: ModGroup) => {
@@ -260,7 +227,7 @@ export function ModGroupsPanel({
     try {
       const { group } = await modsApi.importGroup(parsed.document)
       toast({ title: t('import.doneTitle'), description: t('import.doneDesc', { name: group?.name ?? parsed.document.name }) })
-      await refreshAll()
+      await store.reload()
     } catch (error) {
       toast({
         title: t('import.failedTitle'),
@@ -274,13 +241,13 @@ export function ModGroupsPanel({
 
   const handleEnforce = async (next: boolean) => {
     const previous = enforce
-    setEnforce(next)
+    store.setEnforce(next)
     setSavingEnforce(true)
     try {
       const result = await modsApi.setGroupsEnforce(next)
-      if (aliveRef.current) setEnforce(result?.enforce ?? next)
+      if (aliveRef.current) store.setEnforce(result?.enforce ?? next)
     } catch (error) {
-      if (aliveRef.current) setEnforce(previous)
+      if (aliveRef.current) store.setEnforce(previous)
       toast({
         title: t('enforce.failedTitle'),
         description: getUserErrorMessage(error, t('enforce.failedFallback')),
@@ -291,53 +258,23 @@ export function ModGroupsPanel({
     }
   }
 
-  // Apply works on the whole set of groups at once (they can overlap, so one
-  // group cannot be put in order without looking at the rest): ask the server
-  // what would move, show that, and write it only after a yes.
-  const handleApply = async () => {
-    if (applyingRef.current) return
-    applyingRef.current = true
-    setApplying(true)
+  const { apply: handleApply, applying } = useApplyGroupOrder({
+    groupsById,
+    modNames,
+    onApplied: onOrderApplied,
+    onChecked: store.reloadStatus,
+  })
+
+  const handleDismissSuggestion = async (suggestion: ModGroupSuggestion) => {
     try {
-      const preview = await modsApi.applyGroups(true)
-      if (!preview.changed || preview.moved.length === 0) {
-        toast({
-          title: t('apply.alreadyTitle'),
-          description: preview.conflicts.length > 0
-            ? t('apply.conflictsNote', { items: conflictText(preview.conflicts) })
-            : t('apply.alreadyDesc'),
-        })
-        await loadStatus()
-        return
-      }
-      const moves = preview.moved.map((id) => (modNames[id] ? `${id} (${modNames[id]})` : id))
-      const shown = moves.slice(0, LISTED_MOVES)
-      if (moves.length > shown.length) shown.push(t('panel.andMore', { n: moves.length - shown.length }))
-      const note = preview.conflicts.length > 0 ? `\n\n${t('apply.conflictsNote', { items: conflictText(preview.conflicts) })}` : ''
-      const ok = await confirm({
-        title: t('apply.confirmTitle'),
-        description: t('apply.confirmDesc', { count: preview.moved.length }) + note,
-        items: shown,
-        confirmLabel: t('apply.confirm'),
-        destructive: false,
-      })
-      if (!ok) return
-      const result = await modsApi.applyGroups(false)
-      if (!result.written) {
-        toast({ title: t('apply.failedTitle'), description: t('apply.notWritten'), variant: 'destructive' })
-        return
-      }
-      toast({ title: t('apply.appliedTitle'), description: t('apply.appliedDesc') })
-      await onOrderApplied()
+      await suggestions.dismiss(suggestion.key)
     } catch (error) {
       toast({
-        title: t('apply.failedTitle'),
-        description: getUserErrorMessage(error, t('apply.failedFallback')),
+        title: t('suggestions.dismissFailedTitle'),
+        description: getUserErrorMessage(error, t('suggestions.dismissFailedFallback')),
         variant: 'destructive',
       })
-    } finally {
-      applyingRef.current = false
-      if (aliveRef.current) setApplying(false)
+      void suggestions.reload()
     }
   }
 
@@ -356,66 +293,49 @@ export function ModGroupsPanel({
   const hasGroups = groups.length > 0
 
   return (
-    <section aria-labelledby="mod-groups-title" className="rounded-lg border border-border/70 bg-secondary shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-        <button
-          type="button"
-          id="mod-groups-title"
-          aria-expanded={open}
-          aria-controls="mod-groups-body"
-          onClick={() => setOpen((value) => !value)}
-          className="flex min-w-0 items-center gap-2 rounded text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
-        >
-          <ChevronRight
-            className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 rtl:-scale-x-100 ${open ? 'rotate-90 rtl:-rotate-90' : ''}`}
-            aria-hidden="true"
-          />
-          <ListOrdered className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <SectionCard
+      id="mod-groups"
+      title={
+        <span className="inline-flex items-center gap-2">
           {t('panel.title')}
           {hasGroups && <span className="text-xs font-normal tabular-nums text-muted-foreground">{groups.length}</span>}
-          {!open && outOfOrder && <Badge variant="warning" className="px-2 py-0 text-[11px]">{t('panel.outOfOrder')}</Badge>}
-        </button>
-
-        {open && loadState !== 'error' && (
-          <div className="flex flex-wrap items-center gap-2">
+        </span>
+      }
+      icon={ListOrdered}
+      density="compact"
+      collapsible
+      storageKey="zcp:mods:groupsPanelOpen"
+      status={outOfOrder ? <Badge variant="warning" className="px-2 py-0 text-[11px]">{t('panel.outOfOrder')}</Badge> : undefined}
+      actions={
+        loadState !== 'error' ? (
+          <>
             {hasGroups && (
               <DisabledReason reason={applyReason}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={handleApply}
-                  disabled={applyReason !== null || applying}
-                >
-                  {applying ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : <Wand2 className="me-1 h-3 w-3" />}
-                  {t('panel.applyOrder')}
+                <Button variant="outline" size="sm" onClick={handleApply} disabled={applyReason !== null || applying}>
+                  {applying ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wand2 aria-hidden="true" />}
+                  {/* Icon-only on a phone: the three actions fit one line next to the title. */}
+                  <span className="sr-only sm:not-sr-only">{t('panel.applyOrder')}</span>
                 </Button>
               </DisabledReason>
             )}
             <DisabledReason reason={permissionReason}>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!canManage || importing}
-              >
-                {importing ? <Loader2 className="me-1 h-3 w-3 animate-spin" /> : <Upload className="me-1 h-3 w-3" />}
-                {t('panel.import')}
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={!canManage || importing}>
+                {importing ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Upload aria-hidden="true" />}
+                <span className="sr-only sm:not-sr-only">{t('panel.import')}</span>
               </Button>
             </DisabledReason>
             {hasGroups && (
               <DisabledReason reason={permissionReason}>
-                <Button size="sm" className="h-8 text-xs" onClick={() => setEditor({ group: null })} disabled={!canManage}>
-                  <Plus className="me-1 h-3 w-3" />
+                <Button size="sm" onClick={() => setEditor({ group: null })} disabled={!canManage}>
+                  <Plus aria-hidden="true" />
                   {t('panel.newGroup')}
                 </Button>
               </DisabledReason>
             )}
-          </div>
-        )}
-      </div>
-
+          </>
+        ) : undefined
+      }
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -431,149 +351,180 @@ export function ModGroupsPanel({
         }}
       />
 
-      {open && (
-        <div id="mod-groups-body" className="space-y-3 border-t border-border/60 px-3 py-3">
-          {loadState === 'loading' && (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground" role="status">
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-              {t('panel.loading')}
-            </div>
+      {loadState === 'loading' && (
+        <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground" role="status">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+          {t('panel.loading')}
+        </div>
+      )}
+
+      {loadState === 'error' && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span role="alert">{t('panel.loadFailed')}</span>
+          <Button variant="outline" size="sm" onClick={() => void store.reload()}>
+            <RefreshCw aria-hidden="true" />
+            {t('panel.retry')}
+          </Button>
+        </div>
+      )}
+
+      {loadState === 'ready' && !hasGroups && (
+        <div className="space-y-3 py-3 text-center">
+          <ListOrdered className="mx-auto h-8 w-8 text-muted-foreground opacity-30" aria-hidden="true" />
+          <div className="mx-auto max-w-xl space-y-1">
+            <p className="text-sm font-medium text-foreground/80">{t('panel.emptyTitle')}</p>
+            <p className="text-xs text-muted-foreground">{t('panel.emptyDesc')}</p>
+          </div>
+          <DisabledReason reason={permissionReason}>
+            <Button size="sm" onClick={() => setEditor({ group: null })} disabled={!canManage}>
+              <Plus aria-hidden="true" />
+              {t('panel.newGroup')}
+            </Button>
+          </DisabledReason>
+        </div>
+      )}
+
+      {loadState === 'ready' && hasGroups && (
+        <>
+          <p className="text-xs text-muted-foreground">{t('panel.intro')}</p>
+
+          {status && status.conflicts.length > 0 && (
+            <Alert variant="warning">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="[overflow-wrap:anywhere]">
+                {t('panel.conflicts', { items: conflictText(status.conflicts) })}
+              </AlertDescription>
+            </Alert>
           )}
 
-          {loadState === 'error' && (
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span role="alert">{t('panel.loadFailed')}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={() => { setLoadState('loading'); void refreshAll() }}
-              >
-                <RefreshCw className="me-1 h-3 w-3" />
-                {t('panel.retry')}
-              </Button>
-            </div>
-          )}
-
-          {loadState === 'ready' && !hasGroups && (
-            <div className="space-y-3 py-3 text-center">
-              <ListOrdered className="mx-auto h-8 w-8 text-muted-foreground opacity-30" aria-hidden="true" />
-              <div className="mx-auto max-w-xl space-y-1">
-                <p className="text-sm font-medium text-foreground/80">{t('panel.emptyTitle')}</p>
-                <p className="text-xs text-muted-foreground">{t('panel.emptyDesc')}</p>
-              </div>
-              <DisabledReason reason={permissionReason}>
-                <Button size="sm" onClick={() => setEditor({ group: null })} disabled={!canManage}>
-                  <Plus className="me-1 h-4 w-4" />
-                  {t('panel.newGroup')}
-                </Button>
-              </DisabledReason>
-            </div>
-          )}
-
-          {loadState === 'ready' && hasGroups && (
-            <>
-              <p className="text-xs text-muted-foreground">{t('panel.intro')}</p>
-
-              {status && status.conflicts.length > 0 && (
-                <Alert variant="warning">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertDescription className="[overflow-wrap:anywhere]">
-                    {t('panel.conflicts', { items: conflictText(status.conflicts) })}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <ul className="max-h-64 divide-y divide-border/50 overflow-y-auto rounded-md border border-border/60 bg-muted/30">
-                {groups.map((group) => {
-                  const entry = statusById.get(group.id)
-                  const present = entry?.present ?? group.modIds.filter((id) => serverSet.has(id)).length
-                  const total = entry?.total ?? group.modIds.length
-                  const missing = entry?.missing ?? group.modIds.filter((id) => !serverSet.has(id))
-                  return (
-                    <li key={group.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2">
-                      <div className="min-w-0 flex-1 basis-56 space-y-0.5">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="truncate text-sm font-medium">{group.name}</span>
-                          {entry && (
-                            <Badge variant={entry.inOrder ? 'success' : 'warning'} className="px-2 py-0 text-[11px]">
-                              {entry.inOrder ? t('panel.inOrder') : t('panel.outOfOrder')}
-                            </Badge>
-                          )}
-                          <span className="text-[11px] tabular-nums text-muted-foreground">
-                            {t('panel.members', { present, total })}
+          <ul className="max-h-72 divide-y divide-border/50 overflow-y-auto rounded-md border border-border/60 bg-muted/30">
+            {groups.map((group) => {
+              const entry = statusById.get(group.id)
+              const present = entry?.present ?? group.modIds.filter((id) => serverSet.has(id)).length
+              const total = entry?.total ?? group.modIds.length
+              const missing = entry?.missing ?? group.modIds.filter((id) => !serverSet.has(id))
+              const conflicts = conflictsByGroup?.get(group.id)
+              const placement = placements[group.id]
+              return (
+                <li key={group.id} className="flex flex-wrap items-start gap-x-3 gap-y-1 px-3 py-2">
+                  <div className="min-w-0 flex-1 basis-56 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <GroupDot color={group.color} />
+                      <span className="truncate text-sm font-medium">{group.name}</span>
+                      {entry && (
+                        <Badge variant={entry.inOrder ? 'success' : 'warning'} className="px-2 py-0 text-[11px]">
+                          {entry.inOrder ? t('panel.inOrder') : t('panel.outOfOrder')}
+                        </Badge>
+                      )}
+                      {group.keepTogether && (
+                        <Badge variant="outline" className="px-2 py-0 text-[11px] font-normal">{t('panel.keepsTogether')}</Badge>
+                      )}
+                      {placement && (
+                        <Badge variant="outline" className="px-2 py-0 text-[11px] font-normal">
+                          {placement === 'first' ? t('panel.loadsFirst') : t('panel.loadsLast')}
+                        </Badge>
+                      )}
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                        {t('panel.members', { present, total })}
+                      </span>
+                      {conflicts && (
+                        onShowConflicts ? (
+                          <button
+                            type="button"
+                            onClick={() => onShowConflicts(group, conflicts)}
+                            className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-warning/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                            aria-label={t('panel.conflictsBadgeAria', { count: conflicts.internal + conflicts.external, name: group.name })}
+                          >
+                            <ShieldAlert className="h-3 w-3 text-warning" aria-hidden="true" />
+                            {t('panel.conflictsBadge', { count: conflicts.internal + conflicts.external })}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[11px] font-medium">
+                            <ShieldAlert className="h-3 w-3 text-warning" aria-hidden="true" />
+                            {t('panel.conflictsBadge', { count: conflicts.internal + conflicts.external })}
                           </span>
-                        </div>
-                        {group.description && (
-                          <p className="truncate text-xs text-muted-foreground">{group.description}</p>
-                        )}
-                        {missing.length > 0 && (
-                          <p className="truncate font-mono text-[11px] text-muted-foreground/80">
-                            {t('panel.notOnServerList', { ids: describeIds(missing) })}
-                          </p>
-                        )}
-                      </div>
-                      <div className="flex shrink-0 items-center">
-                        <DisabledReason reason={permissionReason}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs"
-                            aria-label={t('panel.editAria', { name: group.name })}
-                            onClick={() => setEditor({ group })}
-                            disabled={!canManage}
-                          >
-                            <Pencil className="h-3.5 w-3.5 sm:me-1" aria-hidden="true" />
-                            <span className="hidden sm:inline">{t('panel.edit')}</span>
-                          </Button>
-                        </DisabledReason>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-2 text-xs"
-                          aria-label={t('panel.exportAria', { name: group.name })}
-                          onClick={() => handleExport(group)}
-                        >
-                          <Download className="h-3.5 w-3.5 sm:me-1" aria-hidden="true" />
-                          <span className="hidden sm:inline">{t('panel.export')}</span>
-                        </Button>
-                        <DisabledReason reason={permissionReason}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 px-2 text-xs hover:text-destructive"
-                            aria-label={t('panel.deleteAria', { name: group.name })}
-                            onClick={() => void handleDelete(group)}
-                            disabled={!canManage}
-                          >
-                            <Trash2 className="h-3.5 w-3.5 sm:me-1" aria-hidden="true" />
-                            <span className="hidden sm:inline">{t('panel.delete')}</span>
-                          </Button>
-                        </DisabledReason>
-                      </div>
-                    </li>
-                  )
-                })}
-              </ul>
-            </>
-          )}
+                        )
+                      )}
+                    </div>
+                    {group.description && (
+                      <p className="truncate text-xs text-muted-foreground">{group.description}</p>
+                    )}
+                    {missing.length > 0 && (
+                      <p className="truncate font-mono text-[11px] text-muted-foreground/80">
+                        {t('panel.notOnServerList', { ids: describeIds(missing) })}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center">
+                    <DisabledReason reason={permissionReason}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="px-2"
+                        aria-label={t('panel.editAria', { name: group.name })}
+                        onClick={() => setEditor({ group })}
+                        disabled={!canManage}
+                      >
+                        <Pencil aria-hidden="true" />
+                        <span className="hidden sm:inline">{t('panel.edit')}</span>
+                      </Button>
+                    </DisabledReason>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="px-2"
+                      aria-label={t('panel.exportAria', { name: group.name })}
+                      onClick={() => handleExport(group)}
+                    >
+                      <Download aria-hidden="true" />
+                      <span className="hidden sm:inline">{t('panel.export')}</span>
+                    </Button>
+                    <DisabledReason reason={permissionReason}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="px-2 hover:text-destructive"
+                        aria-label={t('panel.deleteAria', { name: group.name })}
+                        onClick={() => void handleDelete(group)}
+                        disabled={!canManage}
+                      >
+                        <Trash2 aria-hidden="true" />
+                        <span className="hidden sm:inline">{t('panel.delete')}</span>
+                      </Button>
+                    </DisabledReason>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
 
-          {loadState === 'ready' && (
-            <div className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/30 p-2.5">
-              <Switch
-                id="mod-groups-enforce"
-                checked={enforce}
-                onCheckedChange={(next) => void handleEnforce(next)}
-                disabled={!canManage || savingEnforce}
-                aria-describedby="mod-groups-enforce-desc"
-                className="mt-0.5"
-              />
-              <div className="min-w-0 space-y-0.5">
-                <Label htmlFor="mod-groups-enforce" className="text-xs font-medium">{t('panel.enforceLabel')}</Label>
-                <p id="mod-groups-enforce-desc" className="text-[11px] text-muted-foreground">{t('panel.enforceDesc')}</p>
-              </div>
-            </div>
-          )}
+      {loadState === 'ready' && (
+        <GroupSuggestions
+          suggestions={suggestions.suggestions}
+          modNames={modNames}
+          canManage={canManage}
+          onCreate={(suggestion) => setEditor({ group: null, initialModIds: suggestion.modIds, initialName: suggestion.name, fromSuggestion: true })}
+          onDismiss={(suggestion) => void handleDismissSuggestion(suggestion)}
+          storageKey="zcp:mods:suggestionsOpen:order"
+        />
+      )}
+
+      {loadState === 'ready' && (
+        <div className="flex items-start gap-3 rounded-md border border-border/60 bg-muted/30 p-3">
+          <Switch
+            id="mod-groups-enforce"
+            checked={enforce}
+            onCheckedChange={(next) => void handleEnforce(next)}
+            disabled={!canManage || savingEnforce}
+            aria-describedby="mod-groups-enforce-desc"
+            className="mt-0.5"
+          />
+          <div className="min-w-0 space-y-0.5">
+            <Label htmlFor="mod-groups-enforce" className="text-xs font-medium">{t('panel.enforceLabel')}</Label>
+            <p id="mod-groups-enforce-desc" className="text-xs text-muted-foreground">{t('panel.enforceDesc')}</p>
+          </div>
         </div>
       )}
 
@@ -581,12 +532,15 @@ export function ModGroupsPanel({
         <ModGroupDialog
           group={editor.group}
           initialModIds={editor.initialModIds}
+          initialName={editor.initialName}
+          placement={editor.group ? placements[editor.group.id] ?? null : null}
           serverModIds={serverModIds}
           modNames={modNames}
+          requires={requires}
           onClose={() => setEditor(null)}
           onSubmit={saveGroup}
         />
       )}
-    </section>
+    </SectionCard>
   )
 }

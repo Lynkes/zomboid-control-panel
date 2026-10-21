@@ -9,6 +9,7 @@
   "pageHeader": {
     "title": "Limpieza del mapa",
     "description": "Restablecer áreas del mapa dañadas o sobreexplotadas para que el mundo pueda regenerarse limpiamente",
+    "warningTitle": "Eliminar chunks no se puede deshacer",
     "warning": "Eliminar chunks restablece esas áreas — se perderán construcciones, botín y zombis. Detener primero el servidor y mantener las copias de seguridad activadas."
   },
   "activePathDefaultLabel": "Ruta de datos del servidor activo",
@@ -64,7 +65,8 @@
     "all": "Todos",
     "clear": "Limpiar",
     "invert": "Invertir",
-    "selectAllTip": "\"Todos\" selecciona cada chunk que esta partida ha generado alguna vez, no solo los visibles en pantalla ahora mismo. Eliminar esa selección reinicia el mapa completo."
+    "selectAllTip": "\"Todos\" selecciona cada chunk que esta partida ha generado alguna vez, no solo los visibles en pantalla ahora mismo. Eliminar esa selección reinicia el mapa completo.",
+    "title": "Herramientas del mapa"
   },
   "deleteButton_one": "Eliminar {{count}} chunk",
   "deleteButton_other": "Eliminar {{count}} chunks",

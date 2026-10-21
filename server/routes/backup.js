@@ -32,6 +32,8 @@ import {
   UPLOAD_TOO_LARGE_CODE,
   UPLOAD_BAD_SIGNATURE_CODE,
 } from "../utils/uploadStream.js";
+import { freeBytesAt, insufficientSpaceError } from "../services/backupDiskSpace.js";
+import { FM_LIMITS } from "../services/fileManagerContract.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
@@ -291,7 +293,7 @@ router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, r
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
     if (result.success) return res.json(result);
-    return res.status(404).json(result);
+    return res.status(result.code === ErrorCode.BACKUP_SNAPSHOT_TOO_LARGE ? 422 : 404).json(result);
   } catch (error) {
     log.error(`Failed to read backup snapshot: ${error.message}`);
     return res.status(500).json({ error: sanitizeError(error.message) });
@@ -447,18 +449,15 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
     const backupService = req.app.get("backupService");
     const io = req.app.get("io");
 
-    // isPreRestore and isPreWipe are the service's own flags (restoreBackup()
-    // and /wipe set them for their safety copies): a request must not be able
-    // to name its backup a safety copy, which retention keeps, or to skip the
-    // restore-in-progress guard that isPreRestore lifts.
-    const {
-      isPreRestore: _isPreRestore,
-      isPreWipe: _isPreWipe,
-      ...requestOptions
-    } = req.body || {};
-
-    // Pass io for progress updates
-    const result = await backupService.createBackup({ ...requestOptions, io });
+    // Nothing in the request body is an option: isPreRestore and isPreWipe
+    // are the service's own flags (restoreBackup() and /wipe set them for
+    // their safety copies), which a request must not be able to set -- a
+    // safety copy is kept by retention, and isPreRestore lifts the
+    // restore-in-progress guard -- and whether the panel database goes in is
+    // the stored backup setting's decision (SECURITY 2026-10-20: a body
+    // {"includeDb":true} used to add it for any backups.manage holder).
+    // Pass io for progress updates.
+    const result = await backupService.createBackup({ io });
 
     if (result.success) {
       // 2026-08-26 bug hunt: createBackup surfaces skipped files rather than
@@ -511,8 +510,9 @@ router.delete("/:name", requirePermission("backups.manage"), async (req, res) =>
 // Download a backup archive off the machine. Its own capability, not
 // folded into backups.manage: creating, deleting or restoring a backup
 // manipulates data on this machine, but downloading EXFILTRATES a full
-// copy of it -- world save data, and if includeDb was ever turned on,
-// db.json's bcrypt password hashes too. A role trusted to manage backups
+// copy of it -- world save data, and if includeDb was ever turned on, the
+// panel's account data (a redacted copy since 2026-10-20, without password
+// hashes or sessions; older archives hold them). A role trusted to manage backups
 // day-to-day is not automatically a role that should be able to walk
 // away with an offline copy of everything.
 // /list and /history stay deliberately ungated (read-only status routes
@@ -795,6 +795,17 @@ router.post(
     // receiving the body -- see its own comment for why the signature
     // check can't just look at the first `data` event.
     let tmpPath = null;
+    // What the free space allows the body to reach; Infinity when unknown.
+    let spaceCap = Infinity;
+    let freeAtStart = null;
+    const insufficientSpace = (needed) => {
+      const error = insufficientSpaceError(needed, freeAtStart);
+      return res.status(507).json({
+        error: error.message,
+        code: error.errorCode,
+        params: sanitizeErrorParams(error.errorParams),
+      });
+    };
     try {
       const activeServer = await getActiveServer();
       if (activeServer?.isRemote) {
@@ -875,8 +886,23 @@ router.post(
       // world backup, which is a much larger collision window than the
       // millisecond one this codebase already knows to guard timestamped
       // filenames against.
+      // The backups folder sits on the volume the live world saves to: keep
+      // the File Manager's free-space floor, refusing up front when the
+      // announced size would cut into it and stopping the stream when a body
+      // without (or with a wrong) Content-Length gets there.
+      freeAtStart = await freeBytesAt(backupsPath).catch(() => null);
+      if (freeAtStart !== null) {
+        const announced = Number(req.headers["content-length"]);
+        const incoming = Number.isFinite(announced) && announced > 0 ? announced : 0;
+        if (freeAtStart - incoming < FM_LIMITS.DISK_FREE_FLOOR_BYTES) {
+          log.warn(`POST /upload refused: ${incoming} bytes announced, ${freeAtStart} bytes free`);
+          return insufficientSpace(incoming + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
+        }
+        spaceCap = freeAtStart - FM_LIMITS.DISK_FREE_FLOOR_BYTES;
+      }
+
       tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-      const totalBytes = await streamUploadToFile(req, tmpPath, MAX_UPLOAD_BYTES);
+      const totalBytes = await streamUploadToFile(req, tmpPath, Math.min(MAX_UPLOAD_BYTES, spaceCap));
 
       if (totalBytes === 0) {
         // An empty body isn't a signature or size violation to
@@ -945,6 +971,10 @@ router.post(
             error: "File does not look like a valid .zip archive.",
             code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE,
           });
+      }
+      if (error.code === UPLOAD_TOO_LARGE_CODE && spaceCap < MAX_UPLOAD_BYTES) {
+        log.warn("POST /upload stopped: the body reached the disk's free-space floor");
+        return insufficientSpace(spaceCap + 1 + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
       }
       if (error.code === UPLOAD_TOO_LARGE_CODE) {
         return res

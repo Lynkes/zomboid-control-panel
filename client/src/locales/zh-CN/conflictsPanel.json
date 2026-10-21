@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "两个模组都包含此文件；只有最后加载的模组的副本会被使用。",
+    "mapFileOverride": "两个模组都包含此地图文件；只有最后加载的模组的副本会被使用。",
+    "dataFileOverride": "两个模组都包含此数据文件；只有最后加载的模组的副本会被使用。",
+    "luaFileOverride": "相同的 Lua 文件：只有最后加载的模组的副本会运行，另一个永远不会运行。",
+    "scriptFileReplaced": "相同的脚本文件：游戏只读取最后一个模组的副本，因此只在另一份副本中定义的物品和配方会丢失。",
+    "scriptFileOverride": "相同的脚本文件：最后加载的模组重新定义了这些条目。",
+    "scriptDefinitionOverride": "两个模组都定义了这些条目；最后加载的定义会替换另一个。",
+    "scriptDefinitionMerge": "两个模组都修改了这些载具或皮肤；游戏会将它们叠加，最后一个模组的值生效。",
+    "translationKeyOverride": "两个模组对这些文本的翻译不同；最后加载的模组生效。",
+    "translationUnreadable": "有一个翻译文件无法读取，因此无法比较其中的文本。",
+    "clothingOutfitOverride": "两个模组都定义了这些服装搭配；最后加载的模组会替换它们。",
+    "clothingItemOverride": "两个模组都包含这件衣物；只有最后加载的模组的副本会被使用。",
+    "luaGlobalRedefined": "两个模组在不同文件中定义了这些 Lua 名称；最后运行的那个可能会替换另一个。",
+    "luaVariantClash": "同一个创意工坊物品中的两个模组重新定义了相同的 Lua 名称；它们通常是一次只应启用一个的变体。",
+    "declaredIncompatible": "其中一个模组声明另一个与其不兼容。",
+    "intendedPatch": "有意为之：此模组声明它基于另一个模组，并在其之后加载。",
+    "patchLoadsBeforeTarget": "此模组基于另一个模组，却在其之前加载，因此它的修改会被覆盖。请将它放在后面加载。",
+    "order": {
+      "requireCycle": "{{modId}} 处于 require= 循环中；游戏无法加载这些模组。",
+      "requireNotFound": "{{modId}} 不会加载：它需要 {{missing}}，但服务器上没有。",
+      "requireUnavailable": "{{modId}} 不会加载：它需要的模组 {{missing}} 无法加载。",
+      "requireEntryInvalid": "{{modId}} 不会加载：游戏无法识别其 mod.info 中的 require= 条目“{{entry}}”。",
+      "requireAutoLoaded": "{{dependency}} 虽然不在 Mods= 中也会加载，因为 {{modId}} 需要它。",
+      "requireReordered": "无论 Mods= 中的顺序如何，{{dependency}} 都会在需要它的 {{modId}} 之前加载。",
+      "loadAfterViolated": "{{modId}} 要求在 {{other}} 之后加载，但实际在其之前加载。",
+      "loadBeforeViolated": "{{modId}} 要求在 {{other}} 之前加载，但实际在其之后加载。",
+      "declaredIncompatible": "{{modId}} 和 {{other}} 被声明为不兼容，但两者都会加载。",
+      "modInfoListIssue": "{{modId}}：游戏无法识别 mod.info 中的条目“{{entry}}”。",
+      "modNotFound": "{{modId}} 不在服务器已下载的创意工坊模组中。"
+    }
+  },
+  "severity": {
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+    "info": "有意为之"
+  },
   "title": "模组冲突扫描器",
   "subtitle": "检查是否有多个模组修改了相同的文件——如果有，只有加载顺序中最后的模组会生效",
   "lastScan": "上次扫描：{{time}}",
@@ -204,5 +242,8 @@
   "loses": "负",
   "winIt": "使其胜出",
   "view": "查看",
-  "close": "关闭"
+  "close": "关闭",
+  "subTabsAria": "冲突列表",
+  "focusChip": "{{name}} 的模组",
+  "focusClearAria": "再次显示所有冲突（停止按 {{name}} 筛选）"
 }

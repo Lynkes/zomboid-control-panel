@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "Fichye Sèvè",
-    "eyebrow": "fichye",
     "description": "Gade epi chanje fichye ki nan dosye enstalasyon jwèt la ak dosye Zomboid chak sèvè.",
     "serverPicker": "Sèvè",
     "activeBadge": "Aktif",
@@ -30,13 +29,13 @@
       "permissions": "Kont panèl la pa ka ekri isit la."
     },
     "unavailable": {
-      "missing": "Dosye sa a pa egziste. Tcheke chemen an nan Sèvè m yo.",
-      "notConfigured": "Pa gen okenn dosye ki defini pou sèvè sa a. Ajoute l nan Sèvè m yo.",
+      "missing": "Dosye sa a pa egziste. Tcheke chemen an nan Sèvè yo.",
+      "notConfigured": "Pa gen okenn dosye ki defini pou sèvè sa a. Ajoute l nan Sèvè yo.",
       "notMounted": "Kontenè panèl la pa wè dosye sa a. Monte l nan konfigirasyon Docker ou a, epi redemare panèl la.",
       "remoteNotActive": "Chanje pou sèvè sa a pou w ka gade fichye li yo atravè SFTP.",
       "remoteNotConfigured": "Anvan sa, ajoute koneksyon SFTP ak dosye Server sèvè sa a nan Paramèt › PanelBridge.",
       "remoteInstallNotSet": "Defini dosye enstalasyon jwèt la sou sèvè aleka a pou w ka gade l.",
-      "tooBroad": "Sa a se rasin yon disk, yon dosye sistèm oswa yon dosye pèsonèl, kidonk jesyonè fichye a p ap louvri l. Fè sèvè a vize pwòp dosye pa l nan Sèvè m yo.",
+      "tooBroad": "Sa a se rasin yon disk, yon dosye sistèm oswa yon dosye pèsonèl, kidonk jesyonè fichye a p ap louvri l. Fè sèvè a vize pwòp dosye pa l nan Sèvè yo.",
       "overlapsPanel": "Dosye sa a andedan dosye pwòp panèl la, kidonk jesyonè fichye a p ap louvri l.",
       "unreadable": "Panèl la pa ka li dosye sa a ({{detail}}).",
       "sftpUnreachable": "Panèl la pa ka rive jwenn sèvè sa a atravè SFTP."
@@ -138,7 +137,7 @@
       "panelBackups": "Kopi sovgad mond lan. Telechaje yo, retabli yo oswa efase yo nan paj Kopi Sovgad Mond.",
       "bridgeIo": "Dosye kòmand PanelBridge. Se sèlman panèl la ak jwèt la ki ekri la a.",
       "bridgeManaged": "Yon fichye pwòp PanelBridge. Chanje fason li enstale nan Paramèt › PanelBridge.",
-      "launchScripts": "Panèl la reekri script demaraj sa a anvan chak demaraj. Chanje memwa, pò ak modpas nan Sèvè m yo."
+      "launchScripts": "Panèl la reekri script demaraj sa a anvan chak demaraj. Chanje memwa, pò ak modpas nan Sèvè yo."
     },
     "containsProtected": "Dosye sa a gen yon bagay panèl la pwoteje ladan l, kidonk ou pa ka deplase l, chanje non l oswa efase l an blòk.",
     "openBackups": "Louvri Kopi Sovgad Mond",
@@ -264,6 +263,7 @@
     "previousVersion": "Vèsyon anvan an nan poubèl la",
     "wrap": "Vlope liy yo",
     "escHint": "Peze Esc, apre sa Tab, pou soti nan editè a.",
+    "editWithForm": "Modifye ak fòmilè a nan Konfigirasyon Sèvè",
     "lineCount_one": "{{count}} liy",
     "lineCount_other": "{{count}} liy",
     "lineCount_many": "{{count}} liy",
@@ -280,7 +280,7 @@
     },
     "hints": {
       "restartToApply": "Sèvè a li fichye sa a lè l demare. Redemare l pou aplike chanjman ou.",
-      "panelRewritesKeys": "Panèl la reekri RCONPassword ak RCONPort nan fichye sa a anvan chak demaraj. Chanje yo nan Sèvè m yo pito.",
+      "panelRewritesKeys": "Panèl la reekri RCONPassword ak RCONPort nan fichye sa a anvan chak demaraj. Chanje yo nan Sèvè yo pito.",
       "luaChecksum": "Chanje fichye Lua jwèt la fè yo diferan de kopi jwè yo genyen. Avèk DoLuaChecksum=true, jwè yo p ap ka antre.",
       "steamUpdateOverwrites": "Mizajou Steam ak verifikasyon fichye ranplase fichye jwèt ou chanje isit la.",
       "bridgeWorkshopEntries": "Kenbe ZCPB nan Mods= ak atik Workshop li nan WorkshopItems=. Panèl la remete yo nan pwochen demaraj la.",

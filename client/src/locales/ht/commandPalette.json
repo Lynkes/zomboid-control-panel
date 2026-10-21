@@ -1,0 +1,21 @@
+{
+  "title": "Palèt kòmand",
+  "description": "Tape pou jwenn yon paj, yon seksyon nan yon paj, oswa yon sèvè pou chanje ale sou li.",
+  "inputLabel": "Chèche paj, seksyon ak sèvè",
+  "placeholder": "Ale nan yon paj, yon seksyon oswa yon sèvè…",
+  "resultsLabel": "Rezilta",
+  "noResults": "Anyen pa koresponn ak “{{query}}”.",
+  "switchServer": "Chanje ale sou {{name}}",
+  "showShortcuts": "Montre rakousi klavye",
+  "groups": {
+    "pages": "Paj",
+    "sections": "Seksyon",
+    "servers": "Sèvè",
+    "actions": "Aksyon"
+  },
+  "hints": {
+    "move": "↑ ↓ pou deplase",
+    "open": "Enter pou ouvri",
+    "close": "Esc pou fèmen"
+  }
+}

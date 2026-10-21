@@ -94,7 +94,7 @@ function renderEvents() {
 }
 
 async function openUtilitiesSection() {
-  const nav = await screen.findByText('Power and water')
+  const nav = await screen.findByRole('button', { name: 'Power and water' })
   nav.click()
   // Sublabel text unique to the mounted utilities section -- confirms the
   // panel actually swapped in before proceeding.

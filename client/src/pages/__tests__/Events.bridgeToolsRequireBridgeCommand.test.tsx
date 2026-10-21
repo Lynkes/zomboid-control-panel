@@ -95,11 +95,11 @@ describe('Events.tsx: Bridge tools need bridge.command', () => {
 
       expect(getStatus.mock.calls.length).toBeGreaterThanOrEqual(2)
       expect(sendCommand).not.toHaveBeenCalled()
-      expect(screen.queryByText('Bridge tools')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Bridge tools' })).not.toBeInTheDocument()
       // The group that held only that section goes with it.
       expect(screen.queryByText('Advanced')).not.toBeInTheDocument()
       // The rest of the page is untouched.
-      expect(screen.getByText('Quick sounds')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Quick sounds' })).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -111,7 +111,7 @@ describe('Events.tsx: Bridge tools need bridge.command', () => {
       renderEvents()
       await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
 
-      expect(screen.getByText('Bridge tools')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Bridge tools' })).toBeInTheDocument()
       const actions = sendCommand.mock.calls.map((call) => call[0])
       expect(actions).toContain('getSafehouses')
       expect(actions).toContain('getFactions')

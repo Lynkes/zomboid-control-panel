@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "Both mods ship this file; only the copy of the mod loaded last is used.",
+    "mapFileOverride": "Both mods ship this map file; only the copy of the mod loaded last is used.",
+    "dataFileOverride": "Both mods ship this data file; only the copy of the mod loaded last is used.",
+    "luaFileOverride": "Same Lua file: only the copy of the mod loaded last runs; the other never runs.",
+    "scriptFileReplaced": "Same script file: the game reads only the last mod's copy, so the items and recipes only the other copy defines are lost.",
+    "scriptFileOverride": "Same script file: the mod loaded last redefines these entries.",
+    "scriptDefinitionOverride": "Both mods define these entries; the definition loaded last replaces the other.",
+    "scriptDefinitionMerge": "Both mods change these vehicles or skins; the game layers them and the last mod's values win.",
+    "translationKeyOverride": "Both mods translate these texts differently; the mod loaded last wins.",
+    "translationUnreadable": "A translation file could not be read, so its texts could not be compared.",
+    "clothingOutfitOverride": "Both mods define these outfits; the mod loaded last replaces them.",
+    "clothingItemOverride": "Both mods ship this clothing item; only the copy of the mod loaded last is used.",
+    "luaGlobalRedefined": "Both mods define these Lua names in different files; whichever runs last can replace the other.",
+    "luaVariantClash": "Two mods from the same Workshop item redefine the same Lua names; they are usually variants meant to be used one at a time.",
+    "declaredIncompatible": "One of these mods declares the other incompatible.",
+    "intendedPatch": "Intended: this mod declares it builds on the other and loads after it.",
+    "patchLoadsBeforeTarget": "This mod builds on the other but loads before it, so its changes are overwritten. Load it after.",
+    "order": {
+      "requireCycle": "{{modId}} is in a require= loop; the game cannot load these mods.",
+      "requireNotFound": "{{modId}} does not load: it requires {{missing}}, which is not on the server.",
+      "requireUnavailable": "{{modId}} does not load: the mod it requires, {{missing}}, cannot load.",
+      "requireEntryInvalid": "{{modId}} does not load: the game cannot match the require= entry “{{entry}}” in its mod.info.",
+      "requireAutoLoaded": "{{dependency}} loads even though Mods= does not list it, because {{modId}} requires it.",
+      "requireReordered": "{{dependency}} loads before {{modId}}, which requires it, whatever the order in Mods=.",
+      "loadAfterViolated": "{{modId}} asks to load after {{other}} but loads before it.",
+      "loadBeforeViolated": "{{modId}} asks to load before {{other}} but loads after it.",
+      "declaredIncompatible": "{{modId}} and {{other}} are declared incompatible but both load.",
+      "modInfoListIssue": "{{modId}}: the game cannot match the mod.info entry “{{entry}}”.",
+      "modNotFound": "{{modId}} is not among the server's downloaded Workshop mods."
+    }
+  },
+  "severity": {
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+    "info": "Intended"
+  },
   "title": "Mod Conflict Scanner",
   "subtitle": "Checks if multiple mods modify the same files — when they do, only the last mod in your load order takes effect",
   "lastScan": "Last scan {{time}}",
@@ -204,5 +242,8 @@
   "loses": "loses",
   "winIt": "Win it",
   "view": "View",
-  "close": "Close"
+  "close": "Close",
+  "subTabsAria": "Conflict lists",
+  "focusChip": "Mods of {{name}}",
+  "focusClearAria": "Show every conflict again (stop filtering on {{name}})"
 }

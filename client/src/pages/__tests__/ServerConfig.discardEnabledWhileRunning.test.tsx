@@ -93,7 +93,8 @@ describe('ServerConfig.tsx: Discard is not gated on serverMayBeRunning (it never
       fireEvent.change(textarea, { target: { value: 'PVP=true\nedited=true' } })
     })
 
-    await screen.findByText('Unsaved changes')
+    // The header's status pill and the SaveBar both say so.
+    await screen.findAllByText('Unsaved changes')
     // This is the round's actual fix under test: Discard must stay enabled
     // regardless of serverMayBeRunning, since it never calls the server.
     // (Separately: raw-mode discard not clearing the "Unsaved changes"

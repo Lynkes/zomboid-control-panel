@@ -62,8 +62,13 @@ describe("parseIniAsGame", () => {
     "Fixed=after",
   ].join("\r\n");
 
-  it("reads the same keys as parseIni(), so the form and the other readers agree on what the file has", () => {
-    expect(Object.keys(parseIniAsGame(content).values).sort()).toEqual(Object.keys(parseIni(content)).sort());
+  it("reads the keys parseIni() reads, plus the ';' lines it skips, which the game reads as options", () => {
+    // 42.21 reads "; also=skipped" as an option named "; also"; only a line
+    // starting with "#" is a comment to it. No setting's name starts with ";".
+    expect(Object.keys(parseIniAsGame(content).values).sort()).toEqual(
+      [...Object.keys(parseIni(content)), "; also"].sort(),
+    );
+    expect(parseIniAsGame(content).values["; also"]).toBe("skipped");
   });
 
   it("gives each key the value text the game reads, untrimmed at the start", () => {
@@ -106,6 +111,52 @@ describe("parseIniAsGame", () => {
   it("ends a line at a lone CR, as the game's BufferedReader.readLine does", () => {
     // 42.21 reads "A=1\rB=2\nC=3" as A=1, B=2 and C=3.
     expect(parseIniAsGame("A=1\rB=2\nC=3\r\n").values).toEqual({ A: "1", B: "2", C: "3" });
+  });
+
+  // SECURITY (2026-10-20): each row is a line and what 42.21's
+  // ConfigFile.read made of it (recorded on the game's Java 25 runtime):
+  // Java's trim of the line removes control chars before the name and after
+  // the value; the value's own start keeps them, as does the text between
+  // the name and "=". JavaScript's trim() keeps control chars, so this view
+  // used to list "\u0001RCONPassword" where the game read RCONPassword.
+  const CONTROL_CHAR_READS = [
+    ["\u0001RCONPassword=lead01", "RCONPassword", "lead01"],
+    ["\u0000NulKey=nul", "NulKey", "nul"],
+    ["\u000eSoKey=so", "SoKey", "so"],
+    ["\u001fUsKey=\u001fus\u001f", "UsKey", "\u001fus"],
+    ["DefaultPort=\u000116261", "DefaultPort", "\u000116261"],
+    ["UDPPort=16262\u0001", "UDPPort", "16262"],
+  ];
+
+  it.each(CONTROL_CHAR_READS)("%j is read as %j = %j", (line, name, gameValue) => {
+    expect(parseIniAsGame(`${line}\n`)).toEqual({ values: { [name]: gameValue }, misnamed: {} });
+  });
+
+  it("lists a control char after the name, or a no-break space before one, as misnamed", () => {
+    // 42.21: [RCONPort\u0001]=x, and a name starting with the no-break space.
+    expect(parseIniAsGame("RCONPort\u0001=x\n")).toEqual({
+      values: { RCONPort: "x" },
+      misnamed: { RCONPort: "RCONPort\u0001" },
+    });
+    expect(parseIniAsGame("\u00A0\u0001RCONPort=x\n").misnamed).toEqual({
+      RCONPort: "\u00A0\u0001RCONPort",
+    });
+    // U+007F is not trimmed by either.
+    expect(parseIniAsGame("\u007fDelKey=del\n").values).toEqual({ "\u007fDelKey": "del" });
+  });
+
+  it("skips only the lines the game skips: '#' after Java's trim", () => {
+    // 42.21 skips "#Hash=1", " #SpaceHash=1" and "\u0001#CtrlHash=1", and
+    // reads ";UPnP=x" as an option named ";UPnP".
+    expect(parseIniAsGame("#Hash=1\n #SpaceHash=1\n\u0001#CtrlHash=1\n;UPnP=x\n").values).toEqual({
+      ";UPnP": "x",
+    });
+    expect(parseIniAsGame("PVP=false\n;PVP=true\n").values).toEqual({ PVP: "false", ";PVP": "true" });
+  });
+
+  it("the last line the game reads for a key wins, whatever its control chars", () => {
+    expect(parseIniAsGame("RCONPassword=a\n\u0001RCONPassword=b\n").values).toEqual({ RCONPassword: "b" });
+    expect(parseIniAsGame("\u0002RCONPassword=a\nRCONPassword=b\n").values).toEqual({ RCONPassword: "b" });
   });
 });
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import Users from '../Users'
 import { usersApi, permissionsApi, type ManagedUserAccount } from '@/lib/api'
@@ -54,11 +54,17 @@ const alice: ManagedUserAccount = {
   ],
 }
 
-function renderUsers() {
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{location.pathname + location.search}</output>
+}
+
+function renderUsers(entry = '/settings?tab=users') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[entry]}>
       <ConfirmProvider>
         <Users />
+        <LocationProbe />
       </ConfirmProvider>
     </MemoryRouter>,
   )
@@ -81,19 +87,21 @@ describe('Users -- linked SSO identities', () => {
     renderUsers()
 
     expect(await screen.findByText('SSO: alice@example.com')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Unlink SSO from alice' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for alice' }), { button: 0, ctrlKey: false })
+    fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: 'Unlink SSO from alice' }))
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Unlink SSO' }))
 
     await waitFor(() => expect(unlink).toHaveBeenCalledWith('u1'))
     await waitFor(() => expect(screen.queryByText('SSO: alice@example.com')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: 'Unlink SSO from alice' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Actions for alice' }), { button: 0, ctrlKey: false })
+    expect(within(await screen.findByRole('menu')).queryByRole('menuitem', { name: 'Unlink SSO from alice' })).not.toBeInTheDocument()
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({ title: 'SSO unlinked' }))
   })
 
   it('names the linked address in the success toast after a link', async () => {
-    window.history.replaceState(null, '', '/settings?tab=users&oidcSuccess=linked&linkedUser=u1')
-    renderUsers()
+    renderUsers('/settings?tab=users&oidcSuccess=linked&linkedUser=u1')
 
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
@@ -103,7 +111,9 @@ describe('Users -- linked SSO identities', () => {
         }),
       ),
     )
-    // Read once, then dropped from the address bar.
-    expect(window.location.search).toBe('?tab=users')
+    // Read once, then dropped from the address (the router's own, which a
+    // later ?tab= change builds on).
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/settings?tab=users'))
+    expect(toastSpy.mock.calls.filter(([arg]) => arg?.title === 'SSO linked')).toHaveLength(1)
   })
 })

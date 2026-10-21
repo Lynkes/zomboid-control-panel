@@ -1,11 +1,29 @@
 version: 2
+# Every ecosystem waits 7 days after a version is published before proposing
+# it (cooldown): a hijacked package release is usually caught and pulled
+# within days, and passing PRs from the npm groups below auto-merge
+# (dependabot-automerge.yml). Security updates are not delayed by cooldown.
+#
+# Build tooling (what turns the source into the exe, the Docker images and the
+# client bundle) gets its own groups, listed first because a dependency joins
+# the first group it matches. dependabot-automerge.yml never auto-merges
+# those groups, GitHub Actions or Docker base images: they wait for review.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
+      root-build-tools:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "@yao-pkg/pkg"
+          - "esbuild"
       root-non-breaking:
         update-types:
           - minor
@@ -20,8 +38,21 @@ updates:
     directory: /client
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
+      client-build-tools:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "typescript"
+          - "tailwindcss"
+          - "postcss"
+          - "autoprefixer"
       client-non-breaking:
         update-types:
           - minor
@@ -36,6 +67,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       actions-non-breaking:
@@ -48,10 +81,17 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+  # The panel image (/), the all-in-one image and its updater. Their base
+  # images are pinned by digest, which this entry keeps current.
   - package-ecosystem: docker
-    directory: /
+    directories:
+      - /
+      - /docker/all-in-one
+      - /docker/all-in-one/updater
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       docker-non-breaking:

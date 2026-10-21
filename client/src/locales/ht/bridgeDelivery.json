@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Kijan PanelBridge enstale",
   "appliesTo": "Sa aplike pou {{server}}. Pou chanje yon lòt sèvè, fè l aktif nan paj Sèvè m yo.",
+  "serverChangedTitle": "Sèvè aktif la chanje",
+  "serverChangedBody": "Fenèt PanelBridge ki te louvri a te pou sèvè anvan an, kidonk li fèmen.",
   "current": "Aktyèl",
   "recommended": "Rekòmande",
   "preview": "Previzyon",
@@ -81,6 +83,11 @@
       "title": "Mizajou ap tann",
       "body": "Dosye jwèt la gen yon PanelBridge ki pi ansyen pase pa panèl sa a. Mete l ajou kounye a, oswa kite pwochen demaraj la kopye l (sèlman si “Kenbe PanelBridge panèl la enstale a ajou” aktive)."
     },
+    "local-newer": {
+      "title": "Pi nouvo pase pa panèl la",
+      "body": "Dosye jwèt la gen yon PanelBridge ki pi nouvo pase v{{version}} panèl sa a vini avè l. Panèl la kite l jan l ye a; mete panèl la ajou pou de yo koresponn.",
+      "bodyNoVersion": "Dosye jwèt la gen yon PanelBridge ki pi nouvo pase sa panèl sa a vini avè l. Panèl la kite l jan l ye a; mete panèl la ajou pou de yo koresponn."
+    },
     "local-not-installed": {
       "title": "Pa enstale",
       "body": "PanelBridge poko enstale nan dosye jwèt sa a."
@@ -134,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam di atik Workshop PanelBridge la pa disponib. Sèvè a p ap demare jiskaske li tounen oswa ou pase sou enstalasyon pa panèl la.",
+    "workshopItemModified": "Fichye PanelBridge {{version}} sèvè a telechaje nan Steam Workshop la pa koresponn ak sa ki te pibliye pou vèsyon sa a (dosye: {{folder}}). Petèt yon moun chanje atik Workshop la oswa fichye ki telechaje yo. Jiskaske ou verifye sa, pase sou enstalasyon pa panèl la, ki itilize kopi ki vini ak panèl la.",
     "steamModeOff": "Sèvè sa a mache san Steam, kidonk li pa ka telechaje PanelBridge nan Workshop la. Jwèt la limen Steam sèlman lè Java demare ak -Dzomboid.steam=1 epi sèvè a pa demare ak -nosteam: ajoute -Dzomboid.steam=1 sou liy java script demaraj la oswa kòmand demaraj sèvè sa a, retire -nosteam si li la, epi redemare sèvè a.",
     "steamListingHidden": "Paj piblik Steam Workshop la pa montre atik PanelBridge la kounye a. Sa ka rive pandan Steam ap revize yon atik ki nouvo oswa ki mete ajou, oswa pou yon atik ki pa nan lis piblik la, epi sèvè yo ka toujou telechaje l. Si yon demaraj echwe akoz sa, paj sa a ap di l.",
     "autoRestartOn": "Mizajou PanelBridge yo redemare sèvè sa a otomatikman (Paramèt › Mod ak Workshop).",

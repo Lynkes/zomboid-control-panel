@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type BackupScheduleValidation } from '@/lib/api'
 
 // 2026-09-27 community requests (Discord, server "Tavern"):
@@ -135,7 +136,7 @@ function prime(status: BackupStatus) {
 function renderBackups() {
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }
@@ -155,7 +156,7 @@ describe('Backups.tsx: custom cron schedule', () => {
     // Status card: named as a custom schedule, not a bare cron string.
     expect(await screen.findByText('Runs on a custom schedule (30 3 * * 1-5) · keep 10')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     expect(frequency).toHaveValue('custom')
     expect(screen.getByRole('option', { name: 'Custom (cron expression)' })).toBeInTheDocument()
@@ -183,7 +184,7 @@ describe('Backups.tsx: custom cron schedule', () => {
     )
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     expect(frequency).toHaveValue('0 */6 * * *')
     expect(screen.queryByLabelText('Cron expression')).not.toBeInTheDocument()
@@ -209,7 +210,7 @@ describe('Backups.tsx: custom cron schedule', () => {
     fireEvent.click(save)
     fireEvent.click(save)
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '15 */6 * * *', maxBackups: 10 }, 1),
+      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '15 */6 * * *', maxBackups: 10, includeDb: true }, 1),
     )
     await waitFor(() => expect(save).not.toBeDisabled())
     expect(updateSettings).toHaveBeenCalledTimes(1)
@@ -222,7 +223,7 @@ describe('Backups.tsx: custom cron schedule', () => {
     prime(statusWith({ schedule: '30 3 * * 1-5' }))
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     const cron = await screen.findByLabelText('Cron expression')
     const maxBackups = screen.getByLabelText('Maximum Backups to Keep')
@@ -237,7 +238,7 @@ describe('Backups.tsx: custom cron schedule', () => {
     prime(statusWith({ schedule: '30 3 * * 1-5' }))
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     await waitFor(() => expect(frequency).toHaveValue('custom'))
     fireEvent.change(frequency, { target: { value: '0 */12 * * *' } })
@@ -245,7 +246,7 @@ describe('Backups.tsx: custom cron schedule', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /save settings/i }))
     await waitFor(() =>
-      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '0 */12 * * *', maxBackups: 10 }, 1),
+      expect(updateSettings).toHaveBeenCalledWith({ enabled: true, schedule: '0 */12 * * *', maxBackups: 10, includeDb: true }, 1),
     )
   })
 })
@@ -295,7 +296,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     )
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     await waitFor(() => expect(frequency).toHaveValue('custom'))
     expect(screen.queryByText('Backups overlap a scheduled restart')).not.toBeInTheDocument()
@@ -314,7 +315,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     renderBackups()
     expect(await screen.findByText('No scheduled backups')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     expect(await screen.findByText(
       'Scheduled backups are off — this schedule takes effect once you turn them on.',
     )).toBeInTheDocument()
@@ -330,7 +331,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
     prime(statusWith({ enabled: true, schedule: '0 */4 * * *' }))
     validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [overlap] })
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     expect(await screen.findByText(/^Next backup:/)).toBeInTheDocument()
     expect(await screen.findByText('Backups overlap a scheduled restart')).toBeInTheDocument()
     expect(screen.queryByText(/Scheduled backups are off/)).not.toBeInTheDocument()
@@ -350,7 +351,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
 
     // ...and in the settings panel, where the next-run line already names
     // the zone, it doesn't say it a second time.
-    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     await screen.findByText(/^Next backup:/)
     expect(screen.getByText('Backups overlap a scheduled restart')).toBeInTheDocument()
     expect(screen.getAllByText(/Schedule times are in the panel's timezone, UTC/)).toHaveLength(1)
@@ -392,7 +393,7 @@ describe('Backups.tsx: scheduled backups and scheduled restarts', () => {
       expect(await screen.findByText(/waiting for the server restart to finish/)).toBeInTheDocument()
 
       // An unsaved edit in the settings form meanwhile.
-      fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+      fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
       const maxBackups = await screen.findByLabelText('Maximum Backups to Keep')
       fireEvent.change(maxBackups, { target: { value: '25' } })
       expect(maxBackups).toHaveValue(25)
@@ -453,7 +454,7 @@ describe('Backups.tsx: the settings panel preview holds steady while the schedul
     renderBackups()
     expect(await screen.findByText(TITLE)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /^settings$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^schedule & retention$/i }))
     await screen.findByRole('combobox', { name: 'Backup Frequency' })
     // Same notice, now as the panel's own warning for the schedule it edits.
     expect(screen.getByText(TITLE)).toHaveClass('text-warning')
@@ -470,7 +471,7 @@ describe('Backups.tsx: the settings panel preview holds steady while the schedul
     )
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     const frequency = await screen.findByRole('combobox', { name: 'Backup Frequency' })
     const nextRun = await screen.findByText(/^Next backup:/)
     const notice = screen.getByText(TITLE).closest('[role="status"]')
@@ -501,7 +502,7 @@ describe('Backups.tsx: the settings panel preview holds steady while the schedul
     prime(statusWith({ schedule: '30 3 * * 1-5' }))
     renderBackups()
 
-    fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
     expect(await screen.findByText('Valid schedule')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Cron expression'), { target: { value: '' } })
     expect(screen.queryByText('Valid schedule')).not.toBeInTheDocument()
@@ -523,7 +524,7 @@ describe('Backups.tsx: the settings panel preview holds steady while the schedul
       validateSchedule.mockResolvedValue({ ...VALID, restartOverlaps: [overlap] })
       renderBackups()
 
-      fireEvent.click(await screen.findByRole('button', { name: /^settings$/i }))
+      fireEvent.click(await screen.findByRole('button', { name: /^schedule & retention$/i }))
       await screen.findByRole('combobox', { name: 'Backup Frequency' })
       await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
 

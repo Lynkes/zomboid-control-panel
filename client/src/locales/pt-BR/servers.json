@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "Servidores gerenciados",
-    "description": "Gerencie vários servidores de Project Zomboid em um só painel",
-    "eyebrow": "Frota",
+    "title": "Servidores",
+    "description": "Adicione, troque, atualize e edite os servidores de Project Zomboid que este painel gerencia.",
     "scanAria": "Escanear servidores",
     "scanTitle": "Escanear servidores",
     "scanNoPermission": "Escanear instalações em bind mount requer a permissão servers.discover, que este cargo não tem.",
-    "addRemote": "Adicionar servidor remoto",
-    "addExisting": "Adicionar servidor existente",
-    "installNew": "Instalar novo servidor"
+    "publicServers": "Servidores públicos",
+    "installNoPermission": "Instalar um novo servidor requer a permissão server.install, que este cargo não tem."
   },
+  "addServer": {
+    "menu": "Adicionar servidor",
+    "listLabel": "Formas de adicionar um servidor",
+    "recommended": "Recomendado",
+    "fresh": {
+      "label": "Instalar um novo servidor",
+      "description": "Baixe o servidor dedicado com o SteamCMD e depois defina portas, senhas e memória."
+    },
+    "existing": {
+      "label": "Usar arquivos de servidor existentes",
+      "description": "Aponte o painel para um servidor que já está instalado nesta máquina."
+    },
+    "remote": {
+      "label": "Conectar um servidor remoto",
+      "description": "Gerencie um servidor que roda em outra máquina, via RCON."
+    }
+  },
+  "loadingLabel": "Carregando servidores",
   "fetchError": {
     "title": "Não foi possível carregar os servidores",
     "fallback": "Falha ao carregar seus servidores. O backend pode estar inacessível.",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "Nenhum servidor configurado",
-    "description": "Comece com um servidor. Depois que ele estiver ativo, o Dashboard, os jogadores, os backups, os mods e as ações remotas passam a funcionar.",
-    "addLocalTitle": "Adicionar um servidor local existente",
-    "addLocalDesc": "Use esta opção quando os arquivos do servidor já existirem nesta máquina.",
-    "installTitle": "Instalar um novo servidor local",
-    "installDesc": "Use o instalador quando precisar configurar arquivos, portas, senhas e memória em um só fluxo.",
-    "connectRemoteTitle": "Conectar um servidor remoto",
-    "connectRemoteDesc": "Use esta opção para servidores que rodam em outra máquina, via RCON.",
-    "step1Label": "Etapa 1",
-    "step1Text": "Adicione um servidor",
-    "step2Label": "Etapa 2",
-    "step2Text": "Defina-o como ativo e verifique o RCON",
-    "step3Label": "Etapa 3",
-    "step3Text": "Volte ao Dashboard para controlar ao vivo"
+    "description": "Comece com um servidor. Depois que ele estiver ativo, o Dashboard, os jogadores, os backups, os mods e as ações remotas passam a funcionar."
   },
   "card": {
     "selected": "Selecionado",
-    "inactive": "Inativo",
     "remote": "Remoto",
     "updateAvailable": "Atualização disponível",
     "updateStatusUnknown": "Status da atualização desconhecido",
@@ -70,8 +73,12 @@
     "statusNotConfigured": "Não configurado",
     "statusAuthFailed": "Falha na autenticação",
     "statusUnavailable": "Indisponível",
-    "buildLabel": "Build:",
-    "branchLabel": "Branch:",
+    "buildLabel": "Build",
+    "branchLabel": "Branch",
+    "version": "Versão",
+    "detailsPaths": "Caminhos",
+    "detailsPathsContainer": "Caminhos e contêiner",
+    "detailsRemote": "Detalhes",
     "stopThisServer": "Parar este servidor",
     "stopConfirmTitle": "Parar {{name}}?",
     "stopConfirmDescription": "Isso desconecta todos que estão conectados ao servidor \"{{name}}\" agora. Você pode iniciá-lo de novo quando quiser.",
@@ -84,7 +91,6 @@
     "configureSftpTitle": "Configurar a ponte SFTP para este servidor remoto",
     "configureSftp": "Configurar ponte SFTP",
     "configureSftpTip": "Se este ainda não for o seu servidor ativo, clicar aqui o torna o servidor ativo antes de abrir a configuração de SFTP em Configurações.",
-    "updateNow": "Atualizar agora",
     "activating": "Ativando...",
     "switchToThisServer": "Mudar para este servidor",
     "added": "Adicionado em {{date}}",
@@ -213,6 +219,11 @@
     "lifecycleCompleteFirst": "Ative o provedor de ciclo de vida selecionado ou volte ao provedor atual antes de salvar outras configurações do servidor.",
     "title": "Editar servidor",
     "description": "Altere as configurações do servidor",
+    "sectionIdentity": "Identidade",
+    "sectionPaths": "Caminhos",
+    "sectionNetwork": "Rede e RCON",
+    "sectionLaunch": "Inicialização e memória",
+    "sectionDocker": "Docker",
     "remoteTitle": "Servidor remoto",
     "remoteDesc": "O gerenciamento somente via RCON está disponível para este servidor.",
     "displayNameLabel": "Nome de exibição",
@@ -250,6 +261,8 @@
     "rconPasswordLabel": "Senha RCON",
     "rconPasswordAria": "Senha RCON",
     "adminPasswordLabel": "Senha de admin",
+    "rconConfigureRequired": "Alterar o host, a porta ou a senha RCON requer a permissão server.configure, que este cargo não tem.",
+    "rconPasswordReenter": "Digite a senha RCON novamente para usar um novo host ou porta: a salva só é enviada ao host e à porta para os quais foi salva.",
     "adminPasswordTooltip": "Senha de admin do servidor, passada como argumento de inicialização -adminpassword. Entra em vigor na próxima inicialização do servidor.",
     "adminPasswordPlaceholder": "Definir senha de admin",
     "adminPasswordAria": "senha de admin",
@@ -317,6 +330,10 @@
     "noPermission": "Atualizar ou verificar os arquivos do servidor requer a permissão server.install, que este cargo não tem.",
     "stalledMessage": "Isto está demorando mais que o esperado e o painel não recebeu resposta do SteamCMD. Ele ainda pode estar rodando em segundo plano. Você pode fechar esta janela e verificar o status do servidor separadamente.",
     "closeAnyway": "Fechar mesmo assim"
+  },
+  "sharedInstallWarning": {
+    "title": "Outros servidores usam esta pasta do jogo",
+    "desc": "Também usam esta pasta do jogo: {{names}}. Excluí-la remove os arquivos do jogo deles também; eles não vão iniciar até o jogo ser instalado de novo."
   },
   "clearInstallDialog": {
     "title": "Esvaziar pasta de instalação?",

@@ -226,8 +226,11 @@ The fastest path to a fully working setup — panel **and** a new Project
 Zomboid server — is the all-in-one installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+curl -fsSL https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh | sh
 ```
+
+That is `docker/all-in-one/bootstrap.sh` as attached to the latest release
+(its SHA-256 is in the release's `checksums.txt`).
 
 It checks Docker, generates the secret and persistent configuration, pulls the
 prebuilt release images, installs PZ, detects the LAN address, publishes
@@ -239,7 +242,7 @@ If PZ already runs on the host, in another container, or on another machine,
 use the panel-only image instead:
 
 ```bash
-curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
+curl -LO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/docker-compose.install.yml
 docker compose -f docker-compose.install.yml up -d
 ```
 

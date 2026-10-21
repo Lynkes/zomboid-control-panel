@@ -10,16 +10,32 @@
     "toasts.serversFoundCount_zero"
   ],
   "pageHeader": {
-    "title": "الخوادم المُدارة",
-    "description": "أدِر عدة خوادم Project Zomboid من لوحة واحدة",
-    "eyebrow": "الأسطول",
+    "title": "الخوادم",
+    "description": "أضف خوادم Project Zomboid التي تديرها هذه اللوحة وبدّل بينها وحدّثها وعدّلها.",
     "scanAria": "البحث عن الخوادم",
     "scanTitle": "البحث عن الخوادم",
     "scanNoPermission": "يتطلب البحث عن عمليات التثبيت من نوع bind-mount صلاحية servers.discover، وهي غير متاحة لهذا الدور.",
-    "addRemote": "إضافة خادم بعيد",
-    "addExisting": "إضافة خادم موجود",
-    "installNew": "تثبيت خادم جديد"
+    "publicServers": "الخوادم العامة",
+    "installNoPermission": "يتطلب تثبيت خادم جديد صلاحية server.install، وهي غير متاحة لهذا الدور."
   },
+  "addServer": {
+    "menu": "إضافة خادم",
+    "listLabel": "طرق إضافة خادم",
+    "recommended": "موصى به",
+    "fresh": {
+      "label": "تثبيت خادم جديد",
+      "description": "نزّل الخادم المخصص عبر SteamCMD، ثم اضبط المنافذ وكلمات المرور والذاكرة."
+    },
+    "existing": {
+      "label": "استخدام ملفات خادم موجودة",
+      "description": "وجّه اللوحة إلى خادم مثبّت بالفعل على هذا الجهاز."
+    },
+    "remote": {
+      "label": "الاتصال بخادم بعيد",
+      "description": "أدِر خادمًا يعمل على جهاز آخر عبر RCON."
+    }
+  },
+  "loadingLabel": "جارٍ تحميل الخوادم",
   "fetchError": {
     "title": "تعذّر تحميل الخوادم",
     "fallback": "فشل تحميل خوادمك. قد تكون الواجهة الخلفية غير قابلة للوصول.",
@@ -27,23 +43,10 @@
   },
   "emptyState": {
     "title": "لا توجد خوادم مُعدّة",
-    "description": "ابدأ بخادم واحد. بعد تفعيله، تصبح لوحة المعلومات واللاعبون والنسخ الاحتياطية والمودات والإجراءات عن بُعد متاحة.",
-    "addLocalTitle": "إضافة خادم محلي موجود",
-    "addLocalDesc": "استخدم هذا عندما تكون ملفات الخادم موجودة بالفعل على هذا الجهاز.",
-    "installTitle": "تثبيت خادم محلي جديد",
-    "installDesc": "استخدم المثبِّت عندما تحتاج إلى إعداد الملفات والمنافذ وكلمات المرور والذاكرة في تدفق واحد.",
-    "connectRemoteTitle": "الاتصال بخادم بعيد",
-    "connectRemoteDesc": "استخدم هذا للخوادم التي تعمل على جهاز آخر عبر RCON.",
-    "step1Label": "الخطوة 1",
-    "step1Text": "أضِف خادمًا واحدًا",
-    "step2Label": "الخطوة 2",
-    "step2Text": "اجعله نشطًا وتحقّق من RCON",
-    "step3Label": "الخطوة 3",
-    "step3Text": "عُد إلى لوحة المعلومات للتحكم المباشر"
+    "description": "ابدأ بخادم واحد. بعد تفعيله، تصبح لوحة المعلومات واللاعبون والنسخ الاحتياطية والمودات والإجراءات عن بُعد متاحة."
   },
   "card": {
     "selected": "محدَّد",
-    "inactive": "غير نشط",
     "remote": "بعيد",
     "updateAvailable": "يتوفر تحديث",
     "updateStatusUnknown": "Update status unknown",
@@ -80,8 +83,12 @@
     "statusNotConfigured": "غير مُعدّ",
     "statusAuthFailed": "فشلت المصادقة",
     "statusUnavailable": "غير متاح",
-    "buildLabel": "Build:",
-    "branchLabel": "الفرع:",
+    "buildLabel": "Build",
+    "branchLabel": "الفرع",
+    "version": "الإصدار",
+    "detailsPaths": "المسارات",
+    "detailsPathsContainer": "المسارات والحاوية",
+    "detailsRemote": "التفاصيل",
     "stopThisServer": "إيقاف هذا الخادم",
     "stopConfirmTitle": "إيقاف {{name}}؟",
     "stopConfirmDescription": "سيقطع هذا الاتصال بجميع اللاعبين المتصلين حاليًا بـ \"{{name}}\". يمكنك تشغيله مرة أخرى في أي وقت.",
@@ -94,7 +101,6 @@
     "configureSftpTitle": "إعداد جسر SFTP لهذا الخادم البعيد",
     "configureSftp": "إعداد جسر SFTP",
     "configureSftpTip": "إن لم يكن هذا خادمك النشط بالفعل، فالنقر هنا يبدّل خادمك النشط إليه قبل فتح إعداد SFTP في الإعدادات.",
-    "updateNow": "التحديث الآن",
     "activating": "جارٍ التفعيل...",
     "switchToThisServer": "التبديل إلى هذا الخادم",
     "added": "أُضيف في {{date}}",
@@ -226,6 +232,11 @@
     "lifecycleCompleteFirst": "فعّل مزوّد دورة الحياة المحدد أو ارجع إلى المزوّد الحالي قبل حفظ إعدادات الخادم الأخرى.",
     "title": "تعديل الخادم",
     "description": "تحديث إعدادات تكوين الخادم",
+    "sectionIdentity": "الهوية",
+    "sectionPaths": "المسارات",
+    "sectionNetwork": "الشبكة وRCON",
+    "sectionLaunch": "التشغيل والذاكرة",
+    "sectionDocker": "Docker",
     "remoteTitle": "خادم بعيد",
     "remoteDesc": "لا تتوفر لهذا الخادم سوى الإدارة عبر RCON.",
     "displayNameLabel": "اسم العرض",
@@ -263,6 +274,8 @@
     "rconPasswordLabel": "كلمة مرور RCON",
     "rconPasswordAria": "كلمة مرور RCON",
     "adminPasswordLabel": "كلمة مرور المدير",
+    "rconConfigureRequired": "يتطلب تغيير مضيف RCON أو منفذه أو كلمة مروره صلاحية server.configure، وهي غير متاحة لهذا الدور.",
+    "rconPasswordReenter": "أدخل كلمة مرور RCON مرة أخرى لاستخدام مضيف أو منفذ جديد: لا تُرسل المحفوظة إلا إلى المضيف والمنفذ اللذين حُفظت لهما.",
     "adminPasswordTooltip": "كلمة مرور مدير الخادم، تُمرَّر كوسيط تشغيل باسم -adminpassword. تسري عند بدء تشغيل الخادم التالي.",
     "adminPasswordPlaceholder": "عيّن كلمة مرور المدير",
     "adminPasswordAria": "كلمة مرور المدير",
@@ -330,6 +343,10 @@
     "noPermission": "يتطلب تحديث ملفات الخادم أو التحقق منها صلاحية server.install، وهي غير متاحة لهذا الدور.",
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
+  },
+  "sharedInstallWarning": {
+    "title": "خوادم أخرى تستخدم مجلد اللعبة هذا",
+    "desc": "يستخدم مجلد اللعبة هذا أيضًا: {{names}}. حذفه يزيل ملفات اللعبة الخاصة بها أيضًا، ولن تعمل حتى يُعاد تثبيت اللعبة."
   },
   "clearInstallDialog": {
     "title": "إفراغ مجلد التثبيت؟",

@@ -78,7 +78,7 @@ function renderEvents() {
 }
 
 async function openSevereSection() {
-  const nav = await screen.findByText('Severe weather')
+  const nav = await screen.findByRole('button', { name: 'Severe weather' })
   nav.click()
   // Sublabel text unique to the mounted severe-weather section -- confirms
   // the panel actually swapped in before proceeding.

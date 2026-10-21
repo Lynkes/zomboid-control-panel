@@ -116,7 +116,7 @@ export function MoveDialog({ open, profileId, root, rootLabel, paths, startDir, 
             its 18rem cap and looks as before. A failed move's error sits
             outside the body, right above the buttons. */}
         <DialogBody className="flex flex-col gap-3">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('dialogs.move.destLabel')}</p>
+          <p className="label-micro">{t('dialogs.move.destLabel')}</p>
           <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/25 p-2 text-sm">
             <Button
               variant="ghost"

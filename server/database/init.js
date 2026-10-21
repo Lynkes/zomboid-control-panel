@@ -168,6 +168,8 @@ const defaultData = {
   player_stats: [],
   mod_presets: [],
   mod_groups: [],
+  mod_notes: [],
+  mod_order_rules: [],
   user_templates: [],
   steamid_bans: [],
   performance_history: [],
@@ -1305,6 +1307,8 @@ function getDatabaseStatsSync() {
       player_stats: data.player_stats?.length ?? 0,
       mod_presets: data.mod_presets?.length ?? 0,
       mod_groups: data.mod_groups?.length ?? 0,
+      mod_notes: data.mod_notes?.length ?? 0,
+      mod_order_rules: data.mod_order_rules?.length ?? 0,
       user_templates: data.user_templates?.length ?? 0,
       performance_history: data.performance_history?.length ?? 0,
       bridge_logs: data.bridge_logs?.length ?? 0,
@@ -1768,12 +1772,14 @@ export async function getLatestScheduleExecutionByCommand(command) {
 // GET /activity mixed moderation history from every managed server
 // together. Tagged with getActiveServerId() (same proxy tracked_mods/
 // ignored_mods already use) at write time; filtered at read time, tolerant
-// of pre-fix untagged rows.
-export async function logPlayerAction(playerName, action, details = null) {
+// of pre-fix untagged rows. `serverId` overrides the active server for a
+// caller that knows which server the action happened on (PanelBridge's
+// player connect/disconnect, see recordPlayerSession()).
+export async function logPlayerAction(playerName, action, details = null, serverId = undefined) {
   const db = await getDb();
   const entry = {
     id: generateId(),
-    server_id: await getActiveServerId(),
+    server_id: serverId !== undefined ? serverId : await getActiveServerId(),
     player_name: playerName,
     action,
     details,
@@ -1790,7 +1796,9 @@ export async function getPlayerLogs(playerName = null, limit = 100, serverId = u
   const db = await getDb();
   let logs = db.data.player_logs;
   if (playerName) {
-    logs = logs.filter((l) => l.player_name === playerName);
+    // Case-insensitive, like notes and playtime: the game's names are.
+    const wanted = String(playerName).toLowerCase();
+    logs = logs.filter((l) => String(l.player_name ?? "").toLowerCase() === wanted);
   }
   if (serverId !== undefined) {
     logs = logs.filter((l) => l.server_id == null || l.server_id === serverId);
@@ -2710,21 +2718,105 @@ export async function getPlayerStat(playerName, serverId = undefined) {
 // started for each (player, server) pair going forward; the untagged row
 // stays exactly as it was, still readable via getPlayerStat()/
 // getPlayerStats() as that player's figures until a tagged row exists.
+//
+// SECURITY (2026-10-20): a row was added for every distinct name that ever
+// connected, never removed, and found with a scan of every row: a client
+// joining under endless made-up names grew db.json (rewritten whole on each
+// write) and every connect's lookup without bound. Rows are now found
+// through an index, and each server keeps at most
+// PLAYER_STATS_LIMITS.maxRowsPerServer of them (see evictPlayerStats()).
+export const PLAYER_STATS_LIMITS = Object.freeze({ maxRowsPerServer: 5000 });
+
+// server_id (null for an untagged row) -> lower-cased name -> the first row
+// with that pair, as the old .find() returned. Rebuilt whenever the array is
+// not the one indexed or changed length behind its back (a restore or an
+// import replaces db.data).
+let playerStatIndex = null;
+
+function playerStatServerKey(serverId) {
+  return serverId ?? null;
+}
+
+function getPlayerStatIndex(rows) {
+  if (playerStatIndex?.rows === rows && playerStatIndex.length === rows.length) {
+    return playerStatIndex;
+  }
+  const byServer = new Map();
+  for (const row of rows) {
+    const serverKey = playerStatServerKey(row.server_id);
+    let byName = byServer.get(serverKey);
+    if (!byName) byServer.set(serverKey, (byName = new Map()));
+    const nameKey = String(row.player_name).toLowerCase();
+    if (!byName.has(nameKey)) byName.set(nameKey, row);
+  }
+  playerStatIndex = { rows, length: rows.length, byServer };
+  return playerStatIndex;
+}
+
+// Makes room for one more row of `serverId`: drops the server's rows seen
+// longest ago until it holds fewer than the cap. Never a player with a
+// session open (they are online). Players with under an hour of playtime go
+// first, so a flood of made-up names makes room among its own rows rather
+// than the regulars', and players with a moderator note go last (the note
+// itself lives in player_notes and is kept either way; the row is only
+// playtime).
+const PLAYER_STATS_ESTABLISHED_SECONDS = 3600;
+
+function evictPlayerStats(db, index, serverId) {
+  const byName = index.byServer.get(playerStatServerKey(serverId));
+  const cap = PLAYER_STATS_LIMITS.maxRowsPerServer;
+  if (!byName || byName.size < cap) return;
+  const noted = new Set(
+    (db.data.player_notes || []).map((note) => String(note.player_name).toLowerCase()),
+  );
+  const candidates = [];
+  for (const [nameKey, row] of byName) {
+    if (row.last_session_start) continue;
+    candidates.push({
+      nameKey,
+      row,
+      noted: noted.has(nameKey),
+      established: (Number(row.total_playtime_seconds) || 0) >= PLAYER_STATS_ESTABLISHED_SECONDS,
+    });
+  }
+  candidates.sort(
+    (left, right) =>
+      Number(left.noted) - Number(right.noted) ||
+      Number(left.established) - Number(right.established) ||
+      String(left.row.last_seen ?? "").localeCompare(String(right.row.last_seen ?? "")),
+  );
+  const evicted = new Set();
+  for (const { nameKey, row } of candidates.slice(0, byName.size - cap + 1)) {
+    byName.delete(nameKey);
+    evicted.add(row);
+  }
+  if (evicted.size === 0) return;
+  // In place, so a caller holding the array (getPlayerStats()) sees it too.
+  const rows = db.data.player_stats;
+  let kept = 0;
+  for (const row of rows) {
+    if (evicted.has(row)) continue;
+    rows[kept++] = row;
+  }
+  rows.length = kept;
+  playerStatIndex = null;
+}
+
 export async function recordPlayerSession(playerName, action, serverId = undefined) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
   const targetServerId = serverId !== undefined ? serverId : await getActiveServerId();
 
-  let playerStat = db.data.player_stats.find(
-    (p) =>
-      p.player_name.toLowerCase() === playerName.toLowerCase() &&
-      (p.server_id ?? null) === targetServerId,
-  );
+  let index = getPlayerStatIndex(db.data.player_stats);
+  const nameKey = String(playerName).toLowerCase();
+  let playerStat = index.byServer.get(playerStatServerKey(targetServerId))?.get(nameKey);
 
   const now = new Date().toISOString();
 
   if (!playerStat) {
+    evictPlayerStats(db, index, targetServerId);
+    index = getPlayerStatIndex(db.data.player_stats);
     playerStat = {
       id: generateId(),
       player_name: playerName,
@@ -2738,6 +2830,10 @@ export async function recordPlayerSession(playerName, action, serverId = undefin
       pending_suspend_adjustment_seconds: 0,
     };
     db.data.player_stats.push(playerStat);
+    const serverKey = playerStatServerKey(targetServerId);
+    if (!index.byServer.has(serverKey)) index.byServer.set(serverKey, new Map());
+    index.byServer.get(serverKey).set(nameKey, playerStat);
+    index.length = db.data.player_stats.length;
   }
 
   if (action === "connect") {
@@ -2964,7 +3060,7 @@ export async function getModGroups() {
  * has that name (used by import).
  */
 export async function createModGroup(
-  { name, description, modIds },
+  { name, description, modIds, color = null, keepTogether = false, placement = null },
   { maxGroups = Infinity, uniqueName = false } = {},
 ) {
   const db = await getDb();
@@ -2982,6 +3078,9 @@ export async function createModGroup(
       : name,
     description: description || "",
     modIds: [...modIds],
+    color: color ?? null,
+    keepTogether: keepTogether === true,
+    placement: placement === "first" || placement === "last" ? placement : null,
     createdAt: now,
     updatedAt: now,
   };
@@ -2991,14 +3090,17 @@ export async function createModGroup(
   return group;
 }
 
-/** Changes only the given fields (name, description, modIds). Null when the group does not exist. */
+/**
+ * Changes only the given fields (name, description, modIds, color,
+ * keepTogether, placement). Null when the group does not exist.
+ */
 export async function updateModGroup(id, updates) {
   const db = await getDb();
   const group = db.data.mod_groups?.find((g) => g.id === id);
   if (!group) return null;
 
   let changed = false;
-  for (const key of ["name", "description", "modIds"]) {
+  for (const key of ["name", "description", "modIds", "color", "keepTogether", "placement"]) {
     if (updates[key] === undefined) continue;
     group[key] = key === "modIds" ? [...updates[key]] : updates[key];
     changed = true;
@@ -3018,6 +3120,129 @@ export async function deleteModGroup(id) {
   if (index === -1) return false;
 
   db.data.mod_groups.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// The keys of the group suggestions an admin dismissed (GET
+// /api/mods/groups/suggestions leaves them out). Kept in a setting, newest
+// last, at most `max`: the oldest go first.
+const DISMISSED_SUGGESTIONS_SETTING = "modGroupSuggestionsDismissed";
+
+export async function getDismissedModGroupSuggestions() {
+  const db = await getDb();
+  const keys = db.data.settings[DISMISSED_SUGGESTIONS_SETTING];
+  return Array.isArray(keys) ? keys.filter((key) => typeof key === "string") : [];
+}
+
+/** Adds `key` (read, change and store in one synchronous step after getDb). */
+export async function dismissModGroupSuggestion(key, { max = 500 } = {}) {
+  const db = await getDb();
+  const current = db.data.settings[DISMISSED_SUGGESTIONS_SETTING];
+  const keys = (Array.isArray(current) ? current : []).filter((k) => typeof k === "string" && k !== key);
+  keys.push(key);
+  db.data.settings[DISMISSED_SUGGESTIONS_SETTING] = keys.slice(-max);
+  scheduleWrite();
+}
+
+// ============================================
+// Mod Notes (panel-wide, one per Workshop item)
+// ============================================
+// { workshopId, text, updatedAt, updatedBy }: a note an admin keeps on a
+// Workshop item. Validation (digits-only id, text length) lives with the
+// routes; these only store.
+
+export async function getModNotes() {
+  const db = await getDb();
+  if (!db.data.mod_notes) db.data.mod_notes = [];
+  return db.data.mod_notes;
+}
+
+/**
+ * Creates or replaces the note of `workshopId`. Returns the stored note, or
+ * null (nothing stored) when it would be a new note and `maxNotes` notes
+ * exist already -- checked in the same synchronous step as the push.
+ */
+export async function setModNote(workshopId, text, { updatedBy = null, maxNotes = Infinity } = {}) {
+  const db = await getDb();
+  if (!db.data.mod_notes) db.data.mod_notes = [];
+  const note = { workshopId, text, updatedAt: new Date().toISOString(), updatedBy: updatedBy || null };
+  const index = db.data.mod_notes.findIndex((n) => n?.workshopId === workshopId);
+  if (index === -1) {
+    if (db.data.mod_notes.length >= maxNotes) return null;
+    db.data.mod_notes.push(note);
+  } else {
+    db.data.mod_notes[index] = note;
+  }
+  scheduleWrite();
+  return note;
+}
+
+/** Removes the note of `workshopId`; false when there was none. */
+export async function deleteModNote(workshopId) {
+  const db = await getDb();
+  if (!db.data.mod_notes) return false;
+  const index = db.data.mod_notes.findIndex((n) => n?.workshopId === workshopId);
+  if (index === -1) return false;
+  db.data.mod_notes.splice(index, 1);
+  scheduleWrite();
+  return true;
+}
+
+// ============================================
+// Mod Order Rules (panel-wide, like mod groups)
+// ============================================
+// { id, before, after, note, source, createdBy, createdAt }: "load `before`
+// before `after`", pinned by an admin (utils/modOrderRules.js). Validation
+// lives with the routes; these only store.
+
+export async function getModOrderRules() {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) db.data.mod_order_rules = [];
+  return db.data.mod_order_rules;
+}
+
+/**
+ * Stores a new rule. `check(existingRules)` runs in the same synchronous step
+ * as the push (before the limit check), so two requests cannot both pass a
+ * check made before the other's push; it returns a refusal (any truthy
+ * value, returned as { refused }) or null. Returns { rule } or { limit: true }
+ * or { refused }. `replaceIds` are removed in that same step (a rule the new
+ * one replaces).
+ */
+export async function createModOrderRule(
+  { before, after, note = "", source = "manual", createdBy = null },
+  { maxRules = Infinity, check = null, replaceIds = [] } = {},
+) {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) db.data.mod_order_rules = [];
+  const rules = db.data.mod_order_rules;
+  const replacing = new Set(replaceIds);
+  const kept = rules.filter((r) => !replacing.has(r?.id));
+  const refused = check ? check(kept) : null;
+  if (refused) return { refused };
+  if (kept.length >= maxRules) return { limit: true };
+  const rule = {
+    id: generateId(),
+    before,
+    after,
+    note: note || "",
+    source,
+    createdBy: createdBy || null,
+    createdAt: new Date().toISOString(),
+  };
+  db.data.mod_order_rules = [...kept, rule];
+  scheduleWrite();
+  return { rule };
+}
+
+/** Removes a rule; false when there was none. */
+export async function deleteModOrderRule(id) {
+  const db = await getDb();
+  if (!db.data.mod_order_rules) return false;
+  const index = db.data.mod_order_rules.findIndex((r) => r?.id === id);
+  if (index === -1) return false;
+  db.data.mod_order_rules.splice(index, 1);
   scheduleWrite();
   return true;
 }

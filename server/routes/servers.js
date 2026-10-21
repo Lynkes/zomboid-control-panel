@@ -10,7 +10,7 @@ import {
   sanitizeServerResponseList,
   isMaskedSecret,
 } from "../utils/sanitize.js";
-import { testRconConnection } from "../services/rcon.js";
+import { resolveEnvRconHost, testRconConnection } from "../services/rcon.js";
 import {
   rconPasswordCannotBeStoredInIni,
   rconPasswordUnsupportedCharsBody,
@@ -27,7 +27,7 @@ import {
   setSetting,
 } from "../database/init.js";
 import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
-import { requirePermission } from "../services/permissions.js";
+import { requireAnyPermission, requirePermission } from "../services/permissions.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -58,6 +58,7 @@ import {
 } from "../services/serverManager.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
+import { canSeeRconTarget, withoutRconTarget } from "../utils/rconTargetView.js";
 import { serverConfigDirOf, serverConfigPathIsConfined, serverFolderProblem } from "../utils/serverConfigPath.js";
 import { checkZomboidDataPath } from "../services/zomboidDataPath.js";
 import { adminPasswordStartScriptRefusal } from "../services/startScriptValues.js";
@@ -239,6 +240,63 @@ async function refuseLaunchTargetChange(req, res, server) {
     return true;
   }
   return false;
+}
+
+// SECURITY (2026-10-20, access-control audit): a server's RCON host, port
+// and password belong to server.configure, as they do everywhere else
+// (routes/config.js's SETTINGS_KEY_CAPABILITY, server.js's /configure-rcon).
+// With servers.manage alone a role could point the stored password at a
+// host it runs, and GET /rcon-status (or, for the active server, the
+// reconnect after the save) sent it there. An edit that changes any of the
+// three now needs server.configure, and a new host or port needs the
+// password entered again: the stored one is never sent somewhere it was not
+// saved for. Judged against the stored values, since the edit dialog sends
+// the whole record back on every save.
+function normalizedRconHost(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export function rconConnectionChanges(stored, updates) {
+  const host =
+    updates.rconHost !== undefined &&
+    normalizedRconHost(updates.rconHost) !== normalizedRconHost(stored?.rconHost);
+  const port =
+    updates.rconPort !== undefined &&
+    parseBoundedInteger(updates.rconPort, null, 1, 65535) !==
+      parseBoundedInteger(stored?.rconPort, null, 1, 65535);
+  const password =
+    updates.rconPassword !== undefined &&
+    String(updates.rconPassword) !== String(stored?.rconPassword ?? "");
+  return { host, port, password, any: host || port || password };
+}
+
+// The hosts an imported ini's own server answers on: this machine, or the
+// RCON_HOST the operator configured for a separate game container.
+function rconHostIsThisMachine(host) {
+  const value = normalizedRconHost(host);
+  return (
+    // No host at all is refused later as a missing field.
+    value === "" ||
+    value === "localhost" ||
+    /^127(\.\d{1,3}){3}$/.test(value) ||
+    value === normalizedRconHost(resolveEnvRconHost())
+  );
+}
+
+function rconChangeRefusal() {
+  return {
+    error:
+      "Changing a server's RCON host, port or password requires the server.configure permission, which this role doesn't have. Ask an admin to make this change.",
+    code: ErrorCode.SERVER_RCON_CHANGE_REQUIRES_CONFIGURE,
+  };
+}
+
+function rconPasswordRequiredRefusal() {
+  return {
+    error:
+      "Enter the RCON password again to change the RCON host or port: the saved password is only sent to the host and port it was saved for.",
+    code: ErrorCode.SERVER_RCON_PASSWORD_REQUIRED_FOR_NEW_TARGET,
+  };
 }
 
 async function mapWithConcurrency(items, limit, mapper) {
@@ -692,8 +750,11 @@ router.get("/", async (req, res) => {
   try {
     const servers = await getServers();
     const settings = await getAllSettings();
-    // Host folders only for a role that sets them up (utils/hostPathView.js).
+    // Host folders only for a role that sets them up (utils/hostPathView.js),
+    // the RCON host and port only for one that works with RCON
+    // (utils/rconTargetView.js).
     const showPaths = await canSeeHostPaths(req.user);
+    const showRconTarget = await canSeeRconTarget(req.user);
     const withRemoteConfig = servers.map((server) => {
       const view = {
         ...server,
@@ -705,7 +766,8 @@ router.get("/", async (req, res) => {
         // sees what to set where it is set. A code and text, no folder.
         folderProblem: serverFolderProblem(server),
       };
-      return showPaths ? view : hideHostPaths(view);
+      const pathView = showPaths ? view : hideHostPaths(view);
+      return showRconTarget ? pathView : withoutRconTarget(pathView);
     });
     res.json({
       servers: sanitizeServerResponseList(withRemoteConfig),
@@ -950,7 +1012,11 @@ router.get("/status", async (req, res) => {
 
 // Lightweight, bounded RCON connectivity probe for every configured server.
 // It creates no persistent connections and never returns credential material.
-router.get("/rcon-status", async (req, res) => {
+// SECURITY (2026-10-20, access-control audit): it does send each server's
+// stored password to that server's RCON host, so only the roles that work
+// with RCON or the server list may start it: servers.manage or rcon.execute.
+// The Servers page shows the RCON badge to those roles only.
+router.get("/rcon-status", requireAnyPermission("servers.manage", "rcon.execute"), async (req, res) => {
   try {
     const servers = await getServers();
     const statuses = await mapWithConcurrency(servers, 3, async (server) => {
@@ -999,9 +1065,10 @@ router.get("/active", async (req, res) => {
     );
     // PT3: as GET / above, so the two stay the same shape.
     const view = { ...server, remoteConfigConfigured, folderProblem: serverFolderProblem(server) };
+    const pathView = (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view);
     res.json({
       server: sanitizeServerResponse(
-        (await canSeeHostPaths(req.user)) ? view : hideHostPaths(view),
+        (await canSeeRconTarget(req.user)) ? pathView : withoutRconTarget(pathView),
       ),
     });
   } catch (error) {
@@ -1027,9 +1094,11 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Server not found" });
     }
 
+    // As GET / above: host folders and the RCON target per role.
+    const pathView = (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server);
     res.json({
       server: sanitizeServerResponse(
-        (await canSeeHostPaths(req.user)) ? server : hideHostPaths(server),
+        (await canSeeRconTarget(req.user)) ? pathView : withoutRconTarget(pathView),
       ),
     });
   } catch (error) {
@@ -1219,6 +1288,15 @@ router.post("/", requirePermission("servers.manage"), async (req, res) => {
     if (config.importIniFrom && typeof config.importIniFrom === "object") {
       const allowed = await requireCapabilityInline("servers.discover", req, res);
       if (!allowed) return;
+      // The ini's RCON password is read here and never shown to the caller,
+      // so the caller doesn't get to choose where it is sent either (see
+      // rconConnectionChanges()): that ini's server answers on this machine.
+      if (
+        !rconHostIsThisMachine(config.rconHost) &&
+        !(await holdsCapability("server.configure", req))
+      ) {
+        return res.status(403).json(rconChangeRefusal());
+      }
 
       const { dataPath: importDataPath, serverName: importServerName } =
         config.importIniFrom;
@@ -1760,6 +1838,26 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
       updates.rconPort = rconPort;
     }
 
+    // See rconConnectionChanges(). Kept for the reconnect below: only a real
+    // change of the active server's connection reconnects it.
+    let rconChange = { host: false, port: false, password: false, any: false };
+    if (["rconHost", "rconPort", "rconPassword"].some((key) => updates[key] !== undefined)) {
+      const storedRcon = await getServer(serverId);
+      if (storedRcon) {
+        rconChange = rconConnectionChanges(storedRcon, updates);
+        if (rconChange.any && !(await holdsCapability("server.configure", req))) {
+          return res.status(403).json(rconChangeRefusal());
+        }
+        if (
+          (rconChange.host || rconChange.port) &&
+          updates.rconPassword === undefined &&
+          String(storedRcon.rconPassword ?? "") !== ""
+        ) {
+          return res.status(400).json(rconPasswordRequiredRefusal());
+        }
+      }
+    }
+
     // Validate server port if provided
     if (updates.serverPort !== undefined) {
       const serverPort = parseBoundedInteger(updates.serverPort, null, 1, GAME_PORT_MAX);
@@ -1879,11 +1977,20 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
 
     // If the active server's RCON settings changed, refresh the RCON service
     // Otherwise the service keeps stale cached credentials after a reconnect
+    // `warningDetails` carries each warning with its code, when it has one,
+    // so the page can show it in the reader's language; `warnings` keeps the
+    // English text for anything that reads only that.
     const reloadWarnings = [];
+    const warningDetails = [];
+    const addWarning = (text, code) => {
+      reloadWarnings.push(text);
+      warningDetails.push(code ? { error: text, code } : { error: text });
+    };
     if (server.isActive) {
-      const rconFieldsChanged = ["rconHost", "rconPort", "rconPassword"].some(
-        (k) => Object.prototype.hasOwnProperty.call(updates, k),
-      );
+      // A real change only (rconConnectionChanges()): the edit dialog sends
+      // the whole record back, so every save of the active server used to
+      // drop and reconnect RCON, and warn when that reconnect failed.
+      const rconFieldsChanged = rconChange.any;
       const serverManagerFieldsChanged = [
         "installPath",
         "serverPath",
@@ -1908,7 +2015,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
           log.info(`ServerManager config refreshed after active server update`);
         } catch (e) {
           log.warn(`ServerManager reload failed after update: ${e.message}`);
-          reloadWarnings.push(
+          addWarning(
             "Server manager failed to reload; restart the panel or server before relying on the updated settings",
           );
         }
@@ -1934,7 +2041,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
           log.info(`LogTailer repointed after active server update: ${server.name}`);
         } catch (e) {
           log.warn(`LogTailer reload failed after active server update: ${e.message}`);
-          reloadWarnings.push(
+          addWarning(
             "Log tailer failed to reload; restart the panel before relying on chat/death detection for the updated path",
           );
         }
@@ -1949,16 +2056,18 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
           const reconnected = await rconService.connect();
           if (!reconnected) {
             log.warn("RCON reconnect returned false after active server update");
-            reloadWarnings.push(
+            addWarning(
               "RCON could not reconnect; verify the updated connection settings",
+              ErrorCode.SERVER_RCON_RECONNECT_FAILED,
             );
           } else {
             log.info(`RCON config refreshed after active server update`);
           }
         } catch (e) {
           log.warn(`RCON reload failed after update: ${e.message}`);
-          reloadWarnings.push(
+          addWarning(
             "RCON failed to reload; reconnect before relying on the updated connection settings",
+            ErrorCode.SERVER_RCON_RELOAD_FAILED,
           );
         }
       }
@@ -1982,7 +2091,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
         upnpChanged &&
         upnpConfig?.refused
       ) {
-        reloadWarnings.push(
+        addWarning(
           upnpConfig.reason === "data-folder"
             ? "UPnP setting saved, but not written to the server config: its Zomboid data folder holds files the game doesn't keep in a data folder. Fix the data folder, then edit UPnP again."
             : "UPnP setting saved, but not written to the server config: its config folder is outside its Zomboid data folder. Fix the config folder, then edit UPnP again.",
@@ -2007,12 +2116,12 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
           // either way). Saying so explicitly rather than letting "saved"
           // imply "live", same defect class as the two silent-failure fixes
           // earlier tonight -- a confident status the app cannot back.
-          reloadWarnings.push(
+          addWarning(
             "UPnP setting saved and written to the server config -- takes effect the next time this server starts, not immediately.",
           );
         } else {
           log.warn(`Could not apply UPnP setting to ini: ${result.reason}`);
-          reloadWarnings.push(
+          addWarning(
             `UPnP setting saved, but could not be applied to the server config (${result.reason}). Start the server once to generate its config file, then edit UPnP again.`,
           );
         }
@@ -2022,7 +2131,7 @@ router.put("/:id", requirePermission("servers.manage"), async (req, res) => {
     res.json({
       server: sanitizeServerResponse(server),
       message: "Server updated successfully",
-      ...(reloadWarnings.length > 0 ? { warnings: reloadWarnings } : {}),
+      ...(reloadWarnings.length > 0 ? { warnings: reloadWarnings, warningDetails } : {}),
     });
   } catch (error) {
     log.error(`Failed to update server: ${error.message}`);

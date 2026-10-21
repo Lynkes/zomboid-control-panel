@@ -255,7 +255,7 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
   // answer -- a second Stop click waiting to happen. The "Server stopped"
   // toast waits for the same refresh: the confirm dialog stays up until
   // it lands, and the toast should not announce the stop beside it.
-  it('keeps Stop, Force stop and Restart disabled, and holds the toast, until the post-Stop refresh has landed', async () => {
+  it('keeps Stop and Restart disabled, and holds the toast, until the post-Stop refresh has landed', async () => {
     setUp()
     stop.mockResolvedValue({ success: true, confirmed: false } as never)
     renderDashboard()
@@ -281,7 +281,7 @@ describe('Dashboard.tsx: Start replaces Stop within seconds of the server stoppi
     await act(async () => {})
     const header = await screen.findByRole('banner', { name: /server status/i, hidden: true })
     expect(within(header).getByRole('button', { name: /^stop$/i, hidden: true })).toBeDisabled()
-    expect(within(header).getByRole('button', { name: /^force stop$/i, hidden: true })).toBeDisabled()
+    // (Force stop is in the header's More menu, behind the same `loading` gate.)
     expect(within(header).getByRole('button', { name: /^restart$/i, hidden: true })).toBeDisabled()
     expect(toastSpy).not.toHaveBeenCalled()
 

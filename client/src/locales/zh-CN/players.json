@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "玩家",
-    "description": "管理已连接的玩家及其权限",
+    "description": "管理玩家、编辑角色，并管理封禁和白名单。",
     "updated": "已更新 {{time}}",
+    "moreActions": "更多操作",
     "refresh": "刷新"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "添加白名单用户…",
+    "unban": "解封玩家…",
+    "unbanSteamId": "解封 SteamID…",
+    "voiceBan": "语音封禁…",
+    "banSteamId": "封禁 SteamID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge 未连接",
+    "bridgeOfflineDesc": "特殊能力、角色导入导出以及名册中的生命值都需要它。踢出、封禁和白名单仍可使用。",
+    "bridgeOfflineAction": "设置 PanelBridge"
   },
   "permissions": {
     "noModerate": "此操作需要 players.moderate 权限，而该角色没有此权限。",
@@ -27,6 +40,7 @@
     "online": "在线",
     "onlineCaption_one": "玩家",
     "onlineCaption_other": "玩家",
+    "rosterDetail": "曾出现，当前离线",
     "peakToday": "今日峰值",
     "roster": "名册",
     "rosterCaption": "曾出现",
@@ -36,11 +50,15 @@
     "bannedAria": "查看 {{count}} 个已封禁的 SteamID"
   },
   "roster": {
-    "headerLabel": "名册",
+    "headerLabel": "玩家",
     "subheaderLive": "实时",
     "subheaderHistory": "历史",
     "subheaderBans": "封禁",
     "subheaderAccounts": "账户",
+    "listsAria": "玩家列表",
+    "tabActivity": "活动",
+    "activityReload": "重新加载",
+    "activitySearchAll": "搜索完整日志",
     "tabOnline": "在线",
     "tabRoster": "名册",
     "tabBanned": "已封禁",
@@ -117,6 +135,9 @@
     "kickButton": "踢出",
     "banTitle": "封禁玩家",
     "banButton": "封禁",
+    "teleport": "传送…",
+    "showOnMap": "在地图上显示",
+    "showOnMapOffline": "{{player}} 已离线，因此不在地图上。",
     "moreActionsAria": "更多玩家操作",
     "enableGodMode": "启用无敌模式",
     "disableGodMode": "关闭无敌模式",
@@ -128,10 +149,12 @@
     "removeFromWhitelist": "从白名单移除",
     "notOnWhitelistReason": "{{player}} 不在白名单中，无需移除。",
     "importExportCharacter": "导入/导出角色",
-    "noTargetTitle": "未选择目标",
-    "noTargetDesc": "从名册中选择一名玩家以查看其档案，或在<1>› 手动目标</1>下输入用户名。"
+    "noTargetTitle": "选择一名玩家",
+    "noTargetDesc": "从列表中选择一名玩家，或在“手动目标”中输入用户名，以操作离线玩家。"
   },
   "tabs": {
+    "notes": "备注",
+    "listAria": "{{player}} 的工具",
     "character": "角色档案",
     "moderation": "管理操作",
     "spawn": "生成",
@@ -362,6 +385,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "在仅限白名单的服务器上创建其账户",
+    "removeFromWhitelistDesc": "将无法再加入仅限白名单的服务器",
     "kickDesc": "附带原因踢出玩家",
     "banDesc": "永久 · 两步确认",
     "accessLevelLabel": "权限等级",
@@ -556,7 +581,7 @@
     "tableAction": "操作",
     "tableDetails": "详情",
     "loadingRow": "加载中…",
-    "noLogsRow": "暂无活动日志——对该玩家执行的管理操作（封禁、踢出、白名单变更）将显示在此处。",
+    "noLogsRow": "暂无活动。连接、死亡和管理操作（踢出、封禁、白名单变更）会显示在这里。",
     "detailsFallback": "-",
     "deleteConfirmTitle": "删除这条备注？",
     "deleteConfirmDesc": "为 {{player}} 保存的管理员备注和标签将被永久删除。此操作无法撤销。",

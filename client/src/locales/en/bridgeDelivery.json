@@ -1,6 +1,8 @@
 {
   "sectionTitle": "How PanelBridge is installed",
   "appliesTo": "Applies to {{server}}. To change another server, make it active on the Servers page.",
+  "serverChangedTitle": "Active server changed",
+  "serverChangedBody": "The open PanelBridge dialog was for the previous server, so it was closed.",
   "current": "Current",
   "recommended": "Recommended",
   "preview": "Preview",
@@ -81,6 +83,11 @@
       "title": "Update waiting",
       "body": "The game folder has an older PanelBridge than this panel's. Update it now, or let the next start copy it in (only while “Keep the panel-installed PanelBridge up to date” is on)."
     },
+    "local-newer": {
+      "title": "Newer than this panel's",
+      "body": "The game folder has a newer PanelBridge than the v{{version}} this panel ships. The panel leaves it as it is; update the panel so the two match.",
+      "bodyNoVersion": "The game folder has a newer PanelBridge than the one this panel ships. The panel leaves it as it is; update the panel so the two match."
+    },
     "local-not-installed": {
       "title": "Not installed",
       "body": "PanelBridge isn't installed in this game folder yet."
@@ -134,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam reports the PanelBridge Workshop item as unavailable. The server won't start until it's back or you switch to panel-installed.",
+    "workshopItemModified": "The PanelBridge {{version}} files the server downloaded from the Steam Workshop don't match what was published for that version (folder: {{folder}}). The Workshop item or the downloaded files may have been changed. Until you've checked, switch to panel-installed, which uses the copy that ships with the panel.",
     "steamModeOff": "This server runs without Steam, so it can't download PanelBridge from the Workshop. The game turns Steam on only when Java starts with -Dzomboid.steam=1 and the server isn't started with -nosteam: add -Dzomboid.steam=1 to the java line of this server's launch script or start command, remove -nosteam if it's there, then restart the server.",
     "steamListingHidden": "Steam's public Workshop page doesn't show the PanelBridge item right now. This can happen while Steam reviews a new or updated item, or for an unlisted one, and servers can still download it. If a start fails because of it, this page will say so.",
     "autoRestartOn": "PanelBridge updates restart this server automatically (Settings › Mods & Workshop).",

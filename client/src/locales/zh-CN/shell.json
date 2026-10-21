@@ -1,10 +1,17 @@
 {
   "skipToContent": "跳至主内容",
+  "notFound": {
+    "title": "未找到页面",
+    "description": "你请求的页面不存在，或在此版本的面板中已不再提供。",
+    "goDashboard": "前往仪表盘",
+    "openServers": "打开服务器列表"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "控制面板",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "控制面板"
+    "shortSubtitle": "控制面板",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "主导航",
@@ -13,28 +20,28 @@
     "sections": {
       "server": "服务器",
       "world": "世界",
-      "users": "用户",
+      "players": "玩家",
       "panel": "面板"
     },
     "items": {
-      "serverConsole": "服务器控制台",
-      "onlinePlayers": "在线玩家",
-      "inGameChat": "游戏内聊天",
+      "serverConsole": "控制台",
+      "onlinePlayers": "玩家",
+      "inGameChat": "聊天",
       "eventsWeather": "事件与天气",
       "worldMap": "世界地图",
-      "serverConfiguration": "服务器配置",
-      "serverFiles": "服务器文件",
-      "modManager": "模组管理",
+      "serverConfiguration": "配置",
+      "serverFiles": "文件",
+      "modManager": "模组",
       "templates": "模板",
       "scheduledTasks": "计划任务",
-      "worldBackups": "世界备份",
+      "worldBackups": "备份",
       "mapCleanup": "地图清理",
-      "myServers": "我的服务器",
-      "serverSetup": "服务器安装",
-      "browsePublic": "浏览公共服务器",
+      "myServers": "服务器列表",
+      "serverSetup": "添加服务器",
+      "browsePublic": "公共服务器",
       "discord": "Discord",
-      "panelSettings": "面板设置",
-      "debugLogs": "调试日志",
+      "panelSettings": "设置",
+      "debugLogs": "诊断",
       "leaderboard": "排行榜"
     },
     "notAvailableRemote": "远程（仅 RCON）服务器不支持此功能",
@@ -43,7 +50,7 @@
     "noServerBanner": {
       "title": "还没有服务器",
       "description": "添加一个服务器后，面板的大部分功能就会解锁。",
-      "cta": "设置服务器"
+      "cta": "添加服务器"
     }
   },
   "mobileMenu": {
@@ -57,6 +64,7 @@
     "remoteBadgeFull": "远程",
     "remoteTitle": "远程（仅 RCON）服务器",
     "activeBadge": "活动",
+    "addServer": "添加服务器…",
     "manageServers": "管理服务器",
     "playersOnline_one": "{{count}} 名玩家在线",
     "playersOnline_other": "{{count}} 名玩家在线",
@@ -73,8 +81,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "面板更新可用：v{{version}}",
     "titleNoVersion": "面板更新可用",
-    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打开面板设置。",
-    "titleNoVersionOpenSettings": "面板更新可用。打开面板设置。",
+    "titleWithVersionOpenSettings": "面板更新可用：v{{version}}。打开设置。",
+    "titleNoVersionOpenSettings": "面板更新可用。打开设置。",
     "update": "更新"
   },
   "footer": {
@@ -133,12 +141,6 @@
   "pageSkeleton": {
     "defaultTitle": "正在加载页面",
     "defaultDescription": "正在准备面板数据和控件。",
-    "defaultEyebrow": "// 面板 · 加载中",
-    "metrics": {
-      "route": "路由",
-      "auth": "认证",
-      "socket": "套接字"
-    },
     "labels": {
       "dashboard": "正在加载仪表盘",
       "named": "正在加载：{{title}}",
@@ -158,5 +160,52 @@
     "backend": "后端",
     "unknown": "未知",
     "checkAgain": "重新检查"
+  },
+  "serverHeader": {
+    "more": "{{name}} 的更多操作"
+  },
+  "subNav": {
+    "unsaved": "有未保存的更改"
+  },
+  "toolbar": {
+    "clearSearch": "清除搜索"
+  },
+  "stepper": {
+    "ariaLabel": "进度",
+    "position": "第 {{current}} 步，共 {{total}} 步",
+    "status": {
+      "done": "已完成",
+      "current": "当前步骤",
+      "upcoming": "未开始",
+      "locked": "已锁定"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "关闭",
+    "showMore": "再显示 {{count}} 条",
+    "showFewer": "收起"
+  },
+  "saveBar": {
+    "unsaved": "有未保存的更改",
+    "changeCount": "未保存的更改：{{count}}",
+    "saving": "正在保存…",
+    "discard": "放弃更改",
+    "save": "保存更改"
+  },
+  "unsavedChanges": {
+    "title": "不保存就离开？",
+    "description": "此页面有尚未保存的更改。现在离开会丢失这些更改。",
+    "leave": "放弃并离开",
+    "stay": "继续编辑"
+  },
+  "search": {
+    "label": "搜索页面和分区",
+    "placeholder": "搜索…"
+  },
+  "routes": {
+    "dashboardDescription": "服务器实时状态、玩家，以及接下来需要你处理的事项。"
+  },
+  "pageHeader": {
+    "breadcrumb": "导航路径"
   }
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react'
+import { useState, useEffect, useContext, useRef, useCallback, useMemo, type ReactNode } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
   Server,
@@ -7,9 +7,7 @@ import {
   Edit2,
   Check,
   Power,
-  MoreVertical,
   Loader2,
-  FolderOpen,
   Download,
   Search,
   AlertCircle,
@@ -21,21 +19,16 @@ import {
   Globe,
   Monitor,
   Wifi,
-  HardDrive,
-  Database,
   ArrowRight,
-  GitBranch,
-  Cpu,
-  Network,
   Play,
   Square,
   Container,
   RotateCw,
   Link,
+  ChevronDown,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
@@ -61,7 +54,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
@@ -94,8 +86,15 @@ import { ServerUptime } from '@/components/ServerUptime'
 import { SocketContext } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link as RouterLink } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { AddServerChoices } from '@/components/AddServerChoices'
+import { ADD_SERVER_LINKS, useAddServerChoices, type AddServerChoice } from '@/lib/addServerChoices'
+import { RowActions, type RowActionItem } from '@/components/ui/row-actions'
+import { StatusPill } from '@/components/ui/status-pill'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { PasswordInput } from '@/components/PasswordInput'
 import { NumberInput } from '@/components/NumberInput'
 import { RconTestConnection } from '@/components/RconTestConnection'
@@ -195,6 +194,20 @@ function formatBytes(bytes: number) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+// One fact on a server card: a .label-micro label over a mono value (ports,
+// paths, builds are data). `wrap` lets a long path break anywhere instead of
+// being cut off.
+function ServerCardFact({ label, children, wrap = false }: { label: string; children: ReactNode; wrap?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <dt className="label-micro truncate">{label}</dt>
+      <dd className={cn('mt-0.5 font-mono text-xs tabular-nums text-foreground', wrap ? '[overflow-wrap:anywhere]' : 'truncate')}>
+        {children}
+      </dd>
+    </div>
+  )
 }
 
 // Mirrors the server's own range check (server/routes/servers.js POST /,
@@ -311,6 +324,11 @@ export function shouldShowDockerCardActions<T>(
   return container != null
 }
 
+// Edit dialog sections: separated by a rule in one column; on wide screens
+// each is a panel that the two-column flow never splits.
+const EDIT_SECTION_FIRST = 'space-y-4 lg:mb-5 lg:break-inside-avoid lg:rounded-lg lg:border lg:border-border/60 lg:p-4'
+const EDIT_SECTION = `${EDIT_SECTION_FIRST} border-t border-border/60 pt-5`
+
 export default function Servers() {
   const { t } = useTranslation('servers')
   const { formatDate, formatDateTime } = useDateFormat()
@@ -332,6 +350,11 @@ export default function Servers() {
   // runs on the host, so changing one takes files.manage (see
   // lib/launchTarget.ts and server/routes/servers.js's changesLaunchTarget()).
   const canFilesManage = can('files.manage')
+  // A server's RCON host, port and password are server.configure's (PUT
+  // /servers/:id refuses a change without it), and only servers.manage or
+  // rcon.execute may run the per-server RCON probe behind the card badge.
+  const canServerConfigure = can('server.configure')
+  const canSeeRconStatus = canServersManage || can('rcon.execute')
   // Inline Start/Stop fires activate (servers.manage) THEN start/stop
   // (server.control) in sequence -- a role holding only one gets a PARTIAL
   // execution today (activate succeeds and the server record changes state,
@@ -442,11 +465,23 @@ export default function Servers() {
   const editLaunchTargetBlocked =
     !canFilesManage && !!editingServer && !!editingStoredServer && changesLaunchTarget(editingStoredServer, editingServer)
   const editInstallPathLocked = !canFilesManage && launchIsOperatorDefined(editingStoredServer)
+  // A new RCON host or port is only saved with the password typed again (PUT
+  // /servers/:id refuses the masked one): the saved password is never sent
+  // to a host or port it was not saved for.
+  const editRconNeedsPassword =
+    !!editingServer &&
+    !!editingStoredServer &&
+    (editingServer.rconPassword || '').startsWith('••••••••') &&
+    ((editingServer.rconHost || '').trim().toLowerCase() !== (editingStoredServer.rconHost || '').trim().toLowerCase() ||
+      // A port this role isn't shown is absent on both sides: unchanged.
+      String(editingServer.rconPort ?? '') !== String(editingStoredServer.rconPort ?? ''))
 
   const editDuplicateRemoteConflict = useMemo(() => {
     if (!editingServer || !editingServer.isRemote) return false
     const normalizedName = (editingServer.name || '').trim().toLowerCase()
     const normalizedHost = (editingServer.rconHost || '').trim().toLowerCase()
+    // No host: one this role isn't shown, so nothing to compare.
+    if (!normalizedHost) return false
     return (servers || []).some(s =>
       s.id !== editingServer.id &&
       s.isRemote &&
@@ -541,7 +576,8 @@ export default function Servers() {
     setOperation: setSteamOperation,
     steamcmdPath,
     setSteamcmdPath,
-    installedBranch: updateInfo?.installed?.branch,
+    // The update check reads the ACTIVE server's install only.
+    installedBranch: steamOperation?.server.isActive ? updateInfo?.installed?.branch : undefined,
     t,
   })
 
@@ -576,8 +612,10 @@ export default function Servers() {
   // path, not a signal worth a banner; permission-denied gets its own
   // distinct treatment (no Add action makes sense there at all).
   const readyCandidates = unclaimedCandidates.filter((c) => c.status === 'ready')
+  // 'no-config' (files and save data, but no Server/<name>.ini yet) goes to
+  // the manual form too: the automatic dialog has no config to read.
   const reviewCandidates = unclaimedCandidates.filter((c) =>
-    c.status === 'install-only' || c.status === 'data-only' || c.status === 'empty',
+    c.status === 'no-config' || c.status === 'install-only' || c.status === 'data-only' || c.status === 'empty',
   )
   const inaccessibleCandidates = unclaimedCandidates.filter((c) => c.status === 'permission-denied')
 
@@ -781,10 +819,8 @@ export default function Servers() {
   useEffect(() => {
     fetchServers()
     fetchServerStatuses()
-    fetchRconStatuses()
     fetchDockerState()
     const statusInterval = setInterval(fetchServerStatuses, 15000)
-    const rconStatusInterval = setInterval(fetchRconStatuses, 30000)
     const dockerInterval = setInterval(fetchDockerState, 10000)
     // Load steamcmd path from settings
     configApi.getAppSettings().then(data => {
@@ -816,10 +852,18 @@ export default function Servers() {
     }).catch(e => reportClientWarning('Failed to load update status.', e))
     return () => {
       clearInterval(statusInterval)
-      clearInterval(rconStatusInterval)
       clearInterval(dockerInterval)
     }
-  }, [fetchServers, fetchServerStatuses, fetchRconStatuses, fetchDockerState])
+  }, [fetchServers, fetchServerStatuses, fetchDockerState])
+
+  // The RCON badge on each card: only for a role the probe answers (see
+  // canSeeRconStatus); for any other the cards show no RCON row.
+  useEffect(() => {
+    if (!canSeeRconStatus) return
+    fetchRconStatuses()
+    const rconStatusInterval = setInterval(fetchRconStatuses, 30000)
+    return () => clearInterval(rconStatusInterval)
+  }, [canSeeRconStatus, fetchRconStatuses])
 
   useEffect(() => {
     activeStatusRequestRef.current += 1
@@ -1386,7 +1430,10 @@ export default function Servers() {
       // legitimately lower bar than servers.manage already grants.
       if (deleteFiles && deleteServer.installPath && canServerWipe) {
         try {
-          const result = await serversDetectApi.deleteFiles(deleteServer.installPath) as { error?: string }
+          // The dialog listed any other profile using this game folder.
+          const result = await serversDetectApi.deleteFiles(deleteServer.installPath, {
+            confirmShared: profilesSharingInstall(deleteServer).length > 0,
+          }) as { error?: string }
           if (result?.error) {
             toast({
               title: t('toasts.fileDeletionFailedTitle'),
@@ -1449,8 +1496,10 @@ export default function Servers() {
       return
     }
 
-    // Validate port range
-    if (!isValidPort(editingServer.rconPort)) {
+    // Validate port range. An absent port is one this role isn't shown
+    // (GET /servers leaves the RCON target out, see ServerInstance): not an
+    // edit, and left out of the request below.
+    if (editingServer.rconPort !== undefined && !isValidPort(editingServer.rconPort)) {
       toast({ title: t('toasts.error'), description: t('toasts.rconPortRangeError'), variant: 'destructive' })
       return
     }
@@ -1510,7 +1559,11 @@ export default function Servers() {
       const editedFields = { ...editingServer }
       delete editedFields.useUpnp
       const result = await serversApi.update(editingServer.id, editedFields)
-      const warnings = result.warnings?.filter(Boolean) ?? []
+      // warningDetails carries a code for the warnings that have one (the
+      // RCON reconnect), so they read in this page's language.
+      const warnings = (result.warningDetails ?? (result.warnings ?? []).map((error) => ({ error })))
+        .map((warning) => getResultErrorMessage(warning, warning.error))
+        .filter(Boolean)
       toast({
         title: warnings.length > 0 ? t('toasts.warningTitle') : t('toasts.savedTitle'),
         description: warnings.length > 0
@@ -1664,7 +1717,10 @@ export default function Servers() {
 
     setClearingInstall(true)
     try {
-      const result = await serversDetectApi.deleteFiles(installFolder) as { error?: string }
+      // The confirmation listed any other profile using this game folder.
+      const result = await serversDetectApi.deleteFiles(installFolder, {
+        confirmShared: profilesSharingInstall(steamOperation.server).length > 0,
+      }) as { error?: string }
       if (result?.error) {
         toast({ title: t('toasts.couldNotClearFolderTitle'), description: result.error, variant: 'destructive' })
         return
@@ -1692,8 +1748,10 @@ export default function Servers() {
     // Prefer the branch that's actually installed on disk (from steamcmd appmanifest),
     // then fall back to the server's stored branch, then to Steam's default 'public'.
     // Steam's stable branch is named 'public'; map legacy 'stable' to it so it matches the fetched list.
+    // The update check only reads the ACTIVE server's install: for any other
+    // server it would preselect a branch that isn't that server's.
     const normalize = (v: string | undefined | null) => (v || '').trim().toLowerCase()
-    const installed = normalize(updateInfo?.installed?.branch)
+    const installed = server.isActive ? normalize(updateInfo?.installed?.branch) : ''
     const stored = normalize(server.branch)
     const pick = installed || stored
     const initialBranch = !pick || pick === 'stable' ? 'public' : pick
@@ -1727,6 +1785,20 @@ export default function Servers() {
     }
     return installPath
   }
+
+  // Other local profiles whose game folder is this server's (Quick Setup
+  // reuses the active server's install on purpose). Deleting or clearing the
+  // folder removes their game files too, so both confirmations list them,
+  // and the server refuses while any of them runs.
+  const profilesSharingInstall = (server: ServerInstance | null | undefined): ServerInstance[] => {
+    const folder = getInstallFolder(server?.installPath)
+    if (!server || !folder) return []
+    return (servers || []).filter((other) =>
+      other.id !== server.id && !other.isRemote && samePath(getInstallFolder(other.installPath), folder),
+    )
+  }
+  const deleteSharingProfiles = profilesSharingInstall(deleteServer)
+  const clearInstallSharingProfiles = profilesSharingInstall(steamOperation?.server)
 
   const addLauncherBlocked = addMode === 'local' && !canFilesManage && isCustomLauncherPath(newServer.installPath)
 
@@ -1888,69 +1960,140 @@ export default function Servers() {
     setAddMode('local')
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    )
+  const openAddDialog = (mode: 'local' | 'remote') => {
+    setAddMode(mode)
+    setShowAddDialog(true)
   }
+
+  // /servers?add=existing|remote (the Dashboard, Add a Server and the shared
+  // "Add a server" choices link here) opens the Add dialog in that mode, then
+  // drops the parameter so a reload or Back doesn't open it again.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const addParam = searchParams.get('add')
+  useEffect(() => {
+    if (addParam !== 'existing' && addParam !== 'remote') return
+    setAddMode(addParam === 'remote' ? 'remote' : 'local')
+    setShowAddDialog(true)
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.delete('add')
+      return next
+    }, { replace: true })
+  }, [addParam, setSearchParams])
+
+  // The three ways to add a server, with each one's permission said up front
+  // (installing takes server.install; adding a profile takes servers.manage)
+  // instead of failing after the click.
+  const addServerChoices = useAddServerChoices()
+  const addChoiceReason = (choice: AddServerChoice): string | null => {
+    if (choice === 'fresh') return canServerInstall ? null : t('pageHeader.installNoPermission')
+    return canServersManage ? null : t('addDialog.noPermission')
+  }
+  const chooseAddServer = (choice: AddServerChoice) => {
+    if (choice === 'fresh') navigate(ADD_SERVER_LINKS.fresh)
+    else openAddDialog(choice === 'remote' ? 'remote' : 'local')
+  }
+
+  const pageAlerts: PageAlert[] = fetchError
+    ? [{
+        id: 'fetch-error',
+        tone: 'error',
+        title: t('fetchError.title'),
+        description: <span className="break-words" dir="auto">{fetchError}</span>,
+        action: { label: t('fetchError.retry'), onClick: () => void fetchServers({ manual: true }) },
+      }]
+    : []
+
+  const header = (
+    <PageHeader
+      title={t('pageHeader.title')}
+      description={t('pageHeader.description')}
+      actions={
+        <>
+          <DisabledReason reason={!canServersDiscover ? t('pageHeader.scanNoPermission') : null}>
+            <Button
+              variant="ghost"
+              size="iconDense"
+              onClick={handleScanMounts}
+              disabled={scanningMounts || !canServersDiscover}
+              aria-label={t('pageHeader.scanAria')}
+              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+              title={t('pageHeader.scanTitle')}
+            >
+              {scanningMounts ? (
+                <Loader2 className="animate-spin" aria-hidden="true" />
+              ) : (
+                <Search aria-hidden="true" />
+              )}
+            </Button>
+          </DisabledReason>
+          {/* GET /server-finder/* needs server.install (routes/serverFinder.js). */}
+          {canServerInstall && (
+            <RouterLink
+              to="/server-finder"
+              aria-label={t('pageHeader.publicServers')}
+              className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            >
+              <Globe aria-hidden="true" />
+              <span className="hidden sm:inline">{t('pageHeader.publicServers')}</span>
+            </RouterLink>
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="command" size="sm">
+                <Plus aria-hidden="true" />
+                {t('addServer.menu')}
+                <ChevronDown aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[min(20rem,calc(100vw-2rem))]">
+              {addServerChoices.map((choice) => {
+                const reason = addChoiceReason(choice.id)
+                const Icon = choice.icon
+                return (
+                  <DropdownMenuItem
+                    key={choice.id}
+                    disabled={!!reason}
+                    onSelect={() => chooseAddServer(choice.id)}
+                    className="items-start gap-2.5 py-2 data-[disabled]:opacity-100"
+                  >
+                    <Icon className={cn('mt-0.5 text-muted-foreground', reason && 'opacity-50')} aria-hidden="true" />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className={cn('font-medium', reason && 'opacity-50')}>{choice.label}</span>
+                      <span className="text-xs text-muted-foreground">{reason ?? choice.description}</span>
+                    </span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </>
+      }
+    />
+  )
 
   return (
     <div className="space-y-6 page-transition">
-      {/* Header */}
-      <PageHeader
-        title={t('pageHeader.title')}
-        description={t('pageHeader.description')}
-        eyebrow={t('pageHeader.eyebrow')}
-        tone="servers"
-        icon={<Server className="w-5 h-5 text-primary" />}
-        actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <DisabledReason reason={!canServersDiscover ? t('pageHeader.scanNoPermission') : null}>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={handleScanMounts}
-                disabled={scanningMounts || !canServersDiscover}
-                aria-label={t('pageHeader.scanAria')}
-                // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the aria-label; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                title={t('pageHeader.scanTitle')}
-              >
-                {scanningMounts ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Search className="h-4 w-4" aria-hidden="true" />
-                )}
-              </Button>
-            </DisabledReason>
-            <Button variant="outline" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
-              <Globe className="w-4 h-4 me-2" /> {t('pageHeader.addRemote')}
-            </Button>
-            <Button variant="outline" onClick={() => { setAddMode('local'); setShowAddDialog(true) }}>
-              <FolderOpen className="w-4 h-4 me-2" /> {t('pageHeader.addExisting')}
-            </Button>
-            <Button variant="command" onClick={() => navigate('/server-setup')}>
-              <Download className="w-4 h-4 me-2" /> {t('pageHeader.installNew')}
-            </Button>
-          </div>
-        }
-      />
+      {header}
+      <PageAlerts alerts={pageAlerts} />
 
-      {fetchError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('fetchError.title')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-            <Button variant="outline" size="sm" onClick={() => fetchServers({ manual: true })} className="self-start">
-              <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
+      {loading ? (
+        <div role="status" aria-busy="true" aria-label={t('loadingLabel')} className="grid gap-4 md:grid-cols-2">
+          {[0, 1].map((i) => (
+            <div key={i} className="space-y-4 rounded-xl border border-border/60 bg-card p-5">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-3 w-24" />
+              <div className="grid grid-cols-3 gap-4">
+                <Skeleton className="h-8" />
+                <Skeleton className="h-8" />
+                <Skeleton className="h-8" />
+              </div>
+              <Skeleton className="h-8 w-32" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
       {/* Discovered mounts — offer a one-click connect when no server profile
           uses them yet. 2026-09-09 ruling (god): shown on EVERY visit, not
           just the empty-roster first-server screen -- the fetch behind this
@@ -1993,89 +2136,33 @@ export default function Servers() {
         </div>
       )}
 
-      {/* Server Grid — a confirmed-empty roster gets the onboarding card; an
-          unknown roster (still loading past the initial spinner, or the last
-          fetch failed) renders neither that nor a stale grid, only the alert
-          above. */}
+      {/* Server Grid — a confirmed-empty roster gets the "Add a server"
+          choices; an unknown roster (the last fetch failed) renders neither
+          that nor a stale grid, only the alert above. */}
       {serversConfirmedEmpty ? (
-        <Card className="mission-brief overflow-hidden border-primary/20 bg-card">
-          <CardContent className="py-10">
-            <div className="mx-auto max-w-4xl space-y-8">
-              <div className="text-center">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
-                  <Server className="h-7 w-7" />
-                </div>
-                <h3 className="text-xl font-semibold text-foreground">{t('emptyState.title')}</h3>
-                <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  {t('emptyState.description')}
-                </p>
-              </div>
-
-              <div className="mission-step-grid grid gap-4 md:grid-cols-3">
-                <div className="mission-step-card rounded-2xl border border-border/60 bg-background/40 p-5">
-                  <div className="mission-step-icon mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-                    <FolderOpen className="h-5 w-5" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">{t('emptyState.addLocalTitle')}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {t('emptyState.addLocalDesc')}
-                  </p>
-                  <Button variant="outline" className="onboarding-cta mt-4 w-full" onClick={() => { setAddMode('local'); setShowAddDialog(true) }}>
-                    <FolderOpen className="me-2 h-4 w-4" />
-                    {t('pageHeader.addExisting')}
-                  </Button>
-                </div>
-
-                <div className="mission-step-card rounded-2xl border border-border/60 bg-background/40 p-5">
-                  <div className="mission-step-icon mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-                    <Download className="h-5 w-5" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">{t('emptyState.installTitle')}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {t('emptyState.installDesc')}
-                  </p>
-                  <Button className="onboarding-cta mt-4 w-full" onClick={() => navigate('/server-setup')}>
-                    <Download className="me-2 h-4 w-4" />
-                    {t('pageHeader.installNew')}
-                  </Button>
-                </div>
-
-                <div className="mission-step-card rounded-2xl border border-border/60 bg-background/40 p-5">
-                  <div className="mission-step-icon mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
-                    <Globe className="h-5 w-5" />
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">{t('emptyState.connectRemoteTitle')}</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {t('emptyState.connectRemoteDesc')}
-                  </p>
-                  <Button variant="secondary" className="onboarding-cta mt-4 w-full" onClick={() => { setAddMode('remote'); setShowAddDialog(true) }}>
-                    <Globe className="me-2 h-4 w-4" />
-                    {t('pageHeader.addRemote')}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid gap-3 rounded-2xl border border-border/60 bg-background/30 p-5 md:grid-cols-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">{t('emptyState.step1Label')}</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{t('emptyState.step1Text')}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">{t('emptyState.step2Label')}</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{t('emptyState.step2Text')}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">{t('emptyState.step3Label')}</p>
-                  <p className="mt-1 text-sm font-medium text-foreground">{t('emptyState.step3Text')}</p>
-                </div>
-              </div>
+        <section aria-labelledby="servers-empty-title" className="rounded-xl border border-border/60 bg-card px-5 py-8 sm:px-8">
+          <div className="mx-auto max-w-xl space-y-6">
+            <div className="space-y-2 text-center">
+              <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary" aria-hidden="true">
+                <Server className="h-5 w-5" />
+              </span>
+              <h2 id="servers-empty-title" className="text-xl font-semibold text-foreground">{t('emptyState.title')}</h2>
+              <p className="text-sm leading-6 text-muted-foreground">{t('emptyState.description')}</p>
             </div>
-          </CardContent>
-        </Card>
+            <AddServerChoices
+              onChoose={{ existing: () => openAddDialog('local'), remote: () => openAddDialog('remote') }}
+              disabledReasons={{
+                fresh: addChoiceReason('fresh'),
+                existing: addChoiceReason('existing'),
+                remote: addChoiceReason('remote'),
+              }}
+            />
+          </div>
+        </section>
       ) : servers && servers.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 stagger-in">
+        <div className={cn('grid items-start gap-4', servers.length === 1 ? 'max-w-3xl' : 'md:grid-cols-2')}>
           {servers.map(server => {
-            const hasUpdate = updateInfo?.updateAvailable && server.isActive
+            const hasUpdate = !!updateInfo?.updateAvailable && server.isActive
             // Never-succeeded is scoped to the active server, same as
             // hasUpdate above -- there is exactly one UpdateChecker instance
             // server-side, tracking whichever server is currently active.
@@ -2084,501 +2171,424 @@ export default function Servers() {
             // read the same as one that has actively failed -- either way,
             // there is no real answer to show.
             const updateStatusUnknown = server.isActive && !updateCheckEverSucceeded
+            const headingId = `server-card-${server.id}`
+            const container = server.dockerContainerName
+              ? dockerContainers.find((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
+              : null
+            const containerStats = container ? dockerStats[container.id] || dockerStats[container.name] : undefined
+            const branch = (server.isActive ? updateInfo?.installed?.branch : undefined) || server.branch
+            const steamReason = !canServerInstall ? t('steamDialog.noPermission') : undefined
+            const menuItems: RowActionItem[] = [
+              { label: t('card.edit'), icon: Edit2, onSelect: () => setEditingServer({ ...server }) },
+              ...(!server.isActive
+                ? [{
+                    label: t('card.setActive'),
+                    icon: Power,
+                    onSelect: () => void handleActivateServer(server),
+                    disabled: activating !== null || !canServersManage,
+                    reason: !canServersManage ? t('card.noPermissionManage') : undefined,
+                  }]
+                : []),
+              ...(!server.isRemote
+                ? [
+                    { label: t('card.updateServer'), icon: RefreshCw, onSelect: () => void openSteamOperation(server, 'update'), disabled: !canServerInstall, reason: steamReason },
+                    { label: t('card.verifyFiles'), icon: ShieldCheck, onSelect: () => void openSteamOperation(server, 'verify'), disabled: !canServerInstall, reason: steamReason },
+                  ]
+                : []),
+              { label: t('card.removeFromPanel'), icon: Trash2, onSelect: () => setDeleteServer(server), destructive: true },
+            ]
+            const hasPaths = !server.isRemote && !!(server.installPath || server.zomboidDataPath)
+            const detailsLabel = server.isRemote
+              ? t('card.detailsRemote')
+              : container
+                ? t('card.detailsPathsContainer')
+                : t('card.detailsPaths')
             return (
-            <Card
+            <article
               key={server.id}
-              className={`relative overflow-hidden transition-colors ${
-                server.isActive
-                  ? 'border-primary/60 ring-1 ring-primary/25 bg-gradient-to-br from-primary/[0.04] via-card to-card'
-                  : 'hover:border-primary/30'
-              } ${hasUpdate ? 'border-warning/60' : ''}`}
+              aria-labelledby={headingId}
+              className={cn(
+                'flex min-w-0 flex-col rounded-xl border bg-card text-card-foreground transition-colors',
+                server.isActive ? 'border-primary/50' : 'border-border/60 hover:border-border',
+              )}
             >
-              {/* Active indicator bar — thicker gradient stripe when active */}
-              {server.isActive && (
-                <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40" aria-hidden="true" />
-              )}
-              {hasUpdate && !server.isActive && (
-                <div className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-warning via-warning/80 to-warning/40" aria-hidden="true" />
-              )}
-
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1.5 min-w-0 flex-1">
-                    <CardTitle className="flex items-center gap-2 flex-wrap min-w-0">
-                      <span className="truncate">{server.name}</span>
-                      {server.isActive ? (
-                        <Badge variant="default" className="text-xs">
-                          <Check className="w-3 h-3 me-1" /> {t('card.selected')}
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-xs text-muted-foreground">
-                          {t('card.inactive')}
-                        </Badge>
-                      )}
-                      {(() => {
-                        // The selected server has real RCON/bridge signals from the
-                        // composed status endpoint; every other card only knows
-                        // whatever its own provider-appropriate source found for it
-                        // (see the comment on serverStatuses above this component).
-                        if (server.isActive && currentActiveStatus) {
-                          return (
-                            <ServerStatusBadge
-                              compact
-                              host={currentActiveStatus.host}
-                              server={currentActiveStatus.server}
-                              bridge={currentActiveStatus.bridge}
-                            />
-                          )
-                        }
-                        const provider = resolveClientProvider(server)
-                        let host
-                        if (server.isRemote) {
-                          host = { status: 'unknown', label: t('card.statusHost') }
-                        } else if (provider === 'docker-local') {
-                          // GH#114: never read serverStatuses (the local process
-                          // scan) for a docker-mapped server -- it can't see a
-                          // process in a different container. dockerContainers is
-                          // already fetched in bulk for the whole page, so this is
-                          // a lookup against existing state, not a per-card fetch.
-                          const container = dockerContainers.find(
-                            (item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName,
-                          )
-                          const dockerHostStatus = resolveDockerCardHostStatus(dockerAvailable, container)
-                          host = dockerHostStatus === 'unknown'
-                            ? { status: 'unknown', label: t('card.statusContainer'), detail: t('card.statusUnavailable') }
-                            : { status: dockerHostStatus, label: t('card.statusContainer') }
-                        } else {
-                          const status = serverStatuses[String(server.id)]
-                          // stateUnknown (server/routes/servers.js's GET /status,
-                          // see the ServerStatusEntry comment in lib/serverStatus.ts)
-                          // must not collapse into a confident running/stopped here
-                          // -- this is the exact "the server said unknown, the badge
-                          // said stopped" gap resolveServerCardRunning below already
-                          // guards for button enablement; the badge had its own,
-                          // separate collapse (2026-09-08 three-state audit).
-                          host = status
-                            ? status.stateUnknown
-                              ? { status: 'unknown', label: t('card.statusProcess'), detail: t('card.statusUnavailable') }
-                              : { status: status.running ? 'running' : 'stopped', label: t('card.statusProcess') }
-                            : undefined
-                        }
-                        const rconStatus = rconStatuses[String(server.id)]
-                        const rcon = rconStatus
-                          ? rconStatus === 'connected'
-                            ? { status: 'connected', label: t('card.rcon') }
-                            : rconStatus === 'unconfigured'
-                              ? { status: 'unknown', label: t('card.rcon'), detail: t('card.statusNotConfigured') }
-                              : { status: 'disconnected', label: t('card.rcon'), detail: rconStatus === 'auth_failed' ? t('card.statusAuthFailed') : t('card.statusUnavailable') }
-                          : undefined
-                        return <ServerStatusBadge compact host={host} server={rcon} />
-                      })()}
-                      {(() => {
-                        // Uptime sits with the status it qualifies. Same source
-                        // split as the badge above: the selected server's
-                        // composed status (provider-aware -- OS, Docker, or
-                        // nothing for a remote host), otherwise this card's own
-                        // row from the per-server list, which only a native or
-                        // managed-lifecycle server has. Unknown renders nothing
-                        // here; the badge already says when the host itself is
-                        // unknown.
-                        const row = serverStatuses[String(server.id)]
-                        const startedAt = server.isActive && currentActiveStatus
-                          ? currentActiveStatus.host.startedAt
-                          : resolveClientProvider(server) === 'native' && row?.running && !row.stateUnknown
-                            ? row.startedAt
-                            : null
-                        return <ServerUptime startedAt={startedAt} className="text-xs font-normal text-muted-foreground" />
-                      })()}
-                      {server.isRemote && (
-                        <Badge variant="outline" className="text-xs">
-                          <Globe className="w-3 h-3 me-1" /> {t('card.remote')}
-                        </Badge>
-                      )}
-                      {hasUpdate && (
-                        <Badge variant="warning" className="text-xs">
-                          <RefreshCw className="w-3 h-3 me-1" /> {t('card.updateAvailable')}
-                        </Badge>
-                      )}
-                      {updateStatusUnknown && (
-                        <Badge
-                          variant="outline"
-                          className="text-xs text-muted-foreground"
-                          title={updateCheckLastError ?? undefined}
-                        >
-                          <AlertCircle className="w-3 h-3 me-1" /> {t('card.updateStatusUnknown')}
-                        </Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription className="font-mono text-xs">
-                      {server.serverName}
-                    </CardDescription>
+              {/* Name, state, menu */}
+              <div className="flex items-start gap-3 px-5 pt-5">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <h2 id={headingId} className="min-w-0 truncate text-base font-semibold leading-tight text-foreground">{server.name}</h2>
+                    {server.isActive && (
+                      <Badge variant="default" className="text-xs">
+                        <Check className="me-1 h-3 w-3" aria-hidden="true" /> {t('card.selected')}
+                      </Badge>
+                    )}
+                    {server.isRemote && (
+                      <Badge variant="outline" className="text-xs">
+                        <Globe className="me-1 h-3 w-3" aria-hidden="true" /> {t('card.remote')}
+                      </Badge>
+                    )}
                   </div>
+                  <p className="truncate font-mono text-xs text-muted-foreground" title={server.serverName}>{server.serverName}</p>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    {(() => {
+                      // The selected server has real RCON/bridge signals from the
+                      // composed status endpoint; every other card only knows
+                      // whatever its own provider-appropriate source found for it
+                      // (see the comment on serverStatuses above this component).
+                      if (server.isActive && currentActiveStatus) {
+                        return (
+                          <ServerStatusBadge
+                            compact
+                            host={currentActiveStatus.host}
+                            server={currentActiveStatus.server}
+                            bridge={currentActiveStatus.bridge}
+                          />
+                        )
+                      }
+                      const provider = resolveClientProvider(server)
+                      let host
+                      if (server.isRemote) {
+                        host = { status: 'unknown', label: t('card.statusHost') }
+                      } else if (provider === 'docker-local') {
+                        // GH#114: never read serverStatuses (the local process
+                        // scan) for a docker-mapped server -- it can't see a
+                        // process in a different container. dockerContainers is
+                        // already fetched in bulk for the whole page, so this is
+                        // a lookup against existing state, not a per-card fetch.
+                        const dockerHostStatus = resolveDockerCardHostStatus(dockerAvailable, container ?? undefined)
+                        host = dockerHostStatus === 'unknown'
+                          ? { status: 'unknown', label: t('card.statusContainer'), detail: t('card.statusUnavailable') }
+                          : { status: dockerHostStatus, label: t('card.statusContainer') }
+                      } else {
+                        const status = serverStatuses[String(server.id)]
+                        // stateUnknown (server/routes/servers.js's GET /status,
+                        // see the ServerStatusEntry comment in lib/serverStatus.ts)
+                        // must not collapse into a confident running/stopped here
+                        // -- this is the exact "the server said unknown, the badge
+                        // said stopped" gap resolveServerCardRunning below already
+                        // guards for button enablement; the badge had its own,
+                        // separate collapse (2026-09-08 three-state audit).
+                        host = status
+                          ? status.stateUnknown
+                            ? { status: 'unknown', label: t('card.statusProcess'), detail: t('card.statusUnavailable') }
+                            : { status: status.running ? 'running' : 'stopped', label: t('card.statusProcess') }
+                          : undefined
+                      }
+                      const rconStatus = rconStatuses[String(server.id)]
+                      const rcon = rconStatus
+                        ? rconStatus === 'connected'
+                          ? { status: 'connected', label: t('card.rcon') }
+                          : rconStatus === 'unconfigured'
+                            ? { status: 'unknown', label: t('card.rcon'), detail: t('card.statusNotConfigured') }
+                            : { status: 'disconnected', label: t('card.rcon'), detail: rconStatus === 'auth_failed' ? t('card.statusAuthFailed') : t('card.statusUnavailable') }
+                        : undefined
+                      return <ServerStatusBadge compact host={host} server={rcon} />
+                    })()}
+                    {(() => {
+                      // Uptime sits with the status it qualifies. Same source
+                      // split as the badge above: the selected server's
+                      // composed status (provider-aware -- OS, Docker, or
+                      // nothing for a remote host), otherwise this card's own
+                      // row from the per-server list, which only a native or
+                      // managed-lifecycle server has. Unknown renders nothing
+                      // here; the badge already says when the host itself is
+                      // unknown.
+                      const row = serverStatuses[String(server.id)]
+                      const startedAt = server.isActive && currentActiveStatus
+                        ? currentActiveStatus.host.startedAt
+                        : resolveClientProvider(server) === 'native' && row?.running && !row.stateUnknown
+                          ? row.startedAt
+                          : null
+                      return <ServerUptime startedAt={startedAt} className="text-xs font-normal text-muted-foreground" />
+                    })()}
+                    {updateStatusUnknown && (
+                      <StatusPill
+                        size="sm"
+                        tone="idle"
+                        label={t('card.updateStatusUnknown')}
+                        title={updateCheckLastError ?? undefined}
+                      />
+                    )}
+                  </div>
+                </div>
+                <RowActions items={menuItems} ariaLabel={t('card.optionsAria', { name: server.name || server.serverName })} className="-me-2 -mt-1" />
+              </div>
 
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="iconDense" className="shrink-0" aria-label={t('card.optionsAria', { name: server.name || server.serverName })}>
-                        <MoreVertical className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditingServer({ ...server })}>
-                        <Edit2 className="w-4 h-4 me-2" /> {t('card.edit')}
-                      </DropdownMenuItem>
-                      {!server.isActive && (
-                        <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null} className="w-full">
-                          <DropdownMenuItem onClick={() => handleActivateServer(server)} disabled={activating !== null || !canServersManage}>
-                            <Power className="w-4 h-4 me-2" /> {t('card.setActive')}
-                          </DropdownMenuItem>
-                        </DisabledReason>
-                      )}
-                      {!server.isRemote && (
+              {/* Facts: where it listens, how big it runs, which build */}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 px-5 pt-4 sm:grid-cols-3">
+                {/* Absent for a role that isn't shown where RCON connects. */}
+                {server.rconHost !== undefined && server.rconPort !== undefined && (
+                  <ServerCardFact label={t('card.rcon')}>
+                    <span dir="ltr">{server.rconHost}:{server.rconPort}</span>
+                  </ServerCardFact>
+                )}
+                <ServerCardFact label={t('card.gamePort')}>{server.serverPort}</ServerCardFact>
+                {!server.isRemote && (
+                  <ServerCardFact label={t('card.memory')}>
+                    {/* bug-hunt-2026-09-08 (Arabic render pass): confirmed
+                        reversed in a real render (a 2-4 GB server showed
+                        "4-2") -- bdi isolates the min-max pair regardless
+                        of locale. */}
+                    <bdi>{server.minMemory}–{server.maxMemory} GB</bdi>
+                  </ServerCardFact>
+                )}
+                {server.isActive && gameVersion && (
+                  <ServerCardFact label={t('card.version')}>v{gameVersion}</ServerCardFact>
+                )}
+                {branch && <ServerCardFact label={t('card.branchLabel')}>{branch}</ServerCardFact>}
+                {server.isActive && updateInfo && (
+                  <ServerCardFact label={t('card.buildLabel')}>
+                    <span dir="ltr" className="inline-flex items-center gap-1">
+                      {updateInfo.installed.buildId}
+                      {updateInfo.updateAvailable && (
                         <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => openSteamOperation(server, 'update')}>
-                            <RefreshCw className="w-4 h-4 me-2" /> {t('card.updateServer')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openSteamOperation(server, 'verify')}>
-                            <ShieldCheck className="w-4 h-4 me-2" /> {t('card.verifyFiles')}
-                          </DropdownMenuItem>
+                          <ArrowRight className="h-3 w-3 text-warning" aria-hidden="true" />
+                          <span className="font-semibold text-warning">{updateInfo.latest.buildId}</span>
                         </>
                       )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={() => setDeleteServer(server)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="w-4 h-4 me-2" /> {t('card.removeFromPanel')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    </span>
+                  </ServerCardFact>
+                )}
+              </dl>
+
+              {/* SECURITY (2026-10-05, PT3): the panel won't use this
+                  server's folders (the data folder no longer meets the
+                  data-folder rule, or a config folder has no data
+                  folder). Said here, on the card, rather than only as each
+                  feature's own refusal -- and outside the collapsed
+                  details, so it can't be missed. */}
+              {!server.isRemote && server.folderProblem && (
+                <div role="alert" className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                  <p className="min-w-0 flex-1 text-xs text-foreground [overflow-wrap:anywhere]">
+                    {getResultErrorMessage(server.folderProblem, server.folderProblem.error)}
+                  </p>
                 </div>
-              </CardHeader>
+              )}
 
-              <CardContent className="space-y-4">
-                {/* Paths Section */}
-                {!server.isRemote && (server.installPath || server.zomboidDataPath) && (
-                  <div className="rounded-md border border-border/40 bg-muted/15 divide-y divide-border/30">
-                    {server.installPath && (
-                      <div className="flex items-start gap-2.5 px-3 py-2">
-                        <HardDrive className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.installPath')}</p>
-                          <p className="font-mono text-xs text-foreground/85 truncate mt-0.5" title={server.installPath}>{server.installPath}</p>
-                        </div>
-                      </div>
-                    )}
-                    {server.zomboidDataPath && (
-                      <div className="flex items-start gap-2.5 px-3 py-2">
-                        <Database className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.dataPath')}</p>
-                          <p className="font-mono text-xs text-foreground/85 truncate mt-0.5" title={server.zomboidDataPath}>{server.zomboidDataPath}</p>
-                        </div>
-                      </div>
-                    )}
-                    {/* SECURITY (2026-10-05, PT3): the panel won't use this
-                        server's folders (the data folder no longer meets the
-                        data-folder rule, or a config folder has no data
-                        folder). Said here, where they are set, rather than
-                        only as each feature's own refusal. */}
-                    {server.folderProblem && (
-                      <div role="alert" className="flex items-start gap-2.5 px-3 py-2">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 text-warning shrink-0" />
-                        <p className="min-w-0 flex-1 text-xs text-warning [overflow-wrap:anywhere]">
-                          {getResultErrorMessage(server.folderProblem, server.folderProblem.error)}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(() => {
-                  const container = server.dockerContainerName
-                    ? dockerContainers.find((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
-                    : null
-                  if (!shouldShowDockerCardActions(container)) return null
-                  const stats = dockerStats[container.id] || dockerStats[container.name]
-                  const isRunning = container.state === 'running'
-                  const pending = dockerActionPending !== null
-                  return (
-                    <div className="space-y-2 border-y border-border/50 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Container className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="truncate text-xs font-medium">{container.name}</span>
-                          <span className={cn('text-xs', isRunning ? 'text-muted-foreground' : 'text-destructive')}>
-                            {container.state}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || isRunning || !canDockerManage} onClick={() => handleDockerAction(container, 'start')} aria-label={t('card.startContainerAria', { name: container.name })}>
-                                {dockerActionPending === `start-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('card.startContainer')}</TooltipContent>
-                          </Tooltip>
-                          </DisabledReason>
-                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || !isRunning || !canDockerManage} onClick={async () => {
-                                // Traced via Dwight: this route saves via RCON first and
-                                // refuses outright if that save fails (stricter than plain
-                                // process Stop), but the actual termination is Docker
-                                // SIGTERM-then-SIGKILL, not RCON's own graceful quit -- so
-                                // unlike plain Stop, it CAN end in a forced kill. Closer to
-                                // Force Stop's tier than plain Stop's, hence red + confirm
-                                // here despite the ghost/icon-only styling everywhere else
-                                // on this row.
-                                const ok = await confirm({
-                                  title: t('card.stopContainerConfirmTitle', { name: container.name }),
-                                  description: t('card.stopContainerConfirmDescription', { name: container.name }),
-                                  confirmLabel: t('card.stopContainer'),
-                                })
-                                if (!ok) return
-                                handleDockerAction(container, 'stop')
-                              }} aria-label={t('card.stopContainerAria', { name: container.name })}>
-                                {dockerActionPending === `stop-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4 text-destructive" />}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('card.stopContainer')}</TooltipContent>
-                          </Tooltip>
-                          </DisabledReason>
-                          <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={async () => {
-                                // Same disruption tier as Stop above (RCON save, then
-                                // Docker SIGTERM-then-SIGKILL) -- the container comes
-                                // back up on its own afterward, so this isn't styled
-                                // destructive-red like Stop, but connected players are
-                                // still kicked mid-restart. Before this, Restart was
-                                // the one action on this row a misclick fired with zero
-                                // confirmation, unlike its Start/Stop neighbours.
-                                const ok = await confirm({
-                                  title: t('card.restartContainerConfirmTitle', { name: container.name }),
-                                  description: t('card.restartContainerConfirmDescription', { name: container.name }),
-                                  confirmLabel: t('card.restartContainer'),
-                                  destructive: false,
-                                })
-                                if (!ok) return
-                                handleDockerAction(container, 'restart')
-                              }} aria-label={t('card.restartContainerAria', { name: container.name })}>
-                                {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t('card.restartContainer')}</TooltipContent>
-                          </Tooltip>
-                          </DisabledReason>
-                        </div>
-                      </div>
-                      {stats && (
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-                          <span className="text-muted-foreground">{t('card.cpu')} <span className="font-mono text-foreground">{stats.cpuPercent}%</span></span>
-                          <span className="text-muted-foreground">{t('card.ram')} <span className="font-mono text-foreground">{formatBytes(stats.memoryUsed)} ({stats.memoryPercent}%)</span></span>
-                          <span className="text-muted-foreground">{t('card.net')} <span className="font-mono text-foreground">{formatBytes(stats.networkRx)} {t('card.netIn')}</span></span>
-                          <span className="text-muted-foreground">{t('card.disk')} <span className="font-mono text-foreground">{formatBytes(stats.diskWrite)} {t('card.diskWrite')}</span></span>
-                        </div>
-                      )}
+              {shouldShowDockerCardActions(container) && (() => {
+                const isRunning = container.state === 'running'
+                const pending = dockerActionPending !== null
+                return (
+                  <div className="mx-5 mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/40 px-3 py-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Container className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="truncate font-mono text-xs">{container.name}</span>
+                      <StatusPill size="sm" tone={isRunning ? 'ok' : 'error'} label={container.state} />
                     </div>
-                  )
-                })()}
-
-                {/* Network & Config Grid */}
-                <div className={`grid ${server.isRemote ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-3'} gap-2`}>
-                  <div className="flex items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
-                    <div className="grid place-items-center w-7 h-7 rounded-md border border-primary/25 bg-primary/[0.06] text-primary shrink-0" aria-hidden="true">
-                      <Network className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.rcon')}</p>
-                      <p className="font-mono text-xs text-foreground/90 truncate tabular-nums">{server.rconHost}:{server.rconPort}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
-                    <div className="grid place-items-center w-7 h-7 rounded-md border border-primary/25 bg-primary/[0.06] text-primary shrink-0" aria-hidden="true">
-                      <Globe className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.gamePort')}</p>
-                      <p className="font-mono text-xs text-foreground/90 tabular-nums">{server.serverPort}</p>
-                    </div>
-                  </div>
-                  {!server.isRemote && (
-                    <div className="flex items-center gap-2.5 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
-                      <div className="grid place-items-center w-7 h-7 rounded-md border border-border/55 bg-muted/40 text-muted-foreground shrink-0" aria-hidden="true">
-                        <Cpu className="w-3.5 h-3.5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('card.memory')}</p>
-                        {/* bug-hunt-2026-09-08 (Arabic render pass): confirmed
-                            reversed in a real render (a 2-4 GB server showed
-                            "4-2") -- bdi isolates the min-max pair regardless
-                            of locale. */}
-                        <p className="font-mono text-xs text-foreground/90 tabular-nums"><bdi>{server.minMemory}–{server.maxMemory} GB</bdi></p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Branch & Build Info (if update info available for active server) */}
-                {server.isActive && (updateInfo || gameVersion) && (
-                  <div className="p-2.5 rounded-md bg-muted/50 border border-border/50">
-                    <div className="flex items-center justify-between flex-wrap gap-y-1">
-                      <div className="flex items-center gap-2">
-                        {gameVersion && (
-                          <Badge variant="outline" className="text-xs font-mono">v{gameVersion}</Badge>
-                        )}
-                        {updateInfo && (
-                          <>
-                            <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
-                            <Badge variant="secondary" className="text-xs font-mono">{updateInfo.installed.branch}</Badge>
-                          </>
-                        )}
-                      </div>
-                      {updateInfo && (
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="text-muted-foreground">{t('card.buildLabel')}</span>
-                          <span className="font-mono font-medium">{updateInfo.installed.buildId}</span>
-                          {updateInfo.updateAvailable && (
-                            <>
-                              <ArrowRight className="w-3 h-3 text-warning" />
-                              <span className="font-mono font-semibold text-warning">{updateInfo.latest.buildId}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Server branch badge for non-active */}
-                {!server.isActive && server.branch && (
-                  <div className="flex items-center gap-2">
-                    <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span className="text-xs text-muted-foreground">{t('card.branchLabel')}</span>
-                    <Badge variant="secondary" className="text-xs font-mono">{server.branch}</Badge>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {(() => {
-                    const status = serverStatuses[String(server.id)]
-                    const isRunning = resolveServerCardRunning(server, status, currentActiveStatus)
-                    const startPending = serverActionPending === `start-${server.id}`
-                    const stopPending = serverActionPending === `stop-${server.id}`
-                    const hasManagedContainer = dockerAvailable && server.dockerContainerName && dockerContainers.some((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
-                    if (server.isRemote || hasManagedContainer) return null
-                    if (isRunning === null) {
-                      return (
-                        <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : t('card.statusUnavailable')}>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled
-                            title={t('card.statusUnavailable')}
-                          >
-                            <Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.start')}
+                    <div className="flex items-center gap-1">
+                      <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="iconDense" variant="ghost" disabled={pending || isRunning || !canDockerManage} onClick={() => handleDockerAction(container, 'start')} aria-label={t('card.startContainerAria', { name: container.name })}>
+                            {dockerActionPending === `start-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                           </Button>
-                        </DisabledReason>
-                      )
-                    }
-                    return isRunning ? (
-                      <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleInlineStop(server)}
-                          disabled={stopPending || serverActionPending !== null || !canInlineStartStop}
-                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                          title={t('card.stopThisServer')}
-                        >
-                          {stopPending ? (
-                            <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.stopping')}</>
-                          ) : (
-                            <><Square className="w-4 h-4 me-1.5" /> {t('card.stop')}</>
-                          )}
-                        </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('card.startContainer')}</TooltipContent>
+                      </Tooltip>
                       </DisabledReason>
-                    ) : (
-                      <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                      <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="iconDense" variant="ghost" disabled={pending || !isRunning || !canDockerManage} onClick={async () => {
+                            // Traced via Dwight: this route saves via RCON first and
+                            // refuses outright if that save fails (stricter than plain
+                            // process Stop), but the actual termination is Docker
+                            // SIGTERM-then-SIGKILL, not RCON's own graceful quit -- so
+                            // unlike plain Stop, it CAN end in a forced kill. Closer to
+                            // Force Stop's tier than plain Stop's, hence red + confirm
+                            // here despite the ghost/icon-only styling everywhere else
+                            // on this row.
+                            const ok = await confirm({
+                              title: t('card.stopContainerConfirmTitle', { name: container.name }),
+                              description: t('card.stopContainerConfirmDescription', { name: container.name }),
+                              confirmLabel: t('card.stopContainer'),
+                            })
+                            if (!ok) return
+                            handleDockerAction(container, 'stop')
+                          }} aria-label={t('card.stopContainerAria', { name: container.name })}>
+                            {dockerActionPending === `stop-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4 text-destructive" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('card.stopContainer')}</TooltipContent>
+                      </Tooltip>
+                      </DisabledReason>
+                      <DisabledReason reason={!canDockerManage ? t('card.noPermissionDocker') : null}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button size="iconDense" variant="ghost" disabled={pending || !canDockerManage} onClick={async () => {
+                            // Same disruption tier as Stop above (RCON save, then
+                            // Docker SIGTERM-then-SIGKILL) -- the container comes
+                            // back up on its own afterward, so this isn't styled
+                            // destructive-red like Stop, but connected players are
+                            // still kicked mid-restart. Before this, Restart was
+                            // the one action on this row a misclick fired with zero
+                            // confirmation, unlike its Start/Stop neighbours.
+                            const ok = await confirm({
+                              title: t('card.restartContainerConfirmTitle', { name: container.name }),
+                              description: t('card.restartContainerConfirmDescription', { name: container.name }),
+                              confirmLabel: t('card.restartContainer'),
+                              destructive: false,
+                            })
+                            if (!ok) return
+                            handleDockerAction(container, 'restart')
+                          }} aria-label={t('card.restartContainerAria', { name: container.name })}>
+                            {dockerActionPending === `restart-${container.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('card.restartContainer')}</TooltipContent>
+                      </Tooltip>
+                      </DisabledReason>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* Actions: an inactive card leads with "Switch to this server" */}
+              <div className="flex flex-wrap items-center gap-2 px-5 pb-4 pt-4">
+                {!server.isActive && (
+                  <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                    <Button
+                      size="sm"
+                      onClick={() => handleActivateServer(server)}
+                      disabled={activating === server.id || !canServersManage}
+                    >
+                      {activating === server.id ? (
+                        <><Loader2 className="animate-spin" aria-hidden="true" /> {t('card.activating')}</>
+                      ) : (
+                        <><Power aria-hidden="true" /> {t('card.switchToThisServer')}</>
+                      )}
+                    </Button>
+                  </DisabledReason>
+                )}
+                {(() => {
+                  const status = serverStatuses[String(server.id)]
+                  const isRunning = resolveServerCardRunning(server, status, currentActiveStatus)
+                  const startPending = serverActionPending === `start-${server.id}`
+                  const stopPending = serverActionPending === `stop-${server.id}`
+                  const hasManagedContainer = dockerAvailable && server.dockerContainerName && dockerContainers.some((item) => item.name === server.dockerContainerName || item.id === server.dockerContainerName)
+                  if (server.isRemote || hasManagedContainer) return null
+                  if (isRunning === null) {
+                    return (
+                      <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : t('card.statusUnavailable')}>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleInlineStart(server)}
-                          disabled={startPending || serverActionPending !== null || !canInlineStartStop}
-                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (which of two enabled-state labels applies); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                          title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
+                          disabled
+                          title={t('card.statusUnavailable')}
                         >
-                          {startPending ? (
-                            <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.starting')}</>
-                          ) : (
-                            <><Play className="w-4 h-4 me-1.5" /> {t('card.start')}</>
-                          )}
+                          <Loader2 className="animate-spin" aria-hidden="true" /> {t('card.start')}
                         </Button>
                       </DisabledReason>
                     )
-                  })()}
-                  {server.isRemote && (
-                    <div className="flex items-center gap-1">
-                      <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleConfigureRemoteBridge(server)}
-                          disabled={!canServersManage}
-                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                          title={t('card.configureSftpTitle')}
-                        >
-                          <Link className="w-4 h-4 me-1.5" /> {t('card.configureSftp')}
-                        </Button>
-                      </DisabledReason>
-                      <HelpTip label={t('card.configureSftp')}>{t('card.configureSftpTip')}</HelpTip>
-                    </div>
-                  )}
-                  {hasUpdate && (
-                    <Button
-                      size="sm"
-                      variant="warning"
-                      onClick={() => openSteamOperation(server, 'update')}
-                    >
-                      <RefreshCw className="w-4 h-4 me-1.5" /> {t('card.updateNow')}
-                    </Button>
-                  )}
-                  {!server.isActive && (
-                    <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                  }
+                  return isRunning ? (
+                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
                       <Button
-                        variant="outline"
                         size="sm"
-                        className="flex-1"
-                        onClick={() => handleActivateServer(server)}
-                        disabled={activating === server.id || !canServersManage}
+                        variant="outline"
+                        onClick={() => handleInlineStop(server)}
+                        disabled={stopPending || serverActionPending !== null || !canInlineStartStop}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                        title={t('card.stopThisServer')}
                       >
-                        {activating === server.id ? (
-                          <><Loader2 className="w-4 h-4 me-1.5 animate-spin" /> {t('card.activating')}</>
+                        {stopPending ? (
+                          <><Loader2 className="animate-spin" aria-hidden="true" /> {t('card.stopping')}</>
                         ) : (
-                          <><Power className="w-4 h-4 me-1.5" /> {t('card.switchToThisServer')}</>
+                          <><Square aria-hidden="true" /> {t('card.stop')}</>
                         )}
                       </Button>
                     </DisabledReason>
-                  )}
-                </div>
-
-                {/* Created date */}
-                {server.createdAt && (
-                  <p className="text-[11px] text-muted-foreground/60 pt-1">
-                    {t('card.added', { date: formatDate(server.createdAt) })}
-                  </p>
+                  ) : (
+                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleInlineStart(server)}
+                        disabled={startPending || serverActionPending !== null || !canInlineStartStop}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (which of two enabled-state labels applies); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                        title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
+                      >
+                        {startPending ? (
+                          <><Loader2 className="animate-spin" aria-hidden="true" /> {t('card.starting')}</>
+                        ) : (
+                          <><Play aria-hidden="true" /> {t('card.start')}</>
+                        )}
+                      </Button>
+                    </DisabledReason>
+                  )
+                })()}
+                {server.isRemote && (
+                  <div className="flex items-center gap-1">
+                    <DisabledReason reason={!canServersManage ? t('card.noPermissionManage') : null}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleConfigureRemoteBridge(server)}
+                        disabled={!canServersManage}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint describing what the button does; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                        title={t('card.configureSftpTitle')}
+                      >
+                        <Link aria-hidden="true" /> {t('card.configureSftp')}
+                      </Button>
+                    </DisabledReason>
+                    <HelpTip label={t('card.configureSftp')}>{t('card.configureSftpTip')}</HelpTip>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
+                {hasUpdate && (
+                  <DisabledReason reason={steamReason}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-warning/40 text-warning hover:bg-warning/10 hover:text-warning"
+                      onClick={() => openSteamOperation(server, 'update')}
+                      disabled={!canServerInstall}
+                    >
+                      <RefreshCw aria-hidden="true" /> {t('card.updateAvailable')}
+                    </Button>
+                  </DisabledReason>
+                )}
+              </div>
+
+              {/* Paths, container stats and when it was added: there when
+                  needed, folded away otherwise. */}
+              <Collapsible className="mt-auto border-t border-border/60">
+                <CollapsibleTrigger className="group flex w-full items-center gap-2 rounded-b-xl px-5 py-2.5 text-start text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70">
+                  <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=closed]:-rotate-90 rtl:group-data-[state=closed]:rotate-90" aria-hidden="true" />
+                  {detailsLabel}
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="space-y-3 px-5 pb-4">
+                    {hasPaths && (
+                      <dl className="space-y-3">
+                        {server.installPath && (
+                          <ServerCardFact label={t('card.installPath')} wrap>{server.installPath}</ServerCardFact>
+                        )}
+                        {server.zomboidDataPath && (
+                          <ServerCardFact label={t('card.dataPath')} wrap>{server.zomboidDataPath}</ServerCardFact>
+                        )}
+                      </dl>
+                    )}
+                    {containerStats && (
+                      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
+                        <ServerCardFact label={t('card.cpu')}>{containerStats.cpuPercent}%</ServerCardFact>
+                        <ServerCardFact label={t('card.ram')}>{formatBytes(containerStats.memoryUsed)} ({containerStats.memoryPercent}%)</ServerCardFact>
+                        <ServerCardFact label={t('card.net')}>{formatBytes(containerStats.networkRx)} {t('card.netIn')}</ServerCardFact>
+                        <ServerCardFact label={t('card.disk')}>{formatBytes(containerStats.diskWrite)} {t('card.diskWrite')}</ServerCardFact>
+                      </dl>
+                    )}
+                    {server.createdAt && (
+                      <p className="text-xs text-muted-foreground">{t('card.added', { date: formatDate(server.createdAt) })}</p>
+                    )}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </article>
           )})}
         </div>
       ) : null}
+        </>
+      )}
 
       {/* Add Existing Server Dialog */}
       <Dialog open={showAddDialog} onOpenChange={(open) => !open && resetAddDialog()}>
@@ -3085,7 +3095,9 @@ export default function Servers() {
             tall on a laptop at 125-150% zoom. DialogContent caps the dialog
             to the viewport; DialogBody makes only the fields scroll, so the
             title and Save/Cancel stay on screen at any window height. */}
-        <DialogContent className="max-w-lg">
+        {/* Wide screens: the sections flow into two balanced columns, each a
+            panel, so the form reads across instead of scrolling down. */}
+        <DialogContent className="max-w-lg lg:max-w-5xl">
           <DialogHeader>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
@@ -3094,46 +3106,344 @@ export default function Servers() {
           </DialogHeader>
 
           {editingServer && (
-            <DialogBody className="space-y-4">
+            <DialogBody className="space-y-6 lg:block lg:columns-2 lg:gap-5 lg:space-y-0">
               {/* Remote server indicator */}
               {editingServer.isRemote && (
-                <Alert className="border-primary/20 bg-primary/5">
+                <Alert className="border-primary/20 bg-primary/5 lg:mb-5 lg:[column-span:all]">
                   <Globe className="h-4 w-4 text-primary" />
                   <AlertTitle>{t('editDialog.remoteTitle')}</AlertTitle>
                   <AlertDescription>{t('editDialog.remoteDesc')}</AlertDescription>
                 </Alert>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <section aria-labelledby="edit-server-identity" className={EDIT_SECTION_FIRST}>
+                <h3 id="edit-server-identity" className="text-sm font-medium text-foreground">{t('editDialog.sectionIdentity')}</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.displayNameLabel')}</Label>
+                    <Input
+                      value={editingServer.name}
+                      onChange={e => setEditingServer({ ...editingServer, name: e.target.value })}
+                      maxLength={100}
+                      aria-invalid={editDuplicateRemoteConflict}
+                      className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
+                    />
+                    {editDuplicateRemoteConflict && (
+                      <p className="text-xs text-destructive">{t('editDialog.duplicateRemoteServerHint')}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Label>{t('editDialog.serverNameLabel')}</Label>
+                      <HelpTip label={t('editDialog.serverNameLabel')}>{t('editDialog.serverNameTip')}</HelpTip>
+                    </div>
+                    <Input
+                      value={editingServer.serverName}
+                      onChange={e => setEditingServer({ ...editingServer, serverName: e.target.value })}
+                      maxLength={64}
+                      aria-invalid={editServerNameInvalid}
+                      className={editServerNameInvalid ? 'border-destructive/70' : ''}
+                    />
+                    {editServerNameInvalid && (
+                      <p className="text-xs text-destructive">{t('editDialog.serverNameInvalid')}</p>
+                    )}
+                  </div>
+                </div>
+              </section>
+
+              {!editingServer.isRemote && (
+              <section aria-labelledby="edit-server-paths" className={EDIT_SECTION}>
+                <h3 id="edit-server-paths" className="text-sm font-medium text-foreground">{t('editDialog.sectionPaths')}</h3>
                 <div className="space-y-2">
-                  <Label>{t('editDialog.displayNameLabel')}</Label>
-                  <Input
-                    value={editingServer.name}
-                    onChange={e => setEditingServer({ ...editingServer, name: e.target.value })}
-                    maxLength={100}
-                    aria-invalid={editDuplicateRemoteConflict}
-                    className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
-                  />
-                  {editDuplicateRemoteConflict && (
-                    <p className="text-xs text-destructive">{t('editDialog.duplicateRemoteServerHint')}</p>
+                  <Label>{t('editDialog.installPathLabel')}</Label>
+                  <DisabledReason reason={editInstallPathLocked ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
+                    <Input
+                      value={editingServer.installPath}
+                      onChange={e => setEditingServer({ ...editingServer, installPath: e.target.value })}
+                      className="font-mono text-sm"
+                      disabled={editInstallPathLocked}
+                    />
+                  </DisabledReason>
+                  {editLaunchTargetBlocked && !editInstallPathLocked && (
+                    <p className="text-xs text-destructive">{t('editDialog.launchTargetNoPermission')}</p>
+                  )}
+                  {isCustomLauncherPath(editingServer.installPath) && (
+                    <Alert className="border-warning/40 bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertTitle className="text-warning">{t('editDialog.customLauncherNoticeTitle')}</AlertTitle>
+                      <AlertDescription>{t('editDialog.customLauncherNoticeBody')}</AlertDescription>
+                    </Alert>
                   )}
                 </div>
+
                 <div className="space-y-2">
                   <div className="flex items-center gap-1.5">
-                    <Label>{t('editDialog.serverNameLabel')}</Label>
-                    <HelpTip label={t('editDialog.serverNameLabel')}>{t('editDialog.serverNameTip')}</HelpTip>
+                    <Label>{t('editDialog.dataPathLabel')}</Label>
+                    <HelpTip label={t('editDialog.dataPathLabel')}>{t('editDialog.dataPathTip')}</HelpTip>
                   </div>
                   <Input
-                    value={editingServer.serverName}
-                    onChange={e => setEditingServer({ ...editingServer, serverName: e.target.value })}
-                    maxLength={64}
-                    aria-invalid={editServerNameInvalid}
-                    className={editServerNameInvalid ? 'border-destructive/70' : ''}
+                    value={editingServer.zomboidDataPath || ''}
+                    onChange={e => setEditingServer({ ...editingServer, zomboidDataPath: e.target.value })}
+                    className="font-mono text-sm"
+                    placeholder={t('editDialog.dataPathPlaceholder')}
                   />
-                  {editServerNameInvalid && (
-                    <p className="text-xs text-destructive">{t('editDialog.serverNameInvalid')}</p>
+                  {/* PT3: the stored folders' refusal, while the folder in the
+                      field is still the stored one. */}
+                  {editingStoredServer?.folderProblem &&
+                    (editingStoredServer.zomboidDataPath || '') === (editingServer.zomboidDataPath || '') && (
+                      <Alert className="border-warning/40 bg-warning/10">
+                        <AlertCircle className="h-4 w-4 text-warning" />
+                        <AlertDescription>
+                          {getResultErrorMessage(editingStoredServer.folderProblem, editingStoredServer.folderProblem.error)}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                </div>
+              </section>
+              )}
+
+              <section aria-labelledby="edit-server-network" className={EDIT_SECTION}>
+                <h3 id="edit-server-network" className="text-sm font-medium text-foreground">{t('editDialog.sectionNetwork')}</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      {editingServer.isRemote ? t('editDialog.rconHostLabelRemote') : t('editDialog.rconHostLabelLocal')}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[200px]">
+                          <p className="text-xs">{t('editDialog.rconHostTooltip')}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <Input
+                      value={editingServer.rconHost ?? ''}
+                      onChange={e => setEditingServer({ ...editingServer, rconHost: e.target.value })}
+                      placeholder={editingServer.isRemote ? t('editDialog.rconHostPlaceholderRemote') : t('editDialog.rconHostPlaceholderLocal')}
+                      aria-invalid={editDuplicateRemoteConflict}
+                      className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
+                      disabled={!canServerConfigure}
+                    />
+                    <p className={editDuplicateRemoteConflict ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+                      {editDuplicateRemoteConflict
+                        ? t('editDialog.duplicateRemoteServerHint')
+                        : editingServer.isRemote
+                          ? t('editDialog.rconHostHintRemote')
+                          : t('editDialog.rconHostHintLocal')}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.rconPortLabel')}</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={editingServer.rconPort ?? ''}
+                      onChange={e => {
+                        const val = parseInt(e.target.value)
+                        if (!isNaN(val)) setEditingServer({ ...editingServer, rconPort: Math.min(65535, Math.max(1, val)) })
+                      }}
+                      disabled={!canServerConfigure}
+                    />
+                  </div>
+                </div>
+                {!canServerConfigure && (
+                  <p className="text-xs text-muted-foreground">{t('editDialog.rconConfigureRequired')}</p>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.rconPasswordLabel')}</Label>
+                    <PasswordInput
+                      value={editingServer.rconPassword}
+                      onChange={value => setEditingServer({ ...editingServer, rconPassword: value })}
+                      label={t('editDialog.rconPasswordAria')}
+                      disabled={!canServerConfigure}
+                    />
+                    {editRconNeedsPassword && (
+                      <p className="text-xs text-warning">{t('editDialog.rconPasswordReenter')}</p>
+                    )}
+                    <RconTestConnection
+                      host={editingServer.rconHost ?? ''}
+                      port={editingServer.rconPort ?? 0}
+                      password={editingServer.rconPassword}
+                    />
+                  </div>
+                  {!editingServer.isRemote && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      {t('editDialog.adminPasswordLabel')}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-[240px]">
+                          <p className="text-xs">{t('editDialog.adminPasswordTooltip')}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </Label>
+                    <PasswordInput
+                      value={editingServer.adminPassword || ''}
+                      onChange={value => setEditingServer({ ...editingServer, adminPassword: value })}
+                      placeholder={t('editDialog.adminPasswordPlaceholder')}
+                      label={t('editDialog.adminPasswordAria')}
+                    />
+                  </div>
                   )}
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.gamePortLabel')}</Label>
+                    <NumberInput
+                      min={1}
+                      max={65534}
+                      value={editingServer.serverPort}
+                      onChange={serverPort => setEditingServer({ ...editingServer, serverPort })}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {!editingServer.isRemote && (
+              <section aria-labelledby="edit-server-launch" className={EDIT_SECTION}>
+                <h3 id="edit-server-launch" className="text-sm font-medium text-foreground">{t('editDialog.sectionLaunch')}</h3>
+                {managedLifecycleSupported && !editingServer.dockerContainerName && !editingServer.dockerContainerId && (
+                  <div className="space-y-3 rounded-md border border-border/60 p-3">
+                    <div className="space-y-1">
+                      <Label>{t('editDialog.lifecycleProviderLabel')}</Label>
+                      <p className="text-xs text-muted-foreground">
+                        {t('editDialog.lifecycleProviderHint')}
+                      </p>
+                    </div>
+                    <Select
+                      value={editingServer.lifecycleProvider || 'direct'}
+                      onValueChange={(value: 'direct' | 'systemd' | 'openrc') =>
+                        setEditingServer({ ...editingServer, lifecycleProvider: value })
+                      }
+                      disabled={lifecyclePending || !canServersManage}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="direct">{t('editDialog.lifecycleDirect')}</SelectItem>
+                        <SelectItem value="systemd">systemd</SelectItem>
+                        <SelectItem value="openrc">OpenRC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Alert className="border-warning/40 bg-warning/10">
+                      <AlertCircle className="h-4 w-4 text-warning" />
+                      <AlertDescription>
+                        {t('editDialog.lifecycleMigrationWarning')}
+                      </AlertDescription>
+                    </Alert>
+                    <div className="flex flex-wrap gap-2">
+                      {(editingServer.lifecycleProvider || 'direct') !== 'direct' && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={lifecyclePending || !canServersManage}
+                          onClick={() => handleDownloadLifecycleTemplate(editingServer)}
+                        >
+                          {lifecyclePending ? (
+                            <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="me-2 h-4 w-4" />
+                          )}
+                          {t('editDialog.lifecycleDownloadTemplate')}
+                        </Button>
+                      )}
+                      {(editingServer.lifecycleProvider || 'direct') !==
+                        (servers?.find((server) => server.id === editingServer.id)?.lifecycleProvider || 'direct') && (
+                        <Button
+                          type="button"
+                          variant="warning"
+                          size="sm"
+                          disabled={lifecyclePending || !canServersManage}
+                          onClick={() => handleActivateLifecycleProvider(editingServer)}
+                        >
+                          {lifecyclePending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
+                          {t('editDialog.lifecycleActivate')}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    {t('editDialog.customStartCommandLabel')}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[280px]">
+                        <p className="text-xs">{t('editDialog.customStartCommandTooltip')}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <DisabledReason reason={!canFilesManage ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
+                    <Input
+                      value={editingServer.startCommand || ''}
+                      onChange={e => setEditingServer({ ...editingServer, startCommand: e.target.value })}
+                      className="font-mono text-sm"
+                      placeholder={t(platformTranslationKey('editDialog.customStartCommandPlaceholder', runtimeInfo?.family))}
+                      maxLength={1024}
+                      disabled={!canFilesManage}
+                    />
+                  </DisabledReason>
+                  <p className="text-xs text-muted-foreground">{t('editDialog.customStartCommandInstallFolderHint')}</p>
+                  {editingServer.startCommand && /[&|;<>`${}()!\[\]]/.test(editingServer.startCommand) && (
+                    <p className="text-xs text-destructive">{t('editDialog.customStartCommandDisallowed')}</p>
+                  )}
+                </div>
+                <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
+                  <Checkbox
+                    id={`edit-use-no-steam-${editingServer.id}`}
+                    checked={!!editingServer.useNoSteam}
+                    onCheckedChange={(checked) => setEditingServer({ ...editingServer, useNoSteam: checked === true })}
+                  />
+                  <div className="space-y-1">
+                    <Label htmlFor={`edit-use-no-steam-${editingServer.id}`}>{t('editDialog.noSteamLabel')}</Label>
+                    <p className="text-xs text-muted-foreground">{t('editDialog.noSteamHint')}</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.minMemoryLabel')}</Label>
+                    <NumberInput
+                      min={1}
+                      max={64}
+                      value={editingServer.minMemory}
+                      clamp={n => Math.max(1, n)}
+                      invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
+                      onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('editDialog.maxMemoryLabel')}</Label>
+                    <NumberInput
+                      min={1}
+                      max={64}
+                      value={editingServer.maxMemory}
+                      clamp={n => Math.max(1, n)}
+                      invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
+                      onChange={maxMemory => setEditingServer({ ...editingServer, maxMemory })}
+                    />
+                  </div>
+                  {isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory) && (
+                    <p className="text-xs text-destructive sm:col-span-2" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
+                  )}
+                </div>
+              </section>
+              )}
+
+              <section aria-labelledby="edit-server-docker" className={EDIT_SECTION}>
+                <h3 id="edit-server-docker" className="text-sm font-medium text-foreground">{t('editDialog.sectionDocker')}</h3>
                 <div className="space-y-2">
                   <Label>{t('editDialog.dockerContainerLabel')}</Label>
                   {(() => {
@@ -3203,281 +3513,7 @@ export default function Servers() {
                   })()}
                   <p className="text-xs text-muted-foreground">{t('editDialog.dockerContainerHint')}</p>
                 </div>
-              </div>
-
-              {!editingServer.isRemote && (
-              <>
-              <div className="space-y-2">
-                <Label>{t('editDialog.installPathLabel')}</Label>
-                <DisabledReason reason={editInstallPathLocked ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
-                  <Input
-                    value={editingServer.installPath}
-                    onChange={e => setEditingServer({ ...editingServer, installPath: e.target.value })}
-                    className="font-mono text-sm"
-                    disabled={editInstallPathLocked}
-                  />
-                </DisabledReason>
-                {editLaunchTargetBlocked && !editInstallPathLocked && (
-                  <p className="text-xs text-destructive">{t('editDialog.launchTargetNoPermission')}</p>
-                )}
-                {isCustomLauncherPath(editingServer.installPath) && (
-                  <Alert className="border-warning/40 bg-warning/10">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertTitle className="text-warning">{t('editDialog.customLauncherNoticeTitle')}</AlertTitle>
-                    <AlertDescription>{t('editDialog.customLauncherNoticeBody')}</AlertDescription>
-                  </Alert>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>{t('editDialog.dataPathLabel')}</Label>
-                  <HelpTip label={t('editDialog.dataPathLabel')}>{t('editDialog.dataPathTip')}</HelpTip>
-                </div>
-                <Input
-                  value={editingServer.zomboidDataPath || ''}
-                  onChange={e => setEditingServer({ ...editingServer, zomboidDataPath: e.target.value })}
-                  className="font-mono text-sm"
-                  placeholder={t('editDialog.dataPathPlaceholder')}
-                />
-                {/* PT3: the stored folders' refusal, while the folder in the
-                    field is still the stored one. */}
-                {editingStoredServer?.folderProblem &&
-                  (editingStoredServer.zomboidDataPath || '') === (editingServer.zomboidDataPath || '') && (
-                    <Alert className="border-warning/40 bg-warning/10">
-                      <AlertCircle className="h-4 w-4 text-warning" />
-                      <AlertDescription>
-                        {getResultErrorMessage(editingStoredServer.folderProblem, editingStoredServer.folderProblem.error)}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-              </div>
-
-              {managedLifecycleSupported && !editingServer.dockerContainerName && !editingServer.dockerContainerId && (
-                <div className="space-y-3 rounded-md border border-border/60 p-3">
-                  <div className="space-y-1">
-                    <Label>{t('editDialog.lifecycleProviderLabel')}</Label>
-                    <p className="text-xs text-muted-foreground">
-                      {t('editDialog.lifecycleProviderHint')}
-                    </p>
-                  </div>
-                  <Select
-                    value={editingServer.lifecycleProvider || 'direct'}
-                    onValueChange={(value: 'direct' | 'systemd' | 'openrc') =>
-                      setEditingServer({ ...editingServer, lifecycleProvider: value })
-                    }
-                    disabled={lifecyclePending || !canServersManage}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="direct">{t('editDialog.lifecycleDirect')}</SelectItem>
-                      <SelectItem value="systemd">systemd</SelectItem>
-                      <SelectItem value="openrc">OpenRC</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Alert className="border-warning/40 bg-warning/10">
-                    <AlertCircle className="h-4 w-4 text-warning" />
-                    <AlertDescription>
-                      {t('editDialog.lifecycleMigrationWarning')}
-                    </AlertDescription>
-                  </Alert>
-                  <div className="flex flex-wrap gap-2">
-                    {(editingServer.lifecycleProvider || 'direct') !== 'direct' && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        disabled={lifecyclePending || !canServersManage}
-                        onClick={() => handleDownloadLifecycleTemplate(editingServer)}
-                      >
-                        {lifecyclePending ? (
-                          <Loader2 className="me-2 h-4 w-4 animate-spin" />
-                        ) : (
-                          <Download className="me-2 h-4 w-4" />
-                        )}
-                        {t('editDialog.lifecycleDownloadTemplate')}
-                      </Button>
-                    )}
-                    {(editingServer.lifecycleProvider || 'direct') !==
-                      (servers?.find((server) => server.id === editingServer.id)?.lifecycleProvider || 'direct') && (
-                      <Button
-                        type="button"
-                        variant="warning"
-                        size="sm"
-                        disabled={lifecyclePending || !canServersManage}
-                        onClick={() => handleActivateLifecycleProvider(editingServer)}
-                      >
-                        {lifecyclePending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
-                        {t('editDialog.lifecycleActivate')}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1.5">
-                  {t('editDialog.customStartCommandLabel')}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[280px]">
-                      <p className="text-xs">{t('editDialog.customStartCommandTooltip')}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </Label>
-                <DisabledReason reason={!canFilesManage ? t('editDialog.launchTargetNoPermission') : null} className="w-full">
-                  <Input
-                    value={editingServer.startCommand || ''}
-                    onChange={e => setEditingServer({ ...editingServer, startCommand: e.target.value })}
-                    className="font-mono text-sm"
-                    placeholder={t(platformTranslationKey('editDialog.customStartCommandPlaceholder', runtimeInfo?.family))}
-                    maxLength={1024}
-                    disabled={!canFilesManage}
-                  />
-                </DisabledReason>
-                <p className="text-xs text-muted-foreground">{t('editDialog.customStartCommandInstallFolderHint')}</p>
-                {editingServer.startCommand && /[&|;<>`${}()!\[\]]/.test(editingServer.startCommand) && (
-                  <p className="text-xs text-destructive">{t('editDialog.customStartCommandDisallowed')}</p>
-                )}
-              </div>
-              <div className="flex items-start gap-3 rounded-md border border-border/60 p-3">
-                <Checkbox
-                  id={`edit-use-no-steam-${editingServer.id}`}
-                  checked={!!editingServer.useNoSteam}
-                  onCheckedChange={(checked) => setEditingServer({ ...editingServer, useNoSteam: checked === true })}
-                />
-                <div className="space-y-1">
-                  <Label htmlFor={`edit-use-no-steam-${editingServer.id}`}>{t('editDialog.noSteamLabel')}</Label>
-                  <p className="text-xs text-muted-foreground">{t('editDialog.noSteamHint')}</p>
-                </div>
-              </div>
-              </>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5">
-                    {editingServer.isRemote ? t('editDialog.rconHostLabelRemote') : t('editDialog.rconHostLabelLocal')}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[200px]">
-                        <p className="text-xs">{t('editDialog.rconHostTooltip')}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <Input
-                    value={editingServer.rconHost}
-                    onChange={e => setEditingServer({ ...editingServer, rconHost: e.target.value })}
-                    placeholder={editingServer.isRemote ? t('editDialog.rconHostPlaceholderRemote') : t('editDialog.rconHostPlaceholderLocal')}
-                    aria-invalid={editDuplicateRemoteConflict}
-                    className={editDuplicateRemoteConflict ? 'border-destructive/70' : ''}
-                  />
-                  <p className={editDuplicateRemoteConflict ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
-                    {editDuplicateRemoteConflict
-                      ? t('editDialog.duplicateRemoteServerHint')
-                      : editingServer.isRemote
-                        ? t('editDialog.rconHostHintRemote')
-                        : t('editDialog.rconHostHintLocal')}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('editDialog.rconPortLabel')}</Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={65535}
-                    value={editingServer.rconPort}
-                    onChange={e => {
-                      const val = parseInt(e.target.value)
-                      if (!isNaN(val)) setEditingServer({ ...editingServer, rconPort: Math.min(65535, Math.max(1, val)) })
-                    }}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>{t('editDialog.rconPasswordLabel')}</Label>
-                  <PasswordInput
-                    value={editingServer.rconPassword}
-                    onChange={value => setEditingServer({ ...editingServer, rconPassword: value })}
-                    label={t('editDialog.rconPasswordAria')}
-                  />
-                  <RconTestConnection
-                    host={editingServer.rconHost}
-                    port={editingServer.rconPort}
-                    password={editingServer.rconPassword}
-                  />
-                </div>
-                {!editingServer.isRemote && (
-                <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5">
-                    {t('editDialog.adminPasswordLabel')}
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-[240px]">
-                        <p className="text-xs">{t('editDialog.adminPasswordTooltip')}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </Label>
-                  <PasswordInput
-                    value={editingServer.adminPassword || ''}
-                    onChange={value => setEditingServer({ ...editingServer, adminPassword: value })}
-                    placeholder={t('editDialog.adminPasswordPlaceholder')}
-                    label={t('editDialog.adminPasswordAria')}
-                  />
-                </div>
-                )}
-              </div>
-
-              <div className={editingServer.isRemote ? "grid grid-cols-1 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-4"}>
-                <div className="space-y-2">
-                  <Label>{t('editDialog.gamePortLabel')}</Label>
-                  <NumberInput
-                    min={1}
-                    max={65534}
-                    value={editingServer.serverPort}
-                    onChange={serverPort => setEditingServer({ ...editingServer, serverPort })}
-                  />
-                </div>
-                {!editingServer.isRemote && (
-                <>
-                <div className="space-y-2">
-                  <Label>{t('editDialog.minMemoryLabel')}</Label>
-                  <NumberInput
-                    min={1}
-                    max={64}
-                    value={editingServer.minMemory}
-                    clamp={n => Math.max(1, n)}
-                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
-                    onChange={minMemory => setEditingServer({ ...editingServer, minMemory })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('editDialog.maxMemoryLabel')}</Label>
-                  <NumberInput
-                    min={1}
-                    max={64}
-                    value={editingServer.maxMemory}
-                    clamp={n => Math.max(1, n)}
-                    invalid={isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory)}
-                    onChange={maxMemory => setEditingServer({ ...editingServer, maxMemory })}
-                  />
-                </div>
-                {isMemoryMinAboveMax(editingServer.minMemory, editingServer.maxMemory) && (
-                  <p className="text-xs text-destructive sm:col-span-3" role="alert">{t('toasts.memoryMinAboveMaxError')}</p>
-                )}
-                </>
-                )}
-              </div>
+              </section>
             </DialogBody>
           )}
 
@@ -3551,12 +3587,21 @@ export default function Servers() {
                     is moved or backed up by hand. Surfaced here so that
                     refusal isn't the first the operator hears of it. */}
                 {deleteFiles && isZomboidDataNestedInInstall(deleteServer?.zomboidDataPath, deleteServer?.installPath) && (
-                  <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
-                    <p className="font-medium text-destructive">{t('deleteDialog.dataPathNestedWarningTitle')}</p>
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                    <p className="font-medium text-foreground">{t('deleteDialog.dataPathNestedWarningTitle')}</p>
                     <p className="text-muted-foreground">
                       {t('deleteDialog.dataPathNestedWarningDesc')}
                     </p>
                     <code className="text-xs bg-background px-1 rounded break-all">{deleteServer?.zomboidDataPath}</code>
+                  </div>
+                )}
+
+                {deleteFiles && deleteSharingProfiles.length > 0 && (
+                  <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+                    <p className="font-medium text-foreground">{t('sharedInstallWarning.title')}</p>
+                    <p className="text-muted-foreground">
+                      {t('sharedInstallWarning.desc', { names: deleteSharingProfiles.map((server) => server.name).join(', ') })}
+                    </p>
                   </div>
                 )}
 
@@ -3679,7 +3724,7 @@ export default function Servers() {
                           const ib = (updateInfo?.installed?.branch || '').trim().toLowerCase()
                           const isCurrent = current.name === ib || current.name === sb
                           return isCurrent ? (
-                            <span className="rounded border border-border/60 px-1 py-px font-mono text-[10px] uppercase tracking-wider text-muted-foreground">{t('steamDialog.currentBadge')}</span>
+                            <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-px text-[10px] font-medium text-muted-foreground">{t('steamDialog.currentBadge')}</span>
                           ) : null
                         })()}
                       </span>
@@ -3786,6 +3831,14 @@ export default function Servers() {
               {' '}{t('clearInstallDialog.descriptionAfter')}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {clearInstallSharingProfiles.length > 0 && (
+            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+              <p className="font-medium text-foreground">{t('sharedInstallWarning.title')}</p>
+              <p className="text-muted-foreground">
+                {t('sharedInstallWarning.desc', { names: clearInstallSharingProfiles.map((server) => server.name).join(', ') })}
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={clearingInstall}>{t('clearInstallDialog.cancel')}</AlertDialogCancel>
             <DisabledReason reason={!canServerWipe ? t('clearInstallDialog.noPermission') : null}>

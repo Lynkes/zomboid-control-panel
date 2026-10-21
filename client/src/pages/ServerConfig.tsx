@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, memo } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, memo, type ReactNode } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useSearchParams, Link } from 'react-router-dom'
 import { copyText, cn } from '@/lib/utils'
@@ -19,8 +19,6 @@ import {
   History,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   Plus,
   Trash2,
   ExternalLink,
@@ -28,12 +26,14 @@ import {
   Upload,
   RotateCcw,
   AlertTriangle,
-  Info,
   Copy,
   Check,
   Filter,
   Bookmark,
   FolderOpen,
+  FolderTree,
+  HelpCircle,
+  LayoutTemplate,
   X,
   Undo2,
   Globe,
@@ -63,7 +63,7 @@ import {
   Layers,
   type LucideIcon
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { reportClientError } from '@/lib/client-errors'
 import { Textarea } from '@/components/ui/textarea'
@@ -98,9 +98,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { PageHeader } from '@/components/PageHeader'
-// DropdownMenu imports available if needed
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { SaveBar } from '@/components/SaveBar'
+import { SectionCard } from '@/components/ui/section-card'
+import { SubNav, SubNavLayout, type SubNavGroup } from '@/components/ui/sub-nav'
+import { StatusPill } from '@/components/ui/status-pill'
+import { Toolbar } from '@/components/ui/toolbar'
+import { Segmented } from '@/components/ui/segmented'
+import { RowActions, type RowActionItem } from '@/components/ui/row-actions'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useUrlParamState } from '@/hooks/useUrlParamState'
+import { useGuardedNavigate, useUnsavedChangesGuard } from '@/contexts/UnsavedChangesContext'
 import { serverApi, serverFilesApi, serversApi, panelBridgeApi, ApiError, SpawnPointsByProfession, SpawnRegion, SandboxData, ConfigTemplate, WorldSandboxSnapshot, LiveWorldSandboxSnapshot, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { resolveServerRunning } from '@/lib/serverStatus'
@@ -171,6 +180,26 @@ type EditorMode = 'structured' | 'raw'
 type FilterMode = 'all' | 'modified' | 'nondefault'
 type SandboxScalar = string | number | boolean | null | undefined
 type SandboxRecord = Record<string, SandboxScalar>
+
+// The Sandbox Save sends only the values the form changed. PUT /sandbox writes
+// every value it gets that differs from the file, so sending the whole form
+// put back what changed on disk since it loaded: a Mod Settings edit
+// (PUT /sandbox-option) made earlier in the same visit, for one.
+function changedSandboxSections(data: SandboxData, original: SandboxData): SandboxData {
+  const changed: Record<string, unknown> = {}
+  const source = data as unknown as Record<string, unknown>
+  const before = original as unknown as Record<string, unknown>
+  for (const [section, values] of Object.entries(source)) {
+    if (!values || typeof values !== 'object' || Array.isArray(values)) continue
+    const old = (before[section] ?? {}) as SandboxRecord
+    const diff: SandboxRecord = {}
+    for (const [key, value] of Object.entries(values as SandboxRecord)) {
+      if (JSON.stringify(value) !== JSON.stringify(old[key])) diff[key] = value
+    }
+    if (Object.keys(diff).length > 0) changed[section] = diff
+  }
+  return changed as unknown as SandboxData
+}
 
 // PanelBridge enumerates every sandbox option. These are Project Zomboid's
 // built-in groups, which belong in the Sandbox editor rather than Mod Settings.
@@ -474,7 +503,7 @@ const IniSettingRow = memo(({
   if (setting.type === 'multiline') {
     return (
       <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
-        isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
+        isModified ? 'bg-warning/5' : 'hover:bg-muted/20'
       }`}>
         <div className="flex items-center justify-between">
           <div>
@@ -509,7 +538,7 @@ const IniSettingRow = memo(({
   // Standard settings
   return (
     <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
-      isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
+      isModified ? 'bg-warning/5' : 'hover:bg-muted/20'
     }`}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         <div className="flex-1 min-w-0">
@@ -733,7 +762,7 @@ export const SandboxSettingRow = memo(({
 
   return (
     <div className={`perf-content-auto grid gap-2 rounded-md border-b py-3 ps-3 pe-4 transition-colors last:border-0 ${
-      isModified ? 'border-s-2 border-s-warning bg-warning/5' : 'border-s-2 border-s-transparent hover:bg-muted/20'
+      isModified ? 'bg-warning/5' : 'hover:bg-muted/20'
     }`}>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
         <div className="min-w-0 flex-1">
@@ -866,12 +895,12 @@ function StatChip({
   const muted = isZero || ok === false
   return (
     <span
-      className={`inline-flex items-center gap-1.5 normal-case tracking-normal ${muted ? 'opacity-55' : ''}`}
+      className="inline-flex items-center gap-1.5"
       title={ok === false ? t('activeServerStrip.fileNotFoundTitle', { label }) : undefined}
     >
-      <span className={muted ? 'text-muted-foreground/50' : 'text-primary/70'}>{icon}</span>
-      <span className={`font-mono text-sm font-semibold tabular-nums ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>{value}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={muted ? 'text-muted-foreground/60' : 'text-primary'} aria-hidden="true">{icon}</span>
+      <span className={`font-medium tabular-nums ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>{value}</span>
+      <span className="text-muted-foreground">{label}</span>
       {ok === false && (
         <AlertCircle className="h-3 w-3 text-warning" aria-label={t('activeServerStrip.notFoundAria')} />
       )}
@@ -879,129 +908,63 @@ function StatChip({
   )
 }
 
-// Map of icon names used by INI/Sandbox category schemas to lucide components.
-// Each entry also has a hue token used to subtly tint the sidebar icon so categories
-// are scannable by shape+color without going neon.
-const CATEGORY_ICONS: Record<string, { icon: LucideIcon; tone: string }> = {
+// Icon names used by the INI/Sandbox category schemas, as lucide components.
+// The category rail (SubNav) colours them itself: primary when active,
+// muted otherwise; shape alone keeps the categories scannable.
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
   // INI categories
-  Settings: { icon: Settings, tone: 'text-primary/80' },
-  Globe: { icon: Globe, tone: 'text-sky-400/80' },
-  Swords: { icon: Swords, tone: 'text-rose-400/80' },
-  MessageSquare: { icon: MessageSquare, tone: 'text-cyan-400/80' },
-  Users: { icon: Users, tone: 'text-amber-300/80' },
-  Home: { icon: Home, tone: 'text-emerald-300/80' },
-  Package: { icon: Package, tone: 'text-orange-300/80' },
-  Puzzle: { icon: Puzzle, tone: 'text-violet-400/80' },
-  Cloud: { icon: Cloud, tone: 'text-sky-300/80' },
-  Mic: { icon: Mic, tone: 'text-pink-300/80' },
-  MessageCircle: { icon: MessageCircle, tone: 'text-indigo-300/80' },
-  Terminal: { icon: Terminal, tone: 'text-emerald-400/80' },
-  Archive: { icon: Archive, tone: 'text-amber-400/80' },
-  Car: { icon: Car, tone: 'text-yellow-300/80' },
-  Shield: { icon: Shield, tone: 'text-blue-300/80' },
-  Filter: { icon: Filter, tone: 'text-slate-300/80' },
-  Radio: { icon: Radio, tone: 'text-fuchsia-300/80' },
-  FileText: { icon: FileText, tone: 'text-zinc-300/80' },
-  Wrench: { icon: Wrench, tone: 'text-stone-300/80' },
+  Settings,
+  Globe,
+  Swords,
+  MessageSquare,
+  Users,
+  Home,
+  Package,
+  Puzzle,
+  Cloud,
+  Mic,
+  MessageCircle,
+  Terminal,
+  Archive,
+  Car,
+  Shield,
+  Filter,
+  Radio,
+  FileText,
+  Wrench,
   // Sandbox categories
-  Clock: { icon: Clock, tone: 'text-amber-300/80' },
-  Gem: { icon: Gem, tone: 'text-fuchsia-300/80' },
-  Heart: { icon: Heart, tone: 'text-rose-300/80' },
-  Crosshair: { icon: Crosshair, tone: 'text-rose-400/80' },
-  Leaf: { icon: Leaf, tone: 'text-emerald-300/80' },
-  Map: { icon: Map, tone: 'text-emerald-400/80' },
-  Compass: { icon: Compass, tone: 'text-cyan-300/80' },
-  Skull: { icon: Skull, tone: 'text-rose-300/80' },
-  TrendingUp: { icon: TrendingUp, tone: 'text-orange-300/80' },
-  BarChart: { icon: BarChart, tone: 'text-amber-300/80' },
-  Layers: { icon: Layers, tone: 'text-stone-300/80' },
+  Clock,
+  Gem,
+  Heart,
+  Crosshair,
+  Leaf,
+  Map,
+  Compass,
+  Skull,
+  TrendingUp,
+  BarChart,
+  Layers,
 }
 
-function CategoryIcon({ name, isActive, className }: { name?: string; isActive?: boolean; className?: string }) {
-  const entry = name ? CATEGORY_ICONS[name] : undefined
-  const Icon = entry?.icon ?? Settings
-  return <Icon className={`${className ?? 'h-4 w-4'} ${isActive ? 'text-primary' : entry?.tone ?? 'text-muted-foreground/70'}`} />
+function categoryIcon(name?: string): LucideIcon {
+  return (name && CATEGORY_ICONS[name]) || Settings
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Visual primitives — mirror the Events page so the whole control surface
-// reads with the same cadence.
-// ──────────────────────────────────────────────────────────────────────────
-type PanelTone = 'primary' | 'warning' | 'destructive' | 'info' | 'success' | 'muted'
-
-function toneBorder(tone: PanelTone): string {
-  switch (tone) {
-    case 'warning': return 'border-amber-400/55'
-    case 'destructive': return 'border-destructive/55'
-    case 'info': return 'border-sky-400/55'
-    case 'success': return 'border-emerald-400/55'
-    case 'muted': return 'border-border/70'
-    default: return 'border-primary/55'
-  }
+const SERVER_CONFIG_TAB_IDS = ['ini', 'sandbox', 'spawnpoints', 'spawnregions', 'modsettings'] as const
+type ServerConfigTab = (typeof SERVER_CONFIG_TAB_IDS)[number]
+const SERVER_CONFIG_TABS = new Set<string>(SERVER_CONFIG_TAB_IDS)
+type ConfigFileType = 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions'
+// The raw editor of each tab; Mod Settings has none, so raw mode there shows the INI.
+const RAW_FILE_OF_TAB: Record<ServerConfigTab, ConfigFileType> = {
+  ini: 'ini',
+  sandbox: 'sandbox',
+  spawnpoints: 'spawnpoints',
+  spawnregions: 'spawnregions',
+  modsettings: 'ini',
 }
-
-function toneText(tone: PanelTone): string {
-  switch (tone) {
-    case 'warning': return 'text-amber-400/85'
-    case 'destructive': return 'text-destructive/85'
-    case 'info': return 'text-sky-400/85'
-    case 'success': return 'text-emerald-400/85'
-    case 'muted': return 'text-muted-foreground/85'
-    default: return 'text-primary/75'
-  }
-}
-
-function TacticalPanel({
-  children,
-  tone = 'primary',
-  className,
-}: {
-  children: React.ReactNode
-  tone?: PanelTone
-  className?: string
-}) {
-  return (
-    <div className={cn(
-      'overflow-hidden rounded-md border bg-card shadow-sm',
-      toneBorder(tone),
-      className
-    )}>
-      {children}
-    </div>
-  )
-}
-
-export function SectionHeader({
-  label,
-  sublabel,
-  icon: Icon,
-  action,
-  tone = 'primary',
-}: {
-  label: string
-  sublabel?: React.ReactNode
-  icon?: React.ComponentType<{ className?: string }>
-  action?: React.ReactNode
-  tone?: PanelTone
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3 select-none">
-      <span className="flex min-w-0 items-center gap-2">
-        {Icon && <Icon className={cn('h-4 w-4 shrink-0', toneText(tone))} />}
-        <span className="truncate text-sm font-semibold text-foreground">{label}</span>
-        {sublabel && (
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="text-muted-foreground/35">/</span>
-            <span className="truncate text-xs font-normal text-muted-foreground/65">{sublabel}</span>
-          </span>
-        )}
-      </span>
-      {action && <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:shrink-0">{action}</div>}
-    </div>
-  )
-}
-
-const SERVER_CONFIG_TABS = new Set(['ini', 'sandbox', 'spawnpoints', 'spawnregions', 'modsettings'])
+// Where the config files live in Server Files: the data folder's Server
+// subfolder (zomboidDataPath/Server), the panel's default config path.
+const SERVER_FILES_CONFIG_LINK = '/files?root=data&path=Server'
 
 // Closed enum matching server/routes/debug.js's triageUnresolvedMods -- an
 // unrecognized cause (an older diagnostics fetch predating this, or a value
@@ -1049,16 +1012,31 @@ export default function ServerConfig() {
   const { t, i18n } = useTranslation('serverconfig')
   const { formatDate, formatDateTime, formatTime } = useDateFormat()
   const searchLocale = i18n.resolvedLanguage || i18n.language
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const initialDeepLink = resolveServerConfigDeepLink(searchParams)
   // List separator is a language property, not something a joined list of
   // translated setting labels can be assumed to want a Latin ", " for --
   // zh-CN / zh-TW enumerates nouns with the ideographic comma instead.
   const listSep = i18n.language.startsWith('zh') ? '、' : ', '
-  const [activeTab, setActiveTab] = useState(initialDeepLink.tab)
-  const activeTabRef = useRef(initialDeepLink.tab)
+  // The open tab lives in ?tab= (UX plan §2.5): a reload, the command
+  // palette and links from other pages (Files, Diagnostics) open it directly.
+  const [activeTab, setActiveTabParam] = useUrlParamState<ServerConfigTab>('tab', SERVER_CONFIG_TAB_IDS, 'ini')
+  const activeTabRef = useRef<string>(activeTab)
+  // On a phone the tab row scrolls sideways; a deep link to a later tab
+  // (?tab=spawnregions) must not open with its own tab out of sight.
+  const tabListRef = useRef<HTMLDivElement>(null)
+  const guardedNavigate = useGuardedNavigate()
   const pendingTabChangeRef = useRef<string | null>(null)
   const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    const list = tabListRef.current
+    const active = list?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    if (!list || !active || typeof list.scrollBy !== 'function') return
+    const box = list.getBoundingClientRect()
+    const tab = active.getBoundingClientRect()
+    if (tab.left < box.left) list.scrollBy({ left: tab.left - box.left - 8 })
+    else if (tab.right > box.right) list.scrollBy({ left: tab.right - box.right + 8 })
+  }, [activeTab, loading])
   const [saving, setSaving] = useState(false)
   const [serverRunning, setServerRunning] = useState<boolean | null>(null)
   const [searchQuery, setSearchQuery] = useState(initialDeepLink.search)
@@ -1066,6 +1044,10 @@ export default function ServerConfig() {
   // synchronously — keeps the input snappy on slower machines.
   const deferredSearchQuery = useDeferredValue(searchQuery)
   const [editorMode, setEditorMode] = useState<EditorMode>('structured')
+  // loadData() runs from the socket handler's older closure too: it reads the
+  // mode through this ref.
+  const editorModeRef = useRef<EditorMode>(editorMode)
+  editorModeRef.current = editorMode
   // Filter mode: 'all' = every schema setting, 'modified' = differs from the PZ default,
   // 'nondefault' = local edits not yet saved.
   const [filterMode, setFilterMode] = useState<FilterMode>(() => {
@@ -1092,6 +1074,10 @@ export default function ServerConfig() {
   const [sandboxData, setSandboxData] = useState<SandboxData | null>(null)
   const [spawnPoints, setSpawnPoints] = useState<SpawnPointsByProfession>({})
   const [spawnRegions, setSpawnRegions] = useState<SpawnRegion[]>([])
+  // The regions as loaded (or last saved): edits to the list are unsaved
+  // changes like INI and Sandbox edits, so the SaveBar and the leave-page
+  // guard see them.
+  const [originalSpawnRegions, setOriginalSpawnRegions] = useState<SpawnRegion[]>([])
   // GET /server-files/ini already detects this server-side (utils/
   // iniDuplicateKeys.js) -- same signal Mods.tsx's own duplicateKeys
   // warning reads from GET /mods/current-config, just never wired up here.
@@ -1112,41 +1098,6 @@ export default function ServerConfig() {
   })
   useEffect(() => { try { localStorage.setItem('serverconfig-ini-cat', activeIniCategory) } catch { /* ignore */ } }, [activeIniCategory])
   useEffect(() => { try { localStorage.setItem('serverconfig-sandbox-cat', activeSandboxCategory) } catch { /* ignore */ } }, [activeSandboxCategory])
-
-  // Collapsible rail groups — keyed as "ini:<groupId>" / "sandbox:<groupId>"
-  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem('serverconfig-collapsed-groups')
-      if (stored) return JSON.parse(stored) as Record<string, boolean>
-    } catch { /* ignore */ }
-    return {}
-  })
-  useEffect(() => {
-    try { localStorage.setItem('serverconfig-collapsed-groups', JSON.stringify(collapsedGroups)) } catch { /* ignore */ }
-  }, [collapsedGroups])
-  const toggleGroup = useCallback((key: string) => {
-    setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }))
-  }, [])
-
-  // Bulk collapse/expand for a tab's rail (prefix "ini" or "sandbox").
-  const setAllGroupsCollapsed = useCallback((prefix: 'ini' | 'sandbox', collapsed: boolean) => {
-    const groups = prefix === 'ini' ? INI_CATEGORY_GROUPS : SANDBOX_CATEGORY_GROUPS
-    setCollapsedGroups(prev => {
-      const next = { ...prev }
-      for (const g of groups) {
-        next[`${prefix}:${g.id}`] = collapsed
-      }
-      return next
-    })
-  }, [])
-  const iniAllCollapsed = useMemo(
-    () => INI_CATEGORY_GROUPS.every(g => !!collapsedGroups[`ini:${g.id}`]),
-    [collapsedGroups]
-  )
-  const sandboxAllCollapsed = useMemo(
-    () => SANDBOX_CATEGORY_GROUPS.every(g => !!collapsedGroups[`sandbox:${g.id}`]),
-    [collapsedGroups]
-  )
 
   // Backups dialog
   const [showBackups, setShowBackups] = useState(false)
@@ -1326,10 +1277,21 @@ export default function ServerConfig() {
   // passed to sendCommand. Two Refresh clicks close together used to race:
   // whichever response landed last (not last-requested) won, silently.
   const modSettingsLoadIdRef = useRef(0)
-  const modSettingsSearchRef = useRef<HTMLInputElement | null>(null)
-  const iniSearchRef = useRef<HTMLInputElement | null>(null)
-  const sandboxSearchRef = useRef<HTMLInputElement | null>(null)
   const [savingOptions, setSavingOptions] = useState<Set<string>>(new Set())
+  // The server loadData() last loaded (undefined before the first load). Mod
+  // Settings and the live sandbox ranges come from that server's bridge; a
+  // switch drops them so the tabs ask the new server's bridge.
+  const loadedServerKeyRef = useRef<string | null | undefined>(undefined)
+  const resetBridgeSandboxOptions = () => {
+    modSettingsLoadIdRef.current += 1
+    setModSettings(null)
+    setModSettingsGroups([])
+    setModSettingsLastLoaded(null)
+    setModSettingsError(null)
+    setModSettingsLoading(false)
+    setSandboxLiveRanges(null)
+    setSandboxLiveRangesStatus('idle')
+  }
 
   // Shared helper: is this mod option modified from its default?
   const isOptModified = useCallback((opt: { default?: unknown; value?: unknown }) => {
@@ -1528,6 +1490,11 @@ export default function ServerConfig() {
     const isRemote = !!active.server?.isRemote
     setActiveServerRemote(isRemote)
     setActiveServerName(active.server?.name || active.server?.serverName || null)
+    const serverKey = active.server?.id != null ? String(active.server.id) : null
+    if (loadedServerKeyRef.current !== undefined && loadedServerKeyRef.current !== serverKey) {
+      resetBridgeSandboxOptions()
+    }
+    loadedServerKeyRef.current = serverKey
     try {
       // Load paths info first
       const paths = await serverFilesApi.getPaths(retries)
@@ -1562,10 +1529,18 @@ export default function ServerConfig() {
       if (paths.exists.spawnregions) {
         const regionsRes = await serverFilesApi.getSpawnRegions(retries)
         setSpawnRegions(regionsRes.spawnregions)
+        setOriginalSpawnRegions(regionsRes.spawnregions)
       } else {
         setSpawnRegions([])
+        setOriginalSpawnRegions([])
       }
       setLoadError(null)
+      // The raw editor shows a file too: after a switch, a Refresh or a
+      // restore it would keep the old text, and saving it wrote that text
+      // over the file that is there now (another server's, after a switch).
+      if (editorModeRef.current === 'raw') {
+        await loadRawContent(RAW_FILE_OF_TAB[activeTabRef.current as ServerConfigTab])
+      }
     } catch (error) {
       reportClientError('Failed to load config.', error)
       // getServerConfigPath() (server/routes/serverFiles.js) throws the same
@@ -1689,6 +1664,18 @@ export default function ServerConfig() {
     return JSON.stringify(sandboxData) !== JSON.stringify(originalSandboxData)
   }, [editorMode, activeTab, rawContent, originalRawContent, sandboxData, originalSandboxData])
 
+  // Spawn Regions and Spawn Points join the same dirty tracking: an edited
+  // region list (or raw file) used to be dropped without a word by a server
+  // switch or a sidebar click.
+  const hasSpawnRegionChanges = useMemo(() => {
+    if (editorMode === 'raw' && activeTab === 'spawnregions') {
+      return rawContent !== originalRawContent
+    }
+    return JSON.stringify(spawnRegions) !== JSON.stringify(originalSpawnRegions)
+  }, [editorMode, activeTab, rawContent, originalRawContent, spawnRegions, originalSpawnRegions])
+  // Spawn points have no form editor (they are mod-managed): only the raw file.
+  const hasSpawnPointChanges = editorMode === 'raw' && activeTab === 'spawnpoints' && rawContent !== originalRawContent
+
   // Unsaved edits in the raw textarea, whichever file it shows. The Raw
   // buttons and a tab change in raw mode all reload the textarea from disk
   // (loadRawContent), so they ask before replacing such edits.
@@ -1696,7 +1683,14 @@ export default function ServerConfig() {
   // Unsaved changes in the Form of the tab on screen: the raw editor shows
   // the file as it is on disk, without them.
   const hasFormEdits = editorMode === 'structured'
-    && ((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges))
+    && ((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges)
+      || (activeTab === 'spawnregions' && hasSpawnRegionChanges))
+  const hasUnsavedChanges = hasIniChanges || hasSandboxChanges || hasSpawnRegionChanges || hasSpawnPointChanges || hasRawEdits
+  // Every unsaved edit on the page, whichever tab holds it: leaving through
+  // the sidebar, a link, the palette or a shortcut asks first, and closing
+  // or reloading the tab gets the browser's prompt (the SaveBar below only
+  // covers the tab on screen).
+  useUnsavedChangesGuard(hasUnsavedChanges)
 
   const confirmDiscardRawEdits = () => confirm({
     title: t('switchEditorConfirm.rawTitle'),
@@ -1705,7 +1699,7 @@ export default function ServerConfig() {
     destructive: true,
   })
 
-  const showRawEditor = (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
+  const showRawEditor = (type: ConfigFileType) => {
     setEditorMode('raw')
     void loadRawContent(type)
   }
@@ -1721,7 +1715,7 @@ export default function ServerConfig() {
 
   // Raw button: loads the file from disk into the textarea. Pressed while the
   // raw editor is already open it reloads, which drops the edits in it too.
-  const openRawEditor = (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
+  const openRawEditor = (type: ConfigFileType) => {
     if (hasRawEdits) {
       void confirmDiscardRawEdits().then((ok) => { if (ok) showRawEditor(type) })
     } else if (hasFormEdits) {
@@ -1737,32 +1731,56 @@ export default function ServerConfig() {
   }
 
   const handleTabChange = (value: string) => {
+    if (!SERVER_CONFIG_TABS.has(value)) return
     if (value === activeTabRef.current || pendingTabChangeRef.current !== null) return
+    const tab = value as ServerConfigTab
 
     const switchTab = () => {
-      activeTabRef.current = value
+      activeTabRef.current = tab
       pendingTabChangeRef.current = null
-      setActiveTab(value)
+      setActiveTabParam(tab)
       if (editorMode === 'raw') {
-        const typeMap: Record<string, 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions'> = {
-          ini: 'ini',
-          sandbox: 'sandbox',
-          spawnpoints: 'spawnpoints',
-          spawnregions: 'spawnregions'
-        }
-        void loadRawContent(typeMap[value] || 'ini')
+        void loadRawContent(RAW_FILE_OF_TAB[tab])
       }
     }
     if (!hasRawEdits) {
       switchTab()
       return
     }
-    pendingTabChangeRef.current = value
+    pendingTabChangeRef.current = tab
     void confirmDiscardRawEdits().then((ok) => {
       if (ok) switchTab()
-      else if (pendingTabChangeRef.current === value) pendingTabChangeRef.current = null
+      else if (pendingTabChangeRef.current === tab) pendingTabChangeRef.current = null
     })
   }
+
+  // ?tab= changed without the tab strip (a command-palette deep link while
+  // the page is open): the raw editor follows it like a click would.
+  // The leave-page guard doesn't ask on a same-page link (the sidebar's own
+  // entry, a palette section), so unsaved raw edits are asked about here, and
+  // the tab goes back when the operator keeps them.
+  useEffect(() => {
+    if (activeTabRef.current === activeTab) return
+    const previous = activeTabRef.current as ServerConfigTab
+    const follow = () => {
+      activeTabRef.current = activeTab
+      if (editorMode === 'raw') void loadRawContent(RAW_FILE_OF_TAB[activeTab])
+    }
+    if (!hasRawEdits) {
+      follow()
+      return
+    }
+    activeTabRef.current = activeTab
+    void confirmDiscardRawEdits().then((ok) => {
+      if (activeTabRef.current !== activeTab) return
+      if (ok) {
+        follow()
+      } else {
+        activeTabRef.current = previous
+        setActiveTabParam(previous)
+      }
+    })
+  }, [activeTab]) // eslint-disable-line react-hooks/exhaustive-deps -- only a tab change outside handleTabChange reloads
 
   // GET/PUT /server-files/ini and /sandbox both resolve "the active server"
   // fresh per-request rather than taking a server id (see loadData() and
@@ -1776,7 +1794,7 @@ export default function ServerConfig() {
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
-      if (hasIniChanges || hasSandboxChanges) {
+      if (hasUnsavedChanges) {
         setServerChangedSinceLoad(true)
       } else {
         loadData()
@@ -1786,16 +1804,7 @@ export default function ServerConfig() {
     return () => {
       socket.off('activeServerChanged', handleActiveServerChanged)
     }
-  }, [socket, hasIniChanges, hasSandboxChanges]) // eslint-disable-line react-hooks/exhaustive-deps -- loadData is mount-stable, not a dep
-
-  // Warn before leaving with unsaved changes
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault() }
-    if (hasIniChanges || hasSandboxChanges || hasRawEdits) {
-      window.addEventListener('beforeunload', handler)
-    }
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [hasIniChanges, hasSandboxChanges, hasRawEdits])
+  }, [socket, hasUnsavedChanges]) // eslint-disable-line react-hooks/exhaustive-deps -- loadData is mount-stable, not a dep
 
   // Create manual backup
   const handleCreateBackup = async (type: 'ini' | 'sandbox' | 'spawnpoints' | 'spawnregions') => {
@@ -1937,25 +1946,6 @@ export default function ServerConfig() {
       loadModSettings()
     }
   }, [activeTab, sandboxLiveRangesStatus, loadModSettings])
-
-  // Keyboard shortcut: '/' focuses the mod settings search when the tab is active.
-  // Skip when the user is already typing in a field or has a modifier held.
-  useEffect(() => {
-    if (activeTab !== 'modsettings') return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return
-      const t = e.target as HTMLElement | null
-      const tag = t?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return
-      if (modSettingsSearchRef.current) {
-        e.preventDefault()
-        modSettingsSearchRef.current.focus()
-        modSettingsSearchRef.current.select()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activeTab])
 
   const handleOptionChange = useCallback(async (optName: string, newValue: unknown, groupName: string) => {
     // continuous-bug-hunt round 17 (every write that trusts the server-side
@@ -2285,7 +2275,11 @@ export default function ServerConfig() {
           }
         })
 
-        const sandboxSaveResult = await serverFilesApi.saveSandbox(cleanData)
+        // A file that doesn't exist yet is created from the whole form.
+        const payload = pathsInfo?.exists.sandbox !== false && originalSandboxData
+          ? changedSandboxSections(cleanData, originalSandboxData)
+          : cleanData
+        const sandboxSaveResult = await serverFilesApi.saveSandbox(payload)
         // Update local state to match sanitized data
         setSandboxData(cleanData)
         setOriginalSandboxData(cleanData)
@@ -2389,6 +2383,8 @@ export default function ServerConfig() {
         // What is in the textarea is now the file: not an unsaved edit.
         setOriginalRawContent(rawContent)
         loadData()
+      } else {
+        setOriginalSpawnRegions(spawnRegions)
       }
     } catch (error) {
       toast({
@@ -2893,35 +2889,189 @@ export default function ServerConfig() {
     return 0
   }, [deferredSearchQuery, activeTab, filteredIniSettings, filteredSandboxSettings])
 
-  // Ctrl+S keyboard shortcut — use refs to avoid stale closure
-  const handleSaveIniRef = useRef(handleSaveIni)
-  const handleSaveSandboxRef = useRef(handleSaveSandbox)
-  // Sync refs on every render so keyboard shortcut always calls latest version
-  handleSaveIniRef.current = handleSaveIni
-  handleSaveSandboxRef.current = handleSaveSandbox
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault()
-        if (activeTab === 'ini' && hasIniChanges) {
-          handleSaveIniRef.current()
-        } else if (activeTab === 'sandbox' && hasSandboxChanges) {
-          handleSaveSandboxRef.current()
-        }
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
-        e.preventDefault()
-        const searchInput = activeTab === 'ini' ? iniSearchRef.current : sandboxSearchRef.current
-        searchInput?.focus()
-      }
+  // The Spawn Regions list's own Discard, and the raw editor's (Spawn Points).
+  const discardSpawnRegionChanges = useCallback(() => {
+    setSpawnRegions(originalSpawnRegions)
+    if (editorMode === 'raw') setRawContent(originalRawContent)
+  }, [originalSpawnRegions, editorMode, originalRawContent])
+  const discardRawEdits = useCallback(() => setRawContent(originalRawContent), [originalRawContent])
+
+  // Regions added, removed or edited since the load.
+  const changedSpawnRegionCount = useMemo(() => {
+    let count = Math.abs(spawnRegions.length - originalSpawnRegions.length)
+    const shared = Math.min(spawnRegions.length, originalSpawnRegions.length)
+    for (let i = 0; i < shared; i++) {
+      if (JSON.stringify(spawnRegions[i]) !== JSON.stringify(originalSpawnRegions[i])) count++
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeTab, hasIniChanges, hasSandboxChanges])
+    return count
+  }, [spawnRegions, originalSpawnRegions])
+
+  // /server-config?open=snapshots (the Templates page's link to config
+  // snapshots): open that dialog, then drop the parameter so a reload or
+  // Back doesn't open it again.
+  const openParam = searchParams.get('open')
+  useEffect(() => {
+    if (openParam !== 'snapshots') return
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous)
+      next.delete('open')
+      return next
+    }, { replace: true })
+    if (canManageServerFiles) void loadTemplates()
+  }, [openParam]) // eslint-disable-line react-hooks/exhaustive-deps -- once per ?open=snapshots
+
+  // Stats for the header's fact row
+  const iniSettingsCount = Object.keys(iniSettings).length
+  const sandboxSettingsCount = sandboxData ? Object.keys(sandboxData.settings || {}).length : 0
+  const spawnPointsCount = Object.values(spawnPoints).reduce((acc, points) => acc + points.length, 0)
+  const professionsCount = Object.keys(spawnPoints).length
+
+  // The one save affordance (SaveBar) follows the tab on screen: what it
+  // saves, what Discard puts back, and the Save wording each tab always had
+  // ("Save & reload" only where an RCON reload really is attempted).
+  const saveTarget = ((): {
+    dirty: boolean
+    onSave: () => void
+    onDiscard: () => void
+    saveLabel: string
+    changeCount?: number
+    invalid: boolean
+  } | null => {
+    const structured = editorMode === 'structured'
+    switch (activeTab) {
+      case 'ini':
+        return {
+          dirty: hasIniChanges,
+          onSave: () => { void handleSaveIni() },
+          onDiscard: discardIniChanges,
+          saveLabel: t('editorToolbar.saveAndReload'),
+          changeCount: structured ? changedIniCount : undefined,
+          invalid: structured && invalidIniSettings.length > 0,
+        }
+      case 'sandbox':
+        return {
+          dirty: hasSandboxChanges,
+          onSave: () => { void handleSaveSandbox() },
+          onDiscard: discardSandboxChanges,
+          saveLabel: t('editorToolbar.save'),
+          changeCount: structured ? changedSandboxCount : undefined,
+          invalid: structured && invalidSandboxSettings.length > 0,
+        }
+      case 'spawnpoints':
+        return {
+          dirty: hasSpawnPointChanges,
+          onSave: () => { void handleSaveSpawnPoints() },
+          onDiscard: discardRawEdits,
+          saveLabel: t('editorToolbar.save'),
+          invalid: false,
+        }
+      case 'spawnregions':
+        return {
+          dirty: hasSpawnRegionChanges,
+          onSave: () => { void handleSaveSpawnRegions() },
+          onDiscard: discardSpawnRegionChanges,
+          saveLabel: t('editorToolbar.save'),
+          changeCount: structured ? changedSpawnRegionCount : undefined,
+          invalid: false,
+        }
+      default:
+        return null
+    }
+  })()
+  const saveDisabledReason = serverChangedSinceLoad
+    ? t('toasts.serverChangedSinceLoad')
+    : saveTarget?.invalid
+      ? t('invalidValuesAlert.title')
+      : undefined
+
+  // ── Header ──────────────────────────────────────────────────────────────
+  const serverMeta = (
+    <>
+      <span className="inline-flex min-w-0 items-center gap-1.5">
+        <FolderOpen className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        {pathsInfo ? (
+          <span className="font-medium text-foreground">{pathsInfo.serverName}</span>
+        ) : activeServerName ? (
+          // pathsInfo is null here because the load failed -- but a
+          // remote-without-SFTP-transport failure (see loadData) still
+          // means a real server is active, just not this one, so say so
+          // instead of "No server selected", which the sidebar right
+          // next to this page already contradicts.
+          <span className="font-medium text-foreground">{activeServerName}</span>
+        ) : (
+          <span>{t('activeServerStrip.noServerSelected')}</span>
+        )}
+      </span>
+      {pathsInfo && (
+        <span className="min-w-0 max-w-full truncate font-mono" title={pathsInfo.configPath} dir="ltr">
+          {pathsInfo.configPath}
+        </span>
+      )}
+      <StatChip
+        icon={<Settings className="h-3.5 w-3.5" />}
+        value={iniSettingsCount}
+        label={t('activeServerStrip.iniLabel')}
+        ok={pathsInfo?.exists.ini}
+      />
+      <StatChip
+        icon={<FileText className="h-3.5 w-3.5" />}
+        value={sandboxSettingsCount}
+        label={t('activeServerStrip.sandboxLabel')}
+        ok={pathsInfo?.exists.sandbox}
+      />
+      <StatChip
+        icon={<MapPin className="h-3.5 w-3.5" />}
+        value={spawnPointsCount}
+        label={t('activeServerStrip.spawnsLabel', { count: professionsCount })}
+      />
+      <StatChip
+        icon={<Map className="h-3.5 w-3.5" />}
+        value={spawnRegions.length}
+        label={t('activeServerStrip.regionsLabel')}
+      />
+    </>
+  )
+
+  const moreItems: RowActionItem[] = [
+    { label: t('pageHeader.backups'), icon: History, onSelect: () => { void loadBackups() } },
+    { label: t('pageHeader.templatesPage'), icon: LayoutTemplate, onSelect: () => { void guardedNavigate('/templates') } },
+    // Server Files is its own capability; the sidebar hides it without one.
+    ...(can('files.manage')
+      ? [{ label: t('pageHeader.openInFiles'), icon: FolderTree, onSelect: () => { void guardedNavigate(SERVER_FILES_CONFIG_LINK) } }]
+      : []),
+  ]
+
+  const header = (
+    <PageHeader
+      title={t('pageHeader.title')}
+      description={t('pageHeader.description')}
+      status={hasUnsavedChanges ? <StatusPill tone="warn" size="sm" label={t('pageHeader.unsavedChanges')} /> : undefined}
+      meta={canManageServerFiles && !loading ? serverMeta : undefined}
+      actions={canManageServerFiles ? (
+        <>
+          <Button
+            variant="ghost"
+            size="iconDense"
+            onClick={() => loadData({ manual: true })}
+            disabled={loading}
+            aria-label={t('pageHeader.refresh')}
+          >
+            <RefreshCw className={cn(loading && 'motion-safe:animate-spin')} aria-hidden="true" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={loadTemplates} disabled={templateLoading} aria-label={t('pageHeader.templates')}>
+            {templateLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Bookmark aria-hidden="true" />}
+            <span className="hidden sm:inline">{t('pageHeader.templates')}</span>
+          </Button>
+          <RowActions items={moreItems} ariaLabel={t('pageHeader.more')} />
+        </>
+      ) : undefined}
+    />
+  )
 
   if (!canManageServerFiles) {
     return (
-      <div className="space-y-4 page-transition">
+      <div className="space-y-6 page-transition">
+        {header}
         <EmptyState
           type="noData"
           title={t('noAccess.title')}
@@ -2933,2126 +3083,1355 @@ export default function ServerConfig() {
 
   if (loading) {
     return (
-      <div className="space-y-4 page-transition">
-        <div className="rounded-lg border border-border/40 bg-card/40 px-4 py-3 sm:px-5 sm:py-4">
-          <div className="h-3 w-20 rounded bg-muted/50 animate-pulse mb-2" />
-          <div className="h-6 w-64 rounded bg-muted/60 animate-pulse mb-2" />
-          <div className="h-3 w-96 rounded bg-muted/40 animate-pulse" />
-        </div>
-        <div className="rounded-md border border-border/55 bg-card/85 h-12 animate-pulse" />
-        <div className="flex gap-1">
-          {[0,1,2,3,4].map(i => (
-            <div key={i} className="flex-1 h-9 rounded-md bg-muted/40 animate-pulse" />
-          ))}
-        </div>
-        <div className="rounded-md border border-border/55 bg-card/85 h-[400px] flex items-center justify-center">
-          <div className="flex items-center gap-3 text-muted-foreground text-xs font-medium">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            {t('loading')}
+      <div className="space-y-6 page-transition">
+        {header}
+        <div className="space-y-4" role="status" aria-busy="true" aria-label={t('loading')}>
+          <Skeleton className="h-11 w-full sm:h-10" />
+          <div className="space-y-4 rounded-xl border border-border/60 bg-card p-5">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-9 w-full max-w-md" />
+            <div className="grid gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
+              <div className="hidden space-y-2 lg:block">
+                {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+              </div>
+              <div className="space-y-3">
+                {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     )
   }
 
-  // Stats calculations
-  const iniSettingsCount = Object.keys(iniSettings).length
-  const sandboxSettingsCount = sandboxData ? Object.keys(sandboxData.settings || {}).length : 0
-  const spawnPointsCount = Object.values(spawnPoints).reduce((acc, points) => acc + points.length, 0)
-  const professionsCount = Object.keys(spawnPoints).length
+  // ── Alerts ──────────────────────────────────────────────────────────────
+  // Page-level: the load itself, a server switch, and files the game can't
+  // read at all. Everything else sits at the top of the tab it is about.
+  const pageAlerts: PageAlert[] = []
+  if (loadError) {
+    pageAlerts.push(activeServerRemote
+      // Remote-with-no-SFTP-transport isn't a failure to retry -- it's a
+      // configuration step the operator hasn't done yet (same class as
+      // Backups.tsx's/ChunkCleaner's own remote-server alerts), so this
+      // is a warning without a Retry: retrying can't turn a remote server
+      // into a local one, or add SFTP details on its own.
+      ? { id: 'load-error', tone: 'warning', title: t('loadErrorTitle'), description: <span className="break-words" dir="auto">{loadError}</span> }
+      : {
+          id: 'load-error',
+          tone: 'error',
+          title: t('loadErrorTitle'),
+          description: <span className="break-words" dir="auto">{loadError}</span>,
+          action: { label: t('retry'), onClick: () => loadData({ manual: true }) },
+        })
+  }
+  if (serverChangedSinceLoad) {
+    pageAlerts.push({
+      id: 'server-changed',
+      tone: 'error',
+      title: t('serverChangedBanner.title'),
+      description: t('serverChangedBanner.desc'),
+      action: { label: t('retry'), onClick: () => loadData({ manual: true }) },
+    })
+  }
+  // A server.ini line the game can't make an option of ("= x", "Version=")
+  // makes it ignore the WHOLE file: ServerOptions applies nothing from it, so
+  // the server runs on the default of every setting and every value this
+  // page shows is moot. The form can't show such a line, so the alert names
+  // it for the raw editor (server/utils/iniGameView.js findIniFatalLines).
+  if (shownIniFatalLines.length > 0) {
+    pageAlerts.push({
+      id: 'ini-fatal-lines',
+      tone: 'error',
+      title: t('iniFatalLinesBanner.title'),
+      description: t('iniFatalLinesBanner.desc', { count: shownIniFatalLines.length, lines: shownIniFatalLines.join(listSep) }),
+    })
+  }
+  // SandboxVars.lua the game can't load (the #197 "Explosives = 1"
+  // corruption, a hand edit gone wrong, a file with no SandboxVars table):
+  // the form has nothing to show and PUT /sandbox refuses to edit it, so say
+  // why and where to fix it. The detail is the parser's own message, the
+  // same wording the game logs.
+  if (sandboxParseError) {
+    pageAlerts.push({
+      id: 'sandbox-parse-error',
+      tone: 'error',
+      title: t('sandboxParseErrorBanner.title'),
+      description: (
+        <span className="block space-y-1">
+          <code className="block break-words font-mono text-xs" dir="ltr">{sandboxParseError}</code>
+          <span className="block">{t('sandboxParseErrorBanner.desc')}</span>
+        </span>
+      ),
+    })
+  }
+  // A setting that appears more than once as its own line in the raw INI.
+  // This editor's parseIni() lets the LAST occurrence win, while the Mods
+  // page's own reads/writes only ever see the FIRST -- two screens showing
+  // different values for the same nominal setting. Same condition as
+  // Mods.tsx's own duplicateKeysWarning (see server/utils/iniDuplicateKeys.js).
+  if (duplicateKeys.length > 0) {
+    pageAlerts.push({
+      id: 'duplicate-keys',
+      tone: 'warning',
+      title: t('duplicateKeysWarning.title', { count: duplicateKeys.length, keys: duplicateKeys.map(d => d.key).join(', ') }),
+      description: t('duplicateKeysWarning.desc'),
+    })
+  }
+
+  const stopServerAlert: PageAlert | null = serverMayBeRunning
+    ? {
+        id: 'server-running',
+        tone: 'info',
+        title: serverRunning === true ? t('stopServerAlert.title') : t('stopServerAlert.unknownTitle'),
+        description: serverRunning === true ? t('stopServerAlert.description') : t('stopServerAlert.unknownDescription'),
+      }
+    : null
+
+  // #197: the world save has a map_sand.bin, which the game applies over
+  // SandboxVars.lua on every start, so sandbox edits saved to SandboxVars.lua
+  // (here, in Raw mode, or in the in-game admin panel) are undone at the next
+  // restart. Live edits through PanelBridge are written to it too (the toast
+  // says which). The action stays visible while it can't run, with the reason.
+  const worldSnapshotAlert: PageAlert | null = worldSandboxSnapshot
+    ? {
+        id: 'world-sandbox-snapshot',
+        tone: 'warning',
+        title: t('worldSandboxSnapshotBanner.title'),
+        description: (
+          <span className="block space-y-2">
+            <span className="block">{t('worldSandboxSnapshotBanner.desc', { date: formatDateTime(worldSandboxSnapshot.mtime, { seconds: true }) })}</span>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRetireWorldSandboxSnapshot}
+                disabled={worldSandboxSnapshotRetireBlocked || retiringWorldSandboxSnapshot}
+              >
+                {retiringWorldSandboxSnapshot && <Loader2 className="animate-spin" aria-hidden="true" />}
+                {t('worldSandboxSnapshotBanner.action')}
+              </Button>
+              {worldSandboxSnapshotRetireBlocked && (
+                <span className="text-xs text-muted-foreground">{t('worldSandboxSnapshotBanner.stopFirst')}</span>
+              )}
+            </span>
+          </span>
+        ),
+      }
+    : null
+
+  // Unresolved Mods= entries handed over by Diagnostics: each with the fix
+  // its triage found, plus the way to the Mods page where they are managed.
+  const unresolvedModsList = (
+    <span className="mt-1 block space-y-3">
+      {initialDeepLink.unresolved.map((modId) => {
+        const triage = initialDeepLink.unresolvedTriage.get(modId)
+        // Chip + action button share one line (both short, never wrap
+        // badly); the explanation is its own line below so a long sentence
+        // (workshopNotOnDisk especially) can wrap freely without dragging
+        // the button out of line with the chip.
+        return (
+          <span key={modId} className="block">
+            <span className="flex flex-wrap items-center gap-2">
+              <code className="rounded border border-warning/30 bg-background/50 px-1.5 py-0.5 font-mono text-xs text-foreground">
+                {modId}
+              </code>
+              {triage?.cause === 'typo' && triage.suggestion && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => applyUnresolvedModCorrection(modId, triage.suggestion as string)}
+                >
+                  {t('unresolvedReview.correctAction', { suggestion: triage.suggestion })}
+                </Button>
+              )}
+              {(triage?.cause === 'stillDownloading' || triage?.cause === 'workshopNotOnDisk') && (
+                <Link to="/debug" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                  {t('unresolvedReview.rerunDiagnostics')}
+                </Link>
+              )}
+              {triage?.cause === 'absent' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                  onClick={() => removeUnresolvedModEntry(modId)}
+                >
+                  {t('unresolvedReview.removeAction')}
+                </Button>
+              )}
+              {triage?.cause === 'panelBridge' && (
+                <Link to="/settings?tab=bridge" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                  {t('unresolvedReview.openBridgeSettings')}
+                </Link>
+              )}
+            </span>
+            <span className="mt-1 block text-xs text-muted-foreground">
+              {!triage && t('unresolvedReview.causeUnknown')}
+              {triage?.cause === 'typo' && triage.suggestion && t('unresolvedReview.causeTypo', { suggestion: triage.suggestion })}
+              {triage?.cause === 'stillDownloading' && t('unresolvedReview.causeStillDownloading')}
+              {triage?.cause === 'workshopNotOnDisk' && t('unresolvedReview.causeWorkshopNotOnDisk')}
+              {triage?.cause === 'absent' && t('unresolvedReview.causeAbsent')}
+              {triage?.cause === 'panelBridge' && t('unresolvedReview.causePanelBridge')}
+            </span>
+          </span>
+        )
+      })}
+    </span>
+  )
+
+  const iniAlerts: PageAlert[] = []
+  if (editorMode === 'structured' && invalidIniSettings.length > 0) {
+    iniAlerts.push({
+      id: 'invalid-values',
+      tone: 'error',
+      title: t('invalidValuesAlert.title'),
+      description: t('invalidValuesAlert.description', { settings: invalidIniSettings.map(getIniSettingLabel).join(listSep) }),
+    })
+  }
+  if (luaChecksumCallout === 'localBlocked') {
+    iniAlerts.push({
+      id: 'lua-checksum',
+      tone: 'error',
+      title: t('iniTab.luaChecksumTitle'),
+      description: <Trans i18nKey="iniTab.luaChecksumBody" t={t} components={{ 1: <strong /> }} />,
+      action: { label: t('iniTab.disableNow'), onClick: () => updateIniValue('DoLuaChecksum', 'false') },
+    })
+  }
+  if (initialDeepLink.unresolved.length > 0) {
+    iniAlerts.push({
+      id: 'unresolved-mods',
+      tone: 'warning',
+      title: t('unresolvedReview.title'),
+      description: unresolvedModsList,
+      action: { label: t('unresolvedReview.openActiveMods'), to: '/mods?view=active' },
+    })
+  }
+  if (editorMode === 'structured' && outOfRangeIniSettings.length > 0) {
+    iniAlerts.push({
+      id: 'out-of-range',
+      tone: 'warning',
+      title: getSandboxOutOfRangeAllowedTitle(),
+      description: getSandboxOutOfRangeAllowedBody(outOfRangeIniSettings.map(getIniSettingLabel).join(listSep)),
+    })
+  }
+  if (luaChecksumCallout === 'workshopUnconfirmed') {
+    iniAlerts.push({
+      id: 'lua-checksum',
+      tone: 'warning',
+      title: t('iniTab.luaChecksumTitle'),
+      description: t('iniTab.luaChecksumWorkshopUnconfirmed'),
+      action: { label: t('iniTab.disableNow'), onClick: () => updateIniValue('DoLuaChecksum', 'false') },
+    })
+  }
+  if (luaChecksumCallout === 'workshopNote') {
+    iniAlerts.push({ id: 'lua-checksum', tone: 'info', title: t('iniTab.luaChecksumWorkshopNote') })
+  }
+  if (stopServerAlert) iniAlerts.push(stopServerAlert)
+
+  const sandboxAlerts: PageAlert[] = []
+  if (editorMode === 'structured' && invalidSandboxSettings.length > 0) {
+    sandboxAlerts.push({
+      id: 'invalid-values',
+      tone: 'error',
+      title: t('invalidValuesAlert.title'),
+      description: t('invalidValuesAlert.description', { settings: invalidSandboxSettings.map(getSandboxSettingLabel).join(listSep) }),
+    })
+  }
+  // Non-blocking: the sandboxRangeOverride toggle (Settings.tsx) let these
+  // through invalidSandboxSettings above on purpose -- still surfaced so the
+  // operator can SEE what's out of range ("warn, do not block").
+  if (editorMode === 'structured' && outOfRangeSandboxSettings.length > 0) {
+    sandboxAlerts.push({
+      id: 'out-of-range',
+      tone: 'warning',
+      title: getSandboxOutOfRangeAllowedTitle(),
+      description: getSandboxOutOfRangeAllowedBody(outOfRangeSandboxSettings.map(getSandboxSettingLabel).join(listSep)),
+    })
+  }
+  if (worldSnapshotAlert) sandboxAlerts.push(worldSnapshotAlert)
+  // Only once a load has genuinely failed (never while idle/loading), and it
+  // never blocks the tab -- SANDBOX_SCHEMA's own table is still usable.
+  if (sandboxLiveRangesStatus === 'unavailable') {
+    sandboxAlerts.push({
+      id: 'live-ranges',
+      tone: 'info',
+      title: getSandboxLiveRangesUnavailableTitle(),
+      description: getSandboxLiveRangesUnavailableBody(),
+      action: { label: t('modSettingsTab.retry'), onClick: () => { void loadModSettings() } },
+    })
+  }
+  if (stopServerAlert) sandboxAlerts.push(stopServerAlert)
+
+  const spawnAlerts: PageAlert[] = stopServerAlert ? [stopServerAlert] : []
+
+  const modSettingsAlerts: PageAlert[] = []
+  if (modSettingsError) {
+    modSettingsAlerts.push({
+      id: 'mod-settings-error',
+      tone: modSettings ? 'warning' : 'error',
+      title: modSettings ? t('modSettingsTab.refreshFailedTitle') : t('modSettingsTab.loadFailedTitle'),
+      description: <span className="break-words">{modSettingsError}</span>,
+      action: { label: t('modSettingsTab.retry'), onClick: () => { void loadModSettings() } },
+    })
+  }
+  if (modSettings && modSettingsBridgeOutdated) {
+    modSettingsAlerts.push({
+      id: 'bridge-outdated',
+      tone: 'warning',
+      title: t('modSettingsTab.enumBridgeOutdatedTitle'),
+      description: t('modSettingsTab.enumBridgeOutdatedDesc'),
+      action: { label: t('unresolvedReview.openBridgeSettings'), to: '/settings?tab=bridge' },
+    })
+  }
+  if (worldSnapshotAlert) modSettingsAlerts.push(worldSnapshotAlert)
+
+  // ── Shared pieces of the file tabs ───────────────────────────────────────
+  // Form / Raw: two toggle buttons (the switch asks before dropping edits).
+  const editorModeToggle = (type: ConfigFileType, formLabel = t('editorToolbar.form')) => (
+    <span className="inline-flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5">
+      <Button
+        type="button"
+        variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
+        size="sm"
+        onClick={() => openFormEditor()}
+        aria-pressed={editorMode === 'structured'}
+        className="px-2.5"
+      >
+        <FormInput aria-hidden="true" /> {formLabel}
+      </Button>
+      <Button
+        type="button"
+        variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
+        size="sm"
+        onClick={() => openRawEditor(type)}
+        aria-pressed={editorMode === 'raw'}
+        className="px-2.5"
+      >
+        <Code aria-hidden="true" /> {t('editorToolbar.raw')}
+      </Button>
+    </span>
+  )
+
+  const editorActions = (type: ConfigFileType, downloadLabel: string, link?: { href: string; label: string }) => (
+    <>
+      {editorModeToggle(type)}
+      <Button variant="ghost" size="iconDense" onClick={() => handleCreateBackup(type)} aria-label={downloadLabel} title={downloadLabel}>
+        <Download aria-hidden="true" />
+      </Button>
+      {link && (
+        <a href={link.href} target="_blank" rel="noopener noreferrer" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+          <ExternalLink aria-hidden="true" /> {link.label}
+        </a>
+      )}
+    </>
+  )
+
+  const rawEditor = (heightClass: string) => (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="iconDense"
+        className="absolute end-2 top-2 z-10"
+        onClick={handleCopyRaw}
+        aria-label={copied ? t('editorToolbar.copied') : t('editorToolbar.copyToClipboard')}
+        title={copied ? t('editorToolbar.copied') : t('editorToolbar.copyToClipboard')}
+      >
+        {copied ? <Check className="text-primary" aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      </Button>
+      <Textarea
+        value={rawContent}
+        onChange={(e) => setRawContent(e.target.value)}
+        className={cn('resize-y font-mono text-sm', heightClass)}
+        spellCheck={false}
+        dir="ltr"
+      />
+    </div>
+  )
+
+  // Search + All / Modified / Unsaved, shared by the INI and Sandbox forms.
+  // "/" focuses the search (DESIGN.md keyboard rule).
+  const settingsToolbar = (placeholder: string, ariaLabel: string) => (
+    <Toolbar
+      search={{
+        value: searchQuery,
+        onChange: (value) => setSearchQuery(value.slice(0, 128)),
+        placeholder,
+        ariaLabel,
+        slashToFocus: true,
+      }}
+      end={
+        <Segmented<FilterMode>
+          value={filterMode}
+          onValueChange={setFilterMode}
+          ariaLabel={t('search.filterAria')}
+          items={[
+            { value: 'all', label: t('search.filterAll') },
+            { value: 'modified', label: t('search.filterModified') },
+            { value: 'nondefault', label: t('search.filterUnsaved') },
+          ]}
+        />
+      }
+    >
+      {searchQuery && (
+        <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+          {t('categoriesNav.matchCount', { count: searchResultsCount })}
+        </span>
+      )}
+    </Toolbar>
+  )
+
+  const categoryHeading = (label: ReactNode, count: ReactNode, tone: 'default' | 'warning' = 'default') => (
+    <div className={cn('mb-3 flex items-baseline justify-between gap-3 border-b pb-2', tone === 'warning' ? 'border-warning/30' : 'border-border/60')}>
+      <h3 className={cn('text-sm font-semibold', tone === 'warning' ? 'text-warning' : 'text-foreground')}>{label}</h3>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{count}</span>
+    </div>
+  )
+
+  const emptyCategory = (
+    <p className="py-10 text-center text-sm text-muted-foreground">
+      {filterMode === 'modified' ? t('categoryContent.noneModified') :
+       filterMode === 'nondefault' ? t('categoryContent.noneUnsaved') :
+       t('categoryContent.none')}
+    </p>
+  )
+
+  const noSearchMatches = (
+    <p className="py-10 text-center text-sm text-muted-foreground">
+      {t('search.noMatches', { query: searchQuery })}
+    </p>
+  )
+
+  const renderIniRow = (setting: IniSetting) => (
+    <IniSettingRow
+      key={setting.key}
+      setting={setting}
+      value={iniSettings[setting.key] || ''}
+      originalValue={originalIniSettings[setting.key]}
+      onChange={updateIniValue}
+      onReset={resetIniValue}
+      onBrowse={openFileBrowser}
+      allowOutOfRange={allowOutOfRangeSandbox}
+      misnamedAs={iniMisnamedKeys[setting.key]}
+      misnamedFileValue={iniMisnamedValues[setting.key]}
+      secretCutAtEquals={iniMaskedCutAtEqualsKeys.includes(setting.key)}
+    />
+  )
+
+  const renderSandboxRow = (setting: SandboxSetting) => (
+    <SandboxSettingRow
+      key={`${setting.section || 'settings'}.${setting.key}`}
+      setting={setting}
+      value={(sandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
+      originalValue={(originalSandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
+      onChange={updateSandboxValue}
+      onReset={resetSandboxValue}
+      allowOutOfRange={allowOutOfRangeSandbox}
+    />
+  )
+
+  const categoryCount = (count: number) => (
+    <span className="text-xs tabular-nums text-muted-foreground">{count}</span>
+  )
+
+  // The category rails: one SubNav each (a select below lg). A group whose
+  // categories are all empty under the current filter leaves the rail.
+  const iniNavGroups: SubNavGroup[] = [
+    ...INI_CATEGORY_GROUPS.map((group) => ({
+      id: group.id,
+      label: getIniCategoryGroupLabel(group),
+      items: INI_CATEGORIES
+        .filter((category) => category.group === group.id)
+        .filter((category) => filterMode === 'all' || (filteredIniSettings[category.id] || []).length > 0)
+        .map((category) => ({
+          id: category.id,
+          label: getIniCategoryLabel(category),
+          icon: categoryIcon(category.icon),
+          dirty: (iniModifiedByCategory[category.id] || 0) > 0,
+          badge: categoryCount((filteredIniSettings[category.id] || []).length),
+        })),
+    })).filter((group) => group.items.length > 0),
+    ...(uncategorizedIniKeys.length > 0
+      ? [{
+          id: 'uncategorized',
+          items: [{
+            id: 'uncategorized',
+            label: t('categoriesNav.uncategorizedIniLabel'),
+            icon: HelpCircle,
+            tone: 'warning' as const,
+            badge: categoryCount(uncategorizedIniKeys.length),
+          }],
+        }]
+      : []),
+  ]
+
+  const sandboxNavGroups: SubNavGroup[] = [
+    ...SANDBOX_CATEGORY_GROUPS.map((group) => ({
+      id: group.id,
+      label: getSandboxCategoryGroupLabel(group),
+      items: SANDBOX_CATEGORIES
+        .filter((category) => category.group === group.id)
+        .filter((category) => filterMode === 'all' || (filteredSandboxSettings[category.id] || []).length > 0)
+        .map((category) => ({
+          id: category.id,
+          label: getSandboxCategoryLabel(category),
+          icon: categoryIcon(category.icon),
+          dirty: (sandboxModifiedByCategory[category.id] || 0) > 0,
+          badge: categoryCount((filteredSandboxSettings[category.id] || []).length),
+        })),
+    })).filter((group) => group.items.length > 0),
+    ...(uncategorizedSandboxKeys.length > 0
+      ? [{
+          id: 'uncategorized',
+          items: [{
+            id: 'uncategorized',
+            label: t('categoriesNav.uncategorizedSandboxLabel'),
+            icon: HelpCircle,
+            tone: 'warning' as const,
+            badge: categoryCount(uncategorizedSandboxKeys.length),
+          }],
+        }]
+      : []),
+  ]
+
+  const iniCategoryContent = () => {
+    if (activeIniCategory === 'uncategorized') {
+      if (uncategorizedIniKeys.length === 0) {
+        return <p className="py-10 text-center text-sm text-muted-foreground">{t('uncategorizedIni.empty')}</p>
+      }
+      return (
+        <div>
+          {categoryHeading(t('uncategorizedIni.heading'), t('uncategorizedIni.keyCount', { count: uncategorizedIniKeys.length }), 'warning')}
+          <p className="mb-3 text-xs text-muted-foreground">{t('uncategorizedIni.description')}</p>
+          <div className="space-y-1">
+            {uncategorizedIniKeys.map(({ key, value }) => {
+              const orig = originalIniSettings[key]
+              const isModified = orig !== undefined && orig !== value
+              return (
+                <div key={key} className={cn('flex flex-wrap items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors', isModified ? 'border border-warning/20 bg-warning/10' : 'hover:bg-muted/50')}>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="truncate font-mono text-sm" title={key}>{key}</span>
+                    {isModified && (
+                      <Button
+                        variant="ghost"
+                        size="iconDense"
+                        className="text-warning hover:text-warning"
+                        onClick={() => setIniSettings(prev => ({ ...prev, [key]: orig ?? '' }))}
+                        title={t('uncategorizedIni.undoTitle')}
+                        aria-label={t('uncategorizedIni.undoTitle')}
+                      >
+                        <Undo2 aria-hidden="true" />
+                      </Button>
+                    )}
+                  </div>
+                  <Input
+                    className="h-9 w-full text-sm sm:w-56"
+                    value={value}
+                    maxLength={500}
+                    aria-label={key}
+                    onChange={e => setIniSettings(prev => ({ ...prev, [key]: e.target.value }))}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+    const settings = filteredIniSettings[activeIniCategory] || []
+    const active = INI_CATEGORIES.find(c => c.id === activeIniCategory)
+    if (settings.length === 0) return emptyCategory
+    return (
+      <div>
+        {categoryHeading(active ? getIniCategoryLabel(active) : null, t('categoryContent.settingCount', { count: settings.length }))}
+        <div className="space-y-1">{settings.map(renderIniRow)}</div>
+      </div>
+    )
+  }
+
+  const sandboxCategoryContent = () => {
+    if (activeSandboxCategory === 'uncategorized') {
+      if (uncategorizedSandboxKeys.length === 0) {
+        return <p className="py-10 text-center text-sm text-muted-foreground">{t('uncategorizedSandbox.empty')}</p>
+      }
+      return (
+        <div>
+          {categoryHeading(t('uncategorizedSandbox.heading'), t('uncategorizedSandbox.keyCount', { count: uncategorizedSandboxKeys.length }), 'warning')}
+          <p className="mb-3 text-xs text-muted-foreground">{t('uncategorizedSandbox.description')}</p>
+          <div className="space-y-5">
+            {Object.entries(uncategorizedGroups).map(([groupName, groupEntries]) => (
+              <div key={groupName}>
+                <div className="mb-1.5 flex items-baseline justify-between border-b border-border/40 pb-1">
+                  <h4 className={cn('text-xs font-semibold text-muted-foreground', groupName !== 'settings' && 'font-mono')}>
+                    {groupName === 'settings' ? t('uncategorizedSandbox.mainSection') : groupName}
+                  </h4>
+                  <span className="text-xs tabular-nums text-muted-foreground">{groupEntries.length}</span>
+                </div>
+                <div className="space-y-1">
+                  {groupEntries.map(({ section, key, value }) => {
+                    const origSection = originalSandboxData?.[section as keyof SandboxData]
+                    const origValue = typeof origSection === 'object' ? (origSection as Record<string, unknown>)?.[key] : undefined
+                    const isModified = value !== origValue
+                    return (
+                      <div key={`${section}.${key}`} className={cn('flex flex-wrap items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors', isModified ? 'border border-warning/20 bg-warning/10' : 'hover:bg-muted/50')}>
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="truncate font-mono text-sm" title={key}>{key}</span>
+                          {isModified && (
+                            <Button
+                              variant="ghost"
+                              size="iconDense"
+                              className="text-warning hover:text-warning"
+                              onClick={() => {
+                                if (origValue !== undefined) {
+                                  setSandboxData(prev => {
+                                    if (!prev) return prev
+                                    const s = { ...(prev[section as keyof SandboxData] as Record<string, unknown> || {}) }
+                                    s[key] = origValue
+                                    return { ...prev, [section]: s } as SandboxData
+                                  })
+                                }
+                              }}
+                              title={t('uncategorizedSandbox.undoTitle')}
+                              aria-label={t('uncategorizedSandbox.undoTitle')}
+                            >
+                              <Undo2 aria-hidden="true" />
+                            </Button>
+                          )}
+                        </div>
+                        <Input
+                          className="h-9 w-full shrink-0 text-sm sm:w-48"
+                          value={String(value)}
+                          maxLength={500}
+                          aria-label={key}
+                          onChange={e => {
+                            const raw = e.target.value
+                            let parsed: string | number | boolean = raw
+                            if (raw === 'true') parsed = true
+                            else if (raw === 'false') parsed = false
+                            else if (raw !== '' && !isNaN(Number(raw))) parsed = Number(raw)
+                            setSandboxData(prev => {
+                              if (!prev) return prev
+                              const s = { ...(prev[section as keyof SandboxData] as Record<string, unknown> || {}) }
+                              s[key] = parsed
+                              return { ...prev, [section]: s } as SandboxData
+                            })
+                          }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+    const settings = filteredSandboxSettings[activeSandboxCategory] || []
+    const active = SANDBOX_CATEGORIES.find(c => c.id === activeSandboxCategory)
+    if (settings.length === 0) return emptyCategory
+    return (
+      <div>
+        {categoryHeading(active ? getSandboxCategoryLabel(active) : null, t('categoryContent.settingCount', { count: settings.length }))}
+        <div className="space-y-1">{settings.map(renderSandboxRow)}</div>
+      </div>
+    )
+  }
+
+  const tabDefs = [
+    // pathsInfo is null both for a genuinely-unconfigured panel (where
+    // "missing" is correct -- there is no file) and for a remote server with
+    // no SFTP transport set up (loadData), where nothing is actually
+    // confirmed missing, only unreachable. The load alert already explains
+    // the remote case -- don't also claim these two files are missing.
+    { value: 'ini', label: t('tabs.serverSettings'), icon: Settings, dirty: hasIniChanges, count: changedIniCount, missing: !activeServerRemote && !pathsInfo?.exists.ini },
+    { value: 'sandbox', label: t('tabs.sandbox'), icon: FileText, dirty: hasSandboxChanges, count: changedSandboxCount, missing: !activeServerRemote && !pathsInfo?.exists.sandbox },
+    { value: 'spawnpoints', label: t('tabs.spawnPoints'), icon: MapPin, dirty: hasSpawnPointChanges, count: 0, missing: false },
+    { value: 'spawnregions', label: t('tabs.spawnRegions'), icon: Map, dirty: hasSpawnRegionChanges, count: 0, missing: false },
+    { value: 'modsettings', label: t('tabs.modSettings'), icon: Puzzle, dirty: false, count: modifiedModSettingsCount, missing: false },
+  ] as const
 
   return (
-    <div className="space-y-4 page-transition pb-24">
-      {loadError && (
-        activeServerRemote ? (
-          // Remote-with-no-SFTP-transport isn't a failure to retry -- it's a
-          // configuration step the operator hasn't done yet (same class as
-          // Backups.tsx's/ChunkCleaner's own remote-server alerts), so this
-          // uses their warning styling instead of a destructive one, and
-          // drops the Retry button: retrying can't turn a remote server into
-          // a local one, or add SFTP details on its own.
-          <Alert className="border-warning/40 bg-warning/10">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
-            <AlertDescription className="min-w-0 break-words" dir="auto" title={loadError}>
-              {loadError}
-            </AlertDescription>
-          </Alert>
-        ) : (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{t('loadErrorTitle')}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="min-w-0 break-words" dir="auto" title={loadError}>{loadError}</span>
-              <Button variant="outline" size="sm" onClick={() => loadData({ manual: true })} className="self-start">
-                <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )
-      )}
+    <div className="space-y-6 page-transition">
+      {header}
+      <PageAlerts alerts={pageAlerts} />
 
-      {/* Duplicate-key warning: a setting appears more than once as its own
-          line in the raw INI. This editor's parseIni() (a line-by-line
-          `result[key] = value` loop) lets the LAST occurrence win, while the
-          Mods page's own reads/writes only ever see the FIRST -- two screens
-          the operator can both have open at once, showing different values
-          for the same nominal setting. Same idiom as Mods.tsx's own
-          duplicateKeysWarning (d725dbe) on purpose: one condition, one
-          visual language, not two. See server/utils/iniDuplicateKeys.js. */}
-      {duplicateKeys.length > 0 && (
-        <div className="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-start gap-3 sm:items-center">
-            <AlertTriangle className="w-5 h-5 text-warning" />
-            <div>
-              <p className="font-medium text-warning">
-                {t('duplicateKeysWarning.title', {
-                  count: duplicateKeys.length,
-                  keys: duplicateKeys.map(d => d.key).join(', '),
-                })}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {t('duplicateKeysWarning.desc')}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* A server.ini line the game can't make an option of ("= x",
-          "Version=") makes it ignore the WHOLE file: ServerOptions applies
-          nothing from it, so the server runs on the default of every setting
-          and every value this page shows is moot. The form can't show such a
-          line, so the banner names it for the raw editor
-          (server/utils/iniGameView.js findIniFatalLines). */}
-      {shownIniFatalLines.length > 0 && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('iniFatalLinesBanner.title')}</AlertTitle>
-          <AlertDescription>
-            {t('iniFatalLinesBanner.desc', { count: shownIniFatalLines.length, lines: shownIniFatalLines.join(listSep) })}
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* SandboxVars.lua the game can't load (the #197 "Explosives = 1"
-          corruption, a hand edit gone wrong, a file with no SandboxVars
-          table): the form has nothing to show and PUT /sandbox refuses to
-          edit it, so say why and where to fix it. The detail is the
-          parser's own message, the same wording the game logs. */}
-      {sandboxParseError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('sandboxParseErrorBanner.title')}</AlertTitle>
-          <AlertDescription className="space-y-1">
-            <code className="block break-words font-mono text-xs" dir="ltr">{sandboxParseError}</code>
-            <span className="block">{t('sandboxParseErrorBanner.desc')}</span>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {serverChangedSinceLoad && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('serverChangedBanner.title')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="min-w-0 break-words">
-              {t('serverChangedBanner.desc')}
-            </span>
-            <Button variant="outline" size="sm" onClick={() => loadData({ manual: true })} className="self-start">
-              <RefreshCw className="me-2 h-4 w-4" /> {t('retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <PageHeader
-        title={t('pageHeader.title')}
-        description={t('pageHeader.description')}
-        eyebrow={t('pageHeader.eyebrow')}
-        tone="config"
-        icon={<Settings className="h-5 w-5 text-primary" />}
-        actions={
-          <div className="flex flex-wrap items-center gap-1.5">
-            {(hasIniChanges || hasSandboxChanges) && (
-              <Badge variant="warning" className="motion-safe:animate-pulse text-xs font-medium">
-                <AlertTriangle className="me-1 h-3 w-3" />
-                {t('pageHeader.unsavedChanges')}
-              </Badge>
-            )}
-            <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadTemplates}>
-              <Bookmark className="h-3.5 w-3.5" /> {t('pageHeader.templates')}
-            </Button>
-            <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={loadBackups}>
-              <History className="h-3.5 w-3.5" /> {t('pageHeader.backups')}
-            </Button>
-            <Button variant="command" size="sm" className="h-9 gap-1.5 text-xs font-medium" onClick={() => loadData({ manual: true })}>
-              <RefreshCw className="h-3.5 w-3.5" /> {t('pageHeader.refresh')}
-            </Button>
-          </div>
-        }
-      />
-
-      {/* ACTIVE SERVER STRIP */}
-      <TacticalPanel tone="primary">
-        <div className="px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span>{t('activeServerStrip.label')}</span>
-            </div>
-            {pathsInfo ? (
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm font-semibold text-foreground">
-                  {pathsInfo.serverName}
-                </span>
-                <span className="text-muted-foreground/40">·</span>
-                <span
-                  className="min-w-0 truncate font-mono text-xs text-muted-foreground"
-                  title={pathsInfo.configPath}
-                  dir="ltr"
-                >
-                  {pathsInfo.configPath}
-                </span>
-              </div>
-            ) : activeServerName ? (
-              // pathsInfo is null here because the load failed -- but a
-              // remote-without-SFTP-transport failure (see loadData) still
-              // means a real server is active, just not this one, so say so
-              // instead of "No server selected", which the sidebar right
-              // next to this strip already contradicts.
-              <span className="text-sm font-semibold text-foreground">{activeServerName}</span>
-            ) : (
-              <span className="text-xs text-muted-foreground/60">{t('activeServerStrip.noServerSelected')}</span>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-muted-foreground">
-            <StatChip
-              icon={<Settings className="h-3 w-3" />}
-              value={iniSettingsCount}
-              label={t('activeServerStrip.iniLabel')}
-              ok={pathsInfo?.exists.ini}
-            />
-            <span className="h-3 w-px bg-border/60" aria-hidden />
-            <StatChip
-              icon={<FileText className="h-3 w-3" />}
-              value={sandboxSettingsCount}
-              label={t('activeServerStrip.sandboxLabel')}
-              ok={pathsInfo?.exists.sandbox}
-            />
-            <span className="h-3 w-px bg-border/60" aria-hidden />
-            <StatChip
-              icon={<MapPin className="h-3 w-3" />}
-              value={spawnPointsCount}
-              label={t('activeServerStrip.spawnsLabel', { count: professionsCount })}
-            />
-            <span className="h-3 w-px bg-border/60" aria-hidden />
-            <StatChip
-              icon={<Map className="h-3 w-3" />}
-              value={spawnRegions.length}
-              label={t('activeServerStrip.regionsLabel')}
-            />
-          </div>
-        </div>
-      </TacticalPanel>
-
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="flex h-auto flex-wrap gap-1 bg-muted/30 border border-border/50 p-1 rounded-md w-full">
-          {([
-            // pathsInfo is null both for a genuinely-unconfigured panel (where
-            // "missing" is correct -- there is no file) and for a remote
-            // server with no SFTP transport set up (loadData, ~line 1050),
-            // where nothing is actually confirmed missing, only unreachable.
-            // The banner above already explains the real reason for the
-            // remote case with its own copy -- don't also claim these two
-            // specific files are missing, which the sidebar's REMOTE badge
-            // two rows up already contradicts.
-            { value: 'ini', label: t('tabs.serverSettings'), icon: Settings, dirty: hasIniChanges, count: changedIniCount, missing: !activeServerRemote && !pathsInfo?.exists.ini },
-            { value: 'sandbox', label: t('tabs.sandbox'), icon: FileText, dirty: hasSandboxChanges, count: changedSandboxCount, missing: !activeServerRemote && !pathsInfo?.exists.sandbox },
-            { value: 'spawnpoints', label: t('tabs.spawnPoints'), icon: MapPin, dirty: false, count: 0, missing: false },
-            { value: 'spawnregions', label: t('tabs.spawnRegions'), icon: Map, dirty: false, count: 0, missing: false },
-            { value: 'modsettings', label: t('tabs.modSettings'), icon: Puzzle, dirty: false, count: modifiedModSettingsCount, missing: false },
-          ] as const).map((tabDef) => (
-            <TabsTrigger
-              key={tabDef.value}
-              value={tabDef.value}
-              className="flex-1 min-w-[120px] flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:shadow-none"
-            >
-              <tabDef.icon className="w-4 h-4 shrink-0" />
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-4">
+        {/* One row that scrolls sideways on a phone instead of wrapping
+            into a block of buttons above the content. */}
+        <TabsList ref={tabListRef} aria-label={t('tabs.listAria')} className="nav-scroll flex h-auto w-full justify-start gap-1 overflow-x-auto">
+          {tabDefs.map((tabDef) => (
+            <TabsTrigger key={tabDef.value} value={tabDef.value} className="shrink-0 gap-2">
+              <tabDef.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
               {tabDef.label}
               {tabDef.count > 0 && (
-                <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px] leading-none">
+                <span className="rounded-full border border-warning/30 bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium leading-none tabular-nums text-warning">
                   {tabDef.count}
-                </Badge>
+                </span>
               )}
               {tabDef.dirty && activeTab !== tabDef.value && (
-                <span className="h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse" aria-label={t('tabs.unsavedChangesAria')} />
+                <span role="img" className="h-1.5 w-1.5 rounded-full bg-warning" aria-label={t('tabs.unsavedChangesAria')} />
               )}
               {tabDef.missing && (
-                <AlertCircle className="w-4 h-4 text-warning" aria-label={t('tabs.fileMissingAria')} />
+                <AlertCircle className="h-4 w-4 text-warning" aria-label={t('tabs.fileMissingAria')} />
               )}
             </TabsTrigger>
           ))}
         </TabsList>
-        {activeTab === 'ini' && initialDeepLink.unresolved.length > 0 && (
-          <Alert className="mt-3 border-warning/40 bg-warning/10">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <AlertTitle className="text-warning">{t('unresolvedReview.title')}</AlertTitle>
-            <AlertDescription className="mt-2 space-y-3">
-              {initialDeepLink.unresolved.map((modId) => {
-                const triage = initialDeepLink.unresolvedTriage.get(modId)
-                // Chip + action button share one line (both short, never wrap
-                // badly); the explanation is its own line below so a long
-                // sentence (workshopNotOnDisk especially) can wrap freely
-                // without dragging the button out of line with the chip.
-                return (
-                  <div key={modId}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <code className="rounded border border-warning/30 bg-background/50 px-1.5 py-0.5 text-xs text-foreground">
-                        {modId}
-                      </code>
-                      {triage?.cause === 'typo' && triage.suggestion && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs"
-                          onClick={() => applyUnresolvedModCorrection(modId, triage.suggestion as string)}
-                        >
-                          {t('unresolvedReview.correctAction', { suggestion: triage.suggestion })}
-                        </Button>
-                      )}
-                      {(triage?.cause === 'stillDownloading' || triage?.cause === 'workshopNotOnDisk') && (
-                        <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-xs">
-                          <Link to="/debug">{t('unresolvedReview.rerunDiagnostics')}</Link>
-                        </Button>
-                      )}
-                      {triage?.cause === 'absent' && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 px-2 text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
-                          onClick={() => removeUnresolvedModEntry(modId)}
-                        >
-                          {t('unresolvedReview.removeAction')}
-                        </Button>
-                      )}
-                      {triage?.cause === 'panelBridge' && (
-                        <Button asChild size="sm" variant="ghost" className="h-6 px-2 text-xs">
-                          <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
-                        </Button>
-                      )}
-                    </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {!triage && t('unresolvedReview.causeUnknown')}
-                      {triage?.cause === 'typo' && triage.suggestion && t('unresolvedReview.causeTypo', { suggestion: triage.suggestion })}
-                      {triage?.cause === 'stillDownloading' && t('unresolvedReview.causeStillDownloading')}
-                      {triage?.cause === 'workshopNotOnDisk' && t('unresolvedReview.causeWorkshopNotOnDisk')}
-                      {triage?.cause === 'absent' && t('unresolvedReview.causeAbsent')}
-                      {triage?.cause === 'panelBridge' && t('unresolvedReview.causePanelBridge')}
-                    </p>
-                  </div>
-                )
-              })}
-            </AlertDescription>
-          </Alert>
-        )}
-        {serverMayBeRunning && ['ini', 'sandbox', 'spawnpoints', 'spawnregions'].includes(activeTab) && (
-          <Alert className="mt-3 border-primary/30 bg-primary/5">
-            <Info className="h-4 w-4 text-primary" />
-            <AlertTitle>{serverRunning === true ? t('stopServerAlert.title') : t('stopServerAlert.unknownTitle')}</AlertTitle>
-            <AlertDescription>
-              {serverRunning === true ? t('stopServerAlert.description') : t('stopServerAlert.unknownDescription')}
-            </AlertDescription>
-          </Alert>
-        )}
-        {activeTab === 'ini' && editorMode === 'structured' && invalidIniSettings.length > 0 && (
-          <Alert className="mt-3 border-destructive/40 bg-destructive/10">
-            <AlertCircle className="h-4 w-4 text-destructive" />
-            <AlertTitle>{t('invalidValuesAlert.title')}</AlertTitle>
-            <AlertDescription>
-              {t('invalidValuesAlert.description', { settings: invalidIniSettings.map(getIniSettingLabel).join(listSep) })}
-            </AlertDescription>
-          </Alert>
-        )}
-        {activeTab === 'ini' && editorMode === 'structured' && outOfRangeIniSettings.length > 0 && (
-          <Alert className="mt-3 border-warning/40 bg-warning/10">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <AlertTitle>{getSandboxOutOfRangeAllowedTitle()}</AlertTitle>
-            <AlertDescription>
-              {getSandboxOutOfRangeAllowedBody(outOfRangeIniSettings.map(getIniSettingLabel).join(listSep))}
-            </AlertDescription>
-          </Alert>
-        )}
-        {activeTab === 'sandbox' && editorMode === 'structured' && invalidSandboxSettings.length > 0 && (
-          <Alert className="mt-3 border-destructive/40 bg-destructive/10">
-            <AlertCircle className="h-4 w-4 text-destructive" />
-            <AlertTitle>{t('invalidValuesAlert.title')}</AlertTitle>
-            <AlertDescription>
-              {t('invalidValuesAlert.description', { settings: invalidSandboxSettings.map(getSandboxSettingLabel).join(listSep) })}
-            </AlertDescription>
-          </Alert>
-        )}
-        {/* Non-blocking: the sandboxRangeOverride toggle (Settings.tsx) let
-            these through invalidSandboxSettings above on purpose -- still
-            surfaced so the user can SEE what's out of range, per the
-            2026-09-09 dispatch ("warn, do not block"). */}
-        {activeTab === 'sandbox' && editorMode === 'structured' && outOfRangeSandboxSettings.length > 0 && (
-          <Alert className="mt-3 border-warning/40 bg-warning/10">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <AlertTitle>{getSandboxOutOfRangeAllowedTitle()}</AlertTitle>
-            <AlertDescription>
-              {getSandboxOutOfRangeAllowedBody(outOfRangeSandboxSettings.map(getSandboxSettingLabel).join(listSep))}
-            </AlertDescription>
-          </Alert>
-        )}
-        {/* Root-cause fallback notice: only shown once a load has genuinely
-            failed (never during 'idle'/'loading'), and never blocks the tab
-            -- SANDBOX_SCHEMA's own table is still fully usable underneath. */}
-        {activeTab === 'sandbox' && sandboxLiveRangesStatus === 'unavailable' && (
-          <Alert className="mt-3 border-border/60 bg-muted/40">
-            <Info className="h-4 w-4 text-primary" />
-            <AlertTitle>{getSandboxLiveRangesUnavailableTitle()}</AlertTitle>
-            <AlertDescription className="flex items-center justify-between gap-3">
-              <span className="min-w-0">{getSandboxLiveRangesUnavailableBody()}</span>
-              <Button variant="outline" size="sm" onClick={loadModSettings} disabled={modSettingsLoading} className="shrink-0 gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5" /> {t('modSettingsTab.retry')}
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
-        {/* #197: the world save has a map_sand.bin, which the game applies
-            over SandboxVars.lua on every start, so sandbox edits saved to
-            SandboxVars.lua (here, in Raw mode, or in the in-game admin
-            panel) are undone at the next restart. Live edits through
-            PanelBridge are written to it too (the toast says which). */}
-        {(activeTab === 'sandbox' || activeTab === 'modsettings') && worldSandboxSnapshot && (
-          <Alert className="mt-3 border-warning/40 bg-warning/10">
-            <AlertTriangle className="h-4 w-4 text-warning" />
-            <AlertTitle>{t('worldSandboxSnapshotBanner.title')}</AlertTitle>
-            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <span className="min-w-0">
-                {t('worldSandboxSnapshotBanner.desc', { date: formatDateTime(worldSandboxSnapshot.mtime, { seconds: true }) })}
-              </span>
-              <span className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRetireWorldSandboxSnapshot}
-                  disabled={worldSandboxSnapshotRetireBlocked || retiringWorldSandboxSnapshot}
-                >
-                  {t('worldSandboxSnapshotBanner.action')}
-                </Button>
-                {worldSandboxSnapshotRetireBlocked && (
-                  <span className="text-xs text-muted-foreground">{t('worldSandboxSnapshotBanner.stopFirst')}</span>
-                )}
-              </span>
-            </AlertDescription>
-          </Alert>
-        )}
 
         {/* INI Settings Tab */}
-        <TabsContent value="ini" className="mt-4">
-          <TacticalPanel tone={hasIniChanges ? 'warning' : 'primary'}>
-            <SectionHeader
-              label={t('iniTab.sectionLabel')}
-              sublabel={t('iniTab.sectionSublabel')}
-              icon={FileText}
-              tone={hasIniChanges ? 'warning' : 'primary'}
-              action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {hasIniChanges && (
-                    <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px]">
-                      <AlertTriangle className="me-1 h-3 w-3" />
-                      {changedIniCount}
-                    </Badge>
-                  )}
-                  <div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-muted/30 p-0.5">
-                    <Button
-                      variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openFormEditor()}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'structured'}
-                    >
-                      <FormInput className="h-3 w-3" /> {t('editorToolbar.form')}
-                    </Button>
-                    <Button
-                      variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openRawEditor('ini')}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'raw'}
-                    >
-                      <Code className="h-3 w-3" /> {t('editorToolbar.raw')}
-                    </Button>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleCreateBackup('ini')} aria-label={t('editorToolbar.downloadIniAria')}>
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('editorToolbar.downloadIniTooltip')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <a
-                    href="https://pzwiki.net/wiki/Server_settings"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex h-7 items-center gap-1 rounded border border-border/60 bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
-                  >
-                    <ExternalLink className="h-3 w-3" /> {t('editorToolbar.wiki')}
-                  </a>
-                  <Button onClick={handleSaveIni} disabled={saving || !hasIniChanges || (editorMode === 'structured' && invalidIniSettings.length > 0) || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
-                    {saving ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" />
-                    )}
-                    {t('editorToolbar.saveAndReload')}
-                  </Button>
-                </div>
-              }
-            />
-            <div className="p-4">
-              {luaChecksumCallout === 'localBlocked' && (
-                <Alert variant="destructive" className="mb-4">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>{t('iniTab.luaChecksumTitle')}</AlertTitle>
-                  <AlertDescription>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <span className="min-w-0 flex-1">
-                        <Trans i18nKey="iniTab.luaChecksumBody" t={t} components={{ 1: <strong /> }} />
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="command"
-                        className="h-7 shrink-0 gap-1.5 text-xs font-medium"
-                        onClick={() => updateIniValue('DoLuaChecksum', 'false')}
-                      >
-                        {t('iniTab.disableNow')}
-                      </Button>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              )}
-              {luaChecksumCallout === 'workshopUnconfirmed' && (
-                <Alert className="mb-4 border-warning/40 bg-warning/10">
-                  <AlertTriangle className="h-4 w-4 text-warning" />
-                  <AlertTitle className="text-warning">{t('iniTab.luaChecksumTitle')}</AlertTitle>
-                  <AlertDescription>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <span className="min-w-0 flex-1">{t('iniTab.luaChecksumWorkshopUnconfirmed')}</span>
-                      <Button
-                        size="sm"
-                        variant="command"
-                        className="h-7 shrink-0 gap-1.5 text-xs font-medium"
-                        onClick={() => updateIniValue('DoLuaChecksum', 'false')}
-                      >
-                        {t('iniTab.disableNow')}
-                      </Button>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              )}
-              {luaChecksumCallout === 'workshopNote' && (
-                <Alert className="mb-4 border-border/60 bg-muted/40">
-                  <Info className="h-4 w-4 text-primary" />
-                  <AlertDescription>{t('iniTab.luaChecksumWorkshopNote')}</AlertDescription>
-                </Alert>
-              )}
-              {editorMode === 'raw' ? (
-                <div className="relative">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="absolute top-2 right-2 z-10"
-                          onClick={handleCopyRaw}
-                        >
-                          {copied ? (
-                            <Check className="w-4 h-4 text-primary" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{copied ? t('editorToolbar.copied') : t('editorToolbar.copyToClipboard')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <Textarea
-                    value={rawContent}
-                    onChange={(e) => setRawContent(e.target.value)}
-                    className="h-[calc(100vh-380px)] min-h-[400px] resize-y font-mono text-sm"
-                    spellCheck={false}
-                  />
-                </div>
-              ) : (
-                <div className="min-h-[400px]">
-                  {/* Scoped search + filter mode — applies to all categories on this tab */}
-                  <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        ref={iniSearchRef}
-                        placeholder={t('search.settingsPlaceholder')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-8 bg-background/50 ps-9 pe-20"
-                        aria-label={t('search.aria')}
-                        maxLength={128}
-                      />
-                      {searchQuery && (
-                        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                          <span className="text-[11px] tabular-nums text-muted-foreground">
-                            {searchResultsCount}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="pointer-events-auto h-6 w-6 p-0"
-                            onClick={() => setSearchQuery('')}
-                            aria-label={t('search.clearAria')}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="ms-auto flex items-center gap-2">
-                      <div className="inline-flex items-center rounded-md border border-border/60 bg-background/50 p-0.5" role="group" aria-label={t('search.filterAria')}>
-                        {(['all','modified','nondefault'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setFilterMode(mode)}
-                            className={`h-7 px-2.5 text-xs font-medium rounded transition-colors ${
-                              filterMode === mode
-                                ? 'bg-primary/15 text-primary'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                          >
-                            {mode === 'nondefault' ? t('search.filterUnsaved') : mode === 'modified' ? t('search.filterModified') : t('search.filterAll')}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {searchQuery ? (
-                    // Search mode: flat results across all categories, grouped by category label
-                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pe-4">
-                      {INI_CATEGORIES.map(category => {
-                        const settings = filteredIniSettings[category.id] || []
-                        if (settings.length === 0) return null
-                        return (
-                          <div key={category.id} className="mb-5">
-                            <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-baseline gap-2 bg-card/95 px-1 py-1.5 backdrop-blur">
-                              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {getIniCategoryLabel(category)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground/70">
-                                {t('categoriesNav.matchCount', { count: settings.length })}
-                              </span>
-                            </div>
-                            <div className="space-y-1">
-                              {settings.map(setting => (
-                                <IniSettingRow
-                                  key={setting.key}
-                                  setting={setting}
-                                  value={iniSettings[setting.key] || ''}
-                                  originalValue={originalIniSettings[setting.key]}
-                                  onChange={updateIniValue}
-                                  onReset={resetIniValue}
-                                  onBrowse={openFileBrowser}
-                                  allowOutOfRange={allowOutOfRangeSandbox}
-                                  misnamedAs={iniMisnamedKeys[setting.key]}
-                                  misnamedFileValue={iniMisnamedValues[setting.key]}
-                                  secretCutAtEquals={iniMaskedCutAtEqualsKeys.includes(setting.key)}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
-                      {searchResultsCount === 0 && (
-                        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                          {t('search.noMatches', { query: searchQuery })}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  ) : (
-                    // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
-                      <nav
-                        aria-label={t('categoriesNav.iniAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
-                      >
-                        <div className="hidden md:flex items-center justify-between px-3 pb-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                            {t('categoriesNav.categoriesLabel')}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setAllGroupsCollapsed('ini', !iniAllCollapsed)}
-                            className="inline-flex items-center gap-1 rounded text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 hover:text-foreground transition-colors"
-                            aria-label={iniAllCollapsed ? t('categoriesNav.expandAllAria') : t('categoriesNav.collapseAllAria')}
-                          >
-                            {iniAllCollapsed
-                              ? <ChevronsUpDown className="h-3 w-3" />
-                              : <ChevronsDownUp className="h-3 w-3" />}
-                            <span>{iniAllCollapsed ? t('categoriesNav.expandAll') : t('categoriesNav.collapseAll')}</span>
-                          </button>
-                        </div>
-                        {INI_CATEGORY_GROUPS.map((group, gIdx) => {
-                          const groupLabel = getIniCategoryGroupLabel(group)
-                          const cats = INI_CATEGORIES.filter(c => c.group === group.id)
-                          // Hide whole group if every category is empty under current filter
-                          const totalInGroup = cats.reduce((acc, c) => acc + (filteredIniSettings[c.id] || []).length, 0)
-                          if (totalInGroup === 0 && filterMode !== 'all') return null
-                          const groupKey = `ini:${group.id}`
-                          const isCollapsed = !!collapsedGroups[groupKey]
-                          const groupModCount = cats.reduce((acc, c) => acc + (iniModifiedByCategory[c.id] || 0), 0)
-                          return (
-                            <div key={group.id} className={`shrink-0 md:shrink ${gIdx > 0 ? 'mt-2 md:mt-3' : ''}`}>
-                              <button
-                                type="button"
-                                onClick={() => toggleGroup(groupKey)}
-                                aria-expanded={!isCollapsed}
-                                className="hidden md:flex w-full items-center gap-2 px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-foreground/80 hover:text-foreground transition-colors"
-                              >
-                                {isCollapsed
-                                  ? <ChevronRight className="h-3 w-3 shrink-0" />
-                                  : <ChevronDown className="h-3 w-3 shrink-0" />
-                                }
-                                <span>{groupLabel}</span>
-                                {groupModCount > 0 && (
-                                  <span className="rounded-full bg-warning/20 px-1.5 py-0.5 text-[8px] font-semibold text-warning">{groupModCount}</span>
-                                )}
-                                <span className="h-px flex-1 bg-border/40" />
-                              </button>
-                              {!isCollapsed && cats.map(category => {
-                                const count = (filteredIniSettings[category.id] || []).length
-                                if (count === 0 && filterMode !== 'all') return null
-                                const isActive = activeIniCategory === category.id
-                                const modCount = iniModifiedByCategory[category.id] || 0
-                                return (
-                                  <button
-                                    key={category.id}
-                                    type="button"
-                                    onClick={() => setActiveIniCategory(category.id)}
-                                    aria-current={isActive ? 'page' : undefined}
-                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:whitespace-normal ${
-                                      isActive
-                                        ? 'border-primary bg-primary/10 text-primary'
-                                        : 'border-transparent text-muted-foreground hover:border-primary/30 hover:bg-muted/40 hover:text-foreground'
-                                    }`}
-                                  >
-                                    <CategoryIcon name={category.icon} isActive={isActive} className="h-4 w-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate font-medium" title={getIniCategoryLabel(category)}>{getIniCategoryLabel(category)}</span>
-                                    {modCount > 0 && (
-                                      <span
-                                        className="shrink-0 rounded-full bg-warning/20 px-1.5 py-0.5 text-[9px] font-mono font-semibold uppercase tracking-wider text-warning"
-                                        title={t('categoriesNav.modifiedCountTitle', { count: modCount })}
-                                      >
-                                        {modCount}
-                                      </span>
-                                    )}
-                                    <span className={`shrink-0 min-w-[1.5rem] rounded text-center px-1 py-0.5 text-[10px] font-mono tabular-nums ${
-                                      isActive ? 'text-primary/80' : 'bg-muted text-muted-foreground'
-                                    }`}>
-                                      {count}
-                                    </span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )
-                        })}
-                        {uncategorizedIniKeys.length > 0 && (() => {
-                          const isActive = activeIniCategory === 'uncategorized'
-                          return (
-                            <button
-                              key="uncategorized"
-                              type="button"
-                              onClick={() => setActiveIniCategory('uncategorized')}
-                              aria-current={isActive ? 'page' : undefined}
-                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
-                                isActive
-                                  ? 'border-s-amber-500 bg-amber-500/10 text-amber-500'
-                                  : 'border-s-transparent text-muted-foreground hover:border-s-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
-                              }`}
-                              title={t('categoriesNav.uncategorizedIniTitle')}
-                            >
-                              <span className="min-w-0 flex-1 truncate font-medium">{t('categoriesNav.uncategorizedIniLabel')}</span>
-                              <span className={`shrink-0 min-w-[1.5rem] rounded text-center px-1 py-0.5 text-[10px] font-mono tabular-nums ${
-                                isActive ? 'text-amber-500/80' : 'bg-muted text-muted-foreground'
-                              }`}>
-                                {uncategorizedIniKeys.length}
-                              </span>
-                            </button>
-                          )
-                        })()}
-                      </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2">
-                        {(() => {
-                          if (activeIniCategory === 'uncategorized') {
-                            if (uncategorizedIniKeys.length === 0) {
-                              return (
-                                <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                                  {t('uncategorizedIni.empty')}
-                                </div>
-                              )
-                            }
-                            return (
-                              <div>
-                                <div className="sticky top-0 z-10 -mx-1 mb-3 flex items-baseline justify-between border-b border-amber-500/30 bg-card/95 px-1 pb-2 pt-1 backdrop-blur">
-                                  <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-500">
-                                    {t('uncategorizedIni.heading')}
-                                  </h3>
-                                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                                    {t('uncategorizedIni.keyCount', { count: uncategorizedIniKeys.length })}
-                                  </span>
-                                </div>
-                                <p className="mb-3 text-xs text-muted-foreground">
-                                  {t('uncategorizedIni.description')}
-                                </p>
-                                <div className="space-y-1">
-                                  {uncategorizedIniKeys.map(({ key, value }) => {
-                                    const orig = originalIniSettings[key]
-                                    const isModified = orig !== undefined && orig !== value
-                                    return (
-                                      <div key={key} className={`flex items-center justify-between gap-3 rounded-md px-3 py-2 transition-colors ${isModified ? 'border border-amber-500/20 bg-amber-500/10' : 'hover:bg-muted/50'}`}>
-                                        <div className="min-w-0 flex-1">
-                                          <div className="flex items-center gap-2">
-                                            <span className="truncate text-sm font-medium" title={key}>{key}</span>
-                                            {isModified && (
-                                              <button
-                                                onClick={() => setIniSettings(prev => ({ ...prev, [key]: orig ?? '' }))}
-                                                className="text-xs text-amber-500 hover:text-amber-400"
-                                                title={t('uncategorizedIni.undoTitle')}
-                                                aria-label={t('uncategorizedIni.undoTitle')}
-                                              >↩</button>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <Input
-                                          className="h-8 w-56 text-sm"
-                                          value={value}
-                                          maxLength={500}
-                                          onChange={e => setIniSettings(prev => ({ ...prev, [key]: e.target.value }))}
-                                        />
-                                      </div>
-                                    )
-                                  })}
-                                </div>
-                              </div>
-                            )
-                          }
-                          const settings = filteredIniSettings[activeIniCategory] || []
-                          const active = INI_CATEGORIES.find(c => c.id === activeIniCategory)
-                          if (settings.length === 0) {
-                            return (
-                              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                                {filterMode === 'modified' ? t('categoryContent.noneModified') :
-                                 filterMode === 'nondefault' ? t('categoryContent.noneUnsaved') :
-                                 t('categoryContent.none')}
-                              </div>
-                            )
-                          }
-                          return (
-                            <div>
-                              <div className="sticky top-0 z-10 -mx-1 mb-3 flex items-baseline justify-between border-b border-border/50 bg-card/95 px-1 pb-2 pt-1 backdrop-blur">
-                                <h3 className="text-sm font-semibold uppercase tracking-wider text-primary">
-                                  {active ? getIniCategoryLabel(active) : null}
-                                </h3>
-                                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                                  {t('categoryContent.settingCount', { count: settings.length })}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                {settings.map(setting => (
-                                  <IniSettingRow
-                                    key={setting.key}
-                                    setting={setting}
-                                    value={iniSettings[setting.key] || ''}
-                                    originalValue={originalIniSettings[setting.key]}
-                                    onChange={updateIniValue}
-                                    onReset={resetIniValue}
-                                    onBrowse={openFileBrowser}
-                                    allowOutOfRange={allowOutOfRangeSandbox}
-                                    misnamedAs={iniMisnamedKeys[setting.key]}
-                                    misnamedFileValue={iniMisnamedValues[setting.key]}
-                                    secretCutAtEquals={iniMaskedCutAtEqualsKeys.includes(setting.key)}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )
-                        })()}
-                      </ScrollArea>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </TacticalPanel>
-        </TabsContent>
-
-        {/* Sandbox Tab */}
-        <TabsContent value="sandbox" className="mt-4">
-          <TacticalPanel tone={hasSandboxChanges ? 'warning' : 'primary'}>
-            <SectionHeader
-              label={t('sandboxTab.sectionLabel')}
-              sublabel={t('sandboxTab.sectionSublabel')}
-              icon={Code}
-              tone={hasSandboxChanges ? 'warning' : 'primary'}
-              action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {hasSandboxChanges && (
-                    <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px]">
-                      <AlertTriangle className="me-1 h-3 w-3" />
-                      {changedSandboxCount}
-                    </Badge>
-                  )}
-                  <div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-muted/30 p-0.5">
-                    <Button
-                      variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openFormEditor()}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'structured'}
-                    >
-                      <FormInput className="h-3 w-3" /> {t('editorToolbar.form')}
-                    </Button>
-                    <Button
-                      variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openRawEditor('sandbox')}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'raw'}
-                    >
-                      <Code className="h-3 w-3" /> {t('editorToolbar.raw')}
-                    </Button>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleCreateBackup('sandbox')} aria-label={t('editorToolbar.downloadSandboxAria')}>
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('editorToolbar.downloadSandboxTooltip')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <a
-                    href="https://pzwiki.net/wiki/Sandbox_options"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex h-7 items-center gap-1 rounded border border-border/60 bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
-                  >
-                    <ExternalLink className="h-3 w-3" /> {t('editorToolbar.wiki')}
-                  </a>
-                  <Button onClick={handleSaveSandbox} disabled={saving || !hasSandboxChanges || (editorMode === 'structured' && invalidSandboxSettings.length > 0) || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
-                    {saving ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" />
-                    )}
-                    {/* Unlike the INI tab, a sandbox save has no RCON
-                        live-reload path (see handleSaveSandbox's own comment
-                        just below) -- it always needs a server restart to
-                        take effect, whether the server is stopped right now
-                        or running. "Save & reload" here would promise a
-                        reload that literally never happens for this file. */}
-                    {t('editorToolbar.save')}
-                  </Button>
-                </div>
-              }
-            />
-            <div className="p-4">
-              <Alert className="mb-3 border-primary/30 bg-primary/5">
-                <AlertCircle className="h-4 w-4 text-primary" />
-                <AlertTitle>{t('sandboxTab.build42Title')}</AlertTitle>
-                <AlertDescription>
-                  {t('sandboxTab.build42Body')}
-                </AlertDescription>
-              </Alert>
-              {editorMode === 'raw' ? (
-                <div className="relative">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="absolute top-2 right-2 z-10"
-                          onClick={handleCopyRaw}
-                        >
-                          {copied ? (
-                            <Check className="w-4 h-4 text-primary" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{copied ? t('editorToolbar.copied') : t('editorToolbar.copyToClipboard')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <Textarea
-                    value={rawContent}
-                    onChange={(e) => setRawContent(e.target.value)}
-                    className="h-[calc(100vh-380px)] min-h-[400px] resize-y font-mono text-sm"
-                    spellCheck={false}
-                  />
-                </div>
-              ) : (
-                <div className="min-h-[400px]">
-                  {/* Scoped search — applies to all categories on this tab */}
-                  <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                    <div className="relative min-w-0 flex-1 sm:max-w-md">
-                      <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        ref={sandboxSearchRef}
-                        placeholder={t('search.sandboxPlaceholder')}
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="h-8 bg-background/50 ps-9 pe-20"
-                        aria-label={t('search.sandboxAria')}
-                        maxLength={128}
-                      />
-                      {searchQuery && (
-                        <div className="pointer-events-none absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
-                          <span className="text-[11px] tabular-nums text-muted-foreground">
-                            {searchResultsCount}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="pointer-events-auto h-6 w-6 p-0"
-                            onClick={() => setSearchQuery('')}
-                            aria-label={t('search.clearAria')}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                    <div className="ms-auto flex items-center gap-2">
-                      <div className="inline-flex items-center rounded-md border border-border/60 bg-background/50 p-0.5" role="group" aria-label={t('search.filterAria')}>
-                        {(['all','modified','nondefault'] as const).map(mode => (
-                          <button
-                            key={mode}
-                            type="button"
-                            onClick={() => setFilterMode(mode)}
-                            className={`h-7 px-2.5 text-xs font-medium rounded transition-colors ${
-                              filterMode === mode
-                                ? 'bg-primary/15 text-primary'
-                                : 'text-muted-foreground hover:text-foreground'
-                            }`}
-                          >
-                            {mode === 'nondefault' ? t('search.filterUnsaved') : mode === 'modified' ? t('search.filterModified') : t('search.filterAll')}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  {searchQuery ? (
-                    // Search mode: flat, grouped by category label
-                    <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] pe-4">
-                      {SANDBOX_CATEGORIES.map(category => {
-                        const settings = filteredSandboxSettings[category.id] || []
-                        if (settings.length === 0) return null
-                        return (
-                          <div key={category.id} className="mb-5">
-                            <div className="sticky top-0 z-10 -mx-1 mb-2 flex items-baseline gap-2 bg-card/95 px-1 py-1.5 backdrop-blur">
-                              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {getSandboxCategoryLabel(category)}
-                              </span>
-                              <span className="text-[10px] text-muted-foreground/70">
-                                {t('categoriesNav.matchCount', { count: settings.length })}
-                              </span>
-                            </div>
-                            <div className="space-y-1">
-                              {settings.map(setting => (
-                                <SandboxSettingRow
-                                  key={`${setting.section || 'settings'}.${setting.key}`}
-                                  setting={setting}
-                                  value={(sandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
-                                  originalValue={(originalSandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
-                                  onChange={updateSandboxValue}
-                                  onReset={resetSandboxValue}
-                                  allowOutOfRange={allowOutOfRangeSandbox}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
-                      {searchResultsCount === 0 && (
-                        <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                          {t('search.noMatches', { query: searchQuery })}
-                        </div>
-                      )}
-                    </ScrollArea>
-                  ) : (
-                    // Rail mode: vertical category nav (grouped) + single active category content
-                    <div className="grid gap-0 md:grid-cols-[252px_minmax(0,1fr)]">
-                      <nav
-                        aria-label={t('categoriesNav.sandboxAria')}
-                        className="-mx-2 flex flex-col gap-0.5 px-2 pb-2 md:mx-0 md:order-1 md:border-e md:border-border/50 md:pb-0 md:pe-3 md:pt-1 md:max-h-[calc(100vh-420px)] md:min-h-[360px] md:overflow-y-auto"
-                      >
-                        <div className="hidden md:flex items-center justify-between px-3 pb-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">
-                            {t('categoriesNav.categoriesLabel')}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setAllGroupsCollapsed('sandbox', !sandboxAllCollapsed)}
-                            className="inline-flex items-center gap-1 rounded text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 hover:text-foreground transition-colors"
-                            aria-label={sandboxAllCollapsed ? t('categoriesNav.expandAllAria') : t('categoriesNav.collapseAllAria')}
-                          >
-                            {sandboxAllCollapsed
-                              ? <ChevronsUpDown className="h-3 w-3" />
-                              : <ChevronsDownUp className="h-3 w-3" />}
-                            <span>{sandboxAllCollapsed ? t('categoriesNav.expandAll') : t('categoriesNav.collapseAll')}</span>
-                          </button>
-                        </div>
-                        {SANDBOX_CATEGORY_GROUPS.map((group, gIdx) => {
-                          const groupLabel = getSandboxCategoryGroupLabel(group)
-                          const cats = SANDBOX_CATEGORIES.filter(c => c.group === group.id)
-                          const totalInGroup = cats.reduce((acc, c) => acc + (filteredSandboxSettings[c.id] || []).length, 0)
-                          if (totalInGroup === 0 && filterMode !== 'all') return null
-                          const groupKey = `sandbox:${group.id}`
-                          const isCollapsed = !!collapsedGroups[groupKey]
-                          const groupModCount = cats.reduce((acc, c) => acc + (sandboxModifiedByCategory[c.id] || 0), 0)
-                          return (
-                            <div key={group.id} className={`shrink-0 md:shrink ${gIdx > 0 ? 'mt-2 md:mt-3' : ''}`}>
-                              <button
-                                type="button"
-                                onClick={() => toggleGroup(groupKey)}
-                                aria-expanded={!isCollapsed}
-                                className="hidden md:flex w-full items-center gap-2 px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-foreground/80 hover:text-foreground transition-colors"
-                              >
-                                {isCollapsed
-                                  ? <ChevronRight className="h-3 w-3 shrink-0" />
-                                  : <ChevronDown className="h-3 w-3 shrink-0" />
-                                }
-                                <span>{groupLabel}</span>
-                                {groupModCount > 0 && (
-                                  <span className="rounded-full bg-warning/20 px-1.5 py-0.5 text-[8px] font-semibold text-warning">{groupModCount}</span>
-                                )}
-                                <span className="h-px flex-1 bg-border/40" />
-                              </button>
-                              {!isCollapsed && cats.map(category => {
-                                const count = (filteredSandboxSettings[category.id] || []).length
-                                if (count === 0 && filterMode !== 'all') return null
-                                const isActive = activeSandboxCategory === category.id
-                                const modCount = sandboxModifiedByCategory[category.id] || 0
-                                return (
-                                  <button
-                                    key={category.id}
-                                    type="button"
-                                    onClick={() => setActiveSandboxCategory(category.id)}
-                                    aria-current={isActive ? 'page' : undefined}
-                                    className={`group relative flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:whitespace-normal ${
-                                      isActive
-                                        ? 'border-primary bg-primary/10 text-primary'
-                                        : 'border-transparent text-muted-foreground hover:border-primary/30 hover:bg-muted/40 hover:text-foreground'
-                                    }`}
-                                  >
-                                    <CategoryIcon name={category.icon} isActive={isActive} className="h-4 w-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate font-medium" title={getSandboxCategoryLabel(category)}>{getSandboxCategoryLabel(category)}</span>
-                                    {modCount > 0 && (
-                                      <span
-                                        className="shrink-0 rounded-full bg-warning/20 px-1.5 py-0.5 text-[9px] font-mono font-semibold uppercase tracking-wider text-warning"
-                                        title={t('categoriesNav.modifiedCountTitle', { count: modCount })}
-                                      >
-                                        {modCount}
-                                      </span>
-                                    )}
-                                    <span className={`shrink-0 min-w-[1.5rem] rounded text-center px-1 py-0.5 text-[10px] font-mono tabular-nums ${
-                                      isActive ? 'text-primary/80' : 'bg-muted text-muted-foreground'
-                                    }`}>
-                                      {count}
-                                    </span>
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )
-                        })}
-                        {uncategorizedSandboxKeys.length > 0 && (() => {
-                          const isActive = activeSandboxCategory === 'uncategorized'
-                          return (
-                            <button
-                              key="uncategorized"
-                              type="button"
-                              onClick={() => setActiveSandboxCategory('uncategorized')}
-                              aria-current={isActive ? 'page' : undefined}
-                              className={`group relative mt-2 flex shrink-0 items-center gap-2 whitespace-nowrap border-s-2 px-3 py-2 text-start text-sm transition-colors md:mt-3 md:whitespace-normal md:border-t md:border-t-border/50 md:pt-3 ${
-                                isActive
-                                  ? 'border-s-amber-500 bg-amber-500/10 text-amber-500'
-                                  : 'border-s-transparent text-muted-foreground hover:border-s-amber-500/30 hover:bg-amber-500/5 hover:text-amber-500/80'
-                              }`}
-                              title={t('categoriesNav.uncategorizedSandboxTitle')}
-                            >
-                              <span className="min-w-0 flex-1 truncate font-medium">{t('categoriesNav.uncategorizedSandboxLabel')}</span>
-                              <span className={`shrink-0 min-w-[1.5rem] rounded text-center px-1 py-0.5 text-[10px] font-mono tabular-nums ${
-                                isActive ? 'text-amber-500/80' : 'bg-muted text-muted-foreground'
-                              }`}>
-                                {uncategorizedSandboxKeys.length}
-                              </span>
-                            </button>
-                          )
-                        })()}
-                      </nav>
-                      <ScrollArea className="h-[calc(100vh-420px)] min-h-[360px] md:ps-5 pe-4 md:order-2">
-                        {(() => {
-                          if (activeSandboxCategory === 'uncategorized') {
-                            if (uncategorizedSandboxKeys.length === 0) {
-                              return (
-                                <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                                  {t('uncategorizedSandbox.empty')}
-                                </div>
-                              )
-                            }
-                            return (
-                              <div>
-                                <div className="sticky top-0 z-10 -mx-1 mb-3 flex items-baseline justify-between border-b border-amber-500/30 bg-card/95 px-1 pb-2 pt-1 backdrop-blur">
-                                  <h3 className="text-sm font-semibold uppercase tracking-wider text-amber-500">
-                                    {t('uncategorizedSandbox.heading')}
-                                  </h3>
-                                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                                    {t('uncategorizedSandbox.keyCount', { count: uncategorizedSandboxKeys.length })}
-                                  </span>
-                                </div>
-                                <p className="mb-3 text-xs text-muted-foreground">
-                                  {t('uncategorizedSandbox.description')}
-                                </p>
-                                <div className="space-y-5">
-                                  {Object.entries(uncategorizedGroups).map(([groupName, groupEntries]) => (
-                                    <div key={groupName}>
-                                      <div className="mb-1.5 flex items-baseline justify-between border-b border-border/40 pb-1">
-                                        <h4 className="font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                          {groupName === 'settings' ? t('uncategorizedSandbox.mainSection') : groupName}
-                                        </h4>
-                                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">{groupEntries.length}</span>
-                                      </div>
-                                      <div className="space-y-1">
-                                        {groupEntries.map(({ section, key, value }) => {
-                                    const origSection = originalSandboxData?.[section as keyof SandboxData]
-                                    const origValue = typeof origSection === 'object' ? (origSection as Record<string, unknown>)?.[key] : undefined
-                                    const isModified = value !== origValue
-                                    return (
-                                      <div key={`${section}.${key}`} className={`flex items-center justify-between py-2 px-3 rounded-md transition-colors ${isModified ? 'bg-amber-500/10 border border-amber-500/20' : 'hover:bg-muted/50'}`}>
-                                        <div className="flex-1 min-w-0 me-4">
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <span className="text-sm font-medium truncate" title={key}>{key}</span>
-                                            {isModified && (
-                                              <button
-                                                onClick={() => {
-                                                  if (origValue !== undefined) {
-                                                    setSandboxData(prev => {
-                                                      if (!prev) return prev
-                                                      const s = { ...(prev[section as keyof SandboxData] as Record<string, unknown> || {}) }
-                                                      s[key] = origValue
-                                                      return { ...prev, [section]: s } as SandboxData
-                                                    })
-                                                  }
-                                                }}
-                                                className="text-xs text-amber-500 hover:text-amber-400"
-                                                title={t('uncategorizedSandbox.undoTitle')}
-                                                aria-label={t('uncategorizedSandbox.undoTitle')}
-                                              >↩</button>
-                                            )}
-                                          </div>
-                                        </div>
-                                        <Input
-                                          className="w-48 h-8 text-sm flex-shrink-0"
-                                          value={String(value)}
-                                          maxLength={500}
-                                          onChange={e => {
-                                            const raw = e.target.value
-                                            let parsed: string | number | boolean = raw
-                                            if (raw === 'true') parsed = true
-                                            else if (raw === 'false') parsed = false
-                                            else if (raw !== '' && !isNaN(Number(raw))) parsed = Number(raw)
-                                            setSandboxData(prev => {
-                                              if (!prev) return prev
-                                              const s = { ...(prev[section as keyof SandboxData] as Record<string, unknown> || {}) }
-                                              s[key] = parsed
-                                              return { ...prev, [section]: s } as SandboxData
-                                            })
-                                          }}
-                                        />
-                                      </div>
-                                    )
-                                        })}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )
-                          }
-                          const settings = filteredSandboxSettings[activeSandboxCategory] || []
-                          const active = SANDBOX_CATEGORIES.find(c => c.id === activeSandboxCategory)
-                          if (settings.length === 0) {
-                            return (
-                              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
-                                {filterMode === 'modified' ? t('categoryContent.noneModified') :
-                                 filterMode === 'nondefault' ? t('categoryContent.noneUnsaved') :
-                                 t('categoryContent.none')}
-                              </div>
-                            )
-                          }
-                          return (
-                            <div>
-                              <div className="sticky top-0 z-10 -mx-1 mb-3 flex items-baseline justify-between border-b border-border/50 bg-card/95 px-1 pb-2 pt-1 backdrop-blur">
-                                <h3 className="text-sm font-semibold uppercase tracking-wider text-primary">
-                                  {active ? getSandboxCategoryLabel(active) : null}
-                                </h3>
-                                <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-                                  {t('categoryContent.settingCount', { count: settings.length })}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                {settings.map(setting => (
-                                  <SandboxSettingRow
-                                    key={`${setting.section || 'settings'}.${setting.key}`}
-                                    setting={setting}
-                                    value={(sandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
-                                    originalValue={(originalSandboxData?.[(setting.section || 'settings') as keyof SandboxData] as SandboxRecord)?.[setting.key]}
-                                    onChange={updateSandboxValue}
-                                    onReset={resetSandboxValue}
-                                    allowOutOfRange={allowOutOfRangeSandbox}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )
-                        })()}
-                      </ScrollArea>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </TacticalPanel>
-        </TabsContent>
-
-        {/* Spawn Points Tab */}
-        <TabsContent value="spawnpoints" className="mt-4">
-          <TacticalPanel tone="muted">
-            <SectionHeader
-              label={t('spawnPointsTab.sectionLabel')}
-              sublabel={t('spawnPointsTab.sectionSublabel')}
-              icon={MapPin}
-              tone="muted"
-              action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-muted/30 p-0.5">
-                    <Button
-                      variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openFormEditor()}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'structured'}
-                    >
-                      <FormInput className="h-3 w-3" /> {t('spawnPointsTab.infoTab')}
-                    </Button>
-                    <Button
-                      variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openRawEditor('spawnpoints')}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'raw'}
-                    >
-                      <Code className="h-3 w-3" /> {t('editorToolbar.raw')}
-                    </Button>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleCreateBackup('spawnpoints')} aria-label={t('editorToolbar.downloadSpawnPointsAria')}>
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('editorToolbar.downloadSpawnPointsTooltip')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <a
-                    href="https://map.projectzomboid.com/"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex h-7 items-center gap-1 rounded border border-border/60 bg-muted/30 px-2 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-primary"
-                  >
-                    <ExternalLink className="h-3 w-3" /> {t('editorToolbar.map')}
-                  </a>
-                  {editorMode === 'raw' && (
-                    <Button onClick={handleSaveSpawnPoints} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
-                      {saving ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : (
-                        <Save className="h-3 w-3" />
-                      )}
-                      {t('editorToolbar.save')}
-                    </Button>
-                  )}
-                </div>
-              }
-            />
-            <div className="p-4">
-              {editorMode === 'raw' ? (
-                <div className="relative">
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="absolute top-2 right-2 z-10"
-                          onClick={handleCopyRaw}
-                        >
-                          {copied ? (
-                            <Check className="w-4 h-4 text-primary" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{copied ? t('editorToolbar.copied') : t('editorToolbar.copyToClipboard')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <Textarea
-                    value={rawContent}
-                    onChange={(e) => setRawContent(e.target.value)}
-                    className="h-[400px] resize-y font-mono text-sm"
-                    spellCheck={false}
-                  />
-                </div>
-              ) : (
-                <div className="text-center py-16">
-                  <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary">
-                    <MapPin className="w-8 h-8" />
-                  </div>
-                  <h3 className="text-lg font-medium mb-2">{t('spawnPointsTab.modManagedTitle')}</h3>
-                  <p className="text-muted-foreground max-w-md mx-auto text-sm">
-                    <Trans i18nKey="spawnPointsTab.modManagedBody" t={t} components={{ 1: <strong /> }} />
-                  </p>
-                  <div className="mt-6">
-                    <Button
-                      variant="outline"
-                      onClick={() => openRawEditor('spawnpoints')}
-                      className="gap-1.5 text-xs font-medium"
-                    >
-                      <Code className="h-3.5 w-3.5" /> {t('spawnPointsTab.openRawFile')}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </TacticalPanel>
-        </TabsContent>
-
-        {/* Spawn Regions Tab */}
-        <TabsContent value="spawnregions" className="mt-4">
-          <TacticalPanel tone="primary">
-            <SectionHeader
-              label={t('spawnRegionsTab.sectionLabel')}
-              sublabel={t('spawnRegionsTab.sectionSublabel', { count: spawnRegions.length })}
-              icon={Map}
-              action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <div className="flex items-center gap-0.5 rounded-md border border-border/60 bg-muted/30 p-0.5">
-                    <Button
-                      variant={editorMode === 'structured' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openFormEditor()}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'structured'}
-                    >
-                      <FormInput className="h-3 w-3" /> {t('editorToolbar.form')}
-                    </Button>
-                    <Button
-                      variant={editorMode === 'raw' ? 'secondary' : 'ghost'}
-                      size="sm"
-                      onClick={() => openRawEditor('spawnregions')}
-                      className="h-7 gap-1.5 px-2 text-xs font-medium"
-                      aria-pressed={editorMode === 'raw'}
-                    >
-                      <Code className="h-3 w-3" /> {t('editorToolbar.raw')}
-                    </Button>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="outline" size="icon" className="h-7 w-7" onClick={() => handleCreateBackup('spawnregions')} aria-label={t('editorToolbar.downloadSpawnRegionsAria')}>
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('editorToolbar.downloadSpawnRegionsTooltip')}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <Button onClick={handleSaveSpawnRegions} disabled={saving || serverChangedSinceLoad} variant="command" size="sm" className="h-7 gap-1.5 text-xs font-medium">
-                    {saving ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" />
-                    )}
-                    {t('editorToolbar.save')}
-                  </Button>
-                </div>
-              }
-            />
-            <div className="p-4">
-              {editorMode === 'raw' ? (
-                <Textarea
-                  value={rawContent}
-                  onChange={(e) => setRawContent(e.target.value)}
-                  className="h-[400px] resize-y font-mono text-sm"
-                  spellCheck={false}
-                />
-              ) : (
-                <div className="space-y-3">
-                  {spawnRegions.length === 0 ? (
-                    <EmptyState type="noData" title={t('spawnRegionsTab.noRegionsTitle')} description={t('spawnRegionsTab.noRegionsDesc')} compact />
-                  ) : (
-                    <div className="overflow-hidden rounded-lg border">
-                      {/* Column headers (sm+ only) */}
-                      <div className="hidden sm:grid grid-cols-[2rem_minmax(180px,260px)_minmax(0,1fr)_2.25rem] items-center gap-3 border-b bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        <span className="text-center">#</span>
-                        <span>{t('spawnRegionsTab.columnDisplayName')}</span>
-                        <span className="flex items-center gap-1">
-                          {t('spawnRegionsTab.columnMapFilePath')}
-                          <HelpTip label={t('spawnRegionsTab.columnMapFilePath')}>{t('spawnRegionsTab.mapFilePathTip')}</HelpTip>
-                        </span>
-                        <span aria-hidden="true" />
-                      </div>
-                      <ul className="divide-y divide-border/60">
-                        {spawnRegions.map((region, index) => (
-                          <li
-                            key={index}
-                            className="grid grid-cols-1 gap-3 px-3 py-2.5 sm:grid-cols-[2rem_minmax(180px,260px)_minmax(0,1fr)_2.25rem] sm:items-center"
-                          >
-                            <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-muted/40 px-1.5 text-xs font-mono font-medium text-muted-foreground sm:justify-self-center">
-                              {index + 1}
-                            </span>
-                            <div className="min-w-0">
-                              <Label className="sm:sr-only text-[10px] uppercase tracking-wide text-muted-foreground">{t('spawnRegionsTab.columnDisplayName')}</Label>
-                              <Input
-                                value={region.name}
-                                onChange={(e) => {
-                                  const newRegions = [...spawnRegions]
-                                  newRegions[index] = { ...region, name: e.target.value }
-                                  setSpawnRegions(newRegions)
-                                }}
-                                placeholder={t('spawnRegionsTab.displayNamePlaceholder')}
-                                maxLength={64}
-                                className="mt-0.5 h-9 sm:mt-0"
-                                aria-label={t('spawnRegionsTab.displayNameAria', { index: index + 1 })}
-                              />
-                            </div>
-                            <div className="min-w-0">
-                              <Label className="sm:sr-only text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-2">
-                                {region.isServerFile ? t('spawnRegionsTab.serverFileLabel') : t('spawnRegionsTab.columnMapFilePath')}
-                                {region.isServerFile && (
-                                  <Badge variant="secondary" className="text-[10px] py-0">{t('spawnRegionsTab.serverFileBadge')}</Badge>
-                                )}
-                              </Label>
-                              <div className="relative mt-0.5 sm:mt-0">
-                                <Input
-                                  value={region.file}
-                                  onChange={(e) => {
-                                    const newRegions = [...spawnRegions]
-                                    newRegions[index] = { ...region, file: e.target.value }
-                                    setSpawnRegions(newRegions)
-                                  }}
-                                  placeholder={region.isServerFile ? t('spawnRegionsTab.serverFilePlaceholder') : t('spawnRegionsTab.mapFilePlaceholder')}
-                                  className={`h-9 font-mono text-xs ${region.isServerFile ? 'pe-20' : ''}`}
-                                  maxLength={512}
-                                  aria-label={region.isServerFile ? t('spawnRegionsTab.fileAriaServerFile', { index: index + 1 }) : t('spawnRegionsTab.fileAriaMapPath', { index: index + 1 })}
-                                />
-                                {region.isServerFile && (
-                                  <Badge variant="secondary" className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] py-0">
-                                    {t('spawnRegionsTab.serverFileBadge')}
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-9 w-9 justify-self-end text-muted-foreground hover:text-destructive sm:justify-self-center"
-                              onClick={() => setSpawnRegions(spawnRegions.filter((_, i) => i !== index))}
-                              aria-label={t('spawnRegionsTab.deleteAria', { name: region.name || index + 1 })}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end pt-1">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setSpawnRegions([...spawnRegions, { name: '', file: 'media/maps/' }])}
-                      className="gap-1.5 text-xs font-medium"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> {t('spawnRegionsTab.addRegion')}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </TacticalPanel>
-        </TabsContent>
-
-        {/* Mod Settings Tab (Live from PanelBridge) */}
-        <TabsContent value="modsettings" className="mt-4">
-          <TacticalPanel tone={modifiedModSettingsCount > 0 ? 'warning' : 'info'}>
-            <SectionHeader
-              label={t('modSettingsTab.sectionLabel')}
-              sublabel={modSettings ? t('modSettingsTab.sectionSublabelLoaded', { count: modSettingsGroups.length }) : t('modSettingsTab.sectionSublabelIdle')}
-              icon={Puzzle}
-              tone={modifiedModSettingsCount > 0 ? 'warning' : 'info'}
-              action={
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {modifiedModSettingsCount > 0 && (
-                    <Badge variant="warning" className="h-5 px-1.5 py-0 font-mono text-[10px]">
-                      {t('modSettingsTab.modifiedBadge', { count: modifiedModSettingsCount })}
-                    </Badge>
-                  )}
-                  <Button
-                    variant="command"
-                    size="sm"
-                    onClick={loadModSettings}
-                    disabled={modSettingsLoading}
-                    className="h-7 gap-1.5 text-xs font-medium"
-                  >
-                    {modSettingsLoading ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3 w-3" />
-                    )}
-                    {modSettings ? t('modSettingsTab.refresh') : t('modSettingsTab.load')}
-                  </Button>
-                </div>
-              }
-            />
-            <div className="p-4">
-              {modSettings && modSettingsGroups.length > 0 && (
-                <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <div className="relative flex-1 min-w-[200px]">
-                    <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                    <Input
-                      ref={modSettingsSearchRef}
-                      placeholder={t('modSettingsTab.searchPlaceholder')}
-                      value={modSettingsSearch}
-                      onChange={(e) => setModSettingsSearch(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Escape') { setModSettingsSearch(''); e.currentTarget.blur() } }}
-                      className="ps-9 pe-8"
-                      maxLength={200}
-                    />
-                    {modSettingsSearch && (
-                      <button
-                        onClick={() => setModSettingsSearch('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        aria-label={t('modSettingsTab.clearSearchAria')}
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                  <DisabledReason reason={modifiedModSettingsCount === 0 && !modSettingsModifiedOnly ? t('modSettingsTab.modifiedFilterNoneTitle') : null}>
-                    <Button
-                      variant={modSettingsModifiedOnly ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setModSettingsModifiedOnly(v => !v)}
-                      disabled={modifiedModSettingsCount === 0 && !modSettingsModifiedOnly}
-                      className="shrink-0 h-9 gap-1.5 text-xs font-medium"
-                      aria-pressed={modSettingsModifiedOnly}
-                      // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27: the disabled-reason branch (no modified options) now lives in the DisabledReason wrapper above; this title carries only the enabled-state hint.
-                      title={t('modSettingsTab.modifiedFilterTitle')}
-                    >
-                      <Filter className="w-3.5 h-3.5" />
-                      {t('modSettingsTab.modifiedFilter')}
-                      {modifiedModSettingsCount > 0 && (
-                        <Badge variant={modSettingsModifiedOnly ? 'secondary' : 'warning'} className="ms-0.5 h-4 px-1.5 py-0 text-xs">
-                          {modifiedModSettingsCount}
-                        </Badge>
-                      )}
-                    </Button>
-                  </DisabledReason>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      const allVisible = filteredModGroups.length > 0 && filteredModGroups.every(g => expandedModGroups.has(g.name))
-                      if (allVisible) {
-                        setExpandedModGroups(new Set())
-                      } else {
-                        setExpandedModGroups(new Set(filteredModGroups.map(g => g.name)))
-                      }
-                    }}
-                    className="shrink-0 gap-1.5 text-xs font-medium"
-                  >
-                    {filteredModGroups.length > 0 && filteredModGroups.every(g => expandedModGroups.has(g.name)) ? (
-                      <><ChevronDown className="w-3.5 h-3.5" /> {t('modSettingsTab.collapseAll')}</>
-                    ) : (
-                      <><ChevronRight className="w-3.5 h-3.5" /> {t('modSettingsTab.expandAll')}</>
-                    )}
-                  </Button>
-                </div>
-              )}
-              {!modSettings && !modSettingsLoading && !modSettingsError && (
-                <EmptyState
-                  type="noMods"
-                  title={t('modSettingsTab.notLoadedTitle')}
-                  description={
-                    <span>
-                      {t('modSettingsTab.notLoadedDescPrefix')}
-                      <HelpTip label={t('modSettingsTab.panelBridgeLabel')} side="bottom" className="mx-1 align-[-2px]">
-                        {t('modSettingsTab.panelBridgeTip')}
-                      </HelpTip>
-                      {t('modSettingsTab.notLoadedDescSuffix')}
-                    </span>
-                  }
-                />
-              )}
-
-              {modSettingsError && (
-                <Alert variant={modSettings ? 'default' : 'destructive'} className="mb-3">
-                  <AlertCircle className="w-4 h-4" />
-                  <AlertTitle>{modSettings ? t('modSettingsTab.refreshFailedTitle') : t('modSettingsTab.loadFailedTitle')}</AlertTitle>
-                  <AlertDescription className="flex items-center justify-between gap-3">
-                    <span className="break-words min-w-0">{modSettingsError}</span>
-                    <Button variant="outline" size="sm" onClick={loadModSettings} disabled={modSettingsLoading} className="shrink-0 gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5" /> {t('modSettingsTab.retry')}
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {modSettingsLoading && (
-                <div className="flex items-center justify-center py-12 gap-3 text-muted-foreground">
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{t('modSettingsTab.loadingOptions')}</span>
-                </div>
-              )}
-
-              {modSettings && modSettingsGroups.length === 0 && !modSettingsLoading && (
-                <EmptyState
-                  type="noMods"
-                  title={t('modSettingsTab.noOptionsTitle')}
-                  description={t('modSettingsTab.noOptionsDesc')}
-                />
-              )}
-
-              {modSettings && modSettingsBridgeOutdated && (
-                <Alert className="mb-3 border-warning/40 bg-warning/10">
-                  <AlertTriangle className="h-4 w-4 text-warning" />
-                  <AlertTitle className="text-warning">{t('modSettingsTab.enumBridgeOutdatedTitle')}</AlertTitle>
-                  <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="min-w-0">{t('modSettingsTab.enumBridgeOutdatedDesc')}</span>
-                    <Button asChild variant="outline" size="sm" className="shrink-0 self-start sm:self-center">
-                      <Link to="/settings?tab=bridge">{t('unresolvedReview.openBridgeSettings')}</Link>
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {modSettings && modSettingsGroups.length > 0 && (
-                <ScrollArea className="h-[calc(100vh-440px)] min-h-[400px] pe-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                    <Badge variant="secondary">
-                      {/* bug-hunt-2026-09-08 (Arabic render pass, dwight): same
-                          "number / number" bidi-neutral-run reversal as
-                          6a6e26ee/09040e60/Debug.tsx -- confirmed with a real
-                          Chromium render (not assumed): the internal digit
-                          pair reverses here too once it sits next to the
-                          Arabic label text. <bdi> isolates it. */}
-                      {modSettingsSearch || modSettingsModifiedOnly ? <bdi>{`${filteredModGroups.length} / ${modSettingsGroups.length}`}</bdi> : modSettingsGroups.length} {t('modSettingsTab.groupsBadge')}
-                    </Badge>
-                    <Badge variant="secondary">
-                      {modSettingsSearch || modSettingsModifiedOnly
-                        ? <bdi>{`${filteredModGroups.reduce((s, g) => s + g.filteredOpts.length, 0)} / ${modSettingsGroups.reduce((s, g) => s + g.count, 0)}`}</bdi>
-                        : modSettingsGroups.reduce((s, g) => s + g.count, 0)
-                      } {t('modSettingsTab.optionsBadge')}
-                    </Badge>
-                    {modifiedModSettingsCount > 0 && (
-                      <Badge variant="warning" className="gap-1" title={t('modSettingsTab.modifiedBadgeTitle')}>
-                        <AlertTriangle className="w-3 h-3" />
-                        {t('modSettingsTab.modifiedBadge', { count: modifiedModSettingsCount })}
-                      </Badge>
-                    )}
-                    {modSettingsLastLoaded && (
-                      <span className="text-xs text-muted-foreground/60 ms-auto">
-                        {t('modSettingsTab.loadedAt', { time: formatTime(modSettingsLastLoaded, { seconds: true }) })}
-                      </span>
-                    )}
-                  </div>
-                  {filteredModGroups
-                    .map(group => {
-                      // When the user is actively filtering, force groups open so matches
-                      // are immediately visible (otherwise hits hide behind collapsed headers).
-                      const isFiltering = !!modSettingsSearch.trim() || modSettingsModifiedOnly
-                      const isExpanded = isFiltering || expandedModGroups.has(group.name)
-                      const filteredOpts = group.filteredOpts
-                      // Modified count for this whole group (not just visible/filtered)
-                      const groupAllOpts = modSettings[group.name] || []
-                      const groupModifiedCount = groupAllOpts.reduce((c, o) => c + (isOptModified(o) ? 1 : 0), 0)
-
+        <TabsContent value="ini" className="mt-0 space-y-4">
+          <PageAlerts alerts={iniAlerts} />
+          <SectionCard
+            title={t('iniTab.sectionLabel')}
+            description={t('iniTab.sectionSublabel')}
+            icon={FileText}
+            actions={editorActions('ini', t('editorToolbar.downloadIniAria'), { href: 'https://pzwiki.net/wiki/Server_settings', label: t('editorToolbar.wiki') })}
+          >
+            {editorMode === 'raw' ? rawEditor('h-[calc(100dvh-380px)] min-h-[400px]') : (
+              <div className="space-y-4">
+                {settingsToolbar(t('search.settingsPlaceholder'), t('search.aria'))}
+                {searchQuery ? (
+                  // Search: flat results across every category, grouped by category.
+                  <div className="space-y-6">
+                    {INI_CATEGORIES.map(category => {
+                      const settings = filteredIniSettings[category.id] || []
+                      if (settings.length === 0) return null
                       return (
-                        <div key={group.name} className="mb-3">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setExpandedModGroups(prev => {
-                                const next = new Set(prev)
-                                if (next.has(group.name)) next.delete(group.name)
-                                else next.add(group.name)
-                                return next
-                              })
-                            }}
-                            aria-expanded={isExpanded}
-                            className={`flex items-center gap-3 w-full py-2.5 px-4 rounded-lg transition-[background-color,border-color,box-shadow,color] duration-200 ${
-                              isExpanded
-                                ? 'border border-primary/30 bg-primary/10 shadow-sm'
-                                : 'bg-muted/50 hover:bg-muted border border-transparent'
-                            }`}
-                          >
-                            <div className={`p-1 rounded transition-colors ${isExpanded ? 'bg-primary/20 text-primary' : 'bg-muted'}`}>
-                              {isExpanded ? (
-                                <ChevronDown className="w-4 h-4" />
-                              ) : (
-                                <ChevronRight className="w-4 h-4" />
-                              )}
-                            </div>
-                            <span className={`font-medium truncate min-w-0 ${isExpanded ? 'text-primary' : ''}`} title={formatModSettingLabel(group.name)}>{formatModSettingLabel(group.name)}</span>
-                            {groupModifiedCount > 0 && (
-                              <Badge variant="warning" className="h-5 px-1.5 py-0 text-[10px] font-mono shrink-0" title={t('modSettingsTab.groupModifiedTitle', { count: groupModifiedCount })}>
-                                {t('modSettingsTab.groupModifiedBadge', { count: groupModifiedCount })}
-                              </Badge>
-                            )}
-                            <Badge variant={isExpanded ? "default" : "secondary"} className="ms-auto">
-                              {filteredOpts.length}
-                            </Badge>
-                          </button>
-                          {isExpanded && (
-                            <div className="mt-3 ms-4 space-y-1 ps-4">
-                              {filteredOpts.map((opt, idx) => {
-                                // Mods often expose an internal sandbox key as their
-                                // "translated" name. Format it before displaying it.
-                                const rawDisplayName = opt.shortName || opt.name || `Option ${idx}`
-                                const displayName = formatModSettingLabel(
-                                  opt.translatedName && opt.translatedName !== rawDisplayName ? opt.translatedName : rawDisplayName,
-                                  group.name,
-                                ) || `Option ${idx + 1}`
-                                // Keep player-facing help, but hide untranslated tooltip keys.
-                                const rawTooltip = opt.tooltipText || opt.tooltip || ''
-                                const description = formatModSettingDescription(rawTooltip.replace(/\n?Default\s*=\s*.*/i, ''))
-                                const rawVal = opt.value
-                                let displayValue: string
-                                if (rawVal === undefined || rawVal === null) {
-                                  displayValue = '—'
-                                } else if (typeof rawVal === 'number') {
-                                  displayValue = Number.isInteger(rawVal) ? String(rawVal) : rawVal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
-                                } else {
-                                  displayValue = String(rawVal)
-                                }
-                                const typeLabel = opt.type || 'unknown'
-                                const boolValue = typeLabel === 'boolean'
-                                  ? (rawVal === true || rawVal === 'true' || rawVal === 1)
-                                  : false
-                                const isSaving = opt.name ? savingOptions.has(opt.name) : false
-                                const isModified = isOptModified(opt)
-                                // A list only when its labels line up with the values;
-                                // otherwise the choice's number (describeModEnumControl).
-                                const enumControl = describeModEnumControl(opt)
-                                const enumAsNumber = enumControl !== null && enumControl.listLabels === null
-                                const blockedEnumValue = enumControl?.blockedValue ?? null
-                                const enumHintId = blockedEnumValue !== null || enumControl?.tooManyToList
-                                  ? `mod-enum-hint-${(opt.name || `${group.name}-${idx}`).replace(/\s+/g, '_')}`
-                                  : undefined
-
-                                return (
-                                  <div
-                                    key={`${opt.name || 'opt'}-${idx}`}
-                                    className={`flex items-center justify-between py-2 px-3 rounded-md hover:bg-muted/50 gap-4 ${isSaving ? 'opacity-60 pointer-events-none' : ''}`}
-                                  >
-                                    <div className="flex-1 min-w-0">
-                                      <div className="font-medium text-sm truncate" title={opt.name || displayName}>
-                                        {displayName}
-                                      </div>
-                                      {description && (
-                                        <div className="text-xs text-muted-foreground/70 mt-0.5 line-clamp-2" title={rawTooltip}>
-                                          {description}
-                                        </div>
-                                      )}
-                                      {opt.name && opt.name !== displayName && (
-                                        <div className="text-[10px] text-muted-foreground/40 font-mono truncate mt-0.5" title={opt.name}>{opt.name}</div>
-                                      )}
-                                      {blockedEnumValue !== null ? (
-                                        <div id={enumHintId} className="text-xs text-warning mt-0.5">
-                                          {t('modSettingsTab.enumLastChoiceHeldBack', { max: blockedEnumValue })}
-                                        </div>
-                                      ) : enumControl?.tooManyToList ? (
-                                        <div id={enumHintId} className="text-xs text-muted-foreground/70 mt-0.5">
-                                          {t('modSettingsTab.enumTooManyChoices')}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      {typeLabel === 'boolean' ? (
-                                        <div className="flex items-center gap-2">
-                                          <Switch
-                                            checked={boolValue}
-                                            onCheckedChange={(checked) => opt.name && !isSaving && handleOptionChange(opt.name, checked, group.name)}
-                                            disabled={isSaving}
-                                            aria-label={t('modSettingsTab.toggleAria', { label: displayName, state: boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps') })}
-                                          />
-                                          <span className={`text-xs font-mono ${boolValue ? 'text-primary' : 'text-muted-foreground'}`}>
-                                            {boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps')}
-                                          </span>
-                                        </div>
-                                      ) : enumControl?.listLabels ? (
-                                        <Select
-                                          value={opt.selectedIndex !== undefined ? String(opt.selectedIndex) : displayValue}
-                                          onValueChange={(val) => {
-                                            if (!opt.name || isSaving) return
-                                            const idx = parseInt(val, 10)
-                                            if (isNaN(idx)) return
-                                            // The item is disabled too; this keeps all three paths on one guard.
-                                            if (idx === blockedEnumValue) {
-                                              refuseBlockedEnumValue(opt.name, idx)
-                                              return
-                                            }
-                                            handleOptionChange(opt.name, idx, group.name)
-                                          }}
-                                          disabled={isSaving}
-                                        >
-                                          <SelectTrigger
-                                            className="h-7 w-full sm:w-[180px] text-xs font-mono"
-                                            aria-label={displayName}
-                                            aria-describedby={enumHintId}
-                                          >
-                                            <SelectValue />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {enumControl.listLabels.map((ev, ei) => (
-                                              <SelectItem key={ei} value={String(ei + 1)} className="text-xs font-mono">
-                                                {ev}
-                                              </SelectItem>
-                                            ))}
-                                            {/* The old bridge never read the last label, and would save this value as
-                                                the one before it. The label stays neutral: it is also what the trigger
-                                                shows when the option already holds this value. */}
-                                            {blockedEnumValue !== null && (
-                                              <SelectItem value={String(blockedEnumValue)} disabled className="text-xs font-mono">
-                                                {t('modSettingsTab.enumLastChoiceItem', { value: blockedEnumValue })}
-                                              </SelectItem>
-                                            )}
-                                          </SelectContent>
-                                        </Select>
-                                      ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' || enumAsNumber ? (
-                                        <Input
-                                          key={`${opt.name}-${displayValue}`}
-                                          type="number"
-                                          className="h-7 w-full sm:w-[100px] text-xs font-mono text-end"
-                                          defaultValue={displayValue}
-                                          min={opt.min}
-                                          max={opt.max}
-                                          // The browser counts valid values up from `min` in `step`
-                                          // increments, so a fractional min like 0.001 with step 1
-                                          // rejects every whole number the user types.
-                                          step={(typeLabel === 'integer' || enumAsNumber) && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
-                                          disabled={isSaving}
-                                          aria-label={displayName}
-                                          aria-describedby={enumHintId}
-                                          onBlur={(e) => {
-                                            let num = parseFloat(e.target.value)
-                                            if (isNaN(num) || !opt.name) return
-                                            if (opt.min !== undefined) num = Math.max(opt.min, num)
-                                            if (opt.max !== undefined) num = Math.min(opt.max, num)
-                                            if (num === rawVal) return
-                                            if (num === blockedEnumValue) {
-                                              e.target.value = displayValue
-                                              refuseBlockedEnumValue(opt.name, num)
-                                              return
-                                            }
-                                            e.target.value = String(num)
-                                            handleOptionChange(opt.name, num, group.name)
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              (e.target as HTMLInputElement).blur()
-                                            }
-                                          }}
-                                        />
-                                      ) : (
-                                        <Input
-                                          key={`${opt.name}-${displayValue}`}
-                                          type="text"
-                                          className="h-7 w-full sm:w-[160px] text-xs font-mono"
-                                          defaultValue={displayValue}
-                                          disabled={isSaving}
-                                          aria-label={displayName}
-                                          onBlur={(e) => {
-                                            if (e.target.value !== String(rawVal) && opt.name) {
-                                              handleOptionChange(opt.name, e.target.value, group.name)
-                                            }
-                                          }}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                              (e.target as HTMLInputElement).blur()
-                                            }
-                                          }}
-                                        />
-                                      )}
-                                      {opt.min !== undefined && opt.max !== undefined && (
-                                        <span className="text-xs text-muted-foreground/60 whitespace-nowrap">
-                                          <bdi>{opt.min}–{opt.max}</bdi>
-                                        </span>
-                                      )}
-                                      {isModified && (
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <button
-                                              type="button"
-                                              className="text-xs text-muted-foreground/50 hover:text-primary whitespace-nowrap flex items-center gap-1"
-                                              onClick={() => {
-                                                if (!opt.name || opt.default === undefined) return
-                                                if (blockedEnumValue !== null && opt.default === blockedEnumValue) {
-                                                  refuseBlockedEnumValue(opt.name, blockedEnumValue)
-                                                  return
-                                                }
-                                                handleOptionChange(opt.name, opt.default, group.name)
-                                              }}
-                                              disabled={isSaving}
-                                              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
-                                              title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}
-                                            >
-                                              <Undo2 className="w-3 h-3" />
-                                              <span>{t('modSettingsTab.resetToDefaultLabel', { value: formatRawConfigValue(opt.default) })}</span>
-                                            </button>
-                                          </TooltipTrigger>
-                                          <TooltipContent side="left">
-                                            <p>{t('modSettingsTab.resetToDefaultTooltip', { value: formatRawConfigValue(opt.default) })}</p>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )}
-                                      {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
+                        <div key={category.id}>
+                          {categoryHeading(getIniCategoryLabel(category), t('categoriesNav.matchCount', { count: settings.length }))}
+                          <div className="space-y-1">{settings.map(renderIniRow)}</div>
                         </div>
                       )
                     })}
-                  {filteredModGroups.length === 0 && (modSettingsSearch || modSettingsModifiedOnly) && (
-                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-2">
-                      {modSettingsModifiedOnly && !modSettingsSearch ? (
-                        <>
-                          <Filter className="w-5 h-5 opacity-50" />
-                          <p className="text-sm">{t('modSettingsTab.noModifiedOptions')}</p>
-                          <Button variant="ghost" size="sm" onClick={() => setModSettingsModifiedOnly(false)} className="text-xs">
-                            {t('modSettingsTab.showAllOptions')}
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Search className="w-5 h-5 opacity-50" />
-                          <p className="text-sm">{t('modSettingsTab.noMatches', { query: modSettingsSearch.length > 60 ? modSettingsSearch.slice(0, 60) + '…' : modSettingsSearch, suffix: modSettingsModifiedOnly ? t('modSettingsTab.noMatchesInModified') : '' })}</p>
-                          <div className="flex gap-2">
-                            {modSettingsSearch && (
-                              <Button variant="ghost" size="sm" onClick={() => setModSettingsSearch('')} className="text-xs">
-                                {t('modSettingsTab.clearSearch')}
-                              </Button>
-                            )}
-                            {modSettingsModifiedOnly && (
-                              <Button variant="ghost" size="sm" onClick={() => setModSettingsModifiedOnly(false)} className="text-xs">
-                                {t('modSettingsTab.showAllOptions')}
-                              </Button>
-                            )}
-                          </div>
-                        </>
-                      )}
+                    {searchResultsCount === 0 && noSearchMatches}
+                  </div>
+                ) : (
+                  <SubNavLayout
+                    nav={
+                      <SubNav
+                        kind="nav"
+                        groups={iniNavGroups}
+                        value={activeIniCategory}
+                        onValueChange={setActiveIniCategory}
+                        ariaLabel={t('categoriesNav.iniAria')}
+                      />
+                    }
+                  >
+                    {iniCategoryContent()}
+                  </SubNavLayout>
+                )}
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
+
+        {/* Sandbox Tab */}
+        <TabsContent value="sandbox" className="mt-0 space-y-4">
+          <PageAlerts alerts={sandboxAlerts} />
+          <SectionCard
+            title={t('sandboxTab.sectionLabel')}
+            description={t('sandboxTab.build42Body')}
+            icon={Code}
+            actions={editorActions('sandbox', t('editorToolbar.downloadSandboxAria'), { href: 'https://pzwiki.net/wiki/Sandbox_options', label: t('editorToolbar.wiki') })}
+          >
+            {editorMode === 'raw' ? rawEditor('h-[calc(100dvh-380px)] min-h-[400px]') : (
+              <div className="space-y-4">
+                {settingsToolbar(t('search.sandboxPlaceholder'), t('search.sandboxAria'))}
+                {searchQuery ? (
+                  <div className="space-y-6">
+                    {SANDBOX_CATEGORIES.map(category => {
+                      const settings = filteredSandboxSettings[category.id] || []
+                      if (settings.length === 0) return null
+                      return (
+                        <div key={category.id}>
+                          {categoryHeading(getSandboxCategoryLabel(category), t('categoriesNav.matchCount', { count: settings.length }))}
+                          <div className="space-y-1">{settings.map(renderSandboxRow)}</div>
+                        </div>
+                      )
+                    })}
+                    {searchResultsCount === 0 && noSearchMatches}
+                  </div>
+                ) : (
+                  <SubNavLayout
+                    nav={
+                      <SubNav
+                        kind="nav"
+                        groups={sandboxNavGroups}
+                        value={activeSandboxCategory}
+                        onValueChange={setActiveSandboxCategory}
+                        ariaLabel={t('categoriesNav.sandboxAria')}
+                      />
+                    }
+                  >
+                    {sandboxCategoryContent()}
+                  </SubNavLayout>
+                )}
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
+
+        {/* Spawn Points Tab */}
+        <TabsContent value="spawnpoints" className="mt-0 space-y-4">
+          <PageAlerts alerts={spawnAlerts} />
+          <SectionCard
+            title={t('spawnPointsTab.sectionLabel')}
+            description={t('spawnPointsTab.sectionSublabel')}
+            icon={MapPin}
+            actions={editorActions('spawnpoints', t('editorToolbar.downloadSpawnPointsAria'), { href: 'https://map.projectzomboid.com/', label: t('editorToolbar.map') })}
+          >
+            {editorMode === 'raw' ? rawEditor('h-[400px]') : (
+              <div className="flex flex-col items-center py-10 text-center">
+                <span className="mb-4 grid h-12 w-12 place-items-center rounded-full border border-primary/20 bg-primary/10 text-primary">
+                  <MapPin className="h-6 w-6" aria-hidden="true" />
+                </span>
+                <h3 className="text-base font-semibold text-foreground">{t('spawnPointsTab.modManagedTitle')}</h3>
+                <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+                  <Trans i18nKey="spawnPointsTab.modManagedBody" t={t} components={{ 1: <strong /> }} />
+                </p>
+                <Button variant="outline" size="sm" className="mt-5" onClick={() => openRawEditor('spawnpoints')}>
+                  <Code aria-hidden="true" /> {t('spawnPointsTab.openRawFile')}
+                </Button>
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
+
+        {/* Spawn Regions Tab */}
+        <TabsContent value="spawnregions" className="mt-0 space-y-4">
+          <PageAlerts alerts={spawnAlerts} />
+          <SectionCard
+            title={t('spawnRegionsTab.sectionLabel')}
+            description={t('spawnRegionsTab.sectionSublabel', { count: spawnRegions.length })}
+            icon={Map}
+            actions={editorActions('spawnregions', t('editorToolbar.downloadSpawnRegionsAria'))}
+          >
+            {editorMode === 'raw' ? rawEditor('h-[400px]') : (
+              <div className="space-y-3">
+                {spawnRegions.length === 0 ? (
+                  <EmptyState type="noData" title={t('spawnRegionsTab.noRegionsTitle')} description={t('spawnRegionsTab.noRegionsDesc')} compact />
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-border/60">
+                    {/* Column headers (sm+ only) */}
+                    <div className="hidden grid-cols-[2rem_minmax(180px,260px)_minmax(0,1fr)_2.25rem] items-center gap-3 border-b border-border/60 bg-muted/30 px-3 py-2 sm:grid">
+                      <span className="label-micro text-center">#</span>
+                      <span className="label-micro">{t('spawnRegionsTab.columnDisplayName')}</span>
+                      <span className="label-micro flex items-center gap-1">
+                        {t('spawnRegionsTab.columnMapFilePath')}
+                        <HelpTip label={t('spawnRegionsTab.columnMapFilePath')}>{t('spawnRegionsTab.mapFilePathTip')}</HelpTip>
+                      </span>
+                      <span aria-hidden="true" />
                     </div>
+                    <ul className="divide-y divide-border/60">
+                      {spawnRegions.map((region, index) => (
+                        <li
+                          key={index}
+                          className="grid grid-cols-1 gap-3 px-3 py-2.5 sm:grid-cols-[2rem_minmax(180px,260px)_minmax(0,1fr)_2.25rem] sm:items-center"
+                        >
+                          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-md border border-border bg-muted/40 px-1.5 text-xs font-medium tabular-nums text-muted-foreground sm:justify-self-center">
+                            {index + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <Label className="label-micro sm:sr-only">{t('spawnRegionsTab.columnDisplayName')}</Label>
+                            <Input
+                              value={region.name}
+                              onChange={(e) => {
+                                const newRegions = [...spawnRegions]
+                                newRegions[index] = { ...region, name: e.target.value }
+                                setSpawnRegions(newRegions)
+                              }}
+                              placeholder={t('spawnRegionsTab.displayNamePlaceholder')}
+                              maxLength={64}
+                              className="mt-0.5 h-9 sm:mt-0"
+                              aria-label={t('spawnRegionsTab.displayNameAria', { index: index + 1 })}
+                            />
+                          </div>
+                          <div className="min-w-0">
+                            <Label className="label-micro flex items-center gap-2 sm:sr-only">
+                              {region.isServerFile ? t('spawnRegionsTab.serverFileLabel') : t('spawnRegionsTab.columnMapFilePath')}
+                              {region.isServerFile && (
+                                <Badge variant="secondary" className="py-0 text-[10px]">{t('spawnRegionsTab.serverFileBadge')}</Badge>
+                              )}
+                            </Label>
+                            <div className="relative mt-0.5 sm:mt-0">
+                              <Input
+                                value={region.file}
+                                onChange={(e) => {
+                                  const newRegions = [...spawnRegions]
+                                  newRegions[index] = { ...region, file: e.target.value }
+                                  setSpawnRegions(newRegions)
+                                }}
+                                placeholder={region.isServerFile ? t('spawnRegionsTab.serverFilePlaceholder') : t('spawnRegionsTab.mapFilePlaceholder')}
+                                className={cn('h-9 font-mono text-xs', region.isServerFile && 'pe-20')}
+                                maxLength={512}
+                                dir="ltr"
+                                aria-label={region.isServerFile ? t('spawnRegionsTab.fileAriaServerFile', { index: index + 1 }) : t('spawnRegionsTab.fileAriaMapPath', { index: index + 1 })}
+                              />
+                              {region.isServerFile && (
+                                <Badge variant="secondary" className="absolute end-1.5 top-1/2 -translate-y-1/2 py-0 text-[10px]">
+                                  {t('spawnRegionsTab.serverFileBadge')}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="justify-self-end text-muted-foreground hover:text-destructive sm:justify-self-center"
+                            onClick={() => setSpawnRegions(spawnRegions.filter((_, i) => i !== index))}
+                            aria-label={t('spawnRegionsTab.deleteAria', { name: region.name || index + 1 })}
+                          >
+                            <Trash2 aria-hidden="true" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-1">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSpawnRegions([...spawnRegions, { name: '', file: 'media/maps/' }])}
+                  >
+                    <Plus aria-hidden="true" /> {t('spawnRegionsTab.addRegion')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </SectionCard>
+        </TabsContent>
+
+        {/* Mod Settings Tab (Live from PanelBridge) */}
+        <TabsContent value="modsettings" className="mt-0 space-y-4">
+          <PageAlerts alerts={modSettingsAlerts} />
+          <SectionCard
+            title={t('modSettingsTab.sectionLabel')}
+            description={modSettings ? t('modSettingsTab.sectionSublabelLoaded', { count: modSettingsGroups.length }) : t('modSettingsTab.sectionSublabelIdle')}
+            icon={Puzzle}
+            status={modifiedModSettingsCount > 0 ? (
+              <StatusPill tone="warn" size="sm" label={t('modSettingsTab.modifiedBadge', { count: modifiedModSettingsCount })} title={t('modSettingsTab.modifiedBadgeTitle')} />
+            ) : undefined}
+            actions={
+              <>
+                {/* The mods these options come from are managed on the Mods page. */}
+                <Link to="/mods?view=active" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                  <Package aria-hidden="true" /> {t('modSettingsTab.manageMods')}
+                </Link>
+                <Button
+                  variant={modSettings ? 'outline' : 'command'}
+                  size="sm"
+                  onClick={loadModSettings}
+                  disabled={modSettingsLoading}
+                >
+                  {modSettingsLoading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+                  {modSettings ? t('modSettingsTab.refresh') : t('modSettingsTab.load')}
+                </Button>
+              </>
+            }
+          >
+            {modSettings && modSettingsGroups.length > 0 && (
+              <Toolbar
+                search={{
+                  value: modSettingsSearch,
+                  onChange: (value) => setModSettingsSearch(value.slice(0, 200)),
+                  placeholder: t('modSettingsTab.searchPlaceholder'),
+                  ariaLabel: t('modSettingsTab.searchPlaceholder'),
+                  slashToFocus: true,
+                }}
+                end={
+                  <>
+                    <DisabledReason reason={modifiedModSettingsCount === 0 && !modSettingsModifiedOnly ? t('modSettingsTab.modifiedFilterNoneTitle') : null}>
+                      <Button
+                        variant={modSettingsModifiedOnly ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => setModSettingsModifiedOnly(v => !v)}
+                        disabled={modifiedModSettingsCount === 0 && !modSettingsModifiedOnly}
+                        aria-pressed={modSettingsModifiedOnly}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- split 2026-08-27: the disabled-reason branch (no modified options) now lives in the DisabledReason wrapper above; this title carries only the enabled-state hint.
+                        title={t('modSettingsTab.modifiedFilterTitle')}
+                      >
+                        <Filter aria-hidden="true" />
+                        {t('modSettingsTab.modifiedFilter')}
+                        {modifiedModSettingsCount > 0 && (
+                          <span className="rounded-full bg-warning/15 px-1.5 text-[10px] font-medium tabular-nums text-warning">
+                            {modifiedModSettingsCount}
+                          </span>
+                        )}
+                      </Button>
+                    </DisabledReason>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const allVisible = filteredModGroups.length > 0 && filteredModGroups.every(g => expandedModGroups.has(g.name))
+                        if (allVisible) {
+                          setExpandedModGroups(new Set())
+                        } else {
+                          setExpandedModGroups(new Set(filteredModGroups.map(g => g.name)))
+                        }
+                      }}
+                    >
+                      {filteredModGroups.length > 0 && filteredModGroups.every(g => expandedModGroups.has(g.name)) ? (
+                        <><ChevronDown aria-hidden="true" /> {t('modSettingsTab.collapseAll')}</>
+                      ) : (
+                        <><ChevronRight className="rtl:-scale-x-100" aria-hidden="true" /> {t('modSettingsTab.expandAll')}</>
+                      )}
+                    </Button>
+                  </>
+                }
+              />
+            )}
+            {!modSettings && !modSettingsLoading && !modSettingsError && (
+              <EmptyState
+                type="noMods"
+                title={t('modSettingsTab.notLoadedTitle')}
+                description={
+                  <span>
+                    {t('modSettingsTab.notLoadedDescPrefix')}
+                    <HelpTip label={t('modSettingsTab.panelBridgeLabel')} side="bottom" className="mx-1 align-[-2px]">
+                      {t('modSettingsTab.panelBridgeTip')}
+                    </HelpTip>
+                    {t('modSettingsTab.notLoadedDescSuffix')}
+                  </span>
+                }
+              />
+            )}
+
+            {modSettingsLoading && (
+              <div className="flex items-center justify-center gap-3 py-12 text-sm text-muted-foreground" role="status">
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+                <span>{t('modSettingsTab.loadingOptions')}</span>
+              </div>
+            )}
+
+            {modSettings && modSettingsGroups.length === 0 && !modSettingsLoading && (
+              <EmptyState
+                type="noMods"
+                title={t('modSettingsTab.noOptionsTitle')}
+                description={t('modSettingsTab.noOptionsDesc')}
+              />
+            )}
+
+            {modSettings && modSettingsGroups.length > 0 && (
+              <div>
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <Badge variant="secondary">
+                    {/* bug-hunt-2026-09-08 (Arabic render pass, dwight): same
+                        "number / number" bidi-neutral-run reversal as
+                        6a6e26ee/09040e60/Debug.tsx -- confirmed with a real
+                        Chromium render (not assumed): the internal digit
+                        pair reverses here too once it sits next to the
+                        Arabic label text. <bdi> isolates it. */}
+                    {modSettingsSearch || modSettingsModifiedOnly ? <bdi>{`${filteredModGroups.length} / ${modSettingsGroups.length}`}</bdi> : modSettingsGroups.length} {t('modSettingsTab.groupsBadge')}
+                  </Badge>
+                  <Badge variant="secondary">
+                    {modSettingsSearch || modSettingsModifiedOnly
+                      ? <bdi>{`${filteredModGroups.reduce((s, g) => s + g.filteredOpts.length, 0)} / ${modSettingsGroups.reduce((s, g) => s + g.count, 0)}`}</bdi>
+                      : modSettingsGroups.reduce((s, g) => s + g.count, 0)
+                    } {t('modSettingsTab.optionsBadge')}
+                  </Badge>
+                  {modSettingsLastLoaded && (
+                    <span className="ms-auto text-xs text-muted-foreground">
+                      {t('modSettingsTab.loadedAt', { time: formatTime(modSettingsLastLoaded, { seconds: true }) })}
+                    </span>
                   )}
-                </ScrollArea>
-              )}
-            </div>
-          </TacticalPanel>
+                </div>
+                {filteredModGroups
+                  .map(group => {
+                    // When the user is actively filtering, force groups open so matches
+                    // are immediately visible (otherwise hits hide behind collapsed headers).
+                    const isFiltering = !!modSettingsSearch.trim() || modSettingsModifiedOnly
+                    const isExpanded = isFiltering || expandedModGroups.has(group.name)
+                    const filteredOpts = group.filteredOpts
+                    // Modified count for this whole group (not just visible/filtered)
+                    const groupAllOpts = modSettings[group.name] || []
+                    const groupModifiedCount = groupAllOpts.reduce((c, o) => c + (isOptModified(o) ? 1 : 0), 0)
+
+                    return (
+                      <div key={group.name} className="mb-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setExpandedModGroups(prev => {
+                              const next = new Set(prev)
+                              if (next.has(group.name)) next.delete(group.name)
+                              else next.add(group.name)
+                              return next
+                            })
+                          }}
+                          aria-expanded={isExpanded}
+                          className={cn(
+                            'flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70',
+                            isExpanded ? 'border-primary/30 bg-primary/10' : 'border-border/60 bg-muted/30 hover:bg-muted/60',
+                          )}
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
+                          )}
+                          <span className="min-w-0 truncate font-medium" title={formatModSettingLabel(group.name)}>{formatModSettingLabel(group.name)}</span>
+                          {groupModifiedCount > 0 && (
+                            <Badge variant="warning" className="h-5 shrink-0 px-1.5 py-0 text-[10px]" title={t('modSettingsTab.groupModifiedTitle', { count: groupModifiedCount })}>
+                              {t('modSettingsTab.groupModifiedBadge', { count: groupModifiedCount })}
+                            </Badge>
+                          )}
+                          <span className="ms-auto shrink-0 text-xs tabular-nums text-muted-foreground">
+                            {filteredOpts.length}
+                          </span>
+                        </button>
+                        {isExpanded && (
+                          <div className="mt-2 space-y-1 ps-4 sm:ps-7">
+                            {filteredOpts.map((opt, idx) => {
+                              // Mods often expose an internal sandbox key as their
+                              // "translated" name. Format it before displaying it.
+                              const rawDisplayName = opt.shortName || opt.name || `Option ${idx}`
+                              const displayName = formatModSettingLabel(
+                                opt.translatedName && opt.translatedName !== rawDisplayName ? opt.translatedName : rawDisplayName,
+                                group.name,
+                              ) || `Option ${idx + 1}`
+                              // Keep player-facing help, but hide untranslated tooltip keys.
+                              const rawTooltip = opt.tooltipText || opt.tooltip || ''
+                              const description = formatModSettingDescription(rawTooltip.replace(/\n?Default\s*=\s*.*/i, ''))
+                              const rawVal = opt.value
+                              let displayValue: string
+                              if (rawVal === undefined || rawVal === null) {
+                                displayValue = '—'
+                              } else if (typeof rawVal === 'number') {
+                                displayValue = Number.isInteger(rawVal) ? String(rawVal) : rawVal.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+                              } else {
+                                displayValue = String(rawVal)
+                              }
+                              const typeLabel = opt.type || 'unknown'
+                              const boolValue = typeLabel === 'boolean'
+                                ? (rawVal === true || rawVal === 'true' || rawVal === 1)
+                                : false
+                              const isSaving = opt.name ? savingOptions.has(opt.name) : false
+                              const isModified = isOptModified(opt)
+                              // A list only when its labels line up with the values;
+                              // otherwise the choice's number (describeModEnumControl).
+                              const enumControl = describeModEnumControl(opt)
+                              const enumAsNumber = enumControl !== null && enumControl.listLabels === null
+                              const blockedEnumValue = enumControl?.blockedValue ?? null
+                              const enumHintId = blockedEnumValue !== null || enumControl?.tooManyToList
+                                ? `mod-enum-hint-${(opt.name || `${group.name}-${idx}`).replace(/\s+/g, '_')}`
+                                : undefined
+
+                              return (
+                                <div
+                                  key={`${opt.name || 'opt'}-${idx}`}
+                                  className={cn('flex flex-col gap-2 rounded-md px-3 py-2 hover:bg-muted/50 sm:flex-row sm:items-center sm:justify-between sm:gap-4', isSaving && 'pointer-events-none opacity-60')}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <div className="truncate text-sm font-medium" title={opt.name || displayName}>
+                                      {displayName}
+                                    </div>
+                                    {description && (
+                                      <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground" title={rawTooltip}>
+                                        {description}
+                                      </div>
+                                    )}
+                                    {opt.name && opt.name !== displayName && (
+                                      <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground/70" title={opt.name} dir="ltr">{opt.name}</div>
+                                    )}
+                                    {blockedEnumValue !== null ? (
+                                      <div id={enumHintId} className="mt-0.5 text-xs text-warning">
+                                        {t('modSettingsTab.enumLastChoiceHeldBack', { max: blockedEnumValue })}
+                                      </div>
+                                    ) : enumControl?.tooManyToList ? (
+                                      <div id={enumHintId} className="mt-0.5 text-xs text-muted-foreground">
+                                        {t('modSettingsTab.enumTooManyChoices')}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                    {typeLabel === 'boolean' ? (
+                                      <div className="flex items-center gap-2">
+                                        <Switch
+                                          checked={boolValue}
+                                          onCheckedChange={(checked) => opt.name && !isSaving && handleOptionChange(opt.name, checked, group.name)}
+                                          disabled={isSaving}
+                                          aria-label={t('modSettingsTab.toggleAria', { label: displayName, state: boolValue ? t('modSettingsTab.onCaps') : t('modSettingsTab.offCaps') })}
+                                        />
+                                        <span className={cn('text-xs', boolValue ? 'text-primary' : 'text-muted-foreground')}>
+                                          {boolValue ? t('row.on') : t('row.off')}
+                                        </span>
+                                      </div>
+                                    ) : enumControl?.listLabels ? (
+                                      <Select
+                                        value={opt.selectedIndex !== undefined ? String(opt.selectedIndex) : displayValue}
+                                        onValueChange={(val) => {
+                                          if (!opt.name || isSaving) return
+                                          const idx = parseInt(val, 10)
+                                          if (isNaN(idx)) return
+                                          // The item is disabled too; this keeps all three paths on one guard.
+                                          if (idx === blockedEnumValue) {
+                                            refuseBlockedEnumValue(opt.name, idx)
+                                            return
+                                          }
+                                          handleOptionChange(opt.name, idx, group.name)
+                                        }}
+                                        disabled={isSaving}
+                                      >
+                                        <SelectTrigger
+                                          className="h-9 w-full text-xs sm:w-[180px]"
+                                          aria-label={displayName}
+                                          aria-describedby={enumHintId}
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {enumControl.listLabels.map((ev, ei) => (
+                                            <SelectItem key={ei} value={String(ei + 1)} className="text-xs">
+                                              {ev}
+                                            </SelectItem>
+                                          ))}
+                                          {/* The old bridge never read the last label, and would save this value as
+                                              the one before it. The label stays neutral: it is also what the trigger
+                                              shows when the option already holds this value. */}
+                                          {blockedEnumValue !== null && (
+                                            <SelectItem value={String(blockedEnumValue)} disabled className="text-xs">
+                                              {t('modSettingsTab.enumLastChoiceItem', { value: blockedEnumValue })}
+                                            </SelectItem>
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    ) : typeLabel === 'number' || typeLabel === 'double' || typeLabel === 'integer' || enumAsNumber ? (
+                                      <Input
+                                        key={`${opt.name}-${displayValue}`}
+                                        type="number"
+                                        className="h-9 w-full text-end text-xs tabular-nums sm:w-[100px]"
+                                        defaultValue={displayValue}
+                                        min={opt.min}
+                                        max={opt.max}
+                                        // The browser counts valid values up from `min` in `step`
+                                        // increments, so a fractional min like 0.001 with step 1
+                                        // rejects every whole number the user types.
+                                        step={(typeLabel === 'integer' || enumAsNumber) && Number.isInteger(opt.min ?? 0) ? 1 : 'any'}
+                                        disabled={isSaving}
+                                        aria-label={displayName}
+                                        aria-describedby={enumHintId}
+                                        onWheel={(e) => e.currentTarget.blur()}
+                                        onBlur={(e) => {
+                                          let num = parseFloat(e.target.value)
+                                          if (isNaN(num) || !opt.name) return
+                                          if (opt.min !== undefined) num = Math.max(opt.min, num)
+                                          if (opt.max !== undefined) num = Math.min(opt.max, num)
+                                          if (num === rawVal) return
+                                          if (num === blockedEnumValue) {
+                                            e.target.value = displayValue
+                                            refuseBlockedEnumValue(opt.name, num)
+                                            return
+                                          }
+                                          e.target.value = String(num)
+                                          handleOptionChange(opt.name, num, group.name)
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            (e.target as HTMLInputElement).blur()
+                                          }
+                                        }}
+                                      />
+                                    ) : (
+                                      <Input
+                                        key={`${opt.name}-${displayValue}`}
+                                        type="text"
+                                        className="h-9 w-full text-xs sm:w-[160px]"
+                                        defaultValue={displayValue}
+                                        disabled={isSaving}
+                                        aria-label={displayName}
+                                        onBlur={(e) => {
+                                          if (e.target.value !== String(rawVal) && opt.name) {
+                                            handleOptionChange(opt.name, e.target.value, group.name)
+                                          }
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            (e.target as HTMLInputElement).blur()
+                                          }
+                                        }}
+                                      />
+                                    )}
+                                    {opt.min !== undefined && opt.max !== undefined && (
+                                      <span className="whitespace-nowrap text-xs tabular-nums text-muted-foreground">
+                                        <bdi>{opt.min}–{opt.max}</bdi>
+                                      </span>
+                                    )}
+                                    {isModified && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <button
+                                            type="button"
+                                            className="flex items-center gap-1 whitespace-nowrap rounded text-xs text-muted-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                                            onClick={() => {
+                                              if (!opt.name || opt.default === undefined) return
+                                              if (blockedEnumValue !== null && opt.default === blockedEnumValue) {
+                                                refuseBlockedEnumValue(opt.name, blockedEnumValue)
+                                                return
+                                              }
+                                              handleOptionChange(opt.name, opt.default, group.name)
+                                            }}
+                                            disabled={isSaving}
+                                            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint naming the action + value; disables only transiently while a save is in flight (the adjacent spinner is the self-evident why). Triaged 2026-08-27. Note: the wrapping Radix Tooltip here has the same "no pointer/focus events on a disabled native button" limitation as this title, so its content is equally unreachable while isSaving -- out of scope for this rule (it only checks title+disabled), flagged here rather than fixed since isSaving is brief and self-evident.
+                                            title={t('modSettingsTab.resetToDefaultTitle', { value: formatRawConfigValue(opt.default) })}
+                                          >
+                                            <Undo2 className="h-3 w-3" aria-hidden="true" />
+                                            <span>{t('modSettingsTab.resetToDefaultLabel', { value: formatRawConfigValue(opt.default) })}</span>
+                                          </button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left">
+                                          <p>{t('modSettingsTab.resetToDefaultTooltip', { value: formatRawConfigValue(opt.default) })}</p>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                    {isSaving && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                {filteredModGroups.length === 0 && (modSettingsSearch || modSettingsModifiedOnly) && (
+                  <div className="flex flex-col items-center justify-center gap-2 py-8 text-muted-foreground">
+                    {modSettingsModifiedOnly && !modSettingsSearch ? (
+                      <>
+                        <Filter className="h-5 w-5 opacity-50" aria-hidden="true" />
+                        <p className="text-sm">{t('modSettingsTab.noModifiedOptions')}</p>
+                        <Button variant="ghost" size="sm" onClick={() => setModSettingsModifiedOnly(false)}>
+                          {t('modSettingsTab.showAllOptions')}
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Search className="h-5 w-5 opacity-50" aria-hidden="true" />
+                        <p className="text-sm">{t('modSettingsTab.noMatches', { query: modSettingsSearch.length > 60 ? modSettingsSearch.slice(0, 60) + '…' : modSettingsSearch, suffix: modSettingsModifiedOnly ? t('modSettingsTab.noMatchesInModified') : '' })}</p>
+                        <div className="flex gap-2">
+                          {modSettingsSearch && (
+                            <Button variant="ghost" size="sm" onClick={() => setModSettingsSearch('')}>
+                              {t('modSettingsTab.clearSearch')}
+                            </Button>
+                          )}
+                          {modSettingsModifiedOnly && (
+                            <Button variant="ghost" size="sm" onClick={() => setModSettingsModifiedOnly(false)}>
+                              {t('modSettingsTab.showAllOptions')}
+                            </Button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </SectionCard>
         </TabsContent>
       </Tabs>
 
-      {/* Sticky save bar — appears when there are unsaved changes on the active tab */}
-      {((activeTab === 'ini' && hasIniChanges) || (activeTab === 'sandbox' && hasSandboxChanges)) && (
-        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4 sm:px-6 sm:pb-5">
-          <div
-            role="status"
-            aria-live="polite"
-            className="pointer-events-auto flex w-full max-w-3xl items-center gap-3 rounded-lg border border-warning/40 bg-card/95 px-4 py-2.5 shadow-lg shadow-black/30 backdrop-blur supports-[backdrop-filter]:bg-card/80 motion-safe:animate-in motion-safe:slide-in-from-bottom-4 motion-safe:fade-in"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-warning/15 text-warning">
-              <AlertTriangle className="h-4 w-4" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-foreground">
-                {t('stickySaveBar.unsavedChange', { count: activeTab === 'ini' ? changedIniCount : changedSandboxCount })}
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                {activeTab === 'ini' ? t('stickySaveBar.iniScope') : t('stickySaveBar.sandboxScope')} · {t('stickySaveBar.hint')}
-              </div>
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={activeTab === 'ini' ? discardIniChanges : discardSandboxChanges}
-              // bug-hunt-2026-09-18 (round 21, UX follow-up per commit
-              // 14fed308's own original question): discardIniChanges()/
-              // discardSandboxChanges() only reassign LOCAL React state back
-              // to originalIniSettings/originalSandboxData -- neither calls
-              // the server at all. serverMayBeRunning gates the Save button
-              // correctly (a real write, unsafe while the server might be
-              // running the same files), but disabling Discard on the same
-              // condition made "undo my own unsaved edit" impossible for the
-              // exact operators who need it most: the ones who opened this
-              // tab, made a change, and now want to back out BECAUSE the
-              // server turned out to be running -- the one path where they
-              // could no longer even see their edit is reverted before
-              // navigating away.
-              disabled={saving}
-              className="h-8 gap-1.5 text-xs font-medium text-muted-foreground hover:text-destructive"
-            >
-              <Undo2 className="h-3 w-3" /> {t('stickySaveBar.discard')}
-            </Button>
-            <Button
-              variant="command"
-              size="sm"
-              onClick={activeTab === 'ini' ? handleSaveIni : handleSaveSandbox}
-              disabled={saving || serverChangedSinceLoad || (editorMode === 'structured' && (activeTab === 'ini' ? invalidIniSettings.length > 0 : invalidSandboxSettings.length > 0))}
-              className="h-8 gap-1.5 text-xs font-medium"
-            >
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              {/* Sandbox saves never live-reload (see handleSaveSandbox's own
-                  comment) -- only the INI tab's save genuinely attempts an
-                  RCON reload, so this bar must not promise one for Sandbox. */}
-              {activeTab === 'ini' ? t('stickySaveBar.saveAndReload') : t('stickySaveBar.save')}
-            </Button>
-          </div>
-        </div>
-      )}
       <Dialog open={showBackups} onOpenChange={setShowBackups}>
         {/* flex flex-col, here and in Templates below (same fix as
             FolderBrowser.tsx): the fixed h-[400px] ScrollArea is most of the
@@ -5519,6 +4898,22 @@ export default function ServerConfig() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* The one save affordance, for the tab on screen: "Unsaved changes ·
+          Discard · Save" while it holds edits, Ctrl/Cmd+S, and the reason
+          Save can't run. Discard never touches the server (only the form
+          state), so it stays available while the server may be running. */}
+      {saveTarget && (
+        <SaveBar
+          dirty={saveTarget.dirty}
+          saving={saving}
+          onSave={saveTarget.onSave}
+          onDiscard={saveTarget.onDiscard}
+          changeCount={saveTarget.changeCount}
+          disabledReason={saveDisabledReason}
+          saveLabel={saveTarget.saveLabel}
+        />
+      )}
     </div>
   )
 }

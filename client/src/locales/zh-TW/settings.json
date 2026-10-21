@@ -40,7 +40,7 @@
     "general": {
       "label": "一般",
       "tip": "面板埠、重新啟動及外觀",
-      "description": "此管理介面所監聽的埠，以及主題設定。"
+      "description": "面板埠與重新啟動、主題、日期格式，以及設定值範圍。"
     },
     "updates": {
       "label": "更新",
@@ -80,7 +80,7 @@
     "backups": {
       "label": "備份",
       "tip": "伺服器備份排程及角色匯出",
-      "description": "自動伺服器備份及按角色匯出的副本。"
+      "description": "匯出角色的副本。世界備份及其排程在「伺服器備份管理」頁面。"
     },
     "about": {
       "label": "關於",
@@ -90,7 +90,7 @@
     "users": {
       "label": "使用者",
       "tip": "面板帳號及其分配的角色",
-      "description": "建立、刪除面板帳號，並更改其角色。"
+      "description": "新增和刪除面板帳號。每個帳號的角色在「角色與權限」中設定。"
     },
     "roles": {
       "label": "角色與權限",
@@ -98,7 +98,7 @@
       "description": "每個角色授予哪些權限，以及哪些面板帳號擁有它們。"
     },
     "sso": {
-      "label": "登入",
+      "label": "單一登入",
       "tip": "單一登入（OIDC）提供商",
       "description": "允許面板帳號通過外部身份提供商登入。"
     }
@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "更新未套用",
+    "rolledBackDescription": "面板已重新啟動，但執行的是 v{{running}}，而不是 v{{expected}}：更新已回復或未能套用。「更新」區段會顯示具體情況。"
   },
   "saveButton": {
     "saving": "正在儲存…",
@@ -139,8 +141,8 @@
     "ymd": "年-月-日（{{example}}）"
   },
   "general": {
-    "cardTitle": "面板設定",
-    "cardDescription": "本面板監聽的埠，以及外觀樣式。",
+    "cardTitle": "埠與重新啟動",
+    "cardDescription": "本面板監聽的埠，以及重新啟動面板使其生效。",
     "portLabel": "面板埠",
     "portHelp": "用於訪問面板的埠（預設：3001）。",
     "restartRequiredTitle": "需要重新啟動",
@@ -344,7 +346,7 @@
     "reverseProxyTitle": "反向代理說明",
     "reverseProxyDesc": "若 TLS 由 Nginx、Caddy 或 Cloudflare Tunnel 終止，請保持面板 HTTPS 關閉，並代理本地 HTTP。",
     "restartRequiredTitle": "需要重新啟動",
-    "restartRequiredDesc": "HTTPS 更改需要重新啟動才能生效。請先儲存，然後在「面板設定」中重新啟動。",
+    "restartRequiredDesc": "HTTPS 更改需要重新啟動才能生效。請先儲存，然後在「設定 › 一般」中重新啟動。",
     "certPathPlaceholder": "憑證 PEM 檔案路徑",
     "certPathPlaceholderWindows": "範例：C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "範例：/etc/zomboid-panel/panel.fullchain.pem",
@@ -391,6 +393,7 @@
     "sectionRemoteConfigLogs": "遠端設定與記錄",
     "sectionInstallUpdates": "安裝與更新",
     "howItWorksButton": "工作原理",
+    "openInDiagnostics": "在診斷中開啟",
     "dialogTitle": "PanelBridge",
     "dialogDesc": "一個運行於 Project Zomboid 內部的 Lua 模組，讓本面板可直接訪問即時遊戲世界。",
     "unlocksTitle": "可解鎖的功能",
@@ -609,6 +612,9 @@
     "backupsPathLabel": "備份：",
     "characterExportsCardTitle": "角色匯出",
     "characterExportsCardDesc": "按玩家儲存的角色副本，與伺服器備份分開儲存。",
+    "worldBackupsLinkTitle": "世界備份",
+    "worldBackupsLinkDesc": "自動備份、備份排程、保留數量、還原與下載都在「伺服器備份管理」頁面。",
+    "openWorldBackups": "開啟伺服器備份管理",
     "autoExportLabel": "玩家加入時匯出角色",
     "autoExportDesc": "在玩家載入後約十秒執行，因此可在不還原整個伺服器存檔的情況下還原單個角色。需要 PanelBridge 處於已連線狀態。",
     "copiesKeptLabel": "每位玩家保留的副本數",
@@ -627,7 +633,7 @@
     "showPassword": "顯示密碼",
     "hidePassword": "隱藏密碼",
     "passwordsDontMatch": "密碼不一致",
-    "passwordTooShort": "密碼必須至少為 6 個字元",
+    "passwordTooShort": "密碼必須至少為 10 個字元",
     "changingButton": "正在更改…",
     "changeButton": "更改密碼",
     "recoveryCodesTitle": "復原碼",
@@ -701,6 +707,7 @@
       "label": "排程任務",
       "detail": "重新啟動、公告，以及週期性命令。"
     },
+    "elsewhereBackups": { "label": "世界備份", "detail": "備份排程、保留數量、還原與下載。" },
     "elsewhereServerConfig": {
       "label": "遊戲伺服器設定",
       "detail": "伺服器 INI 選項與沙盒規則。"
@@ -709,7 +716,7 @@
       "label": "聊天快捷訊息",
       "detail": "顯示在聊天輸入框上方的預設訊息。"
     },
-    "aboutCardTitle": "關於",
+    "aboutCardTitle": "版本與連結",
     "aboutCardDesc": "面板版本、執行時資訊，以及相關連結。",
     "installedVersionLabel": "已安裝版本",
     "latestAvailableLabel": "最新可用版本",
@@ -985,7 +992,7 @@
     "updateDownloaded": {
       "title": "更新已下載"
     },
-    "updateDownloadedDescDocker": "面板容器正在重新構建，健康檢查通過後將重新連線。",
+    "updateDownloadedDescDocker": "正在重新建立面板容器。面板無法確認更新已完成：如果面板沒有恢復，請檢查容器的狀態或日誌。",
     "updateDownloadedDescBinary": "更新檔案已就緒，重新啟動面板即可套用此版本。",
     "downloadFailed": {
       "title": "下載失敗",
@@ -1134,7 +1141,7 @@
       "title": "密碼不一致"
     },
     "passwordTooShort": {
-      "title": "密碼必須至少為 6 個字元"
+      "title": "密碼必須至少為 10 個字元"
     },
     "passwordChanged": {
       "title": "密碼已更改",

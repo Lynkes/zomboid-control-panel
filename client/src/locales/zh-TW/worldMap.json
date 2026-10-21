@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "世界地圖",
-    "description": "諾克斯郡地圖上的玩家即時位置。右鍵點選以執行操作。"
+    "description": "玩家即時位置。在地圖上按右鍵或長按以執行操作。"
   },
   "refresh": "重新整理",
   "errorTitle": "錯誤",
@@ -23,7 +23,7 @@
     "floorDown": "下一層",
     "currentFloorAria": "當前樓層：{{floor}}",
     "currentFloorTitle": "{{floor}}——點選重設為地面層",
-    "layersHeader": "圖層",
+    "layersHeader": "地圖圖層",
     "vehiclesHideAria": "隱藏載具（已載入 {{count}} 輛）",
     "vehiclesShowAria": "顯示載具（已載入 {{count}} 輛）",
     "vehiclesHideTitle": "隱藏載具（{{count}}）——僅顯示玩家附近的載具",
@@ -39,8 +39,6 @@
     "basementN": "B{{n}}"
   },
   "tileFailure": {
-    "signalLost": "訊號遺失",
-    "tilesOffline": "圖塊離線",
     "coverageTitle": "此縮放級別下沒有地圖圖塊",
     "coverageDesc": "<1>tiles.pzmap.org</1> 可以訪問，但尚未在此細節級別渲染此區域。請縮小檢視，或稍後重試重新整理。",
     "networkTitle": "地圖圖塊無法載入",
@@ -63,8 +61,19 @@
     "unrecognizedTitle": "地圖圖塊到達時為無法識別的資料",
     "unrecognizedDesc": "此圖塊的資料不符合面板識別的任何已知格式。原始位元組：{{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge 已離線",
+    "bridgeOfflineDesc": "即時位置、載具和地圖操作需要此伺服器執行 PanelBridge 模組。",
+    "bridgeOfflineAction": "設定 PanelBridge",
+    "noServerTitle": "沒有使用中的伺服器",
+    "noServerDesc": "選擇或新增伺服器，以在地圖上檢視其玩家。",
+    "noServerAction": "開啟伺服器列表",
+    "playerNotOnlineTitle": "{{name}} 不在地圖上",
+    "playerNotOnlineDesc": "該玩家已離線，或 PanelBridge 尚未回報其位置。",
+    "openInPlayers": "在玩家中開啟"
+  },
   "roster": {
-    "label": "花名冊",
+    "label": "玩家",
     "live": "線上",
     "offline": "離線",
     "panToAria": "平移至 {{name}}",
@@ -73,14 +82,16 @@
     "noPlayersOnline": "沒有玩家線上",
     "bridgeOffline": "PanelBridge 離線",
     "collapseAria": "收起花名冊",
-    "expandAria": "展開花名冊"
+    "expandAria": "展開花名冊",
+    "toggleAria": "地圖上的玩家：{{count}}",
+    "closeSheet": "關閉玩家列表"
   },
   "hud": {
-    "hoverForCoords": "懸停檢視座標"
+    "hoverForCoords": "將滑鼠懸停在地圖上檢視座標",
+    "zoomTitle": "縮放等級"
   },
   "dossier": {
-    "label": "檔案",
-    "targetAcquired": "目標鎖定",
+    "targetAcquired": "線上",
     "closeAria": "關閉檔案",
     "pos": "座標",
     "floor": "樓層",
@@ -92,12 +103,11 @@
     "status": "狀態",
     "infected": "感染",
     "heal": "治療",
-    "god": "無敵",
-    "godTip": "始終為該玩家開啟無敵模式——不是切換開關。請改到「玩家」頁面關閉它。",
     "openPlayerControls": "開啟玩家控制",
     "healedTitle": "已治療",
     "healedDesc": "{{username}} 已被治療",
-    "godModeEnabled": "已啟用無敵模式"
+    "offline": "離線",
+    "offlineReason": "該玩家已不在線上。"
   },
   "contextMenu": {
     "ariaLabel": "地圖操作",

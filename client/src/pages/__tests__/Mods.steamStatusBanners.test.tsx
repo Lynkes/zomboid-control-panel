@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Mods from '../Mods'
 import { modsApi } from '@/lib/api'
@@ -148,7 +148,9 @@ describe('Mods -- Steam API health indicator', () => {
 
     expect(await screen.findByText(STEAM_BANNER_TEXT)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /dismiss steam api warning/i }))
+    // The page alert's own Dismiss button.
+    const banner = screen.getByText(STEAM_BANNER_TEXT).closest('[role="status"], [role="alert"]') as HTMLElement
+    fireEvent.click(within(banner).getByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByText(STEAM_BANNER_TEXT)).not.toBeInTheDocument()
     expect(localStorage.getItem('pz-mods-steam-api-issue-dismissed')).toBe(
@@ -191,7 +193,8 @@ describe('Mods -- Check Updates reveals the result', () => {
 
     await waitFor(() => expect(checkUpdates).toHaveBeenCalled())
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /updates only/i })).toHaveAttribute('aria-pressed', 'true')
+      // The chip, not the "Remove filter" button of its remembered-filter tag.
+      expect(screen.getByRole('button', { name: /^updates only/i })).toHaveAttribute('aria-pressed', 'true')
     })
     expect(toastSpy).toHaveBeenCalledWith(expect.objectContaining({
       description: '1 mod has updates available',

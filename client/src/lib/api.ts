@@ -995,7 +995,7 @@ export const serverApi = {
     apiPost("/server/install", config),
 
   detectSteamCmd: () =>
-    apiGet("/server/steamcmd/detect") as Promise<{
+    apiPost("/server/steamcmd/detect") as Promise<{
       found: boolean;
       path?: string;
       executable?: string;
@@ -1373,6 +1373,9 @@ export interface AddToIniBulkResult {
 
 // Mod Groups (server/routes/mods.js, /mods/groups...). `modIds` is ordered:
 // the list order is the load order those mods must keep.
+export type ModGroupColorName =
+  | "slate" | "red" | "orange" | "amber" | "lime" | "green" | "teal" | "sky" | "blue" | "violet" | "pink";
+
 export interface ModGroup {
   id: string;
   name: string;
@@ -1380,12 +1383,21 @@ export interface ModGroup {
   modIds: string[];
   createdAt: string;
   updatedAt: string;
+  // A group saved before these existed reads back as null / false.
+  color?: ModGroupColorName | null;
+  // The members also load as one contiguous block.
+  keepTogether?: boolean;
+  // Where smart sort puts the group (null: anywhere). Absent on older servers.
+  placement?: ModGroupPlacement;
 }
 
 export interface ModGroupInput {
   name: string;
   description?: string;
   modIds: string[];
+  color?: ModGroupColorName | null;
+  keepTogether?: boolean;
+  placement?: ModGroupPlacement;
 }
 
 // The export / import file: a group without its id and dates, so it can be
@@ -1396,6 +1408,53 @@ export interface ModGroupDocument {
   name: string;
   description?: string;
   modIds: string[];
+  color?: ModGroupColorName | null;
+  keepTogether?: boolean;
+  placement?: ModGroupPlacement;
+}
+
+// POST /mods/groups/:id/enable
+export interface ModGroupEnableResult {
+  enabled: string[];
+  alreadyEnabled: string[];
+  // Members found in no Workshop item on disk: they could not be enabled.
+  missing: string[];
+  workshopItemsAdded: string[];
+  groupsAdjusted: string[];
+  backupWarning?: string;
+}
+
+// POST /mods/groups/:id/disable
+export interface ModGroupDisableResult {
+  disabled: string[];
+  // Also in another group whose mods are all enabled, so they stay.
+  keptShared: string[];
+  notEnabled: string[];
+  // PanelBridge's own mod while its Workshop delivery manages it.
+  keptManaged?: string[];
+  backupWarning?: string;
+}
+
+// GET /mods/groups/suggestions. `reason` is an English machine phrase the
+// client does not show: it words its own text from `kind` and the counts.
+export interface ModGroupSuggestion {
+  key: string;
+  kind: "dependency" | "prefix" | "workshop-item";
+  name: string;
+  modIds: string[];
+  reason?: string;
+  /** dependency: how many of the mods require the library (the rest joined from an overlapping suggestion). */
+  dependents?: number;
+  /** dependency whose users are not otherwise related: the library's name; titled "Mods that use <library>". */
+  library?: string;
+}
+
+// GET /mods/notes, PUT /mods/notes/:workshopId. One note per Workshop item,
+// shared by every admin of the panel.
+export interface ModNote {
+  text: string;
+  updatedAt: string;
+  updatedBy: string | null;
 }
 
 export interface ModGroupStatusEntry {
@@ -1431,6 +1490,123 @@ export interface SaveModOrderResult {
   modCount?: number;
   groupsAdjusted?: string[];
   groupConflicts?: string[];
+}
+
+// Load order as Build 42 really applies it (server/utils/modLoadOrder.js):
+// optional fields of GET /mods/current-config and of the conflict scan.
+export type ModInfoListField = "require" | "loadModAfter" | "loadModBefore" | "incompatible";
+
+// A mod.info list entry the game cannot match (it splits on "," only and
+// keeps spaces). In require= it keeps the mod from loading.
+export interface ModInfoIssue {
+  field: ModInfoListField;
+  entry: string;
+  code: "emptyEntry" | "blankEntry" | "whitespace" | "semicolon";
+}
+
+// Extra fields of each GET /mods/current-config workshopModMap entry.
+export interface ModOrderingFields {
+  loadAfter?: string[];
+  loadBefore?: string[];
+  incompatible?: string[];
+  modInfoIssues?: ModInfoIssue[];
+}
+
+export type OrderingConstraintReason = "require" | "loadAfter" | "loadBefore" | "patch" | "conflictWinner";
+
+// `before` must load before `after`. require is enforced by the game;
+// loadAfter/loadBefore are declared by the mods; patch (named like a patch
+// for the other mod) and conflictWinner (keeps the current winner) are soft.
+export interface OrderingConstraint {
+  before: string;
+  after: string;
+  reason: OrderingConstraintReason;
+  reasons?: OrderingConstraintReason[];
+  declaredBy?: string;
+}
+
+export type OrderWarningCode =
+  | "requireCycle"
+  | "requireNotFound"
+  | "requireUnavailable"
+  | "requireEntryInvalid"
+  | "requireAutoLoaded"
+  | "requireReordered"
+  | "loadAfterViolated"
+  | "loadBeforeViolated"
+  | "declaredIncompatible"
+  | "modInfoListIssue"
+  | "modNotFound";
+
+export interface OrderWarning {
+  code: OrderWarningCode;
+  severity: "high" | "medium" | "low" | "info";
+  modId: string;
+  via?: string;
+  missing?: string;
+  caseMatch?: string;
+  dependency?: string;
+  other?: string;
+  cycle?: string[];
+  field?: ModInfoListField;
+  entry?: string;
+  issue?: ModInfoIssue["code"];
+}
+
+export interface ModOrderAnalysis {
+  // The order the dedicated server loads Mods= in (required mods first).
+  effectiveModOrder?: string[];
+  orderWarnings?: OrderWarning[];
+  orderingConstraints?: OrderingConstraint[];
+}
+
+export type ConflictRuleSeverity = "high" | "medium" | "low" | "info";
+
+export type ConflictKind =
+  | "file-override"
+  | "lua-override"
+  | "script-file-override"
+  | "script-override"
+  | "translation-override"
+  | "clothing-override"
+  | "lua-global-clash"
+  | "declared-incompatible";
+
+// Translated in the conflictsPanel namespace under reasons.<code>.
+export type ConflictReason =
+  | "assetOverride"
+  | "mapFileOverride"
+  | "dataFileOverride"
+  | "luaFileOverride"
+  | "scriptFileReplaced"
+  | "scriptFileOverride"
+  | "scriptDefinitionOverride"
+  | "scriptDefinitionMerge"
+  | "translationKeyOverride"
+  | "translationUnreadable"
+  | "clothingOutfitOverride"
+  | "clothingItemOverride"
+  | "luaGlobalRedefined"
+  | "luaVariantClash"
+  | "declaredIncompatible"
+  | "intendedPatch"
+  | "patchLoadsBeforeTarget";
+
+// Extra fields of each scan pairs[].files[] entry (its severity may also be
+// "info": an intended override by a declared patch).
+export interface ConflictFileRuleFields {
+  kind?: ConflictKind;
+  reason?: ConflictReason;
+  // The file-level reason an intendedPatch / patchLoadsBeforeTarget replaced.
+  baseReason?: ConflictReason;
+  intended?: boolean;
+  files?: { modId: string; file: string }[];
+}
+
+// Extra fields of the conflict scan result (pairs also carry infoCount).
+export interface ConflictScanRuleFields extends ModOrderAnalysis {
+  benignSkipped?: { nonGameplay: number; notLoaded: number; sameDefinitions: number; layeredAdditions?: number };
+  severityCounts?: Record<ConflictRuleSeverity, number>;
 }
 
 export const modsApi = {
@@ -1923,6 +2099,21 @@ export const modsApi = {
     apiPost<ModGroupsApplyResult>("/mods/groups/apply", { preview }),
   setGroupsEnforce: (enforce: boolean) =>
     apiPut<{ enforce: boolean }>("/mods/groups/enforce", { enforce }),
+  // Enable / disable every member mod of a group on the active server, in one
+  // ini write each (the server keeps the group's order when enabling).
+  enableGroup: (id: string) =>
+    apiPost<ModGroupEnableResult>(`/mods/groups/${encodeURIComponent(id)}/enable`, {}),
+  disableGroup: (id: string, keepShared = true) =>
+    apiPost<ModGroupDisableResult>(`/mods/groups/${encodeURIComponent(id)}/disable`, { keepShared }),
+  getGroupSuggestions: () =>
+    apiGet<{ suggestions: ModGroupSuggestion[] }>("/mods/groups/suggestions"),
+  dismissGroupSuggestion: (key: string) =>
+    apiPost<{ success: boolean }>("/mods/groups/suggestions/dismiss", { key }),
+  // Mod notes, keyed by Workshop item id. An empty text deletes the note.
+  getNotes: () =>
+    apiGet<{ notes: Record<string, ModNote> }>("/mods/notes"),
+  setNote: (workshopId: string, text: string) =>
+    apiPut<{ note: ModNote | null }>(`/mods/notes/${encodeURIComponent(workshopId)}`, { text }),
 
   // Mod Load Order
   saveModOrder: (modIds: string[]) =>
@@ -1930,17 +2121,329 @@ export const modsApi = {
 
   // Mod Conflict Scanner
   getConflicts: (options?: RequestInit) =>
-    apiGet<import("@/types").ConflictScanResult>("/mods/conflicts", options),
+    apiGet<import("@/types").ConflictScanResult & ConflictScanRuleFields>("/mods/conflicts", options),
   getCachedConflicts: () =>
     apiGet<
-      | (import("@/types").ConflictScanResult & {
+      | (import("@/types").ConflictScanResult & ConflictScanRuleFields & {
           stale?: boolean;
           _workshopIdsSnapshot?: string[];
           _modIdsSnapshot?: string[];
         })
       | null
     >("/mods/conflicts/cached"),
+  // Smart load order (server/routes/modsSmart.js): order rules, the plan,
+  // the health check with its one-click fixes, and what the panel makes of
+  // each mod. The plan never writes; a fix writes one of the issue's own
+  // fixes (through the ini lock and backup).
+  getOrderRules: () =>
+    apiGet<{ rules: ModOrderRule[]; max: number }>("/mods/order-rules"),
+  addOrderRule: (rule: ModOrderRuleInput) =>
+    apiPost<{ rule: ModOrderRule; existing: boolean; replaced: string[] }>("/mods/order-rules", rule),
+  deleteOrderRule: (id: string) =>
+    apiDelete<{ success: boolean }>(`/mods/order-rules/${encodeURIComponent(id)}`),
+  planLoadOrder: (request: LoadOrderPlanRequest = {}, options?: { signal?: AbortSignal }) =>
+    apiPost<LoadOrderPlan>("/mods/load-order/plan", request, options),
+  getModHealth: () =>
+    apiGet<ModHealth>("/mods/health"),
+  applyModHealthFix: (issueId: string, action: ModHealthFixAction, params?: Record<string, unknown>) =>
+    apiPost<ModHealthFixResult>("/mods/health/fix", { issueId, action, ...(params ? { params } : {}) }),
+  // "Fix everything": keep Mods=, WorkshopItems= and Map= before a run, and
+  // put them back for its Undo (one backup, one write).
+  autofixSnapshot: () =>
+    apiPost<{ snapshotId: string }>("/mods/autofix/snapshot", {}),
+  autofixRestore: (snapshotId: string) =>
+    apiPost<{ restored: boolean; backupWarning?: string }>("/mods/autofix/restore", { snapshotId }),
+  // refresh: fetch Steam data now (at most once a minute; otherwise cached
+  // data answers and the rest is fetched in the background).
+  getModInsights: (refresh = false) =>
+    apiGet<ModInsights>(refresh ? "/mods/insights?refresh=1" : "/mods/insights"),
 };
+
+// ── Smart load order (server/routes/modsSmart.js) ────────────────────────────
+
+// Where the plan puts a mod group: "first" as early as its constraints allow
+// (with what it needs), "last" as late (with what needs it). Groups answer it
+// as `placement` (null when unset); POST/PUT /mods/groups and group files
+// accept it.
+export type ModGroupPlacement = "first" | "last" | null;
+
+export type ModOrderRuleSource = "manual" | "conflictResolve" | "healthFix";
+
+// "Load `before` before `after`", pinned by an admin. Panel-wide; a rule for
+// a mod that is not enabled is kept and ignored.
+export interface ModOrderRule {
+  id: string;
+  before: string;
+  after: string;
+  note: string;
+  source: ModOrderRuleSource;
+  createdBy: string | null;
+  createdAt: string | null;
+}
+
+export interface ModOrderRuleInput {
+  before: string;
+  after: string;
+  note?: string;
+  source?: ModOrderRuleSource;
+  // Replace a stored rule the other way round (flip a conflict's winner).
+  replaceOpposite?: boolean;
+}
+
+// Strongest first: hard (require, rule, groupOrder), strong (loadAfter,
+// loadBefore, steamRequired, patch, conflictWinner).
+export type SmartConstraintReason =
+  | "require"
+  | "rule"
+  | "groupOrder"
+  | "loadAfter"
+  | "loadBefore"
+  | "steamRequired"
+  | "patch"
+  | "conflictWinner";
+
+export interface SmartConstraint {
+  before: string;
+  after: string;
+  reason: SmartConstraintReason;
+  strength: "hard" | "strong";
+  // Every reason when the pair has several (strongest first).
+  reasons?: SmartConstraintReason[];
+  declaredBy?: string;
+  // require= through a required mod Mods= does not list.
+  via?: string;
+  ruleId?: string;
+  group?: string;
+  // steamRequired: the dependent item and the item it requires.
+  workshopId?: string;
+  requiresWorkshopId?: string;
+  // patch: "classification" or "name".
+  source?: "classification" | "name";
+  confidence?: SmartConfidence;
+}
+
+export type SmartConfidence = "high" | "medium" | "low";
+
+// Why a mod is where it is (explanations) or why it moved (moves).
+// relation "after": the mod loads after `other`; "before": before it.
+export type SmartReasonCode = SmartConstraintReason | "keepTogether" | "groupPlacement" | "tier" | "displaced";
+
+export interface SmartReason {
+  code: SmartReasonCode;
+  params: {
+    relation?: "after" | "before";
+    other?: string;
+    via?: string;
+    ruleId?: string;
+    group?: string;
+    groupName?: string;
+    placement?: "first" | "last";
+    workshopId?: string;
+    requiresWorkshopId?: string;
+    source?: "classification" | "name";
+    confidence?: SmartConfidence;
+    tier?: number;
+    kind?: ModKind;
+  };
+}
+
+export interface LoadOrderPlanRequest {
+  // The (unsaved) Mods= order to plan; default the saved one.
+  order?: string[];
+  // "tiered" also orders by kind: libraries first, translations last.
+  mode?: "minimal" | "tiered";
+  // false ignores mod groups. Default true.
+  groups?: boolean;
+  // Mods that ship the same files; today's winner (the later one) stays
+  // later. Default: the last conflict scan's pairs.
+  conflictPairs?: [string, string][];
+  // [before, after] order rules to plan with as if stored (nothing is stored).
+  rules?: [string, string][];
+}
+
+export interface LoadOrderPlanMove {
+  modId: string;
+  // 0-based positions in the given order and in the plan.
+  from: number;
+  to: number;
+  reasons: SmartReason[];
+  confidence: SmartConfidence;
+}
+
+export interface LoadOrderPlanUnsatisfied {
+  before: string;
+  after: string;
+  reason: SmartConstraintReason;
+  why: "cycle" | "conflictsWithHarder" | "missingMod";
+  // conflictsWithHarder: what won ("groupPlacement" for a placement).
+  by?: SmartConstraintReason | "groupPlacement";
+  group?: string;
+  ruleId?: string;
+  // missingMod: the game loads the required mod anyway (installed).
+  loadedImplicitly?: boolean;
+}
+
+export type LoadOrderPlanWarning =
+  | { code: "inTwoKeepTogetherGroups"; params: { modId: string; group: string; otherGroup: string } }
+  | { code: "keepTogetherBroken"; params: { group: string; groupName: string; mods: string[] } }
+  | { code: "placementConflict"; params: { groups: string[]; mods: string[] } };
+
+export interface SteamKnowledgeStatus {
+  source: "api" | "page" | "none";
+  fetchedAt: string | null;
+  stale: boolean;
+  failed: boolean;
+  pending: boolean;
+  rateLimited?: boolean;
+  known: number;
+  total: number;
+}
+
+export interface LoadOrderPlan {
+  order: string[];
+  changed: boolean;
+  // The fewest mods that explain the change; a mod no rule names never moves.
+  moves: LoadOrderPlanMove[];
+  explanations: Record<string, SmartReason[]>;
+  satisfied: number;
+  unsatisfied: LoadOrderPlanUnsatisfied[];
+  // Each constraint dropped to break a loop; gameCrash: a require= loop the
+  // server's loader overflows its stack on.
+  cycles: { mods: string[]; droppedEdge: { before: string; after: string; reason: SmartConstraintReason }; gameCrash?: true }[];
+  winnersChanged: {
+    previousWinner: string;
+    newWinner: string;
+    why: "cycle" | "conflictsWithHarder";
+    by?: SmartConstraintReason | "groupPlacement";
+  }[];
+  // Required mods the game loads although Mods= does not list them.
+  implicit: { modId: string; requiredBy: string[] }[];
+  warnings: LoadOrderPlanWarning[];
+  stats: { constraints: number; hard: number; strong: number; soft: number; ms: number };
+  steamStatus: SteamKnowledgeStatus;
+}
+
+export type ModKind = "library" | "framework" | "map" | "translation" | "patch" | "content" | "tweak" | "ui" | "unknown";
+
+export type ModHealthSeverity = "critical" | "warning" | "info";
+
+export type ModHealthKind =
+  | "requireLoop"
+  | "modInfoBroken"
+  | "requiredNotInstalled"
+  | "requiredWorkshopItemMissing"
+  | "notInstalled"
+  | "b41Only"
+  | "incompatibleEnabled"
+  | "duplicateModId"
+  | "mapNotInMapLine"
+  | "mapFolderWithoutMod"
+  | "orderProblems"
+  | "requiredLoadedImplicitly"
+  | "unusedWorkshopItem"
+  | "updatesAvailable";
+
+export type ModHealthFixAction =
+  | "removeMods"
+  | "addMods"
+  | "addWorkshopItems"
+  | "removeWorkshopItems"
+  | "addMapFolders"
+  | "removeMapFolders"
+  | "applyPlan";
+
+export interface ModHealthFix {
+  action: ModHealthFixAction;
+  // removeMods { modIds }, addMods { modIds, before? }, addWorkshopItems
+  // { workshopIds, modIds?, before? }, removeWorkshopItems { workshopIds,
+  // modIds?, dedupeModIds?, keep? } ("Keep <keep>" of a duplicate: the other
+  // items leave, with the Mods= entries only they ship), addMapFolders /
+  // removeMapFolders { folders }, applyPlan {}.
+  params: { modIds?: string[]; workshopIds?: string[]; folders?: string[]; before?: string; keep?: string; dedupeModIds?: string[] };
+  // English fallback; translate by action and params.
+  label: string;
+}
+
+export interface ModHealthIssue {
+  // Stable while the problem is the same: send it back with a fix.
+  id: string;
+  kind: ModHealthKind;
+  severity: ModHealthSeverity;
+  modIds: string[];
+  workshopIds: string[];
+  params: Record<string, unknown>;
+  fixes: ModHealthFix[];
+}
+
+export interface ModHealth {
+  checkedAt: string;
+  counts: Record<ModHealthSeverity, number>;
+  issues: ModHealthIssue[];
+  steamStatus: SteamKnowledgeStatus;
+}
+
+export interface ModHealthFixResult {
+  applied: boolean;
+  backupWarning?: string;
+  health: ModHealth;
+}
+
+export interface ModInsight {
+  // null for a mod in the data folder (<Zomboid>/mods, or a staged item).
+  workshopId: string | null;
+  // Where the copy the server loads comes from.
+  source: "workshop" | "local" | "staged";
+  name: string;
+  // In Mods= (false: loaded only because something requires it).
+  enabled: boolean;
+  kind: ModKind;
+  kindConfidence: SmartConfidence;
+  kindReasons: { code: string; params?: Record<string, unknown> }[];
+  // 0 library/framework, 1 map/content, 2 ui/unknown, 3 patch/tweak, 4 translation.
+  tier: number;
+  patchOf: string[];
+  dependents: number;
+  requires: string[];
+  requiredBy: string[];
+  steamTags: string[];
+}
+
+export interface ModInsights {
+  generatedAt: string;
+  steamStatus: SteamKnowledgeStatus;
+  mods: Record<string, ModInsight>;
+  workshopRequirements: {
+    workshopId: string;
+    title: string | null;
+    requires: { workshopId: string; title: string | null; installed: boolean; enabled: boolean }[];
+  }[];
+  constraints: SmartConstraint[];
+}
+
+// GET /mods/groups/status entries also carry `forcedApart` for a group kept
+// together that require= links or order rules keep apart (another mod must
+// load between its members): it is judged on its order alone, the rule the
+// load-order plan follows too.
+export interface ModGroupStatusEntryWithForcedApart extends ModGroupStatusEntry {
+  forcedApart?: string[];
+}
+
+// Each conflict scan pair may carry a suggested winner (no signal, none).
+export interface ConflictWinnerSuggestion {
+  winner: string;
+  confidence: SmartConfidence;
+  reason:
+    | "rule"
+    | "requiresOther"
+    | "declaresLoadAfter"
+    | "patchOfOther"
+    | "translation"
+    | "smallOverride"
+    | "sameWorkshopItem";
+  // Already the winner in the order the server loads.
+  alreadyWinning: boolean;
+  params?: { ruleId?: string; files?: number; conflicting?: number; otherFiles?: number; workshopId?: string };
+}
 
 // Chunks API (Chunk Cleaner)
 // Large saves can have 50k+ chunk files — directory traversal takes time, so we
@@ -2195,8 +2698,12 @@ export interface ServerInstance {
   dockerContainerName?: string | null;
   dockerContainerId?: string | null;
   branch?: string;
-  rconHost: string;
-  rconPort: number;
+  // Left out of every server read for a role holding none of servers.manage,
+  // rcon.execute and server.configure (server/utils/rconTargetView.js):
+  // absent means hidden, not unset -- rconPassword's mask still says whether
+  // RCON is set up.
+  rconHost?: string;
+  rconPort?: number;
   rconPassword: string;
   serverPort: number;
   minMemory: number;
@@ -2260,7 +2767,9 @@ export interface MountDiscoveryCandidate {
   installPath: string | null;
   dataPath: string | null;
   source: string;
-  status: "ready" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
+  // "no-config": install and save data found, but no Server/<name>.ini to
+  // read the name and RCON settings from -- handled like install-only.
+  status: "ready" | "no-config" | "install-only" | "data-only" | "permission-denied" | "empty" | "not-mounted";
   reason: string;
   serverNames: string[];
   hasStartScript: boolean;
@@ -2377,6 +2886,8 @@ export const serversApi = {
       server: ServerInstance;
       message: string;
       warnings?: string[];
+      // The same warnings, each with its code when it has one.
+      warningDetails?: Array<{ error: string; code?: string }>;
     }>,
   getLifecycleTemplate: (
     id: string | number,
@@ -4052,15 +4563,14 @@ export const backupApi = {
   // feedback, but the HTTP request itself stays open for the whole walk +
   // zip of the save directory. Same held-open-request shape as
   // panelUpdateApi.download; a big/modded world can easily exceed the
-  // generic 15s default.
-  createBackup: (options?: {
-    includeDb?: boolean;
-  }): Promise<{
+  // generic 15s default. It takes no options: whether the panel database
+  // goes in (as a redacted copy) is the stored backup setting's decision.
+  createBackup: (): Promise<{
     success: boolean;
     backup?: ServerBackupArchive;
     duration?: number;
     message?: string;
-  }> => apiPost("/backup/create", options || {}, { timeout: 10 * 60 * 1000 }),
+  }> => apiPost("/backup/create", {}, { timeout: 10 * 60 * 1000 }),
 
   // Delete a backup
   deleteBackup: (
@@ -4265,7 +4775,84 @@ export const debugApi = {
       hostMemTotal?: number;
     }>;
   }> => apiGet(`/debug/performance-history?limit=${limit}`),
+  // "Problems found": the latest game log and the panel's own errors as
+  // findings with their fixes (server/utils/serverErrorFinder.js).
+  getProblems: (): Promise<ServerProblemsResult> => apiGet("/debug/problems"),
 };
+
+export type ServerProblemSeverity = "critical" | "warning" | "info";
+export type ServerProblemCategory = "mods" | "server" | "network" | "panel";
+export type ServerProblemKind =
+  | "luaError"
+  | "luaFileError"
+  | "modRequiredMissing"
+  | "modInfoMissing"
+  | "workshopDownload"
+  | "workshopOutdated"
+  | "steamUnreachable"
+  | "steamOff"
+  | "portInUse"
+  | "rconPortInUse"
+  | "rconAuth"
+  | "outOfMemory"
+  | "chunkLoad"
+  | "startupCrash"
+  | "javaException"
+  | "other"
+  | "panelBridge"
+  | "panelError";
+
+export type ServerProblemFix =
+  | {
+      id: string;
+      type: "action";
+      action: "disableMod" | "modsHealthFix" | "raiseMemory" | "restartServer" | "startServer";
+      params: Record<string, unknown>;
+      capability: string;
+      safe: boolean;
+      confirm: boolean;
+      undo: boolean;
+      restartNeeded?: boolean;
+    }
+  | { id: string; type: "link"; to: string; safe: false; confirm: false; undo: false };
+
+export interface ServerProblem {
+  // Stable while the problem is the same (its kind and what it is about).
+  id: string;
+  kind: ServerProblemKind;
+  category: ServerProblemCategory;
+  severity: ServerProblemSeverity;
+  source: "game" | "panel";
+  count: number;
+  firstSeen: string | null;
+  lastSeen: string | null;
+  // False: lastSeen is the log's last write, not the line's own time.
+  timesFromLog: boolean;
+  message: string | null;
+  cause: string;
+  modId: string | null;
+  workshopId: string | null;
+  mod: { id: string; name: string; workshopId: string | null; enabled: boolean } | null;
+  params: Record<string, unknown>;
+  samples: string[];
+  fixes: ServerProblemFix[];
+}
+
+export interface ServerProblemsResult {
+  scannedAt: string;
+  server: { id: number | string | null; name: string | null; running: boolean | null } | null;
+  counts: { critical: number; warning: number; info: number; total: number };
+  findings: ServerProblem[];
+  checked: {
+    gameLogLines: number;
+    serverStarted: boolean;
+    panelErrors: number;
+    mods: number;
+    hiddenFindings: number;
+    modList: boolean;
+    gameLog: { found: boolean; file: string | null; modified: string | null; partial: boolean; bytes: number; reason?: string };
+  };
+}
 
 // Auth API
 export const authApi = {
@@ -4321,8 +4908,15 @@ export const serversDetectApi = {
   // same shape as serverApi.wipe below: every caller of this function is
   // already behind its own confirmation dialog before it's ever invoked, so
   // there's no real call site where the confirmation isn't already implied.
-  deleteFiles: (path: string): Promise<unknown> =>
-    apiPost("/server/delete-files", { path, confirm: true }),
+  // confirmShared: the dialog listed the other profiles that use the same
+  // game folder (the server refuses with DELETE_FILES_FOLDER_SHARED without
+  // it when there are any).
+  deleteFiles: (path: string, options?: { confirmShared?: boolean }): Promise<unknown> =>
+    apiPost("/server/delete-files", {
+      path,
+      confirm: true,
+      ...(options?.confirmShared ? { confirmShared: true } : {}),
+    }),
 };
 
 // Update Checker API

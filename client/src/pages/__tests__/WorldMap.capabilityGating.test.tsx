@@ -190,7 +190,7 @@ describe('WorldMap.tsx: healPlayer/setGodMode require players.gm_tools ALONE (20
     expect(mapVehicles).not.toHaveBeenCalled()
   })
 
-  it('disables the dossier Heal and God buttons, and clicking them never calls the API, when the role lacks players.gm_tools even while holding bridge.command', async () => {
+  it('disables the dossier Heal button, and clicking it never calls the API, when the role lacks players.gm_tools even while holding bridge.command', async () => {
     mockCan = (capability) => capability !== 'players.gm_tools'
     await setUp([{ name: 'Kate', x: 10000, y: 10000 }])
 
@@ -200,12 +200,11 @@ describe('WorldMap.tsx: healPlayer/setGodMode require players.gm_tools ALONE (20
     fireEvent.click(rosterButton)
 
     const healButton = await screen.findByRole('button', { name: 'Heal' })
-    const godButton = screen.getByRole('button', { name: 'God' })
     expect(healButton).toBeDisabled()
-    expect(godButton).toBeDisabled()
+    // God lives on the Players page's Powers tab only (one home per action).
+    expect(screen.queryByRole('button', { name: 'God' })).toBeNull()
 
     fireEvent.click(healButton)
-    fireEvent.click(godButton)
 
     await waitFor(() => {
       expect(sendCommand).not.toHaveBeenCalledWith('healPlayer', expect.anything())
@@ -259,7 +258,7 @@ describe('WorldMap.tsx: healPlayer/setGodMode require players.gm_tools ALONE (20
     })
   })
 
-  it('enables the dossier Heal and God buttons, and Heal actually calls healPlayer, when the role holds players.gm_tools WITHOUT bridge.command -- the Technician case this ruling exists for', async () => {
+  it('enables the dossier Heal button, and Heal actually calls healPlayer, when the role holds players.gm_tools WITHOUT bridge.command -- the Technician case this ruling exists for', async () => {
     mockCan = (capability) => capability !== 'bridge.command'
     await setUp([{ name: 'Kate', x: 10000, y: 10000 }])
 
@@ -269,9 +268,7 @@ describe('WorldMap.tsx: healPlayer/setGodMode require players.gm_tools ALONE (20
     fireEvent.click(rosterButton)
 
     const healButton = await screen.findByRole('button', { name: 'Heal' })
-    const godButton = screen.getByRole('button', { name: 'God' })
     expect(healButton).not.toBeDisabled()
-    expect(godButton).not.toBeDisabled()
 
     fireEvent.click(healButton)
 

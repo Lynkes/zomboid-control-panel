@@ -9,9 +9,22 @@
   ],
   "pageHeader": {
     "title": "Гравці",
-    "description": "Керуйте підключеними гравцями та їхніми дозволами",
+    "description": "Модеруйте гравців, редагуйте їхніх персонажів, керуйте банами та білим списком.",
     "updated": "Оновлено {{time}}",
+    "moreActions": "Інші дії",
     "refresh": "Оновити"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Додати користувача до білого списку…",
+    "unban": "Розбанити гравця…",
+    "unbanSteamId": "Розбанити SteamID…",
+    "voiceBan": "Голосовий бан…",
+    "banSteamId": "Забанити SteamID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge не підключено",
+    "bridgeOfflineDesc": "Він потрібен для здібностей, імпорту й експорту персонажів і здоров’я у списку. Вигнання, бани та білий список працюють і без нього.",
+    "bridgeOfflineAction": "Налаштувати PanelBridge"
   },
   "permissions": {
     "noModerate": "Ця дія потребує дозволу players.moderate, якого немає в цієї ролі.",
@@ -35,6 +48,7 @@
     "online": "Онлайн",
     "onlineCaption_one": "гравець",
     "onlineCaption_other": "гравців",
+    "rosterDetail": "Бачили раніше, зараз офлайн",
     "peakToday": "Пік за сьогодні",
     "roster": "Реєстр",
     "rosterCaption": "бачених",
@@ -46,11 +60,15 @@
     "onlineCaption_many": "гравців"
   },
   "roster": {
-    "headerLabel": "реєстр",
+    "headerLabel": "Гравці",
     "subheaderLive": "наживо",
     "subheaderHistory": "історія",
     "subheaderBans": "бани",
     "subheaderAccounts": "акаунти",
+    "listsAria": "Списки гравців",
+    "tabActivity": "Активність",
+    "activityReload": "Оновити",
+    "activitySearchAll": "Шукати в усьому журналі",
     "tabOnline": "Онлайн",
     "tabRoster": "Реєстр",
     "tabBanned": "Забанені",
@@ -115,8 +133,8 @@
     "subheaderLabel": "досьє",
     "targetAcquired": "ціль.захоплено",
     "standby": "очікування",
-    "online": "онлайн",
-    "offline": "офлайн",
+    "online": "Онлайн",
+    "offline": "Офлайн",
     "connected": "підключено",
     "lastSeen": "востаннє бачили",
     "played": "зіграно",
@@ -131,6 +149,9 @@
     "kickButton": "Вигнати",
     "banTitle": "Забанити гравця",
     "banButton": "Забанити",
+    "teleport": "Телепортувати…",
+    "showOnMap": "Показати на мапі",
+    "showOnMapOffline": "{{player}} офлайн, тому його немає на мапі.",
     "moreActionsAria": "Більше дій із гравцем",
     "enableGodMode": "Увімкнути режим бога",
     "disableGodMode": "Вимкнути режим бога",
@@ -142,10 +163,12 @@
     "removeFromWhitelist": "Видалити з білого списку",
     "notOnWhitelistReason": "{{player}} немає в білому списку — видаляти нічого.",
     "importExportCharacter": "Імпорт/експорт персонажа",
-    "noTargetTitle": "ціль не вибрано",
-    "noTargetDesc": "Виберіть гравця з реєстру, щоб побачити його досьє, або введіть ім'я користувача під <1>› Ручна ціль</1>."
+    "noTargetTitle": "Виберіть гравця",
+    "noTargetDesc": "Виберіть когось зі списку або введіть ім’я користувача в полі «Ручна ціль», щоб діяти щодо гравця, який офлайн."
   },
   "tabs": {
+    "notes": "Нотатки",
+    "listAria": "Інструменти для {{player}}",
     "character": "Персонаж",
     "moderation": "Модерація",
     "spawn": "Спавн",
@@ -378,6 +401,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Створює обліковий запис на сервері з білим списком",
+    "removeFromWhitelistDesc": "Більше не зможе зайти на сервер з білим списком",
     "kickDesc": "Вигнати гравця із зазначенням причини",
     "banDesc": "Назавжди · у два кроки",
     "accessLevelLabel": "Рівень доступу",
@@ -576,7 +601,7 @@
     "tableAction": "Дія",
     "tableDetails": "Деталі",
     "loadingRow": "Завантаження...",
-    "noLogsRow": "Журналів активності поки немає — дії модерації щодо цього гравця (бани, вигнання, зміни білого списку) з'являться тут.",
+    "noLogsRow": "Активності ще немає. Тут з’являються підключення, смерті та дії модерації (вигнання, бани, зміни білого списку).",
     "detailsFallback": "-"
   },
   "importExport": {

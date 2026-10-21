@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Mods from '../Mods'
 import { modsApi, serversApi } from '@/lib/api'
 import en from '@/locales/en/bridgeDelivery.json'
+import { openModsView } from './modsNav'
 
 // PanelBridge delivered by the Steam Workshop (spec §4.11): GET
 // /mods/current-config names the item in `bridgeManaged`, and the "Active on
@@ -134,9 +135,10 @@ function renderMods() {
 async function openActiveOnServer() {
   renderMods()
   await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
-  fireEvent.click(await screen.findByText('Active on server'))
+  await openModsView('Active on server')
   // Show every item, not only the multi-ID ones the list opens on.
-  fireEvent.click(await screen.findByRole('button', { name: /Multi-ID/ }))
+  // The chip itself, not the "Remove filter" button of its remembered-filter tag.
+  fireEvent.click(await screen.findByRole('button', { name: /^Multi-ID/ }))
 }
 
 // A Radix DropdownMenu opens on pointerdown, not click.
@@ -192,14 +194,15 @@ describe('Mods.tsx: the PanelBridge Workshop entry in "Active on server"', () =>
     await openActiveOnServer()
 
     const menu = await openKebab(BRIDGE_NAME)
-    const removeFromIniItem = within(menu).getByRole('menuitem', { name: 'Remove from server INI' })
-    const removeFromServerItem = within(menu).getByRole('menuitem', { name: 'Remove from server' })
+    // A disabled item says why under its label, so its name starts with the label.
+    const removeFromIniItem = within(menu).getByRole('menuitem', { name: /^Remove from server INI/ })
+    const removeFromServerItem = within(menu).getByRole('menuitem', { name: /^Remove from server(?! INI)/ })
     expect(removeFromIniItem).toHaveAttribute('aria-disabled', 'true')
     expect(removeFromServerItem).toHaveAttribute('aria-disabled', 'true')
     expect(within(menu).getByRole('menuitem', { name: 'Copy Workshop ID' })).not.toHaveAttribute('aria-disabled')
 
-    fireEvent.focus(reasonWrapperOf(removeFromIniItem))
-    expect((await screen.findAllByText(en.mods.badgeTooltip)).length).toBeGreaterThan(0)
+    expect(removeFromIniItem).toHaveTextContent(en.mods.badgeTooltip)
+    expect(removeFromServerItem).toHaveTextContent(en.mods.badgeTooltip)
 
     fireEvent.click(removeFromIniItem)
     fireEvent.click(removeFromServerItem)

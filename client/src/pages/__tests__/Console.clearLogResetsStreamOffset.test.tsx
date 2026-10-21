@@ -4,6 +4,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // console follow-ups (2026-09-18): after "clear", the file on disk is empty but
 // serverLogSizeRef kept the pre-clear byte size, so the next stream poll asked
@@ -66,7 +67,7 @@ describe('Console.tsx: clearing the server log restarts the stream offset', () =
     render(
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>,
     )
@@ -75,7 +76,7 @@ describe('Console.tsx: clearing the server log restarts the stream offset', () =
     // Sanity: before the clear, polls use the loaded size.
     await waitFor(() => expect(serverApi.streamConsoleLog).toHaveBeenCalledWith(4096), { timeout: 4000 })
 
-    fireEvent.click(screen.getByRole('button', { name: /^clear$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^clear log$/i }))
     fireEvent.click(await screen.findByRole('button', { name: /erase log file/i }))
     await waitFor(() => expect(serverApi.clearConsoleLog).toHaveBeenCalled())
 

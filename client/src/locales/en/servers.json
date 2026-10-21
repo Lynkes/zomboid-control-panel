@@ -1,15 +1,31 @@
 {
   "pageHeader": {
-    "title": "Managed Servers",
-    "description": "Manage multiple Project Zomboid servers from one panel",
-    "eyebrow": "Fleet",
+    "title": "Servers",
+    "description": "Add, switch, update and edit the Project Zomboid servers this panel manages.",
     "scanAria": "Scan for servers",
     "scanTitle": "Scan for servers",
     "scanNoPermission": "Scanning for bind-mount installs requires the servers.discover permission, which this role doesn't have.",
-    "addRemote": "Add Remote Server",
-    "addExisting": "Add Existing Server",
-    "installNew": "Install New Server"
+    "publicServers": "Public servers",
+    "installNoPermission": "Installing a new server requires the server.install permission, which this role doesn't have."
   },
+  "addServer": {
+    "menu": "Add server",
+    "listLabel": "Ways to add a server",
+    "recommended": "Recommended",
+    "fresh": {
+      "label": "Install a new server",
+      "description": "Download the dedicated server with SteamCMD, then set ports, passwords and memory."
+    },
+    "existing": {
+      "label": "Use existing server files",
+      "description": "Point the panel at a server that is already installed on this machine."
+    },
+    "remote": {
+      "label": "Connect a remote server",
+      "description": "Manage a server that runs on another machine, over RCON."
+    }
+  },
+  "loadingLabel": "Loading servers",
   "fetchError": {
     "title": "Servers could not be loaded",
     "fallback": "Failed to load your servers. The backend may be unreachable.",
@@ -17,23 +33,10 @@
   },
   "emptyState": {
     "title": "No Servers Configured",
-    "description": "Start with one server. After it is active, dashboard, players, backups, mods, and remote actions come online.",
-    "addLocalTitle": "Add an existing local server",
-    "addLocalDesc": "Use this when server files already exist on this machine.",
-    "installTitle": "Install a new local server",
-    "installDesc": "Use the installer when you need files, ports, passwords, and memory setup in one flow.",
-    "connectRemoteTitle": "Connect a remote server",
-    "connectRemoteDesc": "Use this for servers running on another machine through RCON.",
-    "step1Label": "Step 1",
-    "step1Text": "Bring in one server",
-    "step2Label": "Step 2",
-    "step2Text": "Set it active and verify RCON",
-    "step3Label": "Step 3",
-    "step3Text": "Return to Dashboard for live control"
+    "description": "Start with one server. After it is active, dashboard, players, backups, mods, and remote actions come online."
   },
   "card": {
     "selected": "Selected",
-    "inactive": "Inactive",
     "remote": "Remote",
     "updateAvailable": "Update Available",
     "updateStatusUnknown": "Update status unknown",
@@ -70,8 +73,12 @@
     "statusNotConfigured": "Not configured",
     "statusAuthFailed": "Authentication failed",
     "statusUnavailable": "Unavailable",
-    "buildLabel": "Build:",
-    "branchLabel": "Branch:",
+    "buildLabel": "Build",
+    "branchLabel": "Branch",
+    "version": "Version",
+    "detailsPaths": "Paths",
+    "detailsPathsContainer": "Paths & container",
+    "detailsRemote": "Details",
     "stopThisServer": "Stop this server",
     "stopConfirmTitle": "Stop {{name}}?",
     "stopConfirmDescription": "This disconnects everyone currently connected to \"{{name}}\". You can start it again anytime.",
@@ -84,7 +91,6 @@
     "configureSftpTitle": "Configure the SFTP bridge for this remote server",
     "configureSftp": "Configure SFTP Bridge",
     "configureSftpTip": "If this isn't already your active server, clicking this switches your active server to it before opening SFTP setup in Settings.",
-    "updateNow": "Update Now",
     "activating": "Activating...",
     "switchToThisServer": "Switch to This Server",
     "added": "Added {{date}}",
@@ -212,6 +218,11 @@
     "lifecycleCompleteFirst": "Activate the selected lifecycle provider or switch back to the current provider before saving other server settings.",
     "title": "Edit Server",
     "description": "Update server configuration settings",
+    "sectionIdentity": "Identity",
+    "sectionPaths": "Paths",
+    "sectionNetwork": "Network & RCON",
+    "sectionLaunch": "Launch & memory",
+    "sectionDocker": "Docker",
     "remoteTitle": "Remote Server",
     "remoteDesc": "RCON-only management is available for this server.",
     "displayNameLabel": "Display Name",
@@ -249,6 +260,8 @@
     "rconPasswordLabel": "RCON Password",
     "rconPasswordAria": "RCON password",
     "adminPasswordLabel": "Admin Password",
+    "rconConfigureRequired": "Changing the RCON host, port or password requires the server.configure permission, which this role doesn't have.",
+    "rconPasswordReenter": "Enter the RCON password again to use a new host or port: the saved one is only sent to the host and port it was saved for.",
     "adminPasswordTooltip": "Server admin password passed as -adminpassword launch argument. Takes effect on next server start.",
     "adminPasswordPlaceholder": "Set admin password",
     "adminPasswordAria": "admin password",
@@ -316,6 +329,10 @@
     "noPermission": "Updating or verifying server files requires the server.install permission, which this role doesn't have.",
     "stalledMessage": "This is taking longer than expected and the panel hasn't heard back from SteamCMD. It may still be running in the background. You can close this dialog and check the server status separately.",
     "closeAnyway": "Close Anyway"
+  },
+  "sharedInstallWarning": {
+    "title": "Other servers use this game folder",
+    "desc": "Also using this game folder: {{names}}. Deleting it removes their game files too; they won't start until the game is installed again."
   },
   "clearInstallDialog": {
     "title": "Clear Installation Folder?",

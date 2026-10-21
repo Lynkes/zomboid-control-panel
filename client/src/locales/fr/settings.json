@@ -40,7 +40,7 @@
     "general": {
       "label": "Général",
       "tip": "Port du panneau, redémarrage et apparence",
-      "description": "Port sur lequel cette interface d'administration écoute, ainsi que le thème."
+      "description": "Port et redémarrage du panneau, thème, format de date et plages de valeurs des réglages."
     },
     "updates": {
       "label": "Mises à jour",
@@ -80,7 +80,7 @@
     "backups": {
       "label": "Sauvegardes",
       "tip": "Planification des sauvegardes du monde et exports de personnages",
-      "description": "Sauvegardes automatiques du monde et copies d'export par personnage."
+      "description": "Copies des personnages exportés. Les sauvegardes du monde et leur planning sont dans Sauvegardes du monde."
     },
     "about": {
       "label": "À propos",
@@ -90,7 +90,7 @@
     "users": {
       "label": "Utilisateurs",
       "tip": "Comptes du panneau et rôles attribués",
-      "description": "Créez et supprimez des comptes du panneau, et modifiez leur rôle."
+      "description": "Ajoutez et supprimez des comptes du panneau. Le rôle de chacun se règle dans Rôles et permissions."
     },
     "roles": {
       "label": "Rôles et permissions",
@@ -98,7 +98,7 @@
       "description": "Les capacités accordées par chaque rôle, et les comptes du panneau qui les détiennent."
     },
     "sso": {
-      "label": "Connexion",
+      "label": "Connexion unique",
       "tip": "Fournisseur d'authentification unique (OIDC)",
       "description": "Permettez aux comptes du panneau de se connecter via un fournisseur d'identité externe."
     }
@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Mise à jour non appliquée",
+    "rolledBackDescription": "Le panneau a redémarré mais exécute la v{{running}}, pas la v{{expected}} : la mise à jour a été annulée ou ne s'est pas appliquée. La section Mises à jour indique ce qui s'est passé."
   },
   "saveButton": {
     "saving": "Enregistrement...",
@@ -139,8 +141,8 @@
     "ymd": "Année-Mois-Jour ({{example}})"
   },
   "general": {
-    "cardTitle": "Paramètres du panneau",
-    "cardDescription": "Port sur lequel ce panneau écoute, et son apparence.",
+    "cardTitle": "Port et redémarrage",
+    "cardDescription": "Le port sur lequel ce panneau écoute, et le redémarrage du panneau pour l’appliquer.",
     "portLabel": "Port du panneau",
     "portHelp": "Port utilisé pour accéder au panneau (par défaut : 3001).",
     "restartRequiredTitle": "Redémarrage requis",
@@ -344,7 +346,7 @@
     "reverseProxyTitle": "Note sur le proxy inverse",
     "reverseProxyDesc": "Si le TLS est terminé par Nginx, Caddy, ou Cloudflare Tunnel, laissez HTTPS désactivé sur le panneau et redirigez en HTTP local.",
     "restartRequiredTitle": "Redémarrage requis",
-    "restartRequiredDesc": "Les changements HTTPS nécessitent un redémarrage. Enregistrez d'abord, puis redémarrez depuis les Paramètres du panneau.",
+    "restartRequiredDesc": "Les changements HTTPS nécessitent un redémarrage. Enregistrez d’abord, puis redémarrez depuis Paramètres › Général.",
     "certPathPlaceholder": "Path to the certificate PEM file",
     "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
@@ -391,6 +393,7 @@
     "sectionRemoteConfigLogs": "Configuration et journaux distants",
     "sectionInstallUpdates": "Installation et mises à jour",
     "howItWorksButton": "Comment ça marche",
+    "openInDiagnostics": "Ouvrir dans Diagnostic",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod Lua qui s'exécute dans Project Zomboid, donnant à ce panneau un accès direct au monde du jeu en direct.",
     "unlocksTitle": "Ce que ça débloque",
@@ -609,6 +612,9 @@
     "backupsPathLabel": "Sauvegardes :",
     "characterExportsCardTitle": "Exports de personnages",
     "characterExportsCardDesc": "Copies de personnages par joueur, enregistrées séparément des sauvegardes du monde.",
+    "worldBackupsLinkTitle": "Sauvegardes du monde",
+    "worldBackupsLinkDesc": "Les sauvegardes automatiques, leur planning, le nombre conservé, les restaurations et les téléchargements sont tous sur la page Sauvegardes du monde.",
+    "openWorldBackups": "Ouvrir Sauvegardes du monde",
     "autoExportLabel": "Exporter un personnage à la connexion d'un joueur",
     "autoExportDesc": "S'exécute environ dix secondes après le chargement du joueur, afin qu'un personnage puisse être restauré sans revenir en arrière sur tout le monde. Nécessite PanelBridge connecté.",
     "copiesKeptLabel": "Copies conservées par joueur",
@@ -628,7 +634,7 @@
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
     "passwordsDontMatch": "Les mots de passe ne correspondent pas",
-    "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères",
+    "passwordTooShort": "Le mot de passe doit comporter au moins 10 caractères",
     "changingButton": "Changement...",
     "changeButton": "Changer le mot de passe",
     "recoveryCodesTitle": "Codes de récupération",
@@ -702,6 +708,7 @@
       "label": "Tâches planifiées",
       "detail": "Redémarrages, annonces et commandes récurrentes."
     },
+    "elsewhereBackups": { "label": "Sauvegardes du monde", "detail": "Planning des sauvegardes, nombre conservé, restaurations et téléchargements." },
     "elsewhereServerConfig": {
       "label": "Configuration du serveur de jeu",
       "detail": "Options INI du serveur et règles sandbox."
@@ -710,7 +717,7 @@
       "label": "Messages rapides du chat",
       "detail": "Messages prédéfinis affichés au-dessus de la saisie du chat."
     },
-    "aboutCardTitle": "À propos",
+    "aboutCardTitle": "Version et liens",
     "aboutCardDesc": "Version du panneau, informations d'exécution et liens utiles.",
     "installedVersionLabel": "Version installée",
     "latestAvailableLabel": "Dernière disponible",
@@ -987,7 +994,7 @@
     "updateDownloaded": {
       "title": "Mise à jour téléchargée"
     },
-    "updateDownloadedDescDocker": "Le conteneur du panneau est en cours de reconstruction et se reconnectera une fois le contrôle de santé réussi.",
+    "updateDownloadedDescDocker": "Le conteneur du panneau est en cours de recréation. Le panneau ne peut pas confirmer la fin de la mise à jour : s'il ne revient pas, vérifiez l'état ou les journaux du conteneur.",
     "updateDownloadedDescBinary": "Les fichiers de mise à jour sont prêts. Redémarrez le panneau pour appliquer cette version.",
     "downloadFailed": {
       "title": "Échec du téléchargement",
@@ -1136,7 +1143,7 @@
       "title": "Les mots de passe ne correspondent pas"
     },
     "passwordTooShort": {
-      "title": "Le mot de passe doit comporter au moins 6 caractères"
+      "title": "Le mot de passe doit comporter au moins 10 caractères"
     },
     "passwordChanged": {
       "title": "Mot de passe modifié",

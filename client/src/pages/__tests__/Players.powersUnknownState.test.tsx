@@ -136,7 +136,7 @@ describe('Players.tsx: Powers tab distinguishes "confirmed off" from "state neve
     renderPlayers()
     await selectTestPlayerAndOpenPowers()
 
-    const godModeRow = screen.getByText('God Mode').closest('div.rounded-xl') as HTMLElement
+    const godModeRow = screen.getByText('God Mode').closest('div.rounded-lg') as HTMLElement
     fireEvent.click(within(godModeRow).getByRole('button', { name: 'Enable' }))
     await waitFor(() => expect(sendCommand).toHaveBeenCalledWith('setGodMode', { username: 'TestPlayer', enabled: true }))
 
@@ -151,7 +151,7 @@ describe('Players.tsx: Powers tab distinguishes "confirmed off" from "state neve
     renderPlayers()
     await selectTestPlayerAndOpenPowers()
 
-    const godModeRow = screen.getByText('God Mode').closest('div.rounded-xl') as HTMLElement
+    const godModeRow = screen.getByText('God Mode').closest('div.rounded-lg') as HTMLElement
     fireEvent.click(within(godModeRow).getByRole('button', { name: 'Enable' }))
 
     await waitFor(() => expect(within(godModeRow).getByText('ON')).toBeInTheDocument())

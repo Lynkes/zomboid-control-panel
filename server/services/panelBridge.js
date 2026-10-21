@@ -15,6 +15,7 @@ import {
   recordPlayerSession,
   logServerEvent,
   applySuspendGapToInFlightSessions,
+  getActiveServer,
 } from '../database/init.js';
 import { createLogger } from '../utils/logger.js';
 import { bridgeFolderName } from '../utils/bridgeFolderName.js';
@@ -25,6 +26,29 @@ const log = createLogger('Bridge');
 // .txt, so every file the mod owns carries this extra suffix from v1.7.7.
 const MOD_WRITE_SUFFIX = '.txt';
 const RESULT_FILE_PATTERN = /^res-(\d+)\.json(?:\.txt)?$/;
+
+// The files the mod writes (status.json, outbox res-N.json,
+// queue-state-lua.json, results.json) sit in a folder the game server's
+// account can write: one that size must not be read whole into memory on
+// every poll. Same ceiling as the SFTP transport's downloads
+// (panelBridgeSftp.js MAX_BRIDGE_FILE_BYTES); logged once per file until it
+// is back under it.
+const MAX_LOCAL_BRIDGE_FILE_BYTES = 16 * 1024 * 1024;
+export const BRIDGE_FILE_TOO_LARGE = 'BRIDGE_FILE_TOO_LARGE';
+const oversizedBridgeFilesLogged = new Set();
+
+export function readModFileCapped(filePath) {
+  const { size } = fs.statSync(filePath);
+  if (size > MAX_LOCAL_BRIDGE_FILE_BYTES) {
+    if (!oversizedBridgeFilesLogged.has(filePath)) {
+      oversizedBridgeFilesLogged.add(filePath);
+      log.warn(`Bridge file ${path.basename(filePath)} is ${size} bytes, over the ${MAX_LOCAL_BRIDGE_FILE_BYTES / (1024 * 1024)} MB limit -- not read`);
+    }
+    throw Object.assign(new Error(`Bridge file ${path.basename(filePath)} exceeds the size limit`), { code: BRIDGE_FILE_TOO_LARGE });
+  }
+  oversizedBridgeFilesLogged.delete(filePath);
+  return fs.readFileSync(filePath, 'utf-8');
+}
 
 // 2026-09-02, destructive-guards-sweep: cleanupInboxFiles/cleanupOutboxFiles
 // used to unlink every *.tmp file they found with NO guard at all -- no age
@@ -104,6 +128,20 @@ function ageSecondsParam(ms) {
   return Number.isFinite(ms) && ms >= 0 ? { ageSeconds: Math.floor(ms / 1000) } : {};
 }
 
+// The active server's id as the player tables store it (String(server.id)),
+// or undefined when there is none or it can't be read. Never throws: a
+// lookup failure only means the session calls fall back to the active
+// server, as before.
+function resolveSessionServerId() {
+  try {
+    return Promise.resolve(getActiveServer())
+      .then((server) => (server?.id != null ? String(server.id) : undefined))
+      .catch(() => undefined);
+  } catch {
+    return Promise.resolve(undefined);
+  }
+}
+
 class PanelBridge extends EventEmitter {
   constructor() {
     super();
@@ -146,6 +184,11 @@ class PanelBridge extends EventEmitter {
     this.lastQueueCleanupAt = 0;
     this.modStatus = null;
     this.previousPlayers = new Set(); // Track previous player list for connect/disconnect detection
+    // The server whose players this bridge session tracks: the active server
+    // when start() ran (see resolveSessionServerId()). undefined until known,
+    // and then the session calls fall back to the active server.
+    this.sessionServerId = undefined;
+    this.sessionServerIdToken = null;
     // False until the first alive status read of this bridge session: that
     // read only establishes who is already online (see checkModStatus()).
     this.playersBaselined = false;
@@ -415,7 +458,7 @@ class PanelBridge extends EventEmitter {
     const luaStateFile = this.resolveModFile('queue-state-lua.json');
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
-        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf8') || '{}');
+        const luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
         const luaNextResult = Number(luaState.nextResultSeq);
         if (Number.isFinite(luaNextResult) && luaNextResult > 0) {
           this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, Math.floor(luaNextResult));
@@ -447,7 +490,7 @@ class PanelBridge extends EventEmitter {
     if (luaStateFile && fs.existsSync(luaStateFile)) {
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        const luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+        const luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
         const lastCommandSeq = Number(luaState.lastCommandSeq);
         if (Number.isFinite(lastCommandSeq) && lastCommandSeq >= 0) {
           this.queueState.nextCommandSeq = Math.max(
@@ -688,6 +731,18 @@ class PanelBridge extends EventEmitter {
     this.queueState.initialized = false;
     this.ensureQueueProtocol();
 
+    // Pin the server these players belong to now. A server switch activates
+    // the new server BEFORE it stops this bridge, and stop() then closes
+    // every open session: looked up at that point, the active server is the
+    // new one, so the old server's sessions never closed (playtime lost) and
+    // the new one got rows for players who never joined it.
+    const sessionToken = {};
+    this.sessionServerIdToken = sessionToken;
+    this.sessionServerId = undefined;
+    resolveSessionServerId().then((serverId) => {
+      if (this.sessionServerIdToken === sessionToken) this.sessionServerId = serverId;
+    });
+
     // Start polling for results (fast poll)
     this.pollInterval = setInterval(() => this.pollResults(), this.config.pollIntervalMs);
 
@@ -842,6 +897,8 @@ class PanelBridge extends EventEmitter {
     // switch to another server, a panel shutdown), not anyone leaving, so
     // the Discord/auto-export listeners must not announce it.
     this.trackPlayerActivity([], { silent: true });
+    this.sessionServerId = undefined;
+    this.sessionServerIdToken = null;
     this.playersBaselined = false;
     this.watcherRetries = 0;
     this.modStatus = null;
@@ -1073,7 +1130,7 @@ class PanelBridge extends EventEmitter {
     let luaState;
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+      luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
     } catch (error) {
       log.debug(`Could not parse mod queue state during resync check: ${error.message}`);
       return false;
@@ -1154,7 +1211,7 @@ class PanelBridge extends EventEmitter {
       let raw;
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        raw = fs.readFileSync(resultFile, 'utf-8');
+        raw = readModFileCapped(resultFile);
       } catch (error) {
         log.debug(`Resync recovery: could not read result seq ${seq}: ${error.message}`);
         continue;
@@ -1226,7 +1283,7 @@ class PanelBridge extends EventEmitter {
     let luaState;
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      luaState = JSON.parse(fs.readFileSync(luaStateFile, 'utf-8') || '{}');
+      luaState = JSON.parse(readModFileCapped(luaStateFile) || '{}');
     } catch (error) {
       log.debug(`Could not parse mod queue state during inbox resync check: ${error.message}`);
       return false;
@@ -1278,7 +1335,7 @@ class PanelBridge extends EventEmitter {
       let parsed = null;
       try {
         // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-        const raw = fs.readFileSync(resultFile, 'utf-8');
+        const raw = readModFileCapped(resultFile);
         if (!raw.trim()) {
           // Lua may have just opened the file for writing (truncates immediately
           // with getFileWriter append=false) but not yet flushed content.
@@ -1305,6 +1362,14 @@ class PanelBridge extends EventEmitter {
         if (this._emptyReadCounter) this._emptyReadCounter.count = 0;
         parsed = JSON.parse(raw);
       } catch (error) {
+        if (error.code === BRIDGE_FILE_TOO_LARGE) {
+          // Never read: skipped like an orphaned empty result, so one
+          // oversized file can't stall the queue (its command times out).
+          this.queueState.lastConsumedResultSeq = seq;
+          this.queueState.nextResultSeq = Math.max(this.queueState.nextResultSeq, seq + 1);
+          consumed++;
+          continue;
+        }
         log.debug(`Queue result parse error for seq ${seq}: ${error.message}`);
         break;
       }
@@ -1340,7 +1405,7 @@ class PanelBridge extends EventEmitter {
 
     try {
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      const content = fs.readFileSync(resultsFile, 'utf-8');
+      const content = readModFileCapped(resultsFile);
       if (!content.trim()) return;
 
       const data = JSON.parse(content);
@@ -1656,7 +1721,7 @@ class PanelBridge extends EventEmitter {
 
       // Read and parse the file
       // codeql[js/path-injection] this.bridgePath is set only by configure()/autoDetect(), both of which validate their input before assignment (route-layer isAbsolute+blocklist guard, or autoDetect's regex on serverName) -- this line only re-reads the already-validated field.
-      const content = fs.readFileSync(statusFile, 'utf-8');
+      const content = readModFileCapped(statusFile);
       if (!content.trim()) {
         this.handleStatusFailure('Status file is empty');
         return;
@@ -1864,12 +1929,15 @@ class PanelBridge extends EventEmitter {
     const playerList = Array.isArray(currentPlayers) ? currentPlayers : Object.keys(currentPlayers || {});
     const current = new Set(playerList);
     const previous = this.previousPlayers;
+    // The server this bridge session belongs to (see start()); without it the
+    // database falls back to the active server.
+    const serverArgs = this.sessionServerId !== undefined ? [this.sessionServerId] : [];
 
     // Find players who joined (in current but not in previous)
     for (const player of current) {
       if (!previous.has(player)) {
-        logPlayerAction(player, 'connect', 'Player connected to server').catch(err => log.debug(`Failed to log player connect: ${err.message}`));
-        recordPlayerSession(player, 'connect').catch(err => log.debug(`Failed to record player connect session: ${err.message}`));
+        logPlayerAction(player, 'connect', 'Player connected to server', ...serverArgs).catch(err => log.debug(`Failed to log player connect: ${err.message}`));
+        recordPlayerSession(player, 'connect', ...serverArgs).catch(err => log.debug(`Failed to record player connect session: ${err.message}`));
         this.emit('playerConnect', player, { silent });
       }
     }
@@ -1877,8 +1945,8 @@ class PanelBridge extends EventEmitter {
     // Find players who left (in previous but not in current)
     for (const player of previous) {
       if (!current.has(player)) {
-        logPlayerAction(player, 'disconnect', 'Player disconnected from server').catch(err => log.debug(`Failed to log player disconnect: ${err.message}`));
-        recordPlayerSession(player, 'disconnect').catch(err => log.debug(`Failed to record player disconnect session: ${err.message}`));
+        logPlayerAction(player, 'disconnect', 'Player disconnected from server', ...serverArgs).catch(err => log.debug(`Failed to log player disconnect: ${err.message}`));
+        recordPlayerSession(player, 'disconnect', ...serverArgs).catch(err => log.debug(`Failed to record player disconnect session: ${err.message}`));
         this.emit('playerDisconnect', player, { silent });
       }
     }

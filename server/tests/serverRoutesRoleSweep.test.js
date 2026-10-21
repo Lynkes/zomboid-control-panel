@@ -77,6 +77,8 @@ describe("server.js: server.install (SteamCMD install/update, filesystem browse 
     ["/steam-update", "post"],
     ["/steamcmd/download", "post"],
     ["/steamcmd/check", "get"],
+    // Detection saves steamcmdPath: a POST, server.install's (2026-10-20).
+    ["/steamcmd/detect", "post"],
     ["/branches", "get"],
     ["/list-directory", "post"],
     ["/browse-folder", "post"],
@@ -159,7 +161,6 @@ describe("server.js: only /status and /network-interfaces stay outside the matri
 
 describe("server.js: server.world_events (folded in from previously-ungated GM/world routes) -- open to every role", () => {
   const WORLD_EVENTS_ROUTES = [
-    ["/steamcmd/detect", "get"],
     ["/console-log", "get"],
     ["/console-log/error-count", "get"],
     ["/console-log/stream", "get"],
@@ -176,14 +177,16 @@ describe("server.js: server.world_events (folded in from previously-ungated GM/w
     ["/removezombies", "post"],
     ["/releasesafehouse", "post"],
   ];
-  // /steamcmd/detect and the console-log/update-check reads are ALSO
-  // server.world_events, not server.install/server.configure like their
-  // write siblings (/steamcmd/check, /console-log/clear,
+  // The console-log/update-check reads are ALSO server.world_events, not
+  // server.install/server.configure like their write siblings
+  // (/console-log/clear,
   // /update-check/interval) -- those two are admin+technician only, and
   // joining a previously-open read to an admin+technician-only capability
   // would have narrowed moderator's access, not preserved it. Caught by
   // this exact test failing on first write: moderator refused where the
-  // ruling required "not refused."
+  // ruling required "not refused." (/steamcmd/detect was in this list too,
+  // until 2026-10-20: it SAVES the path it finds, so it became a POST under
+  // server.install -- see the server.install block above.)
   //
   // /events/lightning, /events/thunder and /events/horde used to be in this
   // list -- moved out 2026-08-27 (operator ruling on ranked-bug #5) to

@@ -83,7 +83,7 @@ describe('Discord -- a failed config read must not present the setup wizard', ()
 
     renderDiscord()
 
-    expect(await screen.findByText('Discord Bot')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Bot Status' })).toBeInTheDocument()
     expect(screen.queryByText('Discord Bot Setup')).not.toBeInTheDocument()
   })
 
@@ -94,6 +94,6 @@ describe('Discord -- a failed config read must not present the setup wizard', ()
     renderDiscord()
 
     expect(await screen.findByText('Discord Bot Setup')).toBeInTheDocument()
-    expect(screen.queryByText('Discord Bot', { selector: 'h1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Bot Status' })).not.toBeInTheDocument()
   })
 })

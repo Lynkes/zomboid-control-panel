@@ -46,8 +46,9 @@ import {
 } from "../services/activeSteamOperations.js";
 import { normalizeMemoryGb } from "../utils/memory.js";
 import { withFileLock, writeFileAtomic } from "../utils/fileWriteQueue.js";
-import { getCapabilitiesForRole, requirePermission } from "../services/permissions.js";
+import { requirePermission } from "../services/permissions.js";
 import { canSeeHostPaths, hideHostPaths } from "../utils/hostPathView.js";
+import { canSeeRconTarget, withoutRconConfigTarget } from "../utils/rconTargetView.js";
 import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
@@ -116,6 +117,10 @@ import {
   suggestFreePorts,
   suggestHostServersRoot,
 } from "../services/serverPortPlan.js";
+import { installDirKey } from "../services/bridgeDisk.js";
+import { resolveInstallDir } from "../services/panelBridgeInstaller.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
+import { redactGameLogSecrets } from "../utils/gameLogSecrets.js";
 
 const router = express.Router();
 
@@ -1834,7 +1839,9 @@ router.get("/status", async (req, res) => {
       // (utils/hostPathView.js); serverPathConfigured still says whether
       // there is one.
       ...((await canSeeHostPaths(req.user)) ? status : hideHostPaths(status)),
-      rcon: rconStatus,
+      // Whether RCON is connected for every role; its host and port only
+      // for the roles that work with it (utils/rconTargetView.js).
+      rcon: (await canSeeRconTarget(req.user)) ? rconStatus : withoutRconConfigTarget(rconStatus),
       // For the client to re-express startTime in its own clock -- see
       // routes/serverStatus.js, which sends the same field.
       serverTime: Date.now(),
@@ -3229,27 +3236,26 @@ const FALLBACK_BRANCHES = [
   { name: "legacy41", description: "Legacy Build 41 branch for older worlds and mods." },
 ];
 
-// SECURITY (2026-10-05, H4): this read stays open to server.world_events
-// (the moderator role holds it; see serverRoutesRoleSweep.test.js for why it
-// isn't server.install), but where SteamCMD lives -- usually below the
-// panel account's profile, so it names the host account -- goes only to the
-// roles that set the server's folders up (utils/hostPathView.js). The rest
-// get whether it was found. And only a role that may set steamcmdPath
-// (server.install, as in routes/config.js) saves what detection found: a
-// GET from any other role changes no setting.
-router.get("/steamcmd/detect", requirePermission("server.world_events"), async (req, res) => {
+// 2026-10-20 (access-control audit): detection SAVES what it finds as the
+// steamcmdPath setting, so it is a POST and server.install's -- the
+// capability that sets steamcmdPath everywhere else (routes/config.js) and
+// installs/updates through it. It was a GET under server.world_events, which
+// the moderator role holds, and saved only for server.install. Its one
+// caller is the Update / Verify dialog (client useSteamBranches), which
+// falls back to the typed path when this is refused. SECURITY (2026-10-05,
+// H4) still applies: where SteamCMD lives -- usually below the panel
+// account's profile, so it names the host account -- goes only to the roles
+// that set the server's folders up (utils/hostPathView.js).
+router.post("/steamcmd/detect", requirePermission("server.install"), async (req, res) => {
   try {
     const steamcmdPath = await findSteamCmdPath();
     if (!steamcmdPath) {
       return res.json({ found: false, message: "SteamCMD was not found automatically" });
     }
 
-    const capabilities = await getCapabilitiesForRole(req.user?.role);
-    if (Array.isArray(capabilities) && capabilities.includes("server.install")) {
-      const configuredPath = await getSetting("steamcmdPath");
-      if (configuredPath !== steamcmdPath) {
-        await setSetting("steamcmdPath", steamcmdPath);
-      }
+    const configuredPath = await getSetting("steamcmdPath");
+    if (configuredPath !== steamcmdPath) {
+      await setSetting("steamcmdPath", steamcmdPath);
     }
 
     if (!(await canSeeHostPaths(req.user))) {
@@ -3652,7 +3658,7 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
 
     // steamcmd-install-detect-fallback, 2026-09-09: an explicitly supplied
     // steamcmdPath always wins; only fall back to findSteamCmdPath() (the
-    // same detection GET /steamcmd/detect already runs and persists) when
+    // same detection POST /steamcmd/detect already runs and persists) when
     // the field is absent. In our own all-in-one image the answer is
     // deterministic (STEAMCMD_FIXED_CANDIDATE_PATHS[0]), so 400ing before
     // even trying to detect was asking the operator for something we
@@ -3733,12 +3739,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // route had no guard at all. See resolveTargetServerForRunningCheck's
     // own comment for why Convention A (the shared serverManager singleton)
     // would answer the wrong question here.
-    const installTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      { serverName, zomboidDataPath },
-    );
-    const installNotStoppedError = await checkSpecificServerStopped(
+    // Every profile using this game folder, not only the first one found.
+    const { target: installTargetServer, sharing: installSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, { serverName, zomboidDataPath });
+    const installNotStoppedError = await checkGameFolderServersStopped(
       installTargetServer,
+      installSharingServers,
       "installing to this path",
     );
     if (installNotStoppedError) {
@@ -3753,8 +3759,12 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
     // SERVER. Not a global block (SteamCMD must not take the lock itself --
     // see lifecycleCoordinator.js's own comment on isLifecycleLockedForServer
     // for why) -- refuses only when the held lock names installTargetServer's
-    // own id, same as every other lock-aware refusal in this file.
-    if (isLifecycleLockedForServer(installTargetServer.id)) {
+    // own id (or another profile using the same folder), same as every other
+    // lock-aware refusal in this file.
+    if (
+      isLifecycleLockedForServer(installTargetServer.id) ||
+      installSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -4368,6 +4378,10 @@ router.post("/install", requirePermission("server.install"), async (req, res) =>
               zomboidDataPath: zomboidPath, // Send back the computed data path
               serverConfigPath,
               branch: selectedBranch,
+              // The wizard creates the server profile from this event: the
+              // same host the legacy rconHost setting got (RCON_HOST in the
+              // two-container Docker setup), not a hardcoded 127.0.0.1.
+              rconHost: resolveEnvRconHost(),
               rconPort: safeRconPort,
               hasRconPassword: !!rconPassword,
               serverPort: safeServerPort,
@@ -4601,12 +4615,11 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // why the shared serverManager singleton (Convention A) would answer
     // the wrong question for a route whose target is an arbitrary
     // caller-supplied path, not necessarily the active server.
-    const quickSetupTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      { serverName, zomboidDataPath },
-    );
-    const quickSetupNotStoppedError = await checkSpecificServerStopped(
+    const { target: quickSetupTargetServer, sharing: quickSetupSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, { serverName, zomboidDataPath });
+    const quickSetupNotStoppedError = await checkGameFolderServersStopped(
       quickSetupTargetServer,
+      quickSetupSharingServers,
       "running quick setup on this path",
     );
     if (quickSetupNotStoppedError) {
@@ -4618,7 +4631,10 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
     // steamcmd-ops-never-check-the-lifecycle-lock, 2026-09-09: see /install
     // above for the full reasoning -- same-server refusal only, no global
     // block.
-    if (isLifecycleLockedForServer(quickSetupTargetServer.id)) {
+    if (
+      isLifecycleLockedForServer(quickSetupTargetServer.id) ||
+      quickSetupSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -4746,33 +4762,45 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       await setSetting("rconPassword", rconPassword);
       await setSetting("rconPort", safeRconPort);
       await setSetting("rconHost", resolveEnvRconHost());
+    }
 
-      // Pre-create INI with RCON settings so PZ reads them on first boot
-      try {
-        const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
-        if (!fs.existsSync(iniPath)) {
-          if (!fs.existsSync(serverConfigPath)) {
-            fs.mkdirSync(serverConfigPath, { recursive: true });
-          }
-          const minimalIni = `# Auto-generated by Zomboid Control Panel\n# PZ will add remaining default settings on first server start\nRCONPort=${safeRconPort}\nRCONPassword=${rconPassword}\n`;
-          writeFileAtomic(iniPath, minimalIni, {
-            encoding: "utf-8",
-            mode: 0o600,
-          });
-          log.info(`Pre-created INI with RCON settings at ${iniPath}`);
+    // Pre-create the INI with UPnP (+ RCON when set) so PZ reads them on
+    // first boot -- the same block as /install. This used to run only with
+    // an RCON password and never wrote UPnP=, so the wizard's UPnP switch
+    // only saved the unused global useUpnp setting.
+    try {
+      const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+      if (!fs.existsSync(iniPath)) {
+        if (!fs.existsSync(serverConfigPath)) {
+          fs.mkdirSync(serverConfigPath, { recursive: true });
         }
-      } catch (iniError) {
-        log.warn(`Failed to pre-create INI: ${iniError.message}`);
-        const permissionHint =
-          iniError.code === "EACCES"
-            ? ` ${formatWritablePathError("data", serverConfigPath).message}`
-            : "";
-        warnings.push({
-          progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
-          message: `Could not pre-write the RCON password into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
-          params: { reason: sanitizeError(iniError.message) },
+        const lines = [
+          "# Auto-generated by Zomboid Control Panel",
+          "# PZ will add remaining default settings on first server start",
+          `UPnP=${useUpnp ? "true" : "false"}`,
+        ];
+        if (rconPassword) {
+          lines.push(`RCONPort=${safeRconPort}`, `RCONPassword=${rconPassword}`);
+        }
+        writeFileAtomic(iniPath, lines.join("\n") + "\n", {
+          encoding: "utf-8",
+          mode: 0o600,
         });
+        log.info(
+          `Pre-created INI at ${iniPath} (UPnP=${useUpnp}${rconPassword ? ", RCON configured" : ""})`,
+        );
       }
+    } catch (iniError) {
+      log.warn(`Failed to pre-create INI: ${iniError.message}`);
+      const permissionHint =
+        iniError.code === "EACCES"
+          ? ` ${formatWritablePathError("data", serverConfigPath).message}`
+          : "";
+      warnings.push({
+        progressCode: ProgressCode.INSTALL_RCON_INI_PRECREATE_FAILED,
+        message: `Could not pre-write ${rconPassword ? "the RCON password" : "the UPnP setting"} into the server config (${sanitizeError(iniError.message)}).${permissionHint} This is retried automatically the next time you start the server.`,
+        params: { reason: sanitizeError(iniError.message) },
+      });
     }
 
     // Generate custom startup scripts
@@ -4837,6 +4865,8 @@ router.post("/quick-setup", requirePermission("server.install"), async (req, res
       zomboidDataPath: zomboidPath, // Send back the computed data path
       serverConfigPath,
       batchFile: startupScript,
+      // See /install's install:complete: the wizard's profile uses this.
+      rconHost: resolveEnvRconHost(),
       rconPort: safeRconPort,
       hasRconPassword: !!rconPassword,
       serverPort: safeServerPort,
@@ -5252,12 +5282,11 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // 8f04b051, except here the wrong answer was a false GREEN LIGHT, not
     // just a missing check. See resolveTargetServerForRunningCheck's own
     // comment for the fix.
-    const steamUpdateTargetServer = await resolveTargetServerForRunningCheck(
-      installPath,
-      {},
-    );
-    const steamUpdateNotStoppedError = await checkSpecificServerStopped(
+    const { target: steamUpdateTargetServer, sharing: steamUpdateSharingServers } =
+      await resolveTargetServerForRunningCheck(installPath, {});
+    const steamUpdateNotStoppedError = await checkGameFolderServersStopped(
       steamUpdateTargetServer,
+      steamUpdateSharingServers,
       "updating it",
     );
     if (steamUpdateNotStoppedError) {
@@ -5269,7 +5298,10 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // steamcmd-ops-never-check-the-lifecycle-lock, 2026-09-09: see /install
     // above for the full reasoning -- same-server refusal only, no global
     // block.
-    if (isLifecycleLockedForServer(steamUpdateTargetServer.id)) {
+    if (
+      isLifecycleLockedForServer(steamUpdateTargetServer.id) ||
+      steamUpdateSharingServers.some((server) => isLifecycleLockedForServer(server.id))
+    ) {
       return res.status(409).json(lifecycleInProgressResponse());
     }
 
@@ -5282,31 +5314,6 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
     // (CodeQL js/command-line-injection #13).
     let steamcmdExe = await saveAndResolveSteamCmdExe(steamcmdPath);
     const needsSteamCmdSelfHeal = !steamcmdExe || !fs.existsSync(steamcmdExe);
-
-    try {
-      const recovery = recoverMismatchedSteamBranchManifest(
-        installPath,
-        selectedBranch,
-      );
-      if (recovery) {
-        log.warn(
-          `Reset stale SteamCMD branch manifest (${recovery.mountedBranch} -> ${recovery.targetBranch}); backup: ${recovery.backupPath}`,
-        );
-      }
-    } catch (error) {
-      log.warn(`Could not inspect SteamCMD branch manifest: ${error.message}`);
-    }
-
-    try {
-      const recovery = recoverBlockedSteamManifest(installPath);
-      if (recovery) {
-        log.warn(
-          `Reset SteamCMD manifest stuck in access-denied state 0x6; backup: ${recovery.backupPath}`,
-        );
-      }
-    } catch (error) {
-      log.warn(`Could not reset blocked SteamCMD manifest: ${error.message}`);
-    }
 
     // Prevent concurrent operations on the same install path. Deliberately
     // placed HERE -- before self-heal now, not after it (see
@@ -5354,6 +5361,34 @@ router.post("/steam-update", requirePermission("server.install"), async (req, re
       branch: selectedBranch,
     });
     activeOperationPath = normalizedPath;
+
+    // Manifest recovery only once this request owns the path (same order as
+    // POST /install): run before the concurrency check above, a refused
+    // second request deleted the manifest of the update already running.
+    try {
+      const recovery = recoverMismatchedSteamBranchManifest(
+        installPath,
+        selectedBranch,
+      );
+      if (recovery) {
+        log.warn(
+          `Reset stale SteamCMD branch manifest (${recovery.mountedBranch} -> ${recovery.targetBranch}); backup: ${recovery.backupPath}`,
+        );
+      }
+    } catch (error) {
+      log.warn(`Could not inspect SteamCMD branch manifest: ${error.message}`);
+    }
+
+    try {
+      const recovery = recoverBlockedSteamManifest(installPath);
+      if (recovery) {
+        log.warn(
+          `Reset SteamCMD manifest stuck in access-denied state 0x6; backup: ${recovery.backupPath}`,
+        );
+      }
+    } catch (error) {
+      log.warn(`Could not reset blocked SteamCMD manifest: ${error.message}`);
+    }
 
     const io = req.app.get("io");
 
@@ -5650,7 +5685,14 @@ router.post("/steamcmd/download", requirePermission("server.install"), async (re
             fs.existsSync(path.join(p, "steamcmd.sh")) ||
             fs.existsSync(path.join(p, "steamcmd")),
         ) || path.join(os.homedir(), "steamcmd");
-    const { installPath = defaultPath } = req.body || {};
+    // An empty or blank field means "the default location" (the setup
+    // wizard sends "" when the SteamCMD path box is left empty); a
+    // destructuring default only applied to undefined, so "" was refused.
+    const requestedInstallPath = req.body?.installPath;
+    const installPath =
+      (typeof requestedInstallPath === "string"
+        ? requestedInstallPath.trim()
+        : requestedInstallPath) || defaultPath;
 
     if (!isValidPath(installPath)) {
       return res.status(400).json({ error: "Invalid installation path", code: ErrorCode.STEAMCMD_DOWNLOAD_INVALID_PATH });
@@ -5958,7 +6000,9 @@ router.get("/steamcmd/check", requirePermission("server.install"), async (req, r
 // this one" must refuse exactly like a failed scan does, not read as "safe
 // to delete." Only zero owned AND zero unattributable candidates counts as
 // confirmed stopped.
-export async function checkSpecificServerStopped(targetServer, actionLabel) {
+// `options.scan`: a host process scan to reuse (see checkGameFolderServersStopped),
+// a promise or a result; a fresh scan is made when it is absent.
+export async function checkSpecificServerStopped(targetServer, actionLabel, options = {}) {
   if (isManagedLifecycleProvider(targetServer.lifecycleProvider)) {
     try {
       const status = await createLinuxServiceLifecycle(
@@ -5997,7 +6041,7 @@ export async function checkSpecificServerStopped(targetServer, actionLabel) {
 
   let scan;
   try {
-    scan = await new ServerManager().scanHostForServerProcesses();
+    scan = await (options.scan ?? new ServerManager().scanHostForServerProcesses());
   } catch (error) {
     return {
       status: 503,
@@ -6091,18 +6135,79 @@ export async function checkSpecificServerStopped(targetServer, actionLabel) {
 // descriptor built from the request's own fields only when genuinely no
 // configured server matches -- a brand-new install this panel has never
 // registered, exactly the state /install's own first-time-setup case is in.
+//
+// Shared game folders: Quick Setup reuses the active server's install folder
+// on purpose, so SEVERAL profiles can use one folder. Returns the target
+// (the exact-path match, else any profile using the folder, else the
+// synthetic descriptor) and every profile using the folder; callers check
+// all of them with checkGameFolderServersStopped(). Checking only the first
+// profile with that path let a stopped profile's Delete files / Clear
+// install folder / Update wipe or patch the files of a running one.
 async function resolveTargetServerForRunningCheck(installPath, fallback = {}) {
   const resolvedPath = path.resolve(installPath);
-  const configuredServers = await getServers();
-  const matchedServer = configuredServers.find(
-    (s) => s.installPath && path.resolve(s.installPath) === resolvedPath,
-  );
-  if (matchedServer) return matchedServer;
-  return {
+  const sharing = await serversUsingGameFolder(installPath);
+  const matchedServer =
+    sharing.find((s) => s.installPath && path.resolve(s.installPath) === resolvedPath) ||
+    sharing[0];
+  const target = matchedServer || {
     serverName: fallback.serverName,
     zomboidDataPath: fallback.zomboidDataPath,
     installPath,
   };
+  return { target, sharing };
+}
+
+// Every local profile whose game folder is `installPath`: the same real
+// folder however it is spelled (case on Windows, a trailing separator, a
+// junction or symlink -- installDirKey()), with a launcher-file installPath
+// standing for its folder (resolveInstallDir()). A remote (SFTP) profile's
+// path names a folder on another host and never shares this one.
+async function serversUsingGameFolder(installPath) {
+  const key = installDirKey(installPath);
+  if (!key) return [];
+  const configuredServers = (await getServers()) || [];
+  return configuredServers.filter((server) => {
+    if (!server || isUnmanagedRemoteServer(server)) return false;
+    const folders = [
+      resolveInstallDir(server),
+      resolveInstallDir({ installPath: server.installPath }),
+    ];
+    return folders.some((folder) => folder && installDirKey(folder) === key);
+  });
+}
+
+// checkSpecificServerStopped() for every profile using one game folder,
+// the target first (its own refusal keeps its wording). Another profile
+// found running is named with its own code, so the operator knows which
+// server to stop: the one they acted on may well be stopped.
+async function checkGameFolderServersStopped(target, sharing, actionLabel) {
+  const others = sharing.filter((server) => server !== target);
+  // One host process scan for all of them (on Windows each scan starts
+  // PowerShell, about 0.5-2 s), made only if a profile needs it; profiles run
+  // by a lifecycle provider (systemd/OpenRC) ask that provider instead.
+  let sharedScan = null;
+  const scanOnce = () => {
+    if (!sharedScan) sharedScan = new ServerManager().scanHostForServerProcesses();
+    return sharedScan;
+  };
+  for (const server of [target, ...others]) {
+    const scan = isManagedLifecycleProvider(server.lifecycleProvider) ? undefined : scanOnce();
+    const notStoppedError = await checkSpecificServerStopped(server, actionLabel, { scan });
+    if (!notStoppedError) continue;
+    if (server !== target && notStoppedError.body?.code === ErrorCode.WIPE_SERVER_RUNNING) {
+      const name = String(server.name || server.serverName || "another server");
+      return {
+        status: 409,
+        body: {
+          error: `"${name}" uses the same game folder and is running. Stop it before ${actionLabel}.`,
+          code: ErrorCode.INSTALL_FOLDER_SHARED_SERVER_RUNNING,
+          params: { name },
+        },
+      };
+    }
+    return notStoppedError;
+  }
+  return null;
 }
 
 // Delete server files (used when removing a server from panel with file deletion)
@@ -6139,7 +6244,7 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     return res.status(409).json(lifecycleInProgressResponse());
   }
   try {
-    const { path: deletePath, confirm } = req.body || {};
+    const { path: deletePath, confirm, confirmShared } = req.body || {};
     if (confirm !== true) {
       return res.status(400).json({
         error: "Deleting these files requires confirm: true",
@@ -6255,6 +6360,40 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
       }
     }
 
+    // Other profiles using this same game folder (Quick Setup reuses the
+    // active server's install on purpose). This route used to look at the
+    // first profile with the path only, so deleting a stopped profile's
+    // files wiped a running one that shares them. Their world saves get the
+    // same nesting refusal as the target's; the folder itself goes only
+    // when the caller confirmed it knows the others lose their game files
+    // too (the client lists them before sending confirmShared), and only
+    // once every one of them is stopped (below).
+    const otherServersUsingFolder = (await serversUsingGameFolder(deletePath)).filter(
+      (server) => String(server.id) !== String(targetServer.id),
+    );
+    for (const server of otherServersUsingFolder) {
+      if (server.zomboidDataPath && confineToRoots(server.zomboidDataPath, [resolvedDeletePath])) {
+        return res.status(400).json({
+          error: `Refusing to delete: the Zomboid data folder of "${server.name || server.serverName}" (${server.zomboidDataPath}), which uses the same game folder, is inside the folder you're about to delete, so this would also permanently destroy its world save.`,
+          code: ErrorCode.DELETE_FILES_DATA_PATH_NESTED,
+        });
+      }
+    }
+    if (otherServersUsingFolder.length > 0 && confirmShared !== true) {
+      const names = otherServersUsingFolder
+        .map((server) => String(server.name || server.serverName || server.id))
+        .join(", ");
+      return res.status(409).json({
+        error: `This game folder is also used by ${names}. Deleting it removes their game files too. Confirm to delete it anyway.`,
+        code: ErrorCode.DELETE_FILES_FOLDER_SHARED,
+        params: { names },
+        sharedWith: otherServersUsingFolder.map((server) => ({
+          id: server.id,
+          name: server.name || server.serverName || null,
+        })),
+      });
+    }
+
     // Confirmed-stopped check, positioned immediately before the
     // irreversible delete (2026-08-26 bug hunt round 2, Pam's finding 2:
     // narrows the check-then-act TOCTOU window as far as it can go without
@@ -6265,9 +6404,11 @@ router.post("/delete-files", requirePermission("server.wipe"), async (req, res) 
     // server-identity question this route needs answered at all) and once
     // here. The first copy is gone -- it was answering the wrong question,
     // not just answering it from a stale source -- leaving this single,
-    // correctly-targeted check right before the delete it guards.
-    const notStoppedError = await checkSpecificServerStopped(
+    // correctly-targeted check right before the delete it guards. Every
+    // profile using the folder must be stopped, not only targetServer.
+    const notStoppedError = await checkGameFolderServersStopped(
       targetServer,
+      [targetServer, ...otherServersUsingFolder],
       "deleting its files",
     );
     if (notStoppedError) {
@@ -6638,7 +6779,15 @@ const CONSOLE_LOG_IMPORTANT_PATTERNS = [
   /player-connect/,
   /connection-lost/,
   /disconnect/,
-  /Steam client .* is initiating/,
+  // Was /Steam client .* is initiating/, which rescanned the rest of the line
+  // from every "Steam client " in it: a mod can print a 5 MB line of those,
+  // and the Console page filters every line on each load.
+  {
+    test(line) {
+      const at = line.indexOf("Steam client ");
+      return at !== -1 && line.indexOf(" is initiating", at + "Steam client ".length) !== -1;
+    },
+  },
   /RCON:/,
   /Recipe AutoLearned/,
   /Reduce Head Condition/,
@@ -6777,12 +6926,18 @@ async function resolveConsoleLogFolder(activeServer) {
 // log's file name instead of where it lives.
 const CONSOLE_LOG_FILE_NAME = "server-console.txt";
 
+// SECURITY (2026-10-20): every role, admins included, gets the game's
+// "Command line admin password: <value>" line redacted
+// (utils/gameLogSecrets.js); the Console page never needs to show it.
 async function consoleLogView(req) {
   if (await canSeeHostPaths(req.user)) {
-    return { lines: (lines) => lines, path: (consoleLogPath) => consoleLogPath };
+    return {
+      lines: (lines) => lines.map((line) => redactGameLogSecrets(line)),
+      path: (consoleLogPath) => consoleLogPath,
+    };
   }
   return {
-    lines: (lines) => lines.map((line) => (line ? sanitizeError(line) : line)),
+    lines: (lines) => lines.map((line) => (line ? sanitizeError(redactGameLogSecrets(line)) : line)),
     path: () => CONSOLE_LOG_FILE_NAME,
   };
 }
@@ -7213,19 +7368,29 @@ const CONSOLE_STREAM_MAX_READ_BYTES = 256 * 1024;
 // Bytes [start, end) of the file as text, at most the last
 // CONSOLE_STREAM_MAX_READ_BYTES of them. When the range is longer the read
 // starts that far from the end and the first line, probably cut, is dropped.
-function readConsoleLogRange(consoleLogPath, start, end) {
+//
+// SECURITY (2026-10-20): `start` is the client's lastSize. With
+// `wholeLinesOnly` (no held-back fragment of the line before it, see
+// splitConsoleStreamLines) a start in the middle of a line drops the rest of
+// that line too: answering from any byte offset handed out the tail of a line
+// without its head, so lastSize aimed just past "Command line admin
+// password: " returned the bare password, out of reach of the line's
+// redaction (utils/gameLogSecrets.js).
+function readConsoleLogRange(consoleLogPath, start, end, { wholeLinesOnly = false } = {}) {
   let from = start;
   let truncated = false;
   if (end - start > CONSOLE_STREAM_MAX_READ_BYTES) {
     from = end - CONSOLE_STREAM_MAX_READ_BYTES;
     truncated = true;
   }
-  const length = Math.max(0, end - from);
+  // One byte more in front says whether `from` begins a line.
+  const peek = wholeLinesOnly && !truncated && from > 0 ? 1 : 0;
+  const length = Math.max(0, end - from + peek);
   const buffer = Buffer.alloc(length);
   let bytesRead = 0;
   const fd = fs.openSync(consoleLogPath, "r");
   try {
-    bytesRead = fs.readSync(fd, buffer, 0, length, from);
+    bytesRead = fs.readSync(fd, buffer, 0, length, from - peek);
   } finally {
     try {
       fs.closeSync(fd);
@@ -7233,8 +7398,9 @@ function readConsoleLogRange(consoleLogPath, start, end) {
       /* ignore */
     }
   }
-  let text = buffer.toString("utf-8", 0, bytesRead);
-  if (truncated) {
+  let text = buffer.toString("utf-8", peek, Math.max(peek, bytesRead));
+  const startsMidLine = peek === 1 && bytesRead > 0 && buffer[0] !== 0x0a;
+  if (truncated || startsMidLine) {
     const firstNewline = text.indexOf("\n");
     text = firstNewline >= 0 ? text.slice(firstNewline + 1) : "";
   }
@@ -7339,11 +7505,18 @@ router.get("/console-log/stream", requirePermission("server.world_events"), asyn
     // Read only new content from the last known position -- the last
     // CONSOLE_STREAM_MAX_READ_BYTES of it when the client is further behind
     // than that, in which case the held-back fragment of its old position no
-    // longer belongs in front of what is read (resume -1).
+    // longer belongs in front of what is read (resume -1). Without a
+    // held-back fragment for lastSize, the read starts on a whole line
+    // (readConsoleLogRange's wholeLinesOnly).
     const { text: newContent, truncated } = readConsoleLogRange(
       consoleLogPath,
       lastSize,
       stats.size,
+      {
+        wholeLinesOnly: !consoleStreamRemainders.has(
+          consoleStreamRemainderKey(consoleLogPath, lastSize),
+        ),
+      },
     );
     const { completeLines, remainder } = splitConsoleStreamLines(
       consoleLogPath,

@@ -182,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Бот Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Керуйте своїм ботом Discord, слеш-командами та сповіщеннями про події",
     "statusRunning": "Працює",
     "statusStopped": "Зупинено",
     "refreshAria": "Оновити стан",
+    "setupGuide": "Посібник із налаштування",
+    "closeGuide": "Назад до налаштувань бота",
     "botStatus": {
       "title": "Стан бота",
       "runtimeLabel": "Виконання",

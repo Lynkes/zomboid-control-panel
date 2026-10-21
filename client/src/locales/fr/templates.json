@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Modèles de simulation",
-    "description": "Appliquez un ensemble de règles préconçu à votre serveur, ou enregistrez votre propre configuration pour la réutiliser plus tard.",
+    "title": "Modèles",
+    "description": "Des ensembles de règles applicables à n'importe quel serveur ; un instantané de config ne restaure que les fichiers d'un serveur.",
+    "snapshotsLink": "Les instantanés de config sont dans Configuration du serveur",
     "import": "Importer",
     "saveCurrentConfig": "Enregistrer la configuration actuelle"
   },
+  "loading": "Chargement des modèles",
   "emptyState": {
     "loadErrorTitle": "Impossible de charger les modèles",
     "retry": "Réessayer",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Enregistrez votre configuration serveur actuelle comme modèle, ou importez-en un depuis un fichier."
   },
   "hiddenSection": {
-    "title": "Modèles intégrés masqués",
+    "toggle": "Modèles intégrés masqués ({{n}})",
     "description": "Masqués de la liste ci-dessus, mais pas supprimés. Restaurez-en un pour le récupérer.",
     "restoreButton": "Restaurer",
     "restoreAria": "Restaurer {{name}}"

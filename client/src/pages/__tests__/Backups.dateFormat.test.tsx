@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Backups from '../Backups'
+import { MemoryRouter } from 'react-router-dom'
 import { backupApi, serversApi, type BackupStatus, type ServerBackupArchive } from '@/lib/api'
 import { DATE_FORMAT_STORAGE_KEY, setDateFormatPref } from '@/lib/dateFormat'
 
@@ -67,7 +68,7 @@ function renderBackups() {
   vi.mocked(backupApi.getHistory).mockResolvedValue({ records: [] })
   return render(
     <TooltipProvider>
-      <Backups />
+      <MemoryRouter><Backups /></MemoryRouter>
     </TooltipProvider>,
   )
 }

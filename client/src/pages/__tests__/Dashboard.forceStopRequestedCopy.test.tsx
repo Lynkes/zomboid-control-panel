@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/toaster'
@@ -156,7 +156,12 @@ describe('Dashboard.tsx: Force-stop toast reads as requested, not completed, whe
     waitForServerState.mockResolvedValue(false)
 
     renderDashboard()
-    fireEvent.click(await screen.findByRole('button', { name: /^force stop$/i }))
+    // Force stop lives in the header's More menu.
+    const trigger = await screen.findByRole('button', { name: /more actions for/i })
+    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu')
+    fireEvent.click(await within(menu).findByRole('menuitem', { name: /^force stop$/i }))
     fireEvent.click(await screen.findByRole('button', { name: 'Force stop server', hidden: true }))
 
     await waitFor(() => expect(forceStop).toHaveBeenCalled())

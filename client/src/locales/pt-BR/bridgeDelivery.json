@@ -1,6 +1,8 @@
 {
   "sectionTitle": "Como o PanelBridge é instalado",
   "appliesTo": "Aplica-se a {{server}}. Para alterar outro servidor, ative-o na página Meus servidores.",
+  "serverChangedTitle": "O servidor ativo mudou",
+  "serverChangedBody": "A janela do PanelBridge aberta era do servidor anterior, por isso foi fechada.",
   "current": "Atual",
   "recommended": "Recomendado",
   "preview": "Prévia",
@@ -81,6 +83,11 @@
       "title": "Atualização pendente",
       "body": "A pasta do jogo tem um PanelBridge mais antigo que o deste painel. Atualize agora ou deixe a próxima inicialização copiá-lo (só enquanto “Manter atualizado o PanelBridge instalado pelo painel” estiver ativado)."
     },
+    "local-newer": {
+      "title": "Mais recente que o do painel",
+      "body": "A pasta do jogo tem um PanelBridge mais recente que a v{{version}} que vem com este painel. O painel o deixa como está; atualize o painel para que os dois combinem.",
+      "bodyNoVersion": "A pasta do jogo tem um PanelBridge mais recente que o que vem com este painel. O painel o deixa como está; atualize o painel para que os dois combinem."
+    },
     "local-not-installed": {
       "title": "Não instalado",
       "body": "O PanelBridge ainda não está instalado nesta pasta do jogo."
@@ -134,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "A Steam informa que o item da Workshop do PanelBridge está indisponível. O servidor não inicia até ele voltar ou até você mudar para instalado pelo painel.",
+    "workshopItemModified": "Os arquivos do PanelBridge {{version}} que o servidor baixou da Steam Workshop não correspondem ao que foi publicado para essa versão (pasta: {{folder}}). O item da Workshop ou os arquivos baixados podem ter sido alterados. Até verificar, mude para instalado pelo painel, que usa a cópia que acompanha o painel.",
     "steamModeOff": "Este servidor roda sem a Steam, então não consegue baixar o PanelBridge da Workshop. O jogo só liga a Steam quando o Java é iniciado com -Dzomboid.steam=1 e o servidor não é iniciado com -nosteam: adicione -Dzomboid.steam=1 à linha do java no script de inicialização ou no comando de inicialização deste servidor, remova o -nosteam se ele estiver lá e depois reinicie o servidor.",
     "steamListingHidden": "A página pública da Steam não mostra o item da Workshop do PanelBridge no momento. Isso pode acontecer enquanto a Steam analisa um item novo ou atualizado, ou com um item não listado, e os servidores ainda conseguem baixá-lo. Se uma inicialização falhar por causa disso, esta página vai avisar.",
     "autoRestartOn": "As atualizações do PanelBridge reiniciam este servidor automaticamente (Configurações › Mods e Workshop).",

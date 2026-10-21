@@ -1,0 +1,196 @@
+{
+  "title": "健康檢查",
+  "description": "哪些問題會讓模組無法載入，以及面板可以替你完成的修復。",
+  "checkedAt": "檢查於 {{time}}",
+  "recheck": "重新檢查",
+  "loading": "正在檢查模組清單…",
+  "loadFailed": "健康檢查無法執行。",
+  "reloadFailed": "重新檢查失敗；這是上一次的結果。",
+  "retry": "重試",
+  "emptyTitle": "未發現問題",
+  "emptyDesc": "每個已啟用的模組都已安裝，相依項目都已滿足，載入順序也符合它的規則。",
+  "noPermission": "你的角色沒有管理模組的權限。",
+  "showMod": "顯示 {{name}}",
+  "showItem": "顯示工作坊項目 {{name}}",
+  "andMore_one": "另外 {{count}} 個",
+  "andMore_other": "另外 {{count}} 個",
+  "issueCount_one": "{{count}} 個問題",
+  "issueCount_other": "{{count}} 個問題",
+  "stats": {
+    "critical": "嚴重",
+    "warning": "警告",
+    "info": "值得了解"
+  },
+  "severity": {
+    "critical": "會讓模組無法載入",
+    "warning": "需要注意",
+    "info": "值得了解"
+  },
+  "entryIssue": {
+    "emptyEntry": "為空（連續兩個逗號，或 require= 後面什麼都沒有）",
+    "blankEntry": "只有空格",
+    "whitespace": "兩側帶有空格，而遊戲不會去掉它們",
+    "semicolon": "用「;」而不是逗號分隔",
+    "unknown": "遊戲無法讀取"
+  },
+  "reason": {
+    "require": "相依",
+    "rule": "固定順序",
+    "groupOrder": "群組內順序",
+    "keepTogether": "保持在一起",
+    "groupPlacement": "群組的位置",
+    "loadAfter": "mod.info 中的載入順序",
+    "loadBefore": "mod.info 中的載入順序",
+    "steamRequired": "Steam 必要項目",
+    "patch": "修補",
+    "conflictWinner": "衝突勝出者",
+    "tier": "模組類型",
+    "displaced": "讓出位置"
+  },
+  "kind": {
+    "requireLoop": {
+      "title": "必要的模組形成了循環",
+      "body": "{{mods}} 互相依賴，形成一個環。伺服器載入它們時會當機。請移除其中一個，或請作者修正其 mod.info。"
+    },
+    "modInfoBroken": {
+      "title": "mod.info 中有一行損壞的 require=",
+      "body": "在 {{mod}} 的 mod.info 中，require= 項目「{{entry}}」{{problem}}。遊戲無法讀取它，會跳過 {{mod}}。",
+      "affected": "因為需要它而同樣被跳過：{{mods}}。",
+      "hint": "只有模組作者能修正它的 mod.info。在那之前，請保持該模組關閉或將其移除。"
+    },
+    "requiredNotInstalled": {
+      "title": "必要的模組未安裝",
+      "body": "{{requiredBy}} 需要 {{missing}}，但沒有任何已安裝的工作坊項目包含它。遊戲會跳過 {{affected}}。",
+      "caseMatch": "已安裝的模組名為 {{match}}：ID 只在大小寫上不同，而遊戲要求完全一致。",
+      "b41Only": "{{missing}} 只有 Build 41 版本（工作坊項目 {{item}}），因此在 Build 42 上永遠不會載入。"
+    },
+    "requiredWorkshopItemMissing": {
+      "title": "缺少必要的工作坊項目",
+      "body": "{{items}} 在 Steam 上把 {{target}} 列為必要項目，但它不在 WorkshopItems= 中。",
+      "downloaded": "它已經下載到這台伺服器上。",
+      "notDownloaded": "加入之後，伺服器會在下次啟動時下載它。"
+    },
+    "notInstalled": {
+      "title": "清單中的模組未安裝",
+      "body": "{{mod}} 在 Mods= 中，但 WorkshopItems= 裡沒有任何工作坊項目包含它，所以遊戲會跳過它。",
+      "foundIn": "磁碟上已有的工作坊項目 {{item}} 包含它：加入這個項目即可。",
+      "notDownloaded_one": "還有 {{count}} 個工作坊項目尚未下載，可能包含它：啟動一次伺服器即可下載。",
+      "notDownloaded_other": "還有 {{count}} 個工作坊項目尚未下載，可能包含它：啟動一次伺服器即可下載。"
+    },
+    "b41Only": {
+      "title": "清單中有 Build 41 模組",
+      "body": "{{mod}}（工作坊項目 {{item}}）沒有 Build 42 版本，因此遊戲在這台伺服器上永遠不會載入它。"
+    },
+    "incompatibleEnabled": {
+      "title": "兩個不相容的模組都已啟用",
+      "body": "{{a}} 和 {{b}} 都會載入，但 {{declaredBy}} 的 mod.info 表明它們不能一起使用。只保留其中一個。"
+    },
+    "duplicateModId": {
+      "title": "相同的模組被安裝了兩次"
+    },
+    "mapNotInMapLine": {
+      "title": "Map= 中缺少一張地圖",
+      "body": "{{mod}} 帶有地圖 {{folders}}，但 Map= 沒有列出它，因此它永遠不會出現在世界中。"
+    },
+    "mapFolderWithoutMod": {
+      "title": "Map= 中列出的地圖沒有已啟用的模組提供",
+      "body": "Map= 列出了 {{folder}}，但沒有已載入的模組提供它。",
+      "shippedBy": "{{items}} 包含它：啟用對應的模組，或從 Map= 中移除該資料夾。",
+      "nobody": "也沒有任何已安裝的工作坊項目包含它。"
+    },
+    "orderProblems": {
+      "title": "載入順序違反了它的一些規則",
+      "changesLoading_one": "智慧排序會因為相依項目、固定規則或群組移動 {{count}} 個模組。遊戲沒有按它們的規則來載入。",
+      "changesLoading_other": "智慧排序會因為相依項目、固定規則或群組移動 {{count}} 個模組。遊戲沒有按它們的規則來載入。",
+      "tidyOnly_one": "智慧排序會按規則移動 {{count}} 個模組。遊戲已經能正確載入它們，所以這只是整理清單。",
+      "tidyOnly_other": "智慧排序會按規則移動 {{count}} 個模組。遊戲已經能正確載入它們，所以這只是整理清單。",
+      "move": "{{mod}}：從第 {{from}} 位移到第 {{to}} 位（{{reasons}}）"
+    },
+    "requiredLoadedImplicitly": {
+      "title": "必要的模組不在清單中",
+      "body": "{{requiredBy}} 需要 {{mod}}，但它沒有列在 Mods= 中。遊戲仍會先載入它；把它加進去可以讓順序可見、可編輯。"
+    },
+    "unusedWorkshopItem": {
+      "title": "有一個工作坊項目沒有被使用",
+      "body": "{{item}} 在 WorkshopItems= 中，但它的模組（{{mods}}）都沒有啟用，它的地圖也都不在 Map= 中。伺服器仍會下載和更新它。"
+    },
+    "updatesAvailable": {
+      "title": "有可用的模組更新",
+      "body_one": "{{count}} 個工作坊項目有更新。重新啟動伺服器即可安裝；玩家加入時會收到更新。",
+      "body_other": "{{count}} 個工作坊項目有更新。重新啟動伺服器即可安裝；玩家加入時會收到更新。"
+    }
+  },
+  "duplicates": {
+    "pair": "2 個工作坊項目包含相同的模組（{{mods}}）：{{items}}。伺服器每個模組只載入一份，載入哪一份是不確定的。請只保留其中一個項目。",
+    "many": "多個工作坊項目包含相同的模組（{{mods}}）：{{items}}。伺服器每個模組只載入一份，載入哪一份是不確定的。請只保留其中一個。",
+    "defined": "{{mods}} 安裝了不只一份。伺服器載入來自{{from}}的那份，忽略其他的。",
+    "local": "伺服器的 mods 資料夾中有不只一份 {{mods}}。伺服器只載入其中一份，載入哪一份是不確定的。請只保留一份。",
+    "sourceLocal": "伺服器的 mods 資料夾",
+    "sourceStaged": "暫存的工作坊上傳",
+    "keep": "保留 {{item}}",
+    "confirmKeep": "{{item}} 將保留。會先備份伺服器 INI，然後從中移除以下內容：",
+    "removedItem": "從 WorkshopItems= 移除：{{item}}",
+    "removedMod": "從 Mods= 移除：{{mod}}",
+    "removedRepeat": "從 Mods= 移除：{{mod}} 的多餘項目"
+  },
+  "fix": {
+    "removeMods": "從模組清單中移除 {{mods}}",
+    "addMods": "將 {{mods}} 加入模組清單",
+    "addWorkshopItems_one": "加入工作坊項目 {{items}}",
+    "addWorkshopItems_other": "加入工作坊項目 {{items}}",
+    "addWorkshopItemsAndMods_one": "加入工作坊項目 {{items}} 並啟用 {{mods}}",
+    "addWorkshopItemsAndMods_other": "加入工作坊項目 {{items}} 並啟用 {{mods}}",
+    "removeWorkshopItems_one": "移除工作坊項目 {{items}}",
+    "removeWorkshopItems_other": "移除工作坊項目 {{items}}",
+    "addMapFolders": "將 {{folders}} 加入 Map=",
+    "removeMapFolders": "從 Map= 中移除 {{folders}}",
+    "applyPlan": "套用建議的載入順序"
+  },
+  "confirm": {
+    "title": "你確定嗎？",
+    "removeMods": "這些模組會從伺服器 INI 的 Mods= 中移除。它們的工作坊項目仍保持安裝，並且會先備份 INI。",
+    "removeWorkshopItems": "這些工作坊項目會從 WorkshopItems= 中移除：伺服器將不再下載和更新它們。會先備份 INI。",
+    "removeMapFolders": "這些地圖資料夾會從伺服器 INI 的 Map= 中移除。會先備份 INI。",
+    "remove": "移除"
+  },
+  "fixAll": {
+    "button": "修復所有安全問題",
+    "noneReason": "這些問題都沒有只向模組清單加入內容的修復。",
+    "confirmTitle_one": "套用 {{count}} 個安全修復？",
+    "confirmTitle_other": "套用 {{count}} 個安全修復？",
+    "confirmDesc": "這些修復只會向伺服器 INI 加入內容，或套用建議的載入順序：不會移除任何東西。它們會逐一執行，遇到第一個錯誤就停止。",
+    "confirmLabel": "套用修復",
+    "progress": "正在修復第 {{current}} 個，共 {{total}} 個：{{label}}",
+    "doneTitle": "已套用安全修復",
+    "doneDesc_one": "已套用 {{count}} 個修復。",
+    "doneDesc_other": "已套用 {{count}} 個修復。",
+    "skipped_one": "{{count}} 個問題已經不存在。",
+    "skipped_other": "{{count}} 個問題已經不存在。",
+    "stoppedTitle": "在一個失敗的修復處停止",
+    "stoppedDesc": "「{{label}}」：{{message}}"
+  },
+  "toast": {
+    "fixedTitle": "模組清單已更新",
+    "unchangedTitle": "無需變更",
+    "unchangedDesc": "伺服器 INI 已經與此修復一致。",
+    "failedTitle": "無法套用修復",
+    "failedFallback": "伺服器沒有套用該修復。",
+    "goneTitle": "這個問題已經變化",
+    "goneDesc": "已重新檢查模組清單。"
+  },
+  "summary": {
+    "critical_one": "{{count}} 個問題會讓模組無法載入",
+    "critical_other": "{{count}} 個問題會讓模組無法載入",
+    "warning_one": "{{count}} 個警告",
+    "warning_other": "{{count}} 個警告",
+    "warningOnly_one": "{{count}} 個問題需要注意",
+    "warningOnly_other": "{{count}} 個問題需要注意",
+    "review": "查看",
+    "reviewAria": "查看模組健康檢查"
+  },
+  "dashboard": {
+    "label": "模組健康",
+    "critical_one": "{{count}} 個嚴重問題",
+    "critical_other": "{{count}} 個嚴重問題"
+  }
+}

@@ -1,5 +1,4 @@
 {
-  "loading": "Estableciendo conexión…",
   "autoUpdateResult": {
     "scheduledTitle": "Actualización automática programada",
     "scheduledDescription_one": "El servidor se reiniciará en {{count}} minuto.",
@@ -38,10 +37,18 @@
   },
   "header": {
     "ariaLabel": "Estado del servidor",
-    "everythingNominal": "Todo en orden",
     "mapTooltip": "Mapa (de PanelBridge)",
     "remoteBadge": "remoto",
-    "noActiveServer": "Ningún servidor activo"
+    "noActiveServer": "Ningún servidor activo",
+    "state": {
+      "running": "En ejecución",
+      "stopped": "Detenido",
+      "unknown": "Estado desconocido",
+      "starting": "Iniciando…",
+      "stopping": "Deteniendo…",
+      "none": "Sin servidor",
+      "rconOffline": "RCON sin conexión"
+    }
   },
   "addresses": {
     "lan": {
@@ -87,20 +94,19 @@
   },
   "actions": {
     "start": "Iniciar",
+    "addServer": "Añadir un servidor",
     "stop": "Detener",
     "forceStop": "Forzar detención",
+    "forceStopTooltip": "Intenta un guardado rápido y luego detiene el juego de inmediato en cualquier caso",
     "restart": "Reiniciar",
     "restartNow": "Reiniciar ahora",
-    "save": "Guardar",
+    "saveWorld": "Guardar el mundo",
     "refreshStatus": "Actualizar estado",
     "createBackup": "Crear copia de seguridad",
-    "bridgeSettings": "Configuración de Bridge",
     "connectRcon": "Conectar RCON",
     "wipeServer": "Borrar servidor por completo",
-    "moreActionsAria": "Más acciones del servidor",
     "addServerFirst": "Añadir o seleccionar un servidor primero",
     "notAvailableRemote": "No disponible para servidores remotos (solo RCON)",
-    "forceStopTooltip": "Intenta un guardado rápido y luego detiene el juego de inmediato en cualquier caso",
     "connectRconNeedsHostRunning": "Inicia el servidor primero",
     "noPermissionControl": "Tu rol no tiene permiso para controlar el servidor.",
     "noPermissionWipe": "Tu rol no tiene permiso para borrar el mundo.",
@@ -195,7 +201,7 @@
   },
   "verdict": {
     "noServerConfigured": "Ningún servidor configurado",
-    "openSetup": "Abrir configuración",
+    "editServer": "Editar servidor",
     "panelCannotReach": "El panel no puede comunicarse con el servidor",
     "retry": "Reintentar",
     "serverStatusUnknown": "Estado del servidor desconocido",
@@ -227,45 +233,25 @@
     "lastApplyFailedDesc": "El último intento de aplicar falló — ver Ajustes para el diagnóstico.",
     "stagedDesc": "Descargada y lista. Reiniciar el panel para aplicarla.",
     "newVersionDesc": "Hay una nueva versión del panel disponible.",
-    "dismissAria": "Descartar notificación de actualización",
-    "dismissTooltip": "Descartar hasta la próxima versión",
     "applyUpdate": "Aplicar actualización",
     "viewUpdate": "Ver actualización"
   },
   "updateCheckError": {
-    "label": "No se pueden comprobar actualizaciones del panel",
-    "dismissAria": "Descartar aviso de comprobación de actualizaciones",
-    "dismissTooltip": "Descartar hasta que esto cambie"
+    "label": "No se pueden comprobar actualizaciones del panel"
   },
   "connectionError": {
     "label": "Error de conexión",
     "suffix": ". Algunas funciones podrían no estar disponibles.",
     "retry": "Reintentar"
   },
-  "notConfigured": {
-    "label": "Sin configurar",
-    "description": "Abrir Configuración del servidor para añadir o configurar un servidor.",
-    "openSetup": "abrir configuración →"
-  },
   "quickStart": {
     "dismissAria": "Descartar guía de inicio rápido",
-    "eyebrow": "Primer servidor",
-    "heading": "Poner en marcha un servidor, lograr que RCON funcione y luego añadir el resto.",
-    "step1Title": "Incorporar un servidor",
-    "step1Desc": "Añadir una instalación existente, conectar RCON remoto o crear un servidor nuevo.",
-    "step2Title": "Verificar la conectividad",
-    "step2Desc": "Confirmar las rutas, las credenciales de RCON y el servidor activo.",
-    "step3Title": "Alcanzar el control en vivo",
-    "step3Desc": "Cuando el estado, los jugadores y el chat se actualizan, el control en vivo está listo.",
-    "installNewServer": "Instalar servidor nuevo",
-    "addExistingServer": "Añadir servidor existente",
-    "addRemoteServer": "Añadir servidor remoto",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "Añadir un servidor",
+    "description": "Elige cómo obtiene este panel su primer servidor.",
+    "foundHeading": "Hemos encontrado un servidor de Project Zomboid existente",
+    "foundDesc": "listo para añadir, con sus ajustes de RCON ya leídos de su propia configuración.",
+    "reviewAndConnect": "Revisar y conectar",
+    "setUpDifferently": "Configurar de otra forma"
   },
   "liveActivity": {
     "heading": "Actividad en vivo",
@@ -308,12 +294,9 @@
   },
   "maintenance": {
     "heading": "Mantenimiento",
-    "refreshStatus": "Actualizar estado",
     "createBackup": "Crear copia de seguridad",
-    "wipeServer": "Borrar servidor por completo",
-    "wipeTooltipOnline": "Detener el servidor antes de borrarlo por completo",
-    "wipeTooltipOffline": "Eliminar mapa, jugadores o estado del mundo",
-    "autoStartLabel": "Inicio automático al arrancar"
+    "autoStartLabel": "Inicio automático al arrancar",
+    "autoStartDesc": "Inicia el servidor cuando arranca el panel."
   },
   "bridgeOfflineNotice": {
     "title": "Bridge sin conexión",
@@ -321,16 +304,11 @@
     "configureLink": "Configurar Bridge"
   },
   "workItems": {
-    "players": "Jugadores",
     "zombies": "Zombis",
-    "console": "Consola",
-    "mods": "Mods",
-    "schedule": "Programación",
+    "heading": "De un vistazo",
     "errors": "Errores",
-    "backups": "Copias de seguridad",
-    "config": "Config",
-    "rconReady": "rcon listo",
-    "rconOffline": "rcon sin conexión",
+    "rconReady": "RCON listo",
+    "rconOffline": "RCON sin conexión",
     "modsToUpdate_one": "{{count}} pendiente de actualizar",
     "modsToUpdate_other": "{{count}} pendientes de actualizar",
     "modsTracked_one": "{{count}} rastreado",

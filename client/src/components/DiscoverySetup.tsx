@@ -78,6 +78,7 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
     if (!mount || !selectedName || !canServersManage) return
     setCreating(true)
     setCreateError(null)
+    let server: ServerInstance
     try {
       const result = await serversApi.createFromDiscovery({
         installPath: mount.installPath,
@@ -85,16 +86,40 @@ export function DiscoverySetup({ open, onOpenChange, mount, onCreated }: Discove
         serverName: selectedName,
         name: displayName || undefined,
       })
-      const server = result.server
-      await serversApi.activate(server.id)
-      onCreated?.(server)
-      toast({ title: t('toastServerAdded') })
-      onOpenChange(false)
+      server = result.server
     } catch (error) {
       setCreateError(getUserErrorMessage(error, t('failedToCreate')))
-    } finally {
       setCreating(false)
+      return
     }
+
+    // The server exists from here on. Activating is a separate step that can
+    // be turned away on its own (409 while another lifecycle action holds the
+    // lock); reporting that as a failed add left the dialog open over a server
+    // already on the list, and a retry got SERVER_ALREADY_EXISTS. Same split
+    // as the manual Add Server dialog (Servers.tsx).
+    let activationError: unknown = null
+    try {
+      await serversApi.activate(server.id)
+    } catch (error) {
+      activationError = error
+    }
+    onCreated?.(server)
+    if (activationError) {
+      toast({
+        title: t('toasts.serverAddedNotActiveTitle', { ns: 'servers' }),
+        description: t('toasts.serverAddedNotActiveDesc', {
+          ns: 'servers',
+          name: server.name || displayName || selectedName,
+          reason: getUserErrorMessage(activationError, t('toasts.activateFailed', { ns: 'servers' })).replace(/[\s.。]+$/u, ''),
+        }),
+        variant: 'warning',
+      })
+    } else {
+      toast({ title: t('toastServerAdded') })
+    }
+    setCreating(false)
+    onOpenChange(false)
   }
 
   if (!mount) return null

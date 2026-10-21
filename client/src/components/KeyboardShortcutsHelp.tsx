@@ -32,7 +32,7 @@ export function KeyboardShortcutsHelp({ open, onClose, shortcuts }: KeyboardShor
 
         {Object.entries(groups).map(([group, items]) => (
           <div key={group} className="mb-3 last:mb-0">
-            <h3 className="mb-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">{group}</h3>
+            <h3 className="label-micro mb-1.5">{group}</h3>
             <div className="space-y-1">
               {items.map(s => (
                 <div key={s.key} className="flex items-center justify-between py-0.5">

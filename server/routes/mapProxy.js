@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
 import { getActiveServer } from "../database/init.js";
+import { requirePermission } from "../services/permissions.js";
 import { listPersistedVehicles } from "../utils/vehiclesDb.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 const log = createLogger("API:MapProxy");
@@ -1067,9 +1068,47 @@ function requestIsVersioned(req) {
   return typeof v === "string" && v.length > 0;
 }
 
+// ─── Negative cache: tiles upstream answered 404 for ─────────────────────
+// SECURITY (2026-10-20): a 404 (a tile outside the map, or a level the
+// build doesn't render) was never remembered, so every request for it --
+// these routes are auth-exempt -- was a fresh upstream fetch. Remembered
+// for a while per tile, in a bounded map (oldest dropped first).
+const tileNotFoundLimits = {
+  ttlMs: 10 * 60 * 1000,
+  maxEntries: 20_000,
+};
+const tileNotFound = new Map(); // relPath -> expiry time, oldest first
+
+export function _setTileNotFoundLimitsForTests(overrides = {}) {
+  Object.assign(tileNotFoundLimits, overrides);
+  tileNotFound.clear();
+}
+
+function isKnownMissingTile(relPath) {
+  const expiresAt = tileNotFound.get(relPath);
+  if (expiresAt === undefined) return false;
+  if (Date.now() < expiresAt) return true;
+  tileNotFound.delete(relPath);
+  return false;
+}
+
+function rememberMissingTile(relPath) {
+  tileNotFound.delete(relPath);
+  while (tileNotFound.size >= tileNotFoundLimits.maxEntries) {
+    tileNotFound.delete(tileNotFound.keys().next().value);
+  }
+  tileNotFound.set(relPath, Date.now() + tileNotFoundLimits.ttlMs);
+}
+
 async function serveTile(req, res, url, contentType, relPath, cacheControl) {
   // Starts the one-time disk index scan (and trim) on the first tile served.
   ensureDiskIndex();
+
+  // Tier 0: upstream said 404 for this tile a moment ago.
+  if (isKnownMissingTile(relPath)) {
+    res.set("X-Tile-Cache", "hit-404");
+    return res.status(404).end();
+  }
 
   // Tier 1: in-memory LRU — fastest, no I/O at all.
   const hot = memCacheGet(relPath);
@@ -1111,6 +1150,7 @@ async function serveTile(req, res, url, contentType, relPath, cacheControl) {
       // where upstream was never contacted at all. See WorldMap.tsx's
       // loadViaProxy: it only names tiles.pzmap.org in the failure banner
       // when this header confirms upstream actually participated.
+      if (response.status === 404) rememberMissingTile(relPath);
       res.set("X-Tile-Cache", "miss");
       return res.status(status).end();
     }
@@ -1165,7 +1205,12 @@ router.get("/resolve", async (req, res) => {
 
 let persistedVehicleCache = { key: null, expiresAt: 0, vehicles: [] };
 
-router.get("/vehicles", async (req, res) => {
+// SECURITY (2026-10-20, access-control audit): where every vehicle in the
+// world sits, read from the save -- the same kind of world-position data
+// as the players' own positions, so players.view's like those (it answered
+// any signed-in role). The World Map leaves the saved vehicles out for a
+// role without it.
+router.get("/vehicles", requirePermission("players.view"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
     if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) {

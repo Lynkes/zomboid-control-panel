@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Settings from '../Settings'
@@ -94,18 +94,21 @@ afterEach(() => {
 })
 
 describe('Settings.tsx: page header title follows the active tab, Save hidden on users/roles/sso', () => {
-  it('General tab: title follows the tab label, Save action present', async () => {
+  it('General tab: title follows the tab label under a "Settings" breadcrumb, and an edit brings up the save bar', async () => {
     primeCommonMocks()
     renderSettings('general')
 
     // "general" has its own settingsSections label ("General"), so the
     // t("pageHeader.title") fallback ("Settings") is only reached for a
-    // genuinely unmatched tab id -- not exercised by any real tab,
-    // General included. What matters here is what god actually asked for:
-    // the Save action still shows on General.
-    const heading = await screen.findByRole('heading', { name: 'General' })
+    // genuinely unmatched tab id -- it shows as the breadcrumb instead.
+    const heading = await screen.findByRole('heading', { name: 'General', level: 1 })
     expect(heading).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /save/i }).length).toBeGreaterThan(0)
+    expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Settings')).toBeInTheDocument()
+
+    // One save affordance: the save bar, only once something changed.
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument()
+    fireEvent.change(await screen.findByLabelText('Panel Port'), { target: { value: '9090' } })
+    expect(await screen.findByRole('button', { name: 'Save Changes' })).toBeEnabled()
   })
 
   it('Roles tab: title follows the tab label, Save action is gone', async () => {

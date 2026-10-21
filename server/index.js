@@ -16,6 +16,11 @@ import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting, trustProxyHopCountWarning } from "./utils/trustProxy.js";
+import {
+  createHandshakeRateLimiter,
+  handshakeClientKey,
+  SOCKET_HANDSHAKE_RATE_MESSAGE,
+} from "./utils/handshakeRateLimit.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
 import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
@@ -353,6 +358,7 @@ import rconRoutes from "./routes/rcon.js";
 import configRoutes from "./routes/config.js";
 import schedulerRoutes from "./routes/scheduler.js";
 import modsRoutes, { pruneModThumbnailCache } from "./routes/mods.js";
+import modsSmartRoutes from "./routes/modsSmart.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
@@ -385,6 +391,7 @@ import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/lead
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
 import { resolvePzMemoryBytes } from "./utils/pzProcessMemory.js";
+import { recordPanelPort } from "./utils/panelPortFile.js";
 import {
   isAllInOneContainer,
   saveAndStopLocalServers,
@@ -789,6 +796,25 @@ export async function isRequestHostAllowed(hostHeader) {
 const HOST_DENY_MESSAGE =
   "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).";
 
+// Per-address Socket.IO handshake limit (utils/handshakeRateLimit.js).
+// The address is the one Express would give req.ip, so TRUST_PROXY applies
+// the same way it does to the /api/ limiter.
+const socketHandshakeLimiter = createHandshakeRateLimiter();
+export function _resetSocketHandshakeLimiterForTests() {
+  socketHandshakeLimiter.reset();
+}
+function socketHandshakeAddress(req) {
+  try {
+    return Object.create(app.request, {
+      headers: { value: req.headers },
+      socket: { value: req.socket },
+      connection: { value: req.socket },
+    }).ip;
+  } catch {
+    return req.socket?.remoteAddress;
+  }
+}
+
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
@@ -805,7 +831,12 @@ const io = new Server(httpServer, {
   // Same Host-header guard as the /api middleware below (a rebinding page
   // can open a socket to the panel too). Runs on every handshake, polling
   // or WebSocket; io.attach() for HTTPS reuses these options.
+  // A new connection only: polls and upgrades of an open one skip this.
   allowRequest: (req, callback) => {
+    if (!socketHandshakeLimiter.allow(handshakeClientKey(socketHandshakeAddress(req)))) {
+      callback(SOCKET_HANDSHAKE_RATE_MESSAGE, false);
+      return;
+    }
     isRequestHostAllowed(req.headers.host).then(
       (allowed) => callback(allowed ? null : HOST_DENY_MESSAGE, allowed),
       () => callback(HOST_DENY_MESSAGE, false),
@@ -1069,7 +1100,9 @@ app.use(
     }
     callback(null, {
       origin: true,
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      // PATCH: PATCH /api/auth/users/:id/role. Without it a cross-origin
+      // client the operator allowed (Remote Access) failed its preflight.
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       credentials: access === "credentialed" || isSameOriginRequest(req, origin),
     });
   }),
@@ -1086,13 +1119,22 @@ app.use(
 app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 
 // Server Files text saves carry a whole file (up to 2 MiB) as a JSON
-// string; 6mb covers the worst-case JSON escaping of that. Same ordering
-// rule as the client-errors parser above: it must run before the app-wide
-// 1mb parser below, or that one reads the body first and refuses it.
-app.put("/api/files/profiles/:profileId/text", express.json({ limit: "6mb" }));
+// string; 6mb covers the worst-case JSON escaping of that. The app-wide
+// 1mb parser below must not read that body first (it would refuse it), so
+// this route is only marked here, and its own 6mb parser runs after the
+// login check (FILES_TEXT_SAVE_ROUTE below).
+// SECURITY (2026-10-20): that parser used to be registered here, before
+// authService.middleware(), so anyone who could reach the panel had up to
+// 6 MB of JSON parsed per request without signing in.
+const FILES_TEXT_SAVE_ROUTE = "/api/files/profiles/:profileId/text";
+app.put(FILES_TEXT_SAVE_ROUTE, (req, _res, next) => {
+  req.deferLargeJsonBody = true;
+  next();
+});
 
 // Body parser with explicit size limit
-app.use(express.json({ limit: "1mb" }));
+const appJsonParser = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.deferLargeJsonBody ? next() : appJsonParser(req, res, next)));
 app.use(cookieParser());
 
 // Compress all HTTP responses (gzip/deflate) EXCEPT the <img>-tag-loaded
@@ -1257,6 +1299,13 @@ app.post("/api/files/profiles/:profileId/upload", fmUploadLimiter);
 app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
 app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);
 app.post("/api/files/profiles/:profileId/zip", fmTransferLimiter);
+// The Server Files text save's own body parser (see FILES_TEXT_SAVE_ROUTE
+// above): after the login check and the route's rate limit, and only for a
+// request the app-wide parser left alone.
+const filesTextSaveJsonParser = express.json({ limit: "6mb" });
+app.put(FILES_TEXT_SAVE_ROUTE, (req, res, next) =>
+  req.deferLargeJsonBody ? filesTextSaveJsonParser(req, res, next) : next(),
+);
 
 // Per-item collection mutations are cheap to the panel, but each one writes
 // to Steam. Do not share their bucket with cookie extraction: a normal sync
@@ -1793,6 +1842,9 @@ app.use("/api/rcon", rconRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/scheduler", schedulerRoutes);
 app.use("/api/mods", modsRoutes);
+// Smart load order, health check and insights (same /api/mods prefix; after
+// routes/mods.js so its /thumbnail carve-out answers first).
+app.use("/api/mods", modsSmartRoutes);
 app.use("/api/chunks", chunksRoutes);
 app.use("/api/discord", discordRoutes);
 app.use("/api/debug", debugRoutes);
@@ -1992,11 +2044,19 @@ export function recoverFromStartupInspectionFailure(error, journalPath) {
     );
   }
 }
+// New for every process. A page waiting for a restart compares it with the
+// one the restart request answered with: the version alone can't tell the
+// old process (still up while it saves and stops game servers in the
+// all-in-one container) from the new one, nor a rolled-back update (same
+// version as before) from the old process.
+const PANEL_BOOT_ID = randomUUID();
+
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     version: _pkgVersion,
     ..._buildMetadata,
+    bootId: PANEL_BOOT_ID,
     timestamp: new Date().toISOString(),
   });
 });
@@ -2094,6 +2154,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           message: "Stopping panel for supervisor to apply update...",
           applyingUpdate: true,
           supervisor: true,
+          bootId: PANEL_BOOT_ID,
         });
         // Same gap gracefulShutdown() (SIGTERM/SIGINT) already closes for a
         // signal-triggered shutdown: this handler exits the process directly
@@ -2239,7 +2300,12 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     }
   }
 
-  res.json({ success: true, message: "Panel is restarting..." });
+  res.json({
+    success: true,
+    message: "Panel is restarting...",
+    // The process that is going away; see PANEL_BOOT_ID.
+    bootId: PANEL_BOOT_ID,
+  });
 
   // Short delay so the response can be sent before exit
   setTimeout(async () => {
@@ -3161,6 +3227,10 @@ onLog((logEntry) => {
 // ============================================
 import { getDataPaths } from "./utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "./utils/exportFolderName.js";
+import {
+  enforceAutoExportFolderCap,
+  MAX_AUTO_EXPORT_PLAYER_FOLDERS,
+} from "./utils/autoExportFolders.js";
 
 // Exported so tests can call it directly against real fs/database state
 // without needing a live PanelBridge mod connection -- see
@@ -3192,7 +3262,9 @@ export async function autoExportPlayer(username) {
       return;
     }
     const { dataDir } = getDataPaths();
-    const exportDir = path.join(dataDir, "exports", exportFolder);
+    const exportsRoot = path.join(dataDir, "exports");
+    const exportDir = path.join(exportsRoot, exportFolder);
+    const newFolder = !fs.existsSync(exportDir);
     fs.mkdirSync(exportDir, { recursive: true });
 
     // Write timestamped export file. toISOString() is millisecond-resolution
@@ -3219,17 +3291,26 @@ export async function autoExportPlayer(username) {
     // sortBackupFilenamesNewestFirst(): a raw string sort would put
     // "-2.json" before ".json" ('-' < '.'), treating a collision's later
     // duplicate as older than the original it collided with.
+    //
+    // Only this function's own <name>_<timestamp>[-n].json files rotate.
+    // The import route's pre-import recovery copies (<name>_pre-import_<ts>)
+    // share this folder: counted here, "Bob_pre-import_..." sorted above
+    // every "Bob_2026-..." ('p' > '2'), so after a few imports each login's
+    // export was deleted in the same pass that wrote it, and recovery copies
+    // were deleted as if they were old auto-exports.
     const maxExports = Number(await getSetting("autoExportMaxPerPlayer")) || 3;
+    const autoExportFileName = new RegExp(
+      `^${safeUsername.replace(/[^a-zA-Z0-9_]/g, "\\$&")}_(\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z)(?:-(\\d+))?\\.json$`,
+    );
     const files = fs
       .readdirSync(exportDir)
-      .filter((f) => f.endsWith(".json"))
       .map((name) => {
-        const withoutExt = name.slice(0, -".json".length);
-        const match = withoutExt.match(/^(.*)-(\d+)$/);
+        const match = name.match(autoExportFileName);
         return match
-          ? { name, key: match[1], suffix: parseInt(match[2], 10) }
-          : { name, key: withoutExt, suffix: 1 };
+          ? { name, key: match[1], suffix: match[2] ? parseInt(match[2], 10) : 1 }
+          : null;
       })
+      .filter(Boolean)
       .sort((a, b) => {
         if (a.key !== b.key) return a.key < b.key ? 1 : -1; // newest first
         return b.suffix - a.suffix; // higher collision suffix = created later
@@ -3239,6 +3320,15 @@ export async function autoExportPlayer(username) {
     if (files.length > maxExports) {
       for (const old of files.slice(maxExports)) {
         fs.unlinkSync(path.join(exportDir, old));
+      }
+    }
+
+    // A new player's folder: keep the number of player folders bounded
+    // (utils/autoExportFolders.js).
+    if (newFolder) {
+      const removed = enforceAutoExportFolderCap(exportsRoot, exportFolder);
+      if (removed.length > 0) {
+        log.info(`Removed the auto-exports of ${removed.length} player(s) exported longest ago (at most ${MAX_AUTO_EXPORT_PLAYER_FOLDERS} players keep them)`);
       }
     }
 
@@ -4278,16 +4368,13 @@ async function start() {
       console.log("  ║     Password Reset (CLI Mode)        ║");
       console.log("  ╚══════════════════════════════════════╝");
       console.log(`\n  Admin account: ${users[0].username}`);
-      const newPassword = await ask("  Enter new password (min 6 chars): ");
+      // The same rules as every new panel password (services/passwordPolicy.js).
+      const { PASSWORD_MIN_LENGTH, newPasswordProblem } = await import("./services/passwordPolicy.js");
+      const newPassword = await ask(`  Enter new password (min ${PASSWORD_MIN_LENGTH} chars): `);
 
-      if (!newPassword || newPassword.length < 6) {
-        console.log("  ERROR: Password must be at least 6 characters.\n");
-        rl.close();
-        process.exit(1);
-      }
-
-      if (newPassword.length > 128) {
-        console.log("  ERROR: Password must be 128 characters or fewer.\n");
+      const passwordProblem = newPasswordProblem(newPassword || "");
+      if (passwordProblem) {
+        console.log(`  ERROR: ${passwordProblem.message}.\n`);
         rl.close();
         process.exit(1);
       }
@@ -4697,6 +4784,8 @@ async function start() {
         const address = httpServer.address();
         const boundPort = address && typeof address === "object" ? address.port : listenPort;
         activePanelPort = boundPort;
+        // For the container HEALTHCHECK (docker/healthcheck.cjs).
+        recordPanelPort(boundPort, { log });
         if (listenPort === 0 && !process.env.PORT && boundPort !== PORT) {
           await setSetting("panelPort", boundPort);
           await flushWrites();

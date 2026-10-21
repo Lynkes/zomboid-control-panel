@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "Mapa del mundo",
-    "description": "Posiciones en vivo de los jugadores en el mapa del condado de Knox. Clic derecho para acciones."
+    "description": "Jugadores en vivo. Clic derecho o mantén pulsado el mapa para ver acciones."
   },
   "refresh": "Actualizar",
   "errorTitle": "Error",
@@ -18,12 +18,12 @@
     "zoomIn": "Acercar",
     "zoomOut": "Alejar",
     "fitToPlayers": "Ajustar a los jugadores",
-    "floorHeader": "planta",
+    "floorHeader": "Planta",
     "floorUp": "Subir planta",
     "floorDown": "Bajar planta",
     "currentFloorAria": "Planta actual: {{floor}}",
     "currentFloorTitle": "{{floor}} — clic para restablecer a la planta baja",
-    "layersHeader": "capas",
+    "layersHeader": "Capas del mapa",
     "vehiclesHideAria": "Ocultar vehículos ({{count}} cargados)",
     "vehiclesShowAria": "Mostrar vehículos ({{count}} cargados)",
     "vehiclesHideTitle": "Ocultar vehículos ({{count}}) — solo se ven los vehículos cercanos a jugadores",
@@ -39,8 +39,6 @@
     "basementN": "S{{n}}"
   },
   "tileFailure": {
-    "signalLost": "señal.perdida",
-    "tilesOffline": "teselas sin conexión",
     "coverageTitle": "No hay teselas de mapa en este nivel de zoom",
     "coverageDesc": "<1>tiles.pzmap.org</1> es accesible pero no ha renderizado esta área a este nivel de detalle. Alejar el zoom, o probar Actualizar más tarde.",
     "networkTitle": "Las teselas del mapa no cargan",
@@ -63,41 +61,53 @@
     "unrecognizedTitle": "El tile del mapa llegó como datos no reconocidos",
     "unrecognizedDesc": "Los datos de este tile no coinciden con ningún formato que el panel reconozca. Bytes en bruto: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge está sin conexión",
+    "bridgeOfflineDesc": "Las posiciones en vivo, los vehículos y las acciones del mapa necesitan el mod PanelBridge activo en este servidor.",
+    "bridgeOfflineAction": "Configurar PanelBridge",
+    "noServerTitle": "No hay servidor activo",
+    "noServerDesc": "Elige o añade un servidor para ver a sus jugadores en el mapa.",
+    "noServerAction": "Abrir Servidores",
+    "playerNotOnlineTitle": "{{name}} no está en el mapa",
+    "playerNotOnlineDesc": "Este jugador está desconectado o PanelBridge aún no lo ha reportado.",
+    "openInPlayers": "Abrir en Jugadores"
+  },
   "roster": {
-    "label": "lista",
-    "live": "en vivo",
-    "offline": "sin conexión",
+    "label": "Jugadores",
+    "live": "En vivo",
+    "offline": "Sin conexión",
     "panToAria": "Desplazar a {{name}}",
     "panToAriaWithHealth": "Desplazar a {{name}}, salud {{health}}%",
-    "loading": "cargando…",
-    "noPlayersOnline": "no hay jugadores en línea",
+    "loading": "Cargando…",
+    "noPlayersOnline": "No hay jugadores en línea",
     "bridgeOffline": "PanelBridge sin conexión",
     "collapseAria": "Contraer lista",
-    "expandAria": "Expandir lista"
+    "expandAria": "Expandir lista",
+    "toggleAria": "Jugadores en el mapa: {{count}}",
+    "closeSheet": "Cerrar la lista de jugadores"
   },
   "hud": {
-    "hoverForCoords": "pasar el cursor para ver coordenadas"
+    "hoverForCoords": "Pasa el cursor por el mapa para ver coordenadas",
+    "zoomTitle": "Nivel de zoom"
   },
   "dossier": {
-    "label": "expediente",
-    "targetAcquired": "objetivo.adquirido",
+    "targetAcquired": "En línea",
     "closeAria": "Cerrar expediente",
-    "pos": "pos",
-    "floor": "planta",
-    "hp": "hp",
-    "hunger": "hambre",
-    "thirst": "sed",
-    "fatigue": "fatiga",
-    "role": "rol",
-    "status": "estado",
-    "infected": "infectado",
+    "pos": "Posición",
+    "floor": "Planta",
+    "hp": "Salud",
+    "hunger": "Hambre",
+    "thirst": "Sed",
+    "fatigue": "Fatiga",
+    "role": "Rol",
+    "status": "Estado",
+    "infected": "Infectado",
     "heal": "Curar",
-    "god": "Dios",
-    "godTip": "Siempre activa el Modo Dios para este jugador — no alterna. Desactívalo desde Jugadores.",
     "openPlayerControls": "Abrir controles del jugador",
     "healedTitle": "Curado",
     "healedDesc": "{{username}} curado",
-    "godModeEnabled": "Modo Dios activado"
+    "offline": "Desconectado",
+    "offlineReason": "Este jugador ya no está conectado."
   },
   "contextMenu": {
     "ariaLabel": "Acciones del mapa",

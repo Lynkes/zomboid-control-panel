@@ -1,6 +1,8 @@
 {
   "sectionTitle": "PanelBridge 安裝方式",
   "appliesTo": "適用於 {{server}}。要變更其他伺服器，請先在「我的伺服器」頁面將其設為使用中的伺服器。",
+  "serverChangedTitle": "使用中的伺服器已變更",
+  "serverChangedBody": "開啟的 PanelBridge 對話框屬於先前的伺服器，因此已關閉。",
   "current": "目前",
   "recommended": "建議",
   "preview": "預覽版",
@@ -81,6 +83,11 @@
       "title": "等待更新",
       "body": "遊戲資料夾中的 PanelBridge 比此面板內建的版本舊。請立即更新，或讓下次啟動時複製新版本（僅當「保持由面板安裝的 PanelBridge 為最新版本」已啟用時）。"
     },
+    "local-newer": {
+      "title": "比此面板的版本新",
+      "body": "遊戲資料夾中的 PanelBridge 比此面板內建的 v{{version}} 新。面板不會變更它；請更新面板，讓兩者一致。",
+      "bodyNoVersion": "遊戲資料夾中的 PanelBridge 比此面板內建的版本新。面板不會變更它；請更新面板，讓兩者一致。"
+    },
     "local-not-installed": {
       "title": "未安裝",
       "body": "此遊戲資料夾中尚未安裝 PanelBridge。"
@@ -134,6 +141,7 @@
   },
   "banner": {
     "steamUnavailable": "Steam 回報 PanelBridge 的創意工坊專案無法使用。在其恢復或你切換為由面板安裝之前，伺服器將無法啟動。",
+    "workshopItemModified": "伺服器從 Steam 創意工坊下載的 PanelBridge {{version}} 檔案與該版本發布時的內容不一致（資料夾：{{folder}}）。創意工坊專案或已下載的檔案可能遭到變更。在確認之前，請切換為由面板安裝，這樣會使用面板隨附的副本。",
     "steamModeOff": "此伺服器在沒有 Steam 的情況下執行，因此無法從創意工坊下載 PanelBridge。只有 Java 以 -Dzomboid.steam=1 啟動、且伺服器啟動時未帶 -nosteam，遊戲才會啟用 Steam：請將 -Dzomboid.steam=1 加到此伺服器啟動腳本或啟動命令的 java 行中，如有 -nosteam 請將其移除，然後重新啟動伺服器。",
     "steamListingHidden": "Steam 的創意工坊公開頁面目前沒有顯示 PanelBridge 專案。Steam 審核新專案或更新後的專案時，或者專案未公開列出時，都可能出現這種情況，伺服器仍然可以下載它。如果因此導致啟動失敗，此頁面會告訴你。",
     "autoRestartOn": "PanelBridge 更新後會自動重新啟動此伺服器（設定 › 模組與創意工坊）。",

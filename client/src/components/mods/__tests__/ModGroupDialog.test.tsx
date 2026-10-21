@@ -106,6 +106,9 @@ describe('ModGroupDialog: creating a group', () => {
       name: 'KI5 Vehicles',
       description: 'Library, core, add-ons',
       modIds: ['KI5Lib', 'KI5Core', 'KI5Addon'],
+      color: null,
+      keepTogether: false,
+      placement: null,
     })
   })
 
@@ -194,6 +197,9 @@ describe('ModGroupDialog: editing the member list', () => {
       name: 'KI5 Vehicles',
       description: 'Library first',
       modIds: ['KI5Lib', 'KI5Core', 'KI5Addon'],
+      color: null,
+      keepTogether: false,
+      placement: null,
     }))
   })
 
@@ -204,6 +210,130 @@ describe('ModGroupDialog: editing the member list', () => {
 
     expect(screen.getByText('Add at least two mods to save the group.')).toBeInTheDocument()
     expect(button('Save changes')).toBeDisabled()
+  })
+})
+
+describe('ModGroupDialog: colour, keep together, placement and auto-order', () => {
+  it('saves a colour, keep-together and a placement, and counts the members', async () => {
+    const { onSubmit } = renderDialog(GROUP)
+
+    expect(screen.getByText('4 mods')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'No colour' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('radio', { name: 'Amber' }))
+    expect(screen.getByRole('radio', { name: 'Amber' })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('switch', { name: 'Keep together in load order' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'First' }))
+
+    fireEvent.click(button('Save changes'))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({
+      name: 'KI5 Vehicles',
+      description: 'Library first',
+      modIds: ['KI5Lib', 'KI5Core', 'KI5Addon', 'KI5Fix'],
+      color: 'amber',
+      keepTogether: true,
+      placement: 'first',
+    }))
+  })
+
+  it('moves through the colours with the arrow keys', () => {
+    renderDialog(GROUP)
+    const none = screen.getByRole('radio', { name: 'No colour' })
+
+    fireEvent.keyDown(none, { key: 'ArrowRight' })
+    expect(screen.getByRole('radio', { name: 'Slate' })).toHaveAttribute('aria-checked', 'true')
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'Slate' }))
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'End' })
+    expect(screen.getByRole('radio', { name: 'Pink' })).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('a placement change alone is a change to save', () => {
+    renderDialog(GROUP)
+    expect(button('Save changes')).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Last' }))
+    expect(button('Save changes')).toBeEnabled()
+  })
+
+  it('warns about members that are not on this server', () => {
+    renderDialog(GROUP)
+    expect(screen.getByText('1 member is not on this server. It keeps its place and loads once it is enabled.')).toBeInTheDocument()
+  })
+
+  it('auto-orders the members (requirements, then libraries first, fixes last) and can undo it', () => {
+    render(
+      <ModGroupDialog
+        group={{ ...GROUP, modIds: ['KI5Fix', 'KI5Addon', 'KI5Trucks', 'KI5Lib'] }}
+        serverModIds={['KI5Fix', 'KI5Addon', 'KI5Trucks', 'KI5Lib']}
+        modNames={{ KI5Lib: 'KI5 Library', KI5Trucks: 'KI5 Trucks' }}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(button('Auto-order members'))
+
+    expect(memberOrder()).toEqual(['KI5Lib', 'KI5Trucks', 'KI5Addon', 'KI5Fix'])
+    // Shown under the list and announced to screen readers.
+    expect(screen.getAllByText(/Ordered: requirements first/)).toHaveLength(2)
+    expect(document.querySelector('p.sr-only[role="status"]')).toHaveTextContent(/Ordered: requirements first/)
+
+    fireEvent.click(button('Undo'))
+    expect(memberOrder()).toEqual(['KI5Fix', 'KI5Addon', 'KI5Trucks', 'KI5Lib'])
+  })
+
+  it('puts a required member before the one needing it, whatever the names say', () => {
+    render(
+      <ModGroupDialog
+        group={{ ...GROUP, modIds: ['Alpha', 'Beta'] }}
+        serverModIds={['Alpha', 'Beta']}
+        modNames={{}}
+        requires={new Map([['Alpha', ['Beta']]])}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+
+    fireEvent.click(button('Auto-order members'))
+
+    expect(memberOrder()).toEqual(['Beta', 'Alpha'])
+  })
+
+  it('says so when the members are already in that order', () => {
+    renderDialog(GROUP)
+
+    fireEvent.click(button('Auto-order members'))
+
+    expect(screen.getByText('The members are already in that order.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+  })
+
+  it('starts a new group from a suggestion: its name and members', () => {
+    render(
+      <ModGroupDialog
+        group={null}
+        initialName="KI5 Library"
+        initialModIds={['KI5Lib', 'KI5Core']}
+        serverModIds={SERVER_MODS}
+        modNames={NAMES}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Name')).toHaveValue('KI5 Library')
+    expect(memberOrder()).toEqual(['KI5Lib', 'KI5Core'])
+    expect(button('Create group')).toBeEnabled()
+  })
+
+  it('reorders by dragging a member row', () => {
+    renderDialog(GROUP)
+    const rows = () => Array.from(document.querySelectorAll('[data-member-id]')) as HTMLElement[]
+
+    fireEvent.dragStart(rows()[3])
+    fireEvent.dragOver(rows()[0])
+    fireEvent.drop(rows()[0])
+
+    expect(memberOrder()).toEqual(['KI5Fix', 'KI5Lib', 'KI5Core', 'KI5Addon'])
   })
 })
 

@@ -1,8 +1,7 @@
-import { useState, useEffect, useContext, useRef, useMemo } from "react";
+import { useState, useEffect, useContext, useRef, useMemo, useCallback, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   Download,
-  Server,
   CheckCircle,
   Loader2,
   Terminal,
@@ -13,7 +12,6 @@ import {
   EyeOff,
   Cpu,
   FolderOpen,
-  Zap,
   Shield,
   Settings2,
   Plus,
@@ -24,7 +22,6 @@ import {
   Copy,
   Check,
   Info,
-  ArrowRight,
   AlertTriangle,
 } from "lucide-react";
 import { configApi, serverApi, serversApi, debugApi, type ServerSetupPlan } from "@/lib/api";
@@ -46,14 +43,13 @@ import { NumberInput } from "@/components/NumberInput";
 import { DisabledReason } from "@/components/DisabledReason";
 import { getInstallProgressMessage } from "@/lib/installProgressMessage";
 import { useAuth } from "@/contexts/AuthContext";
-import { useNavigate } from "react-router-dom";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { PageHeader } from "@/components/PageHeader";
+import { PageAlerts, type PageAlert } from "@/components/PageAlerts";
+import { AddServerChoices } from "@/components/AddServerChoices";
+import { SectionCard } from "@/components/ui/section-card";
+import { Stepper, type StepperStep } from "@/components/ui/stepper";
+import { useUnsavedChangesGuard } from "@/contexts/UnsavedChangesContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -64,7 +60,6 @@ import { SocketContext } from "@/contexts/SocketContext";
 import { Slider } from "@/components/ui/slider";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { reportClientError } from "@/lib/client-errors";
 import { getUserErrorMessage, rawErrorMessageIntentional } from "@/lib/errorMessage";
 import { cn, copyText } from "@/lib/utils";
@@ -98,14 +93,22 @@ interface InstallLog {
 
 type SetupMode = "select" | "full" | "quick";
 
-function handleCardKeyDown(
-  event: React.KeyboardEvent<HTMLDivElement>,
-  onActivate: () => void,
-) {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    onActivate();
-  }
+// The wizard's place lives in the URL (?mode=fresh|existing&step=n), so a
+// reload keeps it, the Servers page and the Dashboard can link straight
+// into a mode, and the browser's Back button walks back through the steps.
+// "fresh" / "existing" are the shared Add-a-server words (AddServerChoices);
+// "full" / "quick" stay the wizard's own names for the two flows.
+const MODE_PARAM: Record<Exclude<SetupMode, "select">, string> = { full: "fresh", quick: "existing" };
+
+function setupModeFromParam(value: string | null): SetupMode {
+  if (value === MODE_PARAM.full) return "full";
+  if (value === MODE_PARAM.quick) return "quick";
+  return "select";
+}
+
+function setupStepFromParam(value: string | null, totalSteps: number): number {
+  const step = Number(value);
+  return Number.isInteger(step) && step >= 1 && step <= totalSteps ? step : 1;
 }
 
 // Generate a random password
@@ -300,8 +303,30 @@ export function installationErrorGuidance(
 export default function ServerSetup() {
   const runtimeInfo = useRuntimeInfo();
   const { t } = useTranslation("serverSetup");
-  const [setupMode, setSetupMode] = useState<SetupMode>("select");
-  const [currentStep, setCurrentStep] = useState(1);
+  const { t: tShell } = useTranslation("shell");
+  const { t: tServers } = useTranslation("servers");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const setupMode = setupModeFromParam(searchParams.get("mode"));
+  const currentStep = setupStepFromParam(searchParams.get("step"), setupMode === "quick" ? 3 : 4);
+  // Each move is its own history entry (not replace): Back in the browser
+  // returns to the previous step, then to the choice of mode.
+  const goTo = useCallback(
+    (mode: SetupMode, step = 1) => {
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous);
+        if (mode === "select") {
+          next.delete("mode");
+          next.delete("step");
+        } else {
+          next.set("mode", MODE_PARAM[mode]);
+          next.set("step", String(step));
+        }
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
+  const setCurrentStep = (step: number) => goTo(setupMode, step);
 
   // Step 1: Prerequisites
   const [steamCmdPath, setSteamCmdPath] = useState("");
@@ -333,6 +358,8 @@ export default function ServerSetup() {
   const [serverPort, setServerPort] = useState(16261);
   const [useUpnp, setUseUpnp] = useState(true);
   const [adminPassword, setAdminPassword] = useState("");
+  // Something was typed or picked in a step (see the leave guard below).
+  const [formTouched, setFormTouched] = useState(false);
   const [showAdminPassword, setShowAdminPassword] = useState(false);
   const missingAdminPassword = adminPassword.trim().length === 0;
   const [useNoSteam, setUseNoSteam] = useState(false);
@@ -857,6 +884,7 @@ export default function ServerSetup() {
       zomboidDataPath?: string;
       serverConfigPath?: string;
       branch?: string;
+      rconHost?: string;
       rconPort?: number;
       rconPassword?: string;
       serverPort?: number;
@@ -908,7 +936,9 @@ export default function ServerSetup() {
               zomboidDataPath: data.zomboidDataPath || null,
               serverConfigPath: data.serverConfigPath || null,
               branch: data.branch,
-              rconHost: "127.0.0.1",
+              // The host the server saved (RCON_HOST in a two-container
+              // Docker setup); 127.0.0.1 only from an older panel.
+              rconHost: data.rconHost || "127.0.0.1",
               rconPort: data.rconPort || s.rconPort,
               rconPassword: data.rconPassword || s.rconPassword,
               adminPassword: s.adminPassword,
@@ -1372,7 +1402,8 @@ export default function ServerSetup() {
             installPath: data.installPath || installPath,
             zomboidDataPath: data.zomboidDataPath || null,
             serverConfigPath: data.serverConfigPath || null,
-            rconHost: "127.0.0.1",
+            // See handleInstallComplete: the host the server resolved.
+            rconHost: data.rconHost || "127.0.0.1",
             rconPort: data.rconPort || rconPort,
             rconPassword: data.rconPassword || rconPassword,
             adminPassword,
@@ -1522,14 +1553,20 @@ export default function ServerSetup() {
     );
   };
 
+  // The neutral callout (DESIGN.md): instructions and plans, not warnings.
+  const NEUTRAL_CALLOUT = "rounded-lg border border-border/60 bg-muted/40 p-4 text-sm space-y-2";
+  // A related group of fields inside the step's card (DESIGN.md "grouped
+  // block"): never a card inside the card.
+  const GROUPED_BLOCK = "rounded-xl border border-border/70 bg-background/40 p-4 space-y-4";
+
   // Another server on this host: the ports each one already uses and, in
   // the all-in-one image, the game ports Docker publishes.
   const renderPortPlanNotice = () => {
     if (!setupPlan || !isAdditionalServer) return null;
     return (
-      <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
+      <div className={NEUTRAL_CALLOUT}>
         <p className="font-medium flex items-center gap-2">
-          <Info className="w-4 h-4 text-primary" />
+          <Info className="w-4 h-4 text-primary" aria-hidden="true" />
           {t("multiServer.portsTitle")}
         </p>
         <p className="text-muted-foreground">{t("multiServer.portsBody")}</p>
@@ -1565,7 +1602,7 @@ export default function ServerSetup() {
     if (setupPlan.allInOne && !extraServersRoot) {
       if (setupMode !== "full") return null;
       return (
-        <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm">
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
           <p className="text-warning flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
             <span>{t("multiServer.noVolume")}</span>
@@ -1586,9 +1623,9 @@ export default function ServerSetup() {
           quick: "multiServer.hostFolderBodyQuick",
         } as const);
     return (
-      <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
+      <div className={NEUTRAL_CALLOUT}>
         <p className="font-medium flex items-center gap-2">
-          <Info className="w-4 h-4 text-primary" />
+          <Info className="w-4 h-4 text-primary" aria-hidden="true" />
           {t(keys.title)}
         </p>
         <p className="text-muted-foreground">
@@ -1596,7 +1633,7 @@ export default function ServerSetup() {
             i18nKey={setupMode === "full" ? keys.full : keys.quick}
             t={t}
             values={{ path: installPath.trim(), dataPath: dataFolder }}
-            components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+            components={{ 1: <code className="font-mono bg-muted px-1 rounded break-all" /> }}
           />
         </p>
       </div>
@@ -1620,7 +1657,7 @@ export default function ServerSetup() {
                 i18nKey="multiServer.dataFolderShared"
                 t={t}
                 values={{ name: conflict.serverName, path: conflict.path }}
-                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+                components={{ 1: <code className="font-mono bg-muted px-1 rounded break-all" /> }}
               />
             </span>
           </p>
@@ -1633,7 +1670,7 @@ export default function ServerSetup() {
                 i18nKey="multiServer.dataFolderExists"
                 t={t}
                 values={{ path: dataFolder }}
-                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
+                components={{ 1: <code className="font-mono bg-muted px-1 rounded break-all" /> }}
               />
             </span>
           </p>
@@ -1642,20 +1679,31 @@ export default function ServerSetup() {
     );
   };
 
+  // One row of the review summary: the label, then the value (mono for
+  // paths, names, ports and sizes: data). min-w-0 lets a long path truncate
+  // instead of widening the card.
+  const renderSummaryRow = (label: string, value: ReactNode, opts: { mono?: boolean; title?: string } = {}) => (
+    <div key={label} className="flex min-w-0 justify-between gap-3 py-2.5">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className={cn("min-w-0 flex-1 truncate text-end", opts.mono && "font-mono")} title={opts.title}>
+        {value}
+      </dd>
+    </div>
+  );
+
   // Summary row: the data folder the server will get, which the earlier
   // steps show only in a notice or a collapsed section, with the shared
   // folder warning as a last check before Install or Create. Only once the
-  // setup plan has said whether PZ_SAVE_PATH applies. min-w-0 lets the grid
-  // row shrink so a long path truncates instead of widening the card.
+  // setup plan has said whether PZ_SAVE_PATH applies.
   const renderDataFolderSummaryRow = () => {
     if (!setupPlan || !dataFolder) return null;
     return (
-      <div className="min-w-0 py-2 border-b space-y-2">
+      <div className="min-w-0 py-2.5 space-y-2">
         <div className="flex justify-between gap-3">
-          <span className="text-muted-foreground shrink-0">{t("common.summaryDataFolder")}</span>
-          <span className="font-mono text-end min-w-0 flex-1 truncate" title={dataFolder}>
+          <dt className="text-muted-foreground shrink-0">{t("common.summaryDataFolder")}</dt>
+          <dd className="font-mono text-end min-w-0 flex-1 truncate" title={dataFolder}>
             {dataFolder}
-          </span>
+          </dd>
         </div>
         {renderDataFolderWarnings()}
       </div>
@@ -1669,8 +1717,7 @@ export default function ServerSetup() {
     setResumedInstall(true);
     setInstallPath(resumeMarker.installPath);
     setServerName(resumeMarker.serverName);
-    setSetupMode("full");
-    setCurrentStep(2); // Server Config -- where installPath/serverName live
+    goTo("full", 2); // Server Config -- where installPath/serverName live
     setResumeMarker(null);
   };
 
@@ -1679,1604 +1726,693 @@ export default function ServerSetup() {
     setResumeMarker(null);
   };
 
-  // Mode selection screen
-  if (setupMode === "select") {
-    return (
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="text-center space-y-3">
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-            <span
-              className="inline-block w-1.5 h-1.5 rounded-full bg-primary"
-              aria-hidden="true"
-            />
-            {t("modeSelect.badge")}
-          </span>
-          <h1 className="text-3xl font-bold">{t("modeSelect.title")}</h1>
-          <p className="text-muted-foreground text-base">
-            {t("modeSelect.description")}
-          </p>
-        </div>
-
-        {resumeMarker && (
-          <Alert variant="warning" className="text-start">
-            <AlertTriangle className="w-4 h-4" />
-            <AlertTitle>{t("resumeBanner.title")}</AlertTitle>
-            <AlertDescription className="space-y-3">
-              <p>
-                {t("resumeBanner.description", {
-                  installPath: resumeMarker.installPath,
-                  elapsed: formatElapsed((Date.now() - resumeMarker.startedAt) / 1000),
-                })}
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={handleResumeContinue}>
-                  {t("resumeBanner.continueButton")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={handleResumeDismiss}>
-                  {t("resumeBanner.dismissButton")}
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        <div className="grid gap-6 md:grid-cols-2">
-          {/* Full Install Card */}
-          {(() => {
-            const activate = () => {
-              setSetupMode("full");
-              setCurrentStep(1);
-            };
-
-            return (
-              <Card
-                role="button"
-                tabIndex={0}
-                aria-describedby="full-setup-description"
-                className="group relative overflow-hidden cursor-pointer border-primary/35 bg-gradient-to-br from-primary/[0.06] via-card to-card ring-1 ring-primary/15 transition-[border-color,box-shadow,transform] hover:border-primary/55 hover:ring-primary/25 hover:shadow-lg hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                onClick={activate}
-                onKeyDown={(event) => handleCardKeyDown(event, activate)}
-              >
-                <div
-                  className="absolute top-0 inset-x-0 h-[3px] bg-gradient-to-r from-primary via-primary/80 to-primary/40"
-                  aria-hidden="true"
-                />
-                <div className="absolute end-3 top-3">
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] font-medium uppercase tracking-wide"
-                  >
-                    {t("modeSelect.fullCard.recommendedBadge")}
-                  </Badge>
-                </div>
-                <CardHeader className="pb-3">
-                  <div className="grid place-items-center w-11 h-11 rounded-md border border-primary/30 bg-primary/[0.08] text-primary mb-3 transition-colors group-hover:bg-primary/15">
-                    <Download className="w-5 h-5" />
-                  </div>
-                  <CardTitle className="text-lg">{t("modeSelect.fullCard.title")}</CardTitle>
-                  <CardDescription
-                    id="full-setup-description"
-                    className="text-xs"
-                  >
-                    {t("modeSelect.fullCard.description")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 pb-5">
-                  <ul className="space-y-1.5 text-[13px]">
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
-                      <span>
-                        {t("modeSelect.fullCard.bullet1")}{" "}
-                        <span className="text-foreground/60">{t("modeSelect.fullCard.bullet1Size")}</span>
-                      </span>
-                    </li>
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
-                      <span>{t("modeSelect.fullCard.bullet2")}</span>
-                    </li>
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-primary shrink-0" />
-                      <span>
-                        {t("modeSelect.fullCard.bullet3")}
-                      </span>
-                    </li>
-                  </ul>
-                  <div className="flex items-center gap-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-primary/90">
-                    {t("modeSelect.fullCard.cta")}{" "}
-                    <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })()}
-
-          {/* Quick Setup Card */}
-          {(() => {
-            const activate = () => {
-              setSetupMode("quick");
-              setCurrentStep(1);
-            };
-
-            return (
-              <Card
-                role="button"
-                tabIndex={0}
-                aria-describedby="quick-setup-description"
-                className="group relative overflow-hidden cursor-pointer border-border/60 bg-card transition-[border-color,box-shadow,transform] hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                onClick={activate}
-                onKeyDown={(event) => handleCardKeyDown(event, activate)}
-              >
-                <CardHeader className="pb-3">
-                  <div className="grid place-items-center w-11 h-11 rounded-md border border-border/55 bg-muted/40 text-muted-foreground mb-3 transition-colors group-hover:border-primary/30 group-hover:bg-primary/[0.06] group-hover:text-primary">
-                    <Plus className="w-5 h-5" />
-                  </div>
-                  <CardTitle className="text-lg">{t("modeSelect.quickCard.title")}</CardTitle>
-                  <CardDescription
-                    id="quick-setup-description"
-                    className="text-xs"
-                  >
-                    {t("modeSelect.quickCard.description")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 pb-5">
-                  <ul className="space-y-1.5 text-[13px]">
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-muted-foreground/70 shrink-0" />
-                      <span>{t("modeSelect.quickCard.bullet1")}</span>
-                    </li>
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-muted-foreground/70 shrink-0" />
-                      <span>{t("modeSelect.quickCard.bullet2")}</span>
-                    </li>
-                    <li className="flex items-start gap-2 text-muted-foreground">
-                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 text-muted-foreground/70 shrink-0" />
-                      <span>{t("modeSelect.quickCard.bullet3")}</span>
-                    </li>
-                  </ul>
-                  <div className="flex items-center gap-1.5 pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground transition-colors group-hover:text-primary/90">
-                    {t("modeSelect.quickCard.cta")}{" "}
-                    <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })()}
-        </div>
-
-        {/* Quick Tips */}
-        <Card className="bg-secondary/40 border-border/70 shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-lg border border-primary/20 bg-primary/10 flex items-center justify-center shrink-0">
-                <Info className="w-5 h-5 text-primary" />
-              </div>
-              <div className="space-y-1">
-                <p className="font-medium">{t("modeSelect.tips.title")}</p>
-                <p className="text-sm text-muted-foreground">
-                  <Trans i18nKey="modeSelect.tips.description" t={t} components={{ 1: <strong /> }} />
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+  // A subsection heading inside a step: icon + title (+ Required), with its
+  // one-line description right under it (DESIGN.md "in-card subsection").
+  const renderBlockHeading = (
+    Icon: typeof Shield,
+    title: string,
+    opts: { required?: boolean; description?: string; end?: ReactNode } = {},
+  ) => (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <Icon className="w-4 h-4 text-primary" aria-hidden="true" />
+          {title}
+        </h3>
+        {opts.required && <Badge variant="outline">{t("common.requiredBadge")}</Badge>}
+        {opts.end && <div className="ms-auto">{opts.end}</div>}
       </div>
-    );
-  }
-
-  // Step indicator
-  const renderStepIndicator = () => {
-    const steps =
-      setupMode === "quick"
-        ? [
-            { id: 1, label: t("stepIndicator.quick.location"), icon: HardDrive },
-            { id: 2, label: t("stepIndicator.quick.configure"), icon: Settings2 },
-            { id: 3, label: t("stepIndicator.quick.create"), icon: Plus },
-          ]
-        : [
-            { id: 1, label: t("stepIndicator.full.steamcmd"), icon: Download },
-            { id: 2, label: t("stepIndicator.full.server"), icon: Server },
-            { id: 3, label: t("stepIndicator.full.settings"), icon: Settings2 },
-            { id: 4, label: t("stepIndicator.full.install"), icon: Zap },
-          ];
-
-    return (
-      <div className="flex items-center justify-center mb-8">
-        <div className="flex items-center gap-0">
-          {steps.map((step, index) => {
-            const Icon = step.icon;
-            const isActive = currentStep === step.id;
-            const isComplete = currentStep > step.id;
-            const isClickable =
-              step.id <= currentStep ||
-              stepValidation[step.id as keyof typeof stepValidation];
-
-            return (
-              <div key={step.id} className="flex items-center">
-                <button
-                  onClick={() => isClickable && setCurrentStep(step.id)}
-                  disabled={!isClickable}
-                  aria-current={isActive ? "step" : undefined}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-2 sm:px-3.5 sm:py-2 rounded-full border transition-colors",
-                    isActive &&
-                      "border-primary bg-primary text-primary-foreground shadow-sm",
-                    !isActive &&
-                      isComplete &&
-                      "border-primary/40 bg-primary/[0.08] text-primary",
-                    !isActive &&
-                      !isComplete &&
-                      "border-border/50 bg-muted/30 text-muted-foreground",
-                    isClickable &&
-                      !isActive &&
-                      "hover:border-primary/40 hover:bg-muted/60 cursor-pointer",
-                  )}
-                >
-                  {isComplete ? (
-                    <CheckCircle className="w-4 h-4" />
-                  ) : (
-                    <Icon className="w-4 h-4" />
-                  )}
-                  <span className="text-[11px] font-medium uppercase tracking-wide hidden sm:inline">
-                    {step.label}
-                  </span>
-                </button>
-                {index < steps.length - 1 && (
-                  <span
-                    className={cn(
-                      "w-6 sm:w-10 h-px mx-1",
-                      isComplete ? "bg-primary/50" : "bg-border/60",
-                    )}
-                    aria-hidden="true"
-                  />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  };
-
-  // Full Install Step 1: SteamCMD
-  const renderFullStep1 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("full.step1.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("full.step1.description")}
-        </p>
-      </div>
-
-      {!hasSteamCmd ? (
-        <div className="space-y-6">
-          {/* One-Click Setup */}
-          <Card className="border-primary/35 bg-card shadow-sm">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-6 h-6 text-primary" />
-                </div>
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <h3 className="font-semibold text-lg">{t("full.step1.oneClickTitle")}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {t("full.step1.oneClickDesc")}
-                    </p>
-                  </div>
-
-                  <div className="flex gap-2 items-center">
-                    <Input
-                      value={steamCmdPath}
-                      onChange={(e) => setSteamCmdPath(e.target.value)}
-                      placeholder={t("full.step1.pathPlaceholder")}
-                      className="font-mono flex-1"
-                      disabled={downloadingSteamCmd}
-                      maxLength={260}
-                    />
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() =>
-                              handleBrowseFolder(
-                                setSteamCmdPath,
-                                t("common.selectSteamCmdFolderTitle"),
-                                steamCmdPath,
-                              )
-                            }
-                            disabled={downloadingSteamCmd || !canInstall}
-                            aria-label={t("common.browseFolderAriaSteamCmd")}
-                          >
-                            <FolderOpen className="w-4 h-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        {/* bug-hunt-2026-09-18 (round 19): swaps to the
-                            no-permission explanation instead of the generic
-                            "Browse folder" hint when server.install is
-                            missing -- this button already has a Tooltip for
-                            its normal purpose, so DisabledReason's OWN
-                            tooltip (which nests a second, independent Radix
-                            Tooltip/TooltipTrigger asChild around its child)
-                            cannot also wrap it without breaking ref
-                            forwarding on the shared trigger. */}
-                        <TooltipContent>
-                          {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-
-                  <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
-                    <Button
-                      onClick={handleAutoDownloadSteamCmd}
-                      disabled={downloadingSteamCmd || !canInstall}
-                      className="w-full"
-                      size="lg"
-                    >
-                      {downloadingSteamCmd ? (
-                        <>
-                          <Loader2 className="w-4 h-4 me-2 animate-spin" />
-                          {steamCmdStatus || t("full.step1.installingButton")}
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-4 h-4 me-2" />
-                          {t("full.step1.installButton")}
-                        </>
-                      )}
-                    </Button>
-                  </DisabledReason>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Manual Setup Accordion */}
-          <Accordion type="single" collapsible className="border rounded-lg">
-            <AccordionItem value="manual" className="border-0">
-              <AccordionTrigger className="px-4 hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Settings2 className="w-4 h-4" />
-                  <span>{t("full.step1.manualTrigger")}</span>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4">
-                <div className="space-y-4">
-                  <div className="bg-warning/10 border border-warning/40 rounded-lg p-4 text-sm shadow-sm">
-                    <p className="font-medium text-warning">{t("full.step1.manualTitle")}</p>
-                    <ol className="list-decimal list-inside space-y-1 text-muted-foreground mt-2">
-                      <li>{t("full.step1.manualStep1")}</li>
-                      <li>
-                        <Trans i18nKey={platformTranslationKey("full.step1.manualStep2", runtimeInfo?.family)} t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} />
-                      </li>
-                      <li>
-                        <Trans i18nKey="full.step1.manualStep3" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} />
-                      </li>
-                    </ol>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-3"
-                      onClick={() =>
-                        window.open(
-                          "https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD",
-                          "_blank",
-                        )
-                      }
-                    >
-                      <Download className="w-4 h-4 me-2" />
-                      {t("full.step1.downloadButton")}
-                      <ExternalLink className="w-3 h-3 ms-2" />
-                    </Button>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Input
-                      value={steamCmdPath}
-                      onChange={(e) => setSteamCmdPath(e.target.value)}
-                      placeholder={t("full.step1.manualPathPlaceholder")}
-                      className="font-mono flex-1"
-                      maxLength={260}
-                    />
-                    <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={() =>
-                          handleBrowseFolder(
-                            setSteamCmdPath,
-                            t("common.selectSteamCmdFolderTitle"),
-                            steamCmdPath,
-                          )
-                        }
-                        disabled={!canInstall}
-                        aria-label={t("common.browseFolderAriaSteamCmd")}
-                      >
-                        <FolderOpen className="w-4 h-4" />
-                      </Button>
-                    </DisabledReason>
-                    <DisabledReason reason={!canSaveSteamCmdPath ? t("common.noPermissionSettings") : null}>
-                      <Button onClick={handleSaveSteamCmdPath} disabled={!canSaveSteamCmdPath}>
-                        {t("full.step1.savePathButton")}
-                      </Button>
-                    </DisabledReason>
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-        </div>
-      ) : (
-        <Card className="border-primary/30 bg-card shadow-sm">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-xl border border-primary/25 bg-primary/14 flex items-center justify-center">
-                <CheckCircle className="w-6 h-6 text-primary" />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold">{t("full.step1.readyTitle")}</p>
-                <p className="text-sm text-muted-foreground font-mono">
-                  {steamCmdPath}
-                </p>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setHasSteamCmd(false)}
-              >
-                {t("full.step1.changePathButton")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {opts.description && <p className="text-xs text-muted-foreground">{opts.description}</p>}
     </div>
   );
 
-  // Full Install Step 2: Server Location & Name
-  const renderFullStep2 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("full.step2.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("full.step2.description")}
-        </p>
-      </div>
+  // The folder field's browse button. It already has a Tooltip for its
+  // normal purpose, so DisabledReason's own tooltip (which nests a second,
+  // independent Radix Tooltip/TooltipTrigger asChild around its child)
+  // cannot also wrap it without breaking ref forwarding on the shared
+  // trigger: the Tooltip's own text swaps to the no-permission explanation
+  // instead (bug-hunt-2026-09-18, round 19).
+  const renderBrowseWithTooltip = (
+    onClick: () => void,
+    ariaLabel: string,
+    disabled: boolean,
+  ) => (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="outline" size="icon" onClick={onClick} disabled={disabled} aria-label={ariaLabel}>
+            <FolderOpen className="w-4 h-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 
-      <div className="grid gap-6">
-        {/* Installation Path */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <Label className="text-base">{t("full.step2.installFolderLabel")}</Label>
-            {/* The systemd service path means nothing inside a container,
-                where it isn't on a volume either. */}
-            {offerLinuxServicePath && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-auto px-0 text-xs"
-                onClick={() => setInstallPath(LINUX_SERVICE_INSTALL_PATH)}
-              >
-                {t("full.step2.useLinuxPath")}
-              </Button>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Input
-              value={installPath}
-              onChange={(e) => setInstallPath(e.target.value)}
-              placeholder={t(platformTranslationKey("full.step2.installFolderPlaceholder", runtimeInfo?.family))}
-              className="font-mono flex-1"
-              maxLength={260}
-            />
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    onClick={() =>
-                      handleBrowseFolder(
-                        setInstallPath,
-                        t("common.selectServerFolderTitle"),
-                        installPath,
-                      )
-                    }
-                    disabled={!canInstall}
-                    aria-label={t("common.browseFolderAriaInstall")}
-                  >
-                    <FolderOpen className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                {/* Same nested-Tooltip constraint as the SteamCMD browse
-                    button above -- swap this Tooltip's own text instead of
-                    wrapping in DisabledReason. */}
-                <TooltipContent>
-                  {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {t("full.step2.installFolderHelp")}
-          </p>
-        </div>
-
-        {renderFolderPlanNotice()}
-        {/* A custom data folder gets its warning under its own field below. */}
-        {!useCustomDataPath && renderDataFolderWarnings()}
-
-        {offerLinuxServicePath && (
-          <div className="border border-border/60 bg-muted/40 rounded-lg p-4 text-sm space-y-2">
-            <p className="font-medium flex items-center gap-2">
-              <Info className="w-4 h-4 text-primary" />
-              {t("full.step2.linuxNoteTitle")}
-            </p>
-            <p className="text-muted-foreground">
-              <Trans
-                i18nKey="full.step2.linuxNoteBody1"
-                t={t}
-                values={{ path: LINUX_SERVICE_INSTALL_PATH }}
-                components={{ 1: <code className="bg-muted px-1 rounded" /> }}
-              />
-            </p>
-            <p className="text-muted-foreground">
-              {/* The folder the server will really use: a custom one or
-                  PZ_SAVE_PATH isn't beside the install folder. */}
-              <Trans
-                i18nKey={
-                  dataFolder && dataFolder !== effectiveDataFolder(installPath, null, null)
-                    ? "full.step2.linuxNoteBody2Elsewhere"
-                    : "full.step2.linuxNoteBody2"
-                }
-                t={t}
-                values={{ path: dataFolder || t("full.step2.dataFolderPlaceholder") }}
-                components={{ 1: <code className="bg-muted px-1 rounded break-all" /> }}
-              />
-            </p>
-          </div>
-        )}
-
-        {/* Server Name */}
-        <div className="space-y-2">
-          <Label className="text-base">{t("common.serverNameLabel")}</Label>
-          <Input
-            value={serverName}
-            onChange={(e) =>
-              setServerName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))
-            }
-            placeholder={t("common.serverNamePlaceholder")}
-            className="font-mono"
-            maxLength={64}
-          />
-          <p className="text-xs text-muted-foreground">
-            {t("full.step2.serverNameHelp")}
-          </p>
-        </div>
-
-        {/* Branch Selection */}
+  // RCON password and port: the panel's line into the server.
+  const renderRconBlock = (opts: { title: string; description?: string; portHint: string; passwordMaxLength?: number }) => (
+    <div className={GROUPED_BLOCK}>
+      {renderBlockHeading(Shield, opts.title, { required: true, description: opts.description })}
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <div className="flex items-center gap-1.5">
-            <Label className="text-base">{t("full.step2.gameVersionLabel")}</Label>
-            <HelpTip label={t("full.step2.gameVersionLabel")}>{t("full.step2.gameVersionHelp")}</HelpTip>
+            <Label>{t("common.rconPasswordLabel")}</Label>
+            <HelpTip label={t("common.rconPasswordLabel")}>{t("common.rconPasswordHelp")}</HelpTip>
           </div>
-          <Select
-            value={branch}
-            onValueChange={setBranch}
-            disabled={loadingBranches}
-          >
-            <SelectTrigger>
-              <SelectValue
-                placeholder={
-                  loadingBranches
-                    ? t("full.step2.loadingVersions")
-                    : t("full.step2.selectVersion")
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {availableBranches.map((b) => (
-                <SelectItem key={b.name} value={b.name}>
-                  <div className="flex flex-col">
-                    <span>
-                      {b.name === "public"
-                        ? t("full.step2.buildStable")
-                        : t(`steamDialog.branchDescriptions.${b.name}`, {
-                            ns: "servers",
-                            defaultValue: b.description || b.name,
-                          })}
-                    </span>
-                    {b.buildId && (
-                      <span className="text-xs text-muted-foreground">
-                        {t("full.step2.buildLabel", { buildId: b.buildId })}
-                      </span>
-                    )}
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Custom Data Path - Collapsed by default */}
-        <Accordion type="single" collapsible className="border rounded-lg">
-          <AccordionItem value="datapath" className="border-0">
-            <AccordionTrigger className="px-4 hover:no-underline">
-              <div className="flex items-center gap-2 text-sm">
-                <FolderOpen className="w-4 h-4" />
-                <span>{t("full.step2.customDataLocation")}</span>
-                {useCustomDataPath && zomboidDataPath && (
-                  <Badge variant="secondary" className="ms-2">
-                    {t("full.step2.setBadge")}
-                  </Badge>
-                )}
-              </div>
-            </AccordionTrigger>
-            <AccordionContent className="px-4 pb-4">
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  {t("full.step2.customDataHelp")}
-                </p>
-                <div className="flex items-center gap-3">
-                  <Switch
-                    checked={useCustomDataPath}
-                    onCheckedChange={setUseCustomDataPath}
-                  />
-                  <Label>{t("common.useCustomLocation")}</Label>
-                </div>
-                {useCustomDataPath && (
-                  <>
-                    <div className="flex gap-2">
-                      <Input
-                        value={zomboidDataPath}
-                        onChange={(e) => setZomboidDataPath(e.target.value)}
-                        placeholder={t(platformTranslationKey("common.customDataPathPlaceholder", runtimeInfo?.family))}
-                        className="font-mono flex-1"
-                        maxLength={260}
-                      />
-                      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={() =>
-                            handleBrowseFolder(
-                              setZomboidDataPath,
-                              t("common.selectConfigFolderTitle"),
-                              zomboidDataPath,
-                            )
-                          }
-                          disabled={!canInstall}
-                          aria-label={t("common.browseFolderAriaConfig")}
-                        >
-                          <FolderOpen className="w-4 h-4" />
-                        </Button>
-                      </DisabledReason>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t("common.customConfigLocationHelp")}
-                    </p>
-                    {renderDataFolderWarnings()}
-                  </>
-                )}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-    </div>
-  );
-
-  // Full Install Step 3: RCON & Performance
-  const renderFullStep3 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("full.step3.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("full.step3.description")}
-        </p>
-      </div>
-
-      {renderPortPlanNotice()}
-
-      {/* RCON Section - Critical */}
-      <Card className="border-primary/35 bg-card shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">{t("full.step3.rconTitle")}</CardTitle>
-            <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
-          </div>
-          <CardDescription>
-            {t("full.step3.rconDesc")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label>{t("common.rconPasswordLabel")}</Label>
-                <HelpTip label={t("common.rconPasswordLabel")}>{t("common.rconPasswordHelp")}</HelpTip>
-              </div>
-              <div className="flex gap-1">
-                <div className="relative flex-1">
-                  <Input
-                    type={showRconPassword ? "text" : "password"}
-                    value={rconPassword}
-                    onChange={(e) => setRconPassword(e.target.value)}
-                    className="pe-10 font-mono"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute end-1 top-1 h-9 w-9 p-0"
-                    onClick={() => setShowRconPassword(!showRconPassword)}
-                    aria-label={
-                      showRconPassword
-                        ? t("common.hideRconPassword")
-                        : t("common.showRconPassword")
-                    }
-                  >
-                    {showRconPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleCopyPassword}
-                        aria-label={t("common.copyPasswordAria")}
-                      >
-                        {copiedPassword ? (
-                          <Check className="w-4 h-4" />
-                        ) : (
-                          <Copy className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("common.copyPasswordTooltip")}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        onClick={handleRegeneratePassword}
-                        aria-label={t("common.regeneratePasswordAria")}
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("common.regeneratePasswordTooltip")}</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-              {rconPassword.length > 0 && rconPassword.length < 6 && (
-                <p className="text-xs text-destructive">{t("common.rconPasswordMinChars")}</p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center gap-1.5">
-                <Label>{t("common.rconPortLabel")}</Label>
-                <HelpTip label={t("common.rconPortLabel")}>{t("common.rconPortHelp")}</HelpTip>
-              </div>
-              <NumberInput
-                min={1024}
-                max={65535}
-                value={rconPort}
-                onChange={setRconPort}
-                className="font-mono"
-              />
-              <p className="text-xs text-muted-foreground">
-                {t("common.rconPortDefaultHint")}
-              </p>
-              {renderPortWarnings("rcon")}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Admin Password - Critical */}
-      <Card className="border-primary/35 bg-card shadow-sm">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-primary" />
-            <CardTitle className="text-lg">{t("common.adminPasswordLabel")}</CardTitle>
-            <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
-          </div>
-          <CardDescription>{t("common.adminPasswordHelp")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="relative max-w-sm">
-            <Input
-              type={showAdminPassword ? "text" : "password"}
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder={t("common.adminPasswordPlaceholder")}
-              className="pe-10"
-              maxLength={128}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="absolute end-1 top-1 h-9 w-9 p-0"
-              onClick={() => setShowAdminPassword(!showAdminPassword)}
-              aria-label={
-                showAdminPassword
-                  ? t("common.hideAdminPassword")
-                  : t("common.showAdminPassword")
-              }
-            >
-              {showAdminPassword ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Memory Settings */}
-      <Card>
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Cpu className="w-5 h-5" />
-              <CardTitle className="text-lg">{t("common.memoryTitle")}</CardTitle>
-            </div>
-            {detectingRam ? (
-              <Badge variant="outline" className="animate-pulse">
-                {t("common.detectingRam")}
-              </Badge>
-            ) : (
-              systemRam && (
-                <Badge variant="outline">
-                  {t("full.step3.ramDetectedBadge", { total: systemRam.totalGB })}
-                </Badge>
-              )
-            )}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-6 sm:grid-cols-2">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-1.5">
-                  <Label>{t("common.minRamLabel")}</Label>
-                  <HelpTip label={t("common.minRamLabel")}>{t("common.ramHelp")}</HelpTip>
-                </div>
-                <NumberInput
-                  min={1}
-                  max={64}
-                  value={minMemory}
-                  className="h-8 w-20 bg-background text-end font-mono"
-                  clamp={n => Math.min(64, Math.max(1, n))}
-                  onChange={value => {
-                    setMinMemory(value)
-                    if (value > maxMemory) setMaxMemory(value)
-                  }}
-                  aria-label={t("common.minRamAria")}
-                />
-              </div>
-              <Slider
-                value={[Math.min(Number.isFinite(minMemory) ? minMemory : 1, 64)]}
-                onValueChange={([val]) => {
-                  setMinMemory(val);
-                  if (val > maxMemory) setMaxMemory(val);
-                }}
-                min={2}
-                max={64}
-                step={1}
-                aria-label={t("common.minRamSliderAria", { value: minMemory })}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <Label>{t("common.maxRamLabel")}</Label>
-                <NumberInput
-                  min={1}
-                  max={128}
-                  value={maxMemory}
-                  className="h-8 w-20 bg-background text-end font-mono"
-                  clamp={n => Math.min(128, Math.max(1, n))}
-                  onChange={value => {
-                    setMaxMemory(value)
-                    if (value < minMemory) setMinMemory(value)
-                  }}
-                  aria-label={t("common.maxRamAria")}
-                />
-              </div>
-              <Slider
-                value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 128)]}
-                onValueChange={([val]) => {
-                  setMaxMemory(val);
-                  if (val < minMemory) setMinMemory(val);
-                }}
-                min={2}
-                max={128}
-                step={1}
-                aria-label={t("common.maxRamSliderAria", { value: maxMemory })}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Advanced Options - Collapsed, except for another server on this
-          host, whose game port has to differ from the others' */}
-      <Accordion
-        type="single"
-        collapsible
-        defaultValue={isAdditionalServer ? "advanced" : undefined}
-        className="border rounded-lg"
-      >
-        <AccordionItem value="advanced" className="border-0">
-          <AccordionTrigger className="px-4 hover:no-underline">
-            <div className="flex items-center gap-2">
-              <Settings2 className="w-4 h-4" />
-              <span>{t("common.advancedOptions")}</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="px-4 pb-4 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>{t("common.gamePortLabel")}</Label>
-                  <HelpTip label={t("common.gamePortLabel")}>{t("common.gamePortHelp")}</HelpTip>
-                </div>
-                <NumberInput
-                  min={1024}
-                  max={65534}
-                  value={serverPort}
-                  onChange={setServerPort}
-                  className="font-mono"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("common.gamePortDefaultHint")}
-                </p>
-                {renderPortWarnings("game")}
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="text-sm font-medium">{t("common.upnpLabel")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("common.upnpDesc")}
-                  </p>
-                </div>
-                <Switch
-                  checked={useUpnp}
-                  onCheckedChange={setUseUpnp}
-                  aria-label={t("common.upnpAria")}
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="text-sm font-medium">{t("common.noSteamLabel")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("common.noSteamDesc")}
-                  </p>
-                </div>
-                <Switch
-                  checked={useNoSteam}
-                  onCheckedChange={setUseNoSteam}
-                  aria-label={t("common.noSteamAria")}
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div>
-                  <p className="text-sm font-medium">{t("common.debugLabel")}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("common.debugDesc")}
-                  </p>
-                </div>
-                <Switch
-                  checked={useDebug}
-                  onCheckedChange={setUseDebug}
-                  aria-label={t("common.debugAria")}
-                />
-              </div>
-            </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-    </div>
-  );
-
-  // Full Install Step 4: Review & Install
-  const renderFullStep4 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("full.step4.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("full.step4.description")}
-        </p>
-      </div>
-
-      {/* Summary */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid gap-3 text-sm">
-            <div className="flex justify-between gap-3 py-2 border-b min-w-0">
-              <span className="text-muted-foreground shrink-0">{t("full.step4.summaryInstallPath")}</span>
-              <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
-                {installPath}
-              </span>
-            </div>
-            {renderDataFolderSummaryRow()}
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryServerName")}</span>
-              <span className="font-mono">{serverName}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("full.step4.summaryGameVersion")}</span>
-              <span>{branch === "public" ? t("full.step2.buildStable") : branch}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryMemory")}</span>
-              <span className="font-mono">
-                {formatMemory(minMemory)}GB - {formatMemory(maxMemory)}GB
-              </span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryGamePort")}</span>
-              <span className="font-mono">{formatPort(serverPort)}</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-muted-foreground">{t("common.summaryRconPort")}</span>
-              <span className="font-mono">{formatPort(rconPort)}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Port Info */}
-      <div className="bg-muted/50 border border-border/60 rounded-lg p-4 text-sm shadow-sm">
-        <p className="font-medium flex items-center gap-2">
-          <Info className="w-4 h-4 text-primary" />
-          {t("full.step4.portInfoTitle")}
-        </p>
-        <p className="text-muted-foreground mt-1">
-          {t("full.step4.portInfoIntro")}
-        </p>
-        <ul className="mt-2 space-y-1 text-muted-foreground">
-          <li>
-            • <code className="bg-muted px-1 rounded">{formatPort(serverPort)}</code> {t("full.step4.portInfoGame")}
-          </li>
-          <li>
-            • <code className="bg-muted px-1 rounded">{formatPort(serverPort + 1)}</code>{" "}
-            {t("full.step4.portInfoDirect")}
-          </li>
-        </ul>
-      </div>
-
-      {/* Install Button */}
-      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
-        <Button
-          onClick={handleInstall}
-          disabled={installing || missingAdminPassword || !canInstall}
-          className="w-full"
-          size="lg"
-        >
-          {installing ? (
-            <>
-              <Loader2 className="w-4 h-4 me-2 animate-spin" />
-              {t("full.step4.installingButton")}
-            </>
-          ) : (
-            <>
-              <Download className="w-4 h-4 me-2" />
-              {t("full.step4.installButton")}
-            </>
-          )}
-        </Button>
-      </DisabledReason>
-
-      {missingAdminPassword && (
-        <p className="text-sm text-warning">
-          {t("full.step4.missingAdminPassword")}
-        </p>
-      )}
-
-      {/* Installation Progress Bar */}
-      {installing && installProgress && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted-foreground">
-              {installProgress.status}
-            </span>
-            <span className="font-mono">
-              {installProgress.percent.toFixed(0)}%
-              {installProgress.downloaded && installProgress.total && (
-                <span className="text-muted-foreground ms-2">
-                  ({installProgress.downloaded} / {installProgress.total})
-                </span>
-              )}
-            </span>
-          </div>
-          <Progress value={installProgress.percent} className="h-2" />
-        </div>
-      )}
-
-      {/* Installation Log */}
-      {logs.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4" />
-            <span className="text-sm font-medium">{t("full.step4.logTitle")}</span>
-          </div>
-          <ScrollArea className="h-[200px] bg-background rounded-lg p-3">
-            <div className="font-mono text-xs space-y-0.5">
-              {logs.map((log, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    log.type === "error" || log.type === "stderr"
-                      ? "text-destructive"
-                      : log.type === "warning"
-                        ? "text-warning"
-                        : log.type === "success"
-                          ? "text-success"
-                          : log.type === "command"
-                            ? "text-primary"
-                            : "text-foreground/80",
-                  )}
-                >
-                  {log.message}
-                </div>
-              ))}
-              {installing && (
-                <div className="text-muted-foreground animate-pulse">...</div>
-              )}
-              <div ref={logsEndRef} />
-            </div>
-          </ScrollArea>
-        </div>
-      )}
-
-      {/* Post-install */}
-      {installComplete && (
-        <Card className="border-primary/32 bg-card shadow-sm">
-          <CardContent className="pt-6 space-y-4">
-            <div className="flex items-center gap-2 text-primary">
-              <CheckCircle className="w-5 h-5" />
-              <span className="font-medium">{t("full.step4.completeTitle")}</span>
-            </div>
-
-            {/* First-run setup notice */}
-            <div className="bg-warning/10 border border-warning/40 rounded-lg p-4 text-sm shadow-sm">
-              <p className="font-medium flex items-center gap-2 text-warning">
-                <Info className="w-4 h-4" />
-                {t("full.step4.firstStartTitle")}
-              </p>
-              <p className="text-muted-foreground mt-1">
-                {t("full.step4.firstStartDesc")}
-              </p>
-            </div>
-
-            <div className="flex gap-3">
-              <DisabledReason reason={!canControlServer ? t("common.noPermissionControl") : null}>
-                <Button
-                  onClick={handleStartServerNow}
-                  disabled={startingServer || !canControlServer}
-                  className="flex-1"
-                >
-                  {startingServer ? (
-                    <>
-                      <Loader2 className="w-4 h-4 me-2 animate-spin" />{" "}
-                      {t("common.startingButton")}
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 me-2" /> {t("common.startServerButton")}
-                    </>
-                  )}
-                </Button>
-              </DisabledReason>
-              <Button variant="outline" onClick={() => navigate("/")}>
-                {t("common.openDashboardButton")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
-
-  // Quick Setup Step 1: Select Files
-  const renderQuickStep1 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("quick.step1.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("quick.step1.description")}
-        </p>
-      </div>
-
-      <Card className="bg-secondary/40 border-primary/24 shadow-sm">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-4">
-            <div className="w-10 h-10 rounded-lg border border-primary/20 bg-primary/10 flex items-center justify-center shrink-0">
-              <HardDrive className="w-5 h-5 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <p className="font-medium">{t("quick.step1.usingExistingTitle")}</p>
-              <p className="text-sm text-muted-foreground">
-                <Trans
-                  i18nKey={platformTranslationKey("quick.step1.usingExistingDesc", runtimeInfo?.family)}
-                  t={t}
-                  components={{
-                    1: <code className="bg-muted px-1 rounded" />,
-                    2: <code className="bg-muted px-1 rounded" />,
-                    3: <code className="bg-muted px-1 rounded" />,
-                  }}
-                />
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-2">
-        <Label className="text-base">{t("quick.step1.locationLabel")}</Label>
-        <div className="flex gap-2">
-          <Input
-            value={installPath}
-            onChange={(e) => setInstallPath(e.target.value)}
-            placeholder={t("quick.step1.locationPlaceholder")}
-            className="font-mono flex-1"
-            maxLength={260}
-          />
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() =>
-                    handleBrowseFolder(
-                      setInstallPath,
-                      t("common.selectPzServerFolderTitle"),
-                      installPath,
-                    )
-                  }
-                  disabled={!canInstall}
-                  aria-label={t("common.browseFolderAriaServerFiles")}
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
-              </TooltipTrigger>
-              {/* Same nested-Tooltip constraint as the other browse buttons
-                  above -- swap this Tooltip's own text instead of wrapping
-                  in DisabledReason. */}
-              <TooltipContent>
-                {!canInstall ? t("common.noPermissionInstall") : t("common.browseFolder")}
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t("quick.step1.locationHelp")}
-        </p>
-      </div>
-    </div>
-  );
-
-  // Quick Setup Step 2: Configure
-  const renderQuickStep2 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("quick.step2.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("quick.step2.description")}
-        </p>
-      </div>
-
-      {renderPortPlanNotice()}
-      {renderFolderPlanNotice()}
-      {/* A custom data folder gets its warning under its own field in
-          Advanced options. */}
-      {!useCustomDataPath && renderDataFolderWarnings()}
-
-      <div className="grid gap-6">
-        {/* Server Name */}
-        <div className="space-y-2">
-          <Label className="text-base">{t("common.serverNameLabel")}</Label>
-          <Input
-            value={serverName}
-            onChange={(e) =>
-              setServerName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))
-            }
-            placeholder={t("common.serverNamePlaceholder")}
-            className="font-mono"
-            maxLength={64}
-          />
-          <p className="text-xs text-muted-foreground">
-            {t("quick.step2.serverNameHelp")}
-          </p>
-        </div>
-
-        {/* RCON - Critical */}
-        <Card className="border-primary/35 bg-card shadow-sm">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              <CardTitle className="text-lg">{t("quick.step2.rconTitle")}</CardTitle>
-              <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>{t("common.rconPasswordLabel")}</Label>
-                  <HelpTip label={t("common.rconPasswordLabel")}>{t("common.rconPasswordHelp")}</HelpTip>
-                </div>
-                <div className="flex gap-1">
-                  <div className="relative flex-1">
-                    <Input
-                      type={showRconPassword ? "text" : "password"}
-                      value={rconPassword}
-                      onChange={(e) => setRconPassword(e.target.value)}
-                      className="pe-10 font-mono"
-                      maxLength={128}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute end-1 top-1 h-9 w-9 p-0"
-                      onClick={() => setShowRconPassword(!showRconPassword)}
-                      aria-label={
-                        showRconPassword
-                          ? t("common.hideRconPassword")
-                          : t("common.showRconPassword")
-                      }
-                    >
-                      {showRconPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={handleCopyPassword}
-                          aria-label={t("common.copyPasswordAria")}
-                        >
-                          {copiedPassword ? (
-                            <Check className="w-4 h-4" />
-                          ) : (
-                            <Copy className="w-4 h-4" />
-                          )}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("common.copyPasswordTooltip")}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={handleRegeneratePassword}
-                          aria-label={t("common.regeneratePasswordAria")}
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("common.regeneratePasswordTooltip")}</TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
-                {rconPassword.length > 0 && rconPassword.length < 6 && (
-                  <p className="text-xs text-destructive">
-                    {t("common.rconPasswordMinChars")}
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <Label>{t("common.rconPortLabel")}</Label>
-                  <HelpTip label={t("common.rconPortLabel")}>{t("common.rconPortHelp")}</HelpTip>
-                </div>
-                <NumberInput
-                  min={1024}
-                  max={65535}
-                  value={rconPort}
-                  onChange={setRconPort}
-                  className="font-mono"
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t("quick.step2.rconPortDefaultHint")}
-                </p>
-                {renderPortWarnings("rcon")}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Admin Password - Critical */}
-        <Card className="border-primary/35 bg-card shadow-sm">
-          <CardHeader className="pb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="w-5 h-5 text-primary" />
-              <CardTitle className="text-lg">{t("common.adminPasswordLabel")}</CardTitle>
-              <Badge className="ms-auto">{t("common.requiredBadge")}</Badge>
-            </div>
-            <CardDescription>{t("common.adminPasswordHelp")}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="relative max-w-sm">
+          <div className="flex gap-1">
+            <div className="relative flex-1">
               <Input
-                type={showAdminPassword ? "text" : "password"}
-                value={adminPassword}
-                onChange={(e) => setAdminPassword(e.target.value)}
-                placeholder={t("common.adminPasswordPlaceholder")}
-                className="pe-10"
-                maxLength={128}
+                type={showRconPassword ? "text" : "password"}
+                value={rconPassword}
+                onChange={(e) => setRconPassword(e.target.value)}
+                className="pe-10 font-mono"
+                maxLength={opts.passwordMaxLength}
+                aria-label={t("common.rconPasswordLabel")}
               />
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 className="absolute end-1 top-1 h-9 w-9 p-0"
-                onClick={() => setShowAdminPassword(!showAdminPassword)}
+                onClick={() => setShowRconPassword(!showRconPassword)}
                 aria-label={
-                  showAdminPassword
-                    ? t("common.hideAdminPassword")
-                    : t("common.showAdminPassword")
+                  showRconPassword
+                    ? t("common.hideRconPassword")
+                    : t("common.showRconPassword")
                 }
               >
-                {showAdminPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
+                {showRconPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </Button>
             </div>
-          </CardContent>
-        </Card>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleCopyPassword}
+                    aria-label={t("common.copyPasswordAria")}
+                  >
+                    {copiedPassword ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("common.copyPasswordTooltip")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={handleRegeneratePassword}
+                    aria-label={t("common.regeneratePasswordAria")}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t("common.regeneratePasswordTooltip")}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          {rconPassword.length > 0 && rconPassword.length < 6 && (
+            <p className="text-xs text-destructive">{t("common.rconPasswordMinChars")}</p>
+          )}
+        </div>
 
-        {/* Memory */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="w-5 h-5" />
-                <CardTitle className="text-lg">{t("common.memoryTitle")}</CardTitle>
-              </div>
-              {detectingRam ? (
-                <Badge variant="outline" className="animate-pulse">
-                  {t("common.detectingRam")}
-                </Badge>
-              ) : (
-                systemRam && (
-                  <Badge variant="outline">
-                    {t("quick.step2.ramDetectedBadge", { total: systemRam.totalGB })}
-                  </Badge>
-                )
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <Label>{t("common.minRamLabel")}</Label>
-                    <HelpTip label={t("common.minRamLabel")}>{t("common.ramHelp")}</HelpTip>
-                  </div>
-                  <NumberInput
-                    min={1}
-                    max={64}
-                    value={minMemory}
-                    className="h-8 w-20 bg-background text-end font-mono"
-                    clamp={n => Math.min(64, Math.max(1, n))}
-                    onChange={value => {
-                      setMinMemory(value)
-                      if (value > maxMemory) setMaxMemory(value)
-                    }}
-                    aria-label={t("common.minRamAria")}
-                  />
-                </div>
-                <Slider
-                  value={[Math.min(Number.isFinite(minMemory) ? minMemory : 1, 64)]}
-                  onValueChange={([val]) => {
-                    setMinMemory(val);
-                    if (val > maxMemory) setMaxMemory(val);
-                  }}
-                  min={2}
-                  max={64}
-                  step={1}
-                  aria-label={t("common.minRamSliderAria", { value: minMemory })}
-                />
-              </div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-1.5">
+            <Label>{t("common.rconPortLabel")}</Label>
+            <HelpTip label={t("common.rconPortLabel")}>{t("common.rconPortHelp")}</HelpTip>
+          </div>
+          <NumberInput
+            min={1024}
+            max={65535}
+            value={rconPort}
+            onChange={setRconPort}
+            className="font-mono"
+            aria-label={t("common.rconPortLabel")}
+          />
+          <p className="text-xs text-muted-foreground">{opts.portHint}</p>
+          {renderPortWarnings("rcon")}
+        </div>
+      </div>
+    </div>
+  );
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <Label>{t("common.maxRamLabel")}</Label>
-                  <NumberInput
-                    min={1}
-                    max={128}
-                    value={maxMemory}
-                    className="h-8 w-20 bg-background text-end font-mono"
-                    clamp={n => Math.min(128, Math.max(1, n))}
-                    onChange={value => {
-                      setMaxMemory(value)
-                      if (value < minMemory) setMinMemory(value)
-                    }}
-                    aria-label={t("common.maxRamAria")}
-                  />
-                </div>
-                <Slider
-                  value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 128)]}
-                  onValueChange={([val]) => {
-                    setMaxMemory(val);
-                    if (val < minMemory) setMinMemory(val);
-                  }}
-                  min={2}
-                  max={128}
-                  step={1}
-                  aria-label={t("common.maxRamSliderAria", { value: maxMemory })}
-                />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Advanced Options -- open for another server on this host: its
-            game port and data folder have to differ from the others' */}
-        <Accordion
-          type="single"
-          collapsible
-          defaultValue={isAdditionalServer ? "advanced" : undefined}
-          className="border rounded-lg"
+  // The in-game admin password: required, never stored by the wizard.
+  const renderAdminBlock = () => (
+    <div className={GROUPED_BLOCK}>
+      {renderBlockHeading(Shield, t("common.adminPasswordLabel"), {
+        required: true,
+        description: t("common.adminPasswordHelp"),
+      })}
+      <div className="relative max-w-sm">
+        <Input
+          type={showAdminPassword ? "text" : "password"}
+          value={adminPassword}
+          onChange={(e) => setAdminPassword(e.target.value)}
+          placeholder={t("common.adminPasswordPlaceholder")}
+          aria-label={t("common.adminPasswordLabel")}
+          className="pe-10"
+          maxLength={128}
+        />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="absolute end-1 top-1 h-9 w-9 p-0"
+          onClick={() => setShowAdminPassword(!showAdminPassword)}
+          aria-label={
+            showAdminPassword
+              ? t("common.hideAdminPassword")
+              : t("common.showAdminPassword")
+          }
         >
-          <AccordionItem value="advanced" className="border-0">
-            <AccordionTrigger className="px-4 hover:no-underline">
-              <div className="flex items-center gap-2">
-                <Settings2 className="w-4 h-4" />
-                <span>{t("common.advancedOptions")}</span>
+          {showAdminPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  );
+
+  // Java heap: the two sliders, prefilled from the host's RAM.
+  const renderMemoryBlock = (ramBadgeKey: "full.step3.ramDetectedBadge" | "quick.step2.ramDetectedBadge") => (
+    <div className={GROUPED_BLOCK}>
+      {renderBlockHeading(Cpu, t("common.memoryTitle"), {
+        end: detectingRam ? (
+          <Badge variant="outline" className="motion-safe:animate-pulse">
+            {t("common.detectingRam")}
+          </Badge>
+        ) : (
+          systemRam && <Badge variant="outline">{t(ramBadgeKey, { total: systemRam.totalGB })}</Badge>
+        ),
+      })}
+      <div className="grid gap-6 sm:grid-cols-2">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("common.minRamLabel")}</Label>
+              <HelpTip label={t("common.minRamLabel")}>{t("common.ramHelp")}</HelpTip>
+            </div>
+            <NumberInput
+              min={1}
+              max={64}
+              value={minMemory}
+              className="h-8 w-20 bg-background text-end font-mono"
+              clamp={n => Math.min(64, Math.max(1, n))}
+              onChange={value => {
+                setMinMemory(value)
+                if (value > maxMemory) setMaxMemory(value)
+              }}
+              aria-label={t("common.minRamAria")}
+            />
+          </div>
+          <Slider
+            value={[Math.min(Number.isFinite(minMemory) ? minMemory : 1, 64)]}
+            onValueChange={([val]) => {
+              setMinMemory(val);
+              if (val > maxMemory) setMaxMemory(val);
+            }}
+            min={2}
+            max={64}
+            step={1}
+            aria-label={t("common.minRamSliderAria", { value: minMemory })}
+          />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <Label>{t("common.maxRamLabel")}</Label>
+            <NumberInput
+              min={1}
+              max={128}
+              value={maxMemory}
+              className="h-8 w-20 bg-background text-end font-mono"
+              clamp={n => Math.min(128, Math.max(1, n))}
+              onChange={value => {
+                setMaxMemory(value)
+                if (value < minMemory) setMinMemory(value)
+              }}
+              aria-label={t("common.maxRamAria")}
+            />
+          </div>
+          <Slider
+            value={[Math.min(Number.isFinite(maxMemory) ? maxMemory : 1, 128)]}
+            onValueChange={([val]) => {
+              setMaxMemory(val);
+              if (val < minMemory) setMinMemory(val);
+            }}
+            min={2}
+            max={128}
+            step={1}
+            aria-label={t("common.maxRamSliderAria", { value: maxMemory })}
+          />
+        </div>
+      </div>
+    </div>
+  );
+
+  // Game port, with its conflict and Docker warnings.
+  const renderGamePortField = () => (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Label>{t("common.gamePortLabel")}</Label>
+          <HelpTip label={t("common.gamePortLabel")}>{t("common.gamePortHelp")}</HelpTip>
+        </div>
+        <NumberInput
+          min={1024}
+          max={65534}
+          value={serverPort}
+          onChange={setServerPort}
+          className="font-mono"
+          aria-label={t("common.gamePortLabel")}
+        />
+        <p className="text-xs text-muted-foreground">{t("common.gamePortDefaultHint")}</p>
+        {renderPortWarnings("game")}
+      </div>
+    </div>
+  );
+
+  // UPnP, -nosteam and -debug: one toggle row each (DESIGN.md).
+  const renderLaunchToggles = () => (
+    <div className="grid gap-2">
+      {(
+        [
+          ["common.upnpLabel", "common.upnpDesc", "common.upnpAria", useUpnp, setUseUpnp],
+          ["common.noSteamLabel", "common.noSteamDesc", "common.noSteamAria", useNoSteam, setUseNoSteam],
+          ["common.debugLabel", "common.debugDesc", "common.debugAria", useDebug, setUseDebug],
+        ] as const
+      ).map(([labelKey, descKey, ariaKey, checked, onChange]) => (
+        <div key={labelKey} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{t(labelKey)}</p>
+            <p className="text-xs text-muted-foreground">{t(descKey)}</p>
+          </div>
+          <Switch checked={checked} onCheckedChange={onChange} aria-label={t(ariaKey)} />
+        </div>
+      ))}
+    </div>
+  );
+
+  // Advanced options -- open for another server on this host, whose game
+  // port (and, in Quick Setup, data folder) has to differ from the others'.
+  const renderAdvanced = (children: ReactNode) => (
+    <Accordion
+      type="single"
+      collapsible
+      defaultValue={isAdditionalServer ? "advanced" : undefined}
+      className="rounded-xl border border-border/70 bg-background/40"
+    >
+      <AccordionItem value="advanced" className="border-0">
+        <AccordionTrigger className="px-4 hover:no-underline">
+          <span className="flex items-center gap-2 text-sm">
+            <Settings2 className="w-4 h-4" aria-hidden="true" />
+            {t("common.advancedOptions")}
+          </span>
+        </AccordionTrigger>
+        <AccordionContent className="px-4 pb-4 space-y-4">{children}</AccordionContent>
+      </AccordionItem>
+    </Accordion>
+  );
+
+  // The live log of an install or a Quick Setup.
+  const renderLog = (titleKey: "full.step4.logTitle" | "quick.step3.logTitle", heightClass: string) =>
+    logs.length > 0 && (
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Terminal className="w-4 h-4" aria-hidden="true" />
+          <span className="text-sm font-medium">{t(titleKey)}</span>
+        </div>
+        <ScrollArea className={cn(heightClass, "bg-background rounded-lg border border-border/60 p-3")}>
+          <div className="font-mono text-xs space-y-0.5">
+            {logs.map((log, i) => (
+              <div
+                key={i}
+                className={cn(
+                  log.type === "error" || log.type === "stderr"
+                    ? "text-destructive"
+                    : log.type === "warning"
+                      ? "text-warning"
+                      : log.type === "success"
+                        ? "text-success"
+                        : log.type === "command"
+                          ? "text-primary"
+                          : "text-foreground/80",
+                )}
+              >
+                {log.message}
               </div>
+            ))}
+            {installing && <div className="text-muted-foreground motion-safe:animate-pulse">...</div>}
+            <div ref={logsEndRef} />
+          </div>
+        </ScrollArea>
+      </div>
+    );
+
+  // After a successful install or Quick Setup: start it, or go look.
+  const renderCompletion = (titleKey: "full.step4.completeTitle" | "quick.step3.completeTitle", firstStartNotice: boolean) =>
+    installComplete && (
+      <div className="space-y-3 border-t border-border/60 pt-4">
+        <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+          <CheckCircle className="w-5 h-5 text-success" aria-hidden="true" />
+          {t(titleKey)}
+        </p>
+
+        {firstStartNotice && (
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+            <p className="font-medium flex items-center gap-2 text-warning">
+              <Info className="w-4 h-4" aria-hidden="true" />
+              {t("full.step4.firstStartTitle")}
+            </p>
+            <p className="text-muted-foreground mt-1">{t("full.step4.firstStartDesc")}</p>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <DisabledReason reason={!canControlServer ? t("common.noPermissionControl") : null}>
+            <Button
+              variant="command"
+              onClick={handleStartServerNow}
+              disabled={startingServer || !canControlServer}
+            >
+              {startingServer ? (
+                <>
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" /> {t("common.startingButton")}
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4 me-2" /> {t("common.startServerButton")}
+                </>
+              )}
+            </Button>
+          </DisabledReason>
+          <Button variant="outline" onClick={() => navigate("/")}>
+            {t("common.openDashboardButton")}
+          </Button>
+        </div>
+      </div>
+    );
+
+  // Full Install Step 1: SteamCMD
+  const renderFullStep1 = () =>
+    !hasSteamCmd ? (
+      <div className="space-y-4">
+        {/* One-click setup */}
+        <div className={GROUPED_BLOCK}>
+          {renderBlockHeading(Sparkles, t("full.step1.oneClickTitle"), {
+            description: t("full.step1.oneClickDesc"),
+          })}
+          <div className="flex gap-2 items-center">
+            <Input
+              value={steamCmdPath}
+              onChange={(e) => setSteamCmdPath(e.target.value)}
+              placeholder={t("full.step1.pathPlaceholder")}
+              aria-label={t("full.step1.pathPlaceholder")}
+              className="font-mono flex-1"
+              disabled={downloadingSteamCmd}
+              maxLength={260}
+            />
+            {renderBrowseWithTooltip(
+              () => handleBrowseFolder(setSteamCmdPath, t("common.selectSteamCmdFolderTitle"), steamCmdPath),
+              t("common.browseFolderAriaSteamCmd"),
+              downloadingSteamCmd || !canInstall,
+            )}
+          </div>
+
+          <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null} className="w-full">
+            <Button
+              onClick={handleAutoDownloadSteamCmd}
+              disabled={downloadingSteamCmd || !canInstall}
+              className="w-full"
+            >
+              {downloadingSteamCmd ? (
+                <>
+                  <Loader2 className="w-4 h-4 me-2 animate-spin" />
+                  {steamCmdStatus || t("full.step1.installingButton")}
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 me-2" />
+                  {t("full.step1.installButton")}
+                </>
+              )}
+            </Button>
+          </DisabledReason>
+        </div>
+
+        {/* Manual setup */}
+        <Accordion type="single" collapsible className="rounded-xl border border-border/70 bg-background/40">
+          <AccordionItem value="manual" className="border-0">
+            <AccordionTrigger className="px-4 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm">
+                <Settings2 className="w-4 h-4" aria-hidden="true" />
+                {t("full.step1.manualTrigger")}
+              </span>
             </AccordionTrigger>
-            <AccordionContent className="px-4 pb-4 space-y-4">
+            <AccordionContent className="px-4 pb-4">
+              <div className="space-y-4">
+                <div className={NEUTRAL_CALLOUT}>
+                  <p className="font-medium text-foreground">{t("full.step1.manualTitle")}</p>
+                  <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                    <li>{t("full.step1.manualStep1")}</li>
+                    <li>
+                      <Trans i18nKey={platformTranslationKey("full.step1.manualStep2", runtimeInfo?.family)} t={t} components={{ 1: <code className="font-mono bg-muted px-1 rounded" /> }} />
+                    </li>
+                    <li>
+                      <Trans i18nKey="full.step1.manualStep3" t={t} components={{ 1: <code className="font-mono bg-muted px-1 rounded" /> }} />
+                    </li>
+                  </ol>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      window.open(
+                        "https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD",
+                        "_blank",
+                      )
+                    }
+                  >
+                    <Download className="w-4 h-4 me-2" />
+                    {t("full.step1.downloadButton")}
+                    <ExternalLink className="w-3 h-3 ms-2" />
+                  </Button>
+                </div>
+
+                <div className="flex gap-2">
+                  <Input
+                    value={steamCmdPath}
+                    onChange={(e) => setSteamCmdPath(e.target.value)}
+                    placeholder={t("full.step1.manualPathPlaceholder")}
+                    aria-label={t("full.step1.manualPathPlaceholder")}
+                    className="font-mono flex-1"
+                    maxLength={260}
+                  />
+                  <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        handleBrowseFolder(
+                          setSteamCmdPath,
+                          t("common.selectSteamCmdFolderTitle"),
+                          steamCmdPath,
+                        )
+                      }
+                      disabled={!canInstall}
+                      aria-label={t("common.browseFolderAriaSteamCmd")}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={!canSaveSteamCmdPath ? t("common.noPermissionSettings") : null}>
+                    <Button onClick={handleSaveSteamCmdPath} disabled={!canSaveSteamCmdPath}>
+                      {t("full.step1.savePathButton")}
+                    </Button>
+                  </DisabledReason>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </div>
+    ) : (
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/70 bg-background/40 p-4">
+        <CheckCircle className="w-5 h-5 shrink-0 text-success" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{t("full.step1.readyTitle")}</p>
+          <p className="truncate text-xs text-muted-foreground font-mono" title={steamCmdPath}>
+            {steamCmdPath}
+          </p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setHasSteamCmd(false)}>
+          {t("full.step1.changePathButton")}
+        </Button>
+      </div>
+    );
+
+  // Full Install Step 2: Server Location & Name
+  const renderFullStep2 = () => (
+    <div className="space-y-5">
+      {/* Installation Path */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <Label>{t("full.step2.installFolderLabel")}</Label>
+          {/* The systemd service path means nothing inside a container,
+              where it isn't on a volume either. */}
+          {offerLinuxServicePath && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto px-0 text-xs"
+              onClick={() => setInstallPath(LINUX_SERVICE_INSTALL_PATH)}
+            >
+              {t("full.step2.useLinuxPath")}
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={installPath}
+            onChange={(e) => setInstallPath(e.target.value)}
+            placeholder={t(platformTranslationKey("full.step2.installFolderPlaceholder", runtimeInfo?.family))}
+            aria-label={t("full.step2.installFolderLabel")}
+            className="font-mono flex-1"
+            maxLength={260}
+          />
+          {renderBrowseWithTooltip(
+            () => handleBrowseFolder(setInstallPath, t("common.selectServerFolderTitle"), installPath),
+            t("common.browseFolderAriaInstall"),
+            !canInstall,
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">{t("full.step2.installFolderHelp")}</p>
+      </div>
+
+      {renderFolderPlanNotice()}
+      {/* A custom data folder gets its warning under its own field below. */}
+      {!useCustomDataPath && renderDataFolderWarnings()}
+
+      {offerLinuxServicePath && (
+        <div className={NEUTRAL_CALLOUT}>
+          <p className="font-medium flex items-center gap-2">
+            <Info className="w-4 h-4 text-primary" aria-hidden="true" />
+            {t("full.step2.linuxNoteTitle")}
+          </p>
+          <p className="text-muted-foreground">
+            <Trans
+              i18nKey="full.step2.linuxNoteBody1"
+              t={t}
+              values={{ path: LINUX_SERVICE_INSTALL_PATH }}
+              components={{ 1: <code className="font-mono bg-muted px-1 rounded" /> }}
+            />
+          </p>
+          <p className="text-muted-foreground">
+            {/* The folder the server will really use: a custom one or
+                PZ_SAVE_PATH isn't beside the install folder. */}
+            <Trans
+              i18nKey={
+                dataFolder && dataFolder !== effectiveDataFolder(installPath, null, null)
+                  ? "full.step2.linuxNoteBody2Elsewhere"
+                  : "full.step2.linuxNoteBody2"
+              }
+              t={t}
+              values={{ path: dataFolder || t("full.step2.dataFolderPlaceholder") }}
+              components={{ 1: <code className="font-mono bg-muted px-1 rounded break-all" /> }}
+            />
+          </p>
+        </div>
+      )}
+
+      {/* Server Name */}
+      <div className="space-y-2">
+        <Label>{t("common.serverNameLabel")}</Label>
+        <Input
+          value={serverName}
+          onChange={(e) =>
+            setServerName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))
+          }
+          placeholder={t("common.serverNamePlaceholder")}
+          aria-label={t("common.serverNameLabel")}
+          className="font-mono"
+          maxLength={64}
+        />
+        <p className="text-xs text-muted-foreground">{t("full.step2.serverNameHelp")}</p>
+      </div>
+
+      {/* Branch Selection */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Label>{t("full.step2.gameVersionLabel")}</Label>
+          <HelpTip label={t("full.step2.gameVersionLabel")}>{t("full.step2.gameVersionHelp")}</HelpTip>
+        </div>
+        <Select
+          value={branch}
+          onValueChange={setBranch}
+          disabled={loadingBranches}
+        >
+          <SelectTrigger aria-label={t("full.step2.gameVersionLabel")}>
+            <SelectValue
+              placeholder={
+                loadingBranches
+                  ? t("full.step2.loadingVersions")
+                  : t("full.step2.selectVersion")
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {availableBranches.map((b) => (
+              <SelectItem key={b.name} value={b.name}>
+                <div className="flex flex-col">
+                  <span>
+                    {b.name === "public"
+                      ? t("full.step2.buildStable")
+                      : t(`steamDialog.branchDescriptions.${b.name}`, {
+                          ns: "servers",
+                          defaultValue: b.description || b.name,
+                        })}
+                  </span>
+                  {b.buildId && (
+                    <span className="text-xs text-muted-foreground">
+                      {t("full.step2.buildLabel", { buildId: b.buildId })}
+                    </span>
+                  )}
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Custom Data Path - Collapsed by default */}
+      <Accordion type="single" collapsible className="rounded-xl border border-border/70 bg-background/40">
+        <AccordionItem value="datapath" className="border-0">
+          <AccordionTrigger className="px-4 hover:no-underline">
+            <span className="flex items-center gap-2 text-sm">
+              <FolderOpen className="w-4 h-4" aria-hidden="true" />
+              <span>{t("full.step2.customDataLocation")}</span>
+              {useCustomDataPath && zomboidDataPath && (
+                <Badge variant="secondary" className="ms-2">
+                  {t("full.step2.setBadge")}
+                </Badge>
+              )}
+            </span>
+          </AccordionTrigger>
+          <AccordionContent className="px-4 pb-4">
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">{t("full.step2.customDataHelp")}</p>
               <div className="flex items-center gap-3">
                 <Switch
+                  id="setup-full-custom-data"
                   checked={useCustomDataPath}
                   onCheckedChange={setUseCustomDataPath}
                 />
-                <Label>{t("common.customConfigLocation")}</Label>
+                <Label htmlFor="setup-full-custom-data">{t("common.useCustomLocation")}</Label>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {t("full.step2.customDataHelp")}
-              </p>
               {useCustomDataPath && (
                 <>
                   <div className="flex gap-2">
@@ -3284,6 +2420,7 @@ export default function ServerSetup() {
                       value={zomboidDataPath}
                       onChange={(e) => setZomboidDataPath(e.target.value)}
                       placeholder={t(platformTranslationKey("common.customDataPathPlaceholder", runtimeInfo?.family))}
+                      aria-label={t("common.useCustomLocation")}
                       className="font-mono flex-1"
                       maxLength={260}
                     />
@@ -3305,253 +2442,261 @@ export default function ServerSetup() {
                       </Button>
                     </DisabledReason>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {t("common.customConfigLocationHelp")}
-                  </p>
+                  <p className="text-xs text-muted-foreground">{t("common.customConfigLocationHelp")}</p>
                   {renderDataFolderWarnings()}
                 </>
               )}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-1.5">
-                    <Label>{t("common.gamePortLabel")}</Label>
-                    <HelpTip label={t("common.gamePortLabel")}>{t("common.gamePortHelp")}</HelpTip>
-                  </div>
-                  <NumberInput
-                    min={1024}
-                    max={65534}
-                    value={serverPort}
-                    onChange={setServerPort}
-                    className="font-mono"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    {t("common.gamePortDefaultHint")}
-                  </p>
-                  {renderPortWarnings("game")}
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">{t("common.upnpLabel")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("common.upnpDesc")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={useUpnp}
-                    onCheckedChange={setUseUpnp}
-                    aria-label={t("common.upnpAria")}
-                  />
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">{t("common.noSteamLabel")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("common.noSteamDesc")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={useNoSteam}
-                    onCheckedChange={setUseNoSteam}
-                    aria-label={t("common.noSteamAria")}
-                  />
-                </div>
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">{t("common.debugLabel")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t("common.debugDesc")}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={useDebug}
-                    onCheckedChange={setUseDebug}
-                    aria-label={t("common.debugAria")}
-                  />
-                </div>
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
     </div>
   );
 
-  // Quick Setup Step 3: Create
-  const renderQuickStep3 = () => (
-    <div className="space-y-6">
-      <div className="text-center space-y-2 pb-6 border-b">
-        <h2 className="text-2xl font-semibold">{t("quick.step3.title")}</h2>
-        <p className="text-muted-foreground">
-          {t("quick.step3.description")}
+  // Full Install Step 3: RCON & Performance
+  const renderFullStep3 = () => (
+    <div className="space-y-4">
+      {renderPortPlanNotice()}
+      {renderRconBlock({
+        title: t("full.step3.rconTitle"),
+        description: t("full.step3.rconDesc"),
+        portHint: t("common.rconPortDefaultHint"),
+      })}
+      {renderAdminBlock()}
+      {renderMemoryBlock("full.step3.ramDetectedBadge")}
+      {renderAdvanced(
+        <>
+          {renderGamePortField()}
+          {renderLaunchToggles()}
+        </>,
+      )}
+    </div>
+  );
+
+  // Full Install Step 4: Review & Install. The Install button itself is in
+  // the wizard's footer, with Back.
+  const renderFullStep4 = () => (
+    <div className="space-y-4">
+      <dl className="divide-y divide-border/60 rounded-xl border border-border/70 bg-background/40 px-4 text-sm">
+        {renderSummaryRow(t("full.step4.summaryInstallPath"), installPath, { mono: true, title: installPath })}
+        {renderDataFolderSummaryRow()}
+        {renderSummaryRow(t("common.summaryServerName"), serverName, { mono: true })}
+        {renderSummaryRow(t("full.step4.summaryGameVersion"), branch === "public" ? t("full.step2.buildStable") : branch)}
+        {renderSummaryRow(t("common.summaryMemory"), `${formatMemory(minMemory)}GB - ${formatMemory(maxMemory)}GB`, { mono: true })}
+        {renderSummaryRow(t("common.summaryGamePort"), formatPort(serverPort), { mono: true })}
+        {renderSummaryRow(t("common.summaryRconPort"), formatPort(rconPort), { mono: true })}
+      </dl>
+
+      {/* Ports to open */}
+      <div className={NEUTRAL_CALLOUT}>
+        <p className="font-medium flex items-center gap-2">
+          <Info className="w-4 h-4 text-primary" aria-hidden="true" />
+          {t("full.step4.portInfoTitle")}
         </p>
+        <p className="text-muted-foreground">{t("full.step4.portInfoIntro")}</p>
+        <ul className="list-disc space-y-1 ps-5 text-muted-foreground">
+          <li>
+            <code className="font-mono bg-muted px-1 rounded">{formatPort(serverPort)}</code> {t("full.step4.portInfoGame")}
+          </li>
+          <li>
+            <code className="font-mono bg-muted px-1 rounded">{formatPort(serverPort + 1)}</code>{" "}
+            {t("full.step4.portInfoDirect")}
+          </li>
+        </ul>
       </div>
 
-      {/* Summary */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid gap-3 text-sm">
-            <div className="flex justify-between gap-3 py-2 border-b min-w-0">
-              <span className="text-muted-foreground shrink-0">{t("quick.step3.summaryServerFiles")}</span>
-              <span className="font-mono text-end min-w-0 flex-1 truncate" title={installPath}>
-                {installPath}
-              </span>
-            </div>
-            {renderDataFolderSummaryRow()}
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryServerName")}</span>
-              <span className="font-mono">{serverName}</span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryMemory")}</span>
-              <span className="font-mono">
-                {formatMemory(minMemory)}GB - {formatMemory(maxMemory)}GB
-              </span>
-            </div>
-            <div className="flex justify-between py-2 border-b">
-              <span className="text-muted-foreground">{t("common.summaryGamePort")}</span>
-              <span className="font-mono">{formatPort(serverPort)}</span>
-            </div>
-            <div className="flex justify-between py-2">
-              <span className="text-muted-foreground">{t("common.summaryRconPort")}</span>
-              <span className="font-mono">{formatPort(rconPort)}</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Create Button */}
-      <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
-      <Button
-        onClick={handleQuickSetup}
-        disabled={installing || missingAdminPassword || !canInstall}
-        className="w-full"
-        size="lg"
-      >
-        {installing ? (
-          <>
-            <Loader2 className="w-4 h-4 me-2 animate-spin" />
-            {t("quick.step3.creatingButton")}
-          </>
-        ) : (
-          <>
-            <Plus className="w-4 h-4 me-2" />
-            {t("quick.step3.createButton")}
-          </>
-        )}
-      </Button>
-      </DisabledReason>
-
-      {missingAdminPassword && (
-        <p className="text-sm text-warning">
-          {t("quick.step3.missingAdminPassword")}
-        </p>
-      )}
-
-      {/* Log */}
-      {logs.length > 0 && (
+      {/* Installation Progress Bar */}
+      {installing && installProgress && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4" />
-            <span className="text-sm font-medium">{t("quick.step3.logTitle")}</span>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">{installProgress.status}</span>
+            <span className="font-mono tabular-nums">
+              {installProgress.percent.toFixed(0)}%
+              {installProgress.downloaded && installProgress.total && (
+                <span className="text-muted-foreground ms-2">
+                  ({installProgress.downloaded} / {installProgress.total})
+                </span>
+              )}
+            </span>
           </div>
-          <ScrollArea className="h-[150px] bg-background rounded-lg p-3">
-            <div className="font-mono text-xs space-y-0.5">
-              {logs.map((log, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    log.type === "error"
-                      ? "text-destructive"
-                      : log.type === "warning"
-                        ? "text-warning"
-                        : log.type === "success"
-                          ? "text-success"
-                          : "text-foreground/80",
-                  )}
-                >
-                  {log.message}
-                </div>
-              ))}
-              <div ref={logsEndRef} />
-            </div>
-          </ScrollArea>
+          <Progress value={installProgress.percent} className="h-2" />
         </div>
       )}
 
-      {/* Post-create */}
-      {installComplete && (
-        <Card className="border-primary/30 bg-card shadow-sm">
-          <CardContent className="pt-6 space-y-4">
-            <div className="flex items-center gap-2 text-primary">
-              <CheckCircle className="w-5 h-5" />
-              <span className="font-medium">{t("quick.step3.completeTitle")}</span>
-            </div>
+      {renderLog("full.step4.logTitle", "h-[200px]")}
+      {renderCompletion("full.step4.completeTitle", true)}
+    </div>
+  );
 
-            <div className="flex gap-3">
-              <DisabledReason reason={!canControlServer ? t("common.noPermissionControl") : null}>
-                <Button
-                  onClick={handleStartServerNow}
-                  disabled={startingServer || !canControlServer}
-                  className="flex-1"
-                >
-                  {startingServer ? (
-                    <>
-                      <Loader2 className="w-4 h-4 me-2 animate-spin" />{" "}
-                      {t("common.startingButton")}
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 me-2" /> {t("common.startServerButton")}
-                    </>
-                  )}
-                </Button>
-              </DisabledReason>
-              <Button variant="outline" onClick={() => navigate("/")}>
-                {t("common.openDashboardButton")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+  // Quick Setup Step 1: Select Files
+  const renderQuickStep1 = () => (
+    <div className="space-y-5">
+      <div className={cn(NEUTRAL_CALLOUT, "flex items-start gap-3 space-y-0")}>
+        <HardDrive className="w-4 h-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+        <div className="space-y-1">
+          <p className="font-medium">{t("quick.step1.usingExistingTitle")}</p>
+          <p className="text-muted-foreground">
+            <Trans
+              i18nKey={platformTranslationKey("quick.step1.usingExistingDesc", runtimeInfo?.family)}
+              t={t}
+              components={{
+                1: <code className="font-mono bg-muted px-1 rounded" />,
+                2: <code className="font-mono bg-muted px-1 rounded" />,
+                3: <code className="font-mono bg-muted px-1 rounded" />,
+              }}
+            />
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>{t("quick.step1.locationLabel")}</Label>
+        <div className="flex gap-2">
+          <Input
+            value={installPath}
+            onChange={(e) => setInstallPath(e.target.value)}
+            placeholder={t("quick.step1.locationPlaceholder")}
+            aria-label={t("quick.step1.locationLabel")}
+            className="font-mono flex-1"
+            maxLength={260}
+          />
+          {renderBrowseWithTooltip(
+            () => handleBrowseFolder(setInstallPath, t("common.selectPzServerFolderTitle"), installPath),
+            t("common.browseFolderAriaServerFiles"),
+            !canInstall,
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">{t("quick.step1.locationHelp")}</p>
+      </div>
+    </div>
+  );
+
+  // Quick Setup Step 2: Configure
+  const renderQuickStep2 = () => (
+    <div className="space-y-4">
+      {renderPortPlanNotice()}
+      {renderFolderPlanNotice()}
+      {/* A custom data folder gets its warning under its own field in
+          Advanced options. */}
+      {!useCustomDataPath && renderDataFolderWarnings()}
+
+      {/* Server Name */}
+      <div className="space-y-2">
+        <Label>{t("common.serverNameLabel")}</Label>
+        <Input
+          value={serverName}
+          onChange={(e) =>
+            setServerName(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))
+          }
+          placeholder={t("common.serverNamePlaceholder")}
+          aria-label={t("common.serverNameLabel")}
+          className="font-mono"
+          maxLength={64}
+        />
+        <p className="text-xs text-muted-foreground">{t("quick.step2.serverNameHelp")}</p>
+      </div>
+
+      {renderRconBlock({
+        title: t("quick.step2.rconTitle"),
+        portHint: t("quick.step2.rconPortDefaultHint"),
+        passwordMaxLength: 128,
+      })}
+      {renderAdminBlock()}
+      {renderMemoryBlock("quick.step2.ramDetectedBadge")}
+      {renderAdvanced(
+        <>
+          <div className="flex items-center gap-3">
+            <Switch
+              id="setup-quick-custom-data"
+              checked={useCustomDataPath}
+              onCheckedChange={setUseCustomDataPath}
+            />
+            <Label htmlFor="setup-quick-custom-data">{t("common.customConfigLocation")}</Label>
+          </div>
+          <p className="text-sm text-muted-foreground">{t("full.step2.customDataHelp")}</p>
+          {useCustomDataPath && (
+            <>
+              <div className="flex gap-2">
+                <Input
+                  value={zomboidDataPath}
+                  onChange={(e) => setZomboidDataPath(e.target.value)}
+                  placeholder={t(platformTranslationKey("common.customDataPathPlaceholder", runtimeInfo?.family))}
+                  aria-label={t("common.customConfigLocation")}
+                  className="font-mono flex-1"
+                  maxLength={260}
+                />
+                <DisabledReason reason={!canInstall ? t("common.noPermissionInstall") : null}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() =>
+                      handleBrowseFolder(
+                        setZomboidDataPath,
+                        t("common.selectConfigFolderTitle"),
+                        zomboidDataPath,
+                      )
+                    }
+                    disabled={!canInstall}
+                    aria-label={t("common.browseFolderAriaConfig")}
+                  >
+                    <FolderOpen className="w-4 h-4" />
+                  </Button>
+                </DisabledReason>
+              </div>
+              <p className="text-xs text-muted-foreground">{t("common.customConfigLocationHelp")}</p>
+              {renderDataFolderWarnings()}
+            </>
+          )}
+          {renderGamePortField()}
+          {renderLaunchToggles()}
+        </>,
       )}
     </div>
   );
 
-  // Render current step content
-  const renderStepContent = () => {
-    if (setupMode === "quick") {
-      switch (currentStep) {
-        case 1:
-          return renderQuickStep1();
-        case 2:
-          return renderQuickStep2();
-        case 3:
-          return renderQuickStep3();
-      }
-    } else {
-      switch (currentStep) {
-        case 1:
-          return renderFullStep1();
-        case 2:
-          return renderFullStep2();
-        case 3:
-          return renderFullStep3();
-        case 4:
-          return renderFullStep4();
-      }
-    }
-  };
+  // Quick Setup Step 3: Review & Create. Create is in the wizard's footer.
+  const renderQuickStep3 = () => (
+    <div className="space-y-4">
+      <dl className="divide-y divide-border/60 rounded-xl border border-border/70 bg-background/40 px-4 text-sm">
+        {renderSummaryRow(t("quick.step3.summaryServerFiles"), installPath, { mono: true, title: installPath })}
+        {renderDataFolderSummaryRow()}
+        {renderSummaryRow(t("common.summaryServerName"), serverName, { mono: true })}
+        {renderSummaryRow(t("common.summaryMemory"), `${formatMemory(minMemory)}GB - ${formatMemory(maxMemory)}GB`, { mono: true })}
+        {renderSummaryRow(t("common.summaryGamePort"), formatPort(serverPort), { mono: true })}
+        {renderSummaryRow(t("common.summaryRconPort"), formatPort(rconPort), { mono: true })}
+      </dl>
+
+      {renderLog("quick.step3.logTitle", "h-[150px]")}
+      {renderCompletion("quick.step3.completeTitle", false)}
+    </div>
+  );
+
+  // The steps of each flow: the Stepper's short label, the step card's
+  // title and the header's one-sentence description.
+  const stepDefs =
+    setupMode === "quick"
+      ? [
+          { id: 1, label: t("stepIndicator.quick.location"), title: t("quick.step1.title"), description: t("quick.step1.description"), render: renderQuickStep1 },
+          { id: 2, label: t("stepIndicator.quick.configure"), title: t("quick.step2.title"), description: t("quick.step2.description"), render: renderQuickStep2 },
+          { id: 3, label: t("stepIndicator.quick.create"), title: t("quick.step3.title"), description: t("quick.step3.description"), render: renderQuickStep3 },
+        ]
+      : [
+          { id: 1, label: t("stepIndicator.full.steamcmd"), title: t("full.step1.title"), description: t("full.step1.description"), render: renderFullStep1 },
+          { id: 2, label: t("stepIndicator.full.server"), title: t("full.step2.title"), description: t("full.step2.description"), render: renderFullStep2 },
+          { id: 3, label: t("stepIndicator.full.settings"), title: t("full.step3.title"), description: t("full.step3.description"), render: renderFullStep3 },
+          { id: 4, label: t("stepIndicator.full.install"), title: t("full.step4.title"), description: t("full.step4.description"), render: renderFullStep4 },
+        ];
+  const currentStepDef = stepDefs[currentStep - 1] ?? stepDefs[0];
 
   const isLastStep = currentStep === totalSteps;
 
-  const getStepRequirementMessage = () => {
+  // Why a step can't be left yet (its own fields), also shown as the reason
+  // a later step is locked in the Stepper.
+  const stepRequirementMessage = (step: number) => {
     if (setupMode === "quick") {
-      if (currentStep === 1)
+      if (step === 1)
         return t("requirement.quickStep1");
-      if (currentStep === 2) {
+      if (step === 2) {
         if (!serverName.trim() && rconPassword.length < 6)
           return t("requirement.quickStep2Both");
         if (!serverName.trim()) return t("requirement.quickStep2Name");
@@ -3562,102 +2707,236 @@ export default function ServerSetup() {
       return "";
     }
 
-    if (currentStep === 1) {
+    if (step === 1) {
       if (!steamCmdPath.trim())
         return t("requirement.fullStep1Path");
       if (!hasSteamCmd) return t("requirement.fullStep1Confirm");
     }
-    if (currentStep === 2) {
+    if (step === 2) {
       if (!installPath.trim() && !serverName.trim())
         return t("requirement.fullStep2Both");
       if (!installPath.trim()) return t("requirement.fullStep2Path");
       if (!serverName.trim()) return t("requirement.fullStep2Name");
     }
-    if (currentStep === 3) {
+    if (step === 3) {
       if (rconPassword.length < 6) return t("requirement.fullStep3Rcon");
       if (!adminPassword.trim()) return t("requirement.fullStep3Admin");
     }
     return "";
   };
 
-  return (
-    <>
-      <div className="max-w-3xl mx-auto space-y-6 page-transition">
-        {/* Header */}
-        <div className="text-center">
-          <h1 className="text-3xl font-bold">
-            {setupMode === "quick" ? t("quick.pageTitle") : t("full.pageTitle")}
-          </h1>
-          <p className="text-muted-foreground">
-            {setupMode === "quick"
-              ? t("quick.pageDescription")
-              : t("full.pageDescription")}
-          </p>
+  // Done and current steps can always be reopened; a later one once its own
+  // fields are valid (as before the Stepper). Not while an install runs.
+  const stepperSteps: StepperStep[] = stepDefs.map((step) => {
+    const valid = stepValidation[step.id as keyof typeof stepValidation];
+    const status =
+      step.id < currentStep ? "done" : step.id === currentStep ? "current" : valid ? "upcoming" : "locked";
+    return {
+      id: String(step.id),
+      label: step.label,
+      status,
+      lockedReason: status === "locked" ? stepRequirementMessage(step.id) || undefined : undefined,
+    };
+  });
+
+  // Leaving the wizard part-way loses what was typed (the admin password is
+  // never stored): ask first, once something was typed (a change event in a
+  // step; the detected defaults are filled in again next time), also from
+  // the choice screen. Not during an install (the in-flight marker above
+  // brings it back) and not once it succeeded.
+  useUnsavedChangesGuard(
+    !installing && !installComplete && (formTouched || adminPassword.trim() !== ""),
+  );
+
+  const installReason = !canInstall ? t("common.noPermissionInstall") : null;
+
+  const header = (
+    <PageHeader
+      breadcrumb={[{ label: tShell("nav.items.myServers"), to: "/servers" }]}
+      title={tShell("nav.items.serverSetup")}
+      description={setupMode === "select" ? t("modeSelect.description") : currentStepDef.description}
+      meta={
+        setupMode === "select" ? undefined : (
+          <span className="text-foreground">
+            {tServers(setupMode === "full" ? "addServer.fresh.label" : "addServer.existing.label")}
+          </span>
+        )
+      }
+    />
+  );
+
+  const folderBrowser = (
+    <FolderBrowser
+      open={browseOpen}
+      onOpenChange={setBrowseOpen}
+      onSelect={(path) => browseSetter?.fn(path)}
+      initialPath={browseSetter?.initial}
+      title={browseSetter?.title}
+    />
+  );
+
+  // An install a previous page load left running. The step stays in the URL,
+  // so a reload mid-install lands back on the wizard: the banner shows there
+  // too, not only on the choice of mode.
+  const resumeAlerts: PageAlert[] =
+    resumeMarker && !installing
+      ? [
+          {
+            id: "resume-install",
+            tone: "warning",
+            title: t("resumeBanner.title"),
+            description: t("resumeBanner.description", {
+              installPath: resumeMarker.installPath,
+              elapsed: formatElapsed((Date.now() - resumeMarker.startedAt) / 1000),
+            }),
+            action: { label: t("resumeBanner.continueButton"), onClick: handleResumeContinue },
+            onDismiss: handleResumeDismiss,
+          },
+        ]
+      : [];
+
+  // Mode selection: the three standard ways to add a server.
+  if (setupMode === "select") {
+    return (
+      <div className="space-y-6 page-transition">
+        {header}
+
+        <PageAlerts alerts={resumeAlerts} />
+
+        <AddServerChoices
+          onChoose={{ fresh: () => goTo("full"), existing: () => goTo("quick") }}
+          recommended="fresh"
+          disabledReasons={{ fresh: installReason, existing: installReason }}
+          details={{
+            fresh: [
+              `${t("modeSelect.fullCard.bullet1")} ${t("modeSelect.fullCard.bullet1Size")}`,
+              t("modeSelect.fullCard.bullet2"),
+              t("modeSelect.fullCard.bullet3"),
+            ].join(" · "),
+            existing: [
+              t("modeSelect.quickCard.bullet1"),
+              t("modeSelect.quickCard.bullet2"),
+              t("modeSelect.quickCard.bullet3"),
+            ].join(" · "),
+          }}
+        />
+
+        {/* Which one? (neutral callout, not a warning) */}
+        <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/40 p-4 text-sm">
+          <Info className="w-4 h-4 mt-0.5 shrink-0 text-primary" aria-hidden="true" />
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">{t("modeSelect.tips.title")}</p>
+            <p className="text-muted-foreground">
+              <Trans i18nKey="modeSelect.tips.description" t={t} components={{ 1: <strong className="font-medium text-foreground" /> }} />
+            </p>
+          </div>
         </div>
 
-        {/* Step Indicator */}
-        {renderStepIndicator()}
+        {folderBrowser}
+      </div>
+    );
+  }
 
-        {/* Main Content Card */}
-        <Card>
-          <CardContent className="pt-6">{renderStepContent()}</CardContent>
-        </Card>
+  const requirement = !isLastStep
+    ? !canProceed
+      ? stepRequirementMessage(currentStep)
+      : ""
+    : missingAdminPassword && !installing && !installComplete
+      ? t(setupMode === "quick" ? "quick.step3.missingAdminPassword" : "full.step4.missingAdminPassword")
+      : "";
+  const showBack = !isLastStep || (!installing && !installComplete);
 
-        {/* Navigation */}
-        {!isLastStep && (
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (currentStep === 1) {
-                    setSetupMode("select");
-                  } else {
-                    setCurrentStep((s) => s - 1);
-                  }
-                }}
-              >
-                <ChevronLeft className="w-4 h-4 me-2" />
-                {currentStep === 1 ? t("common.chooseSetupType") : t("common.backButton")}
-              </Button>
+  const finishButton =
+    setupMode === "quick" ? (
+      <DisabledReason reason={installReason}>
+        <Button
+          variant="command"
+          onClick={handleQuickSetup}
+          disabled={installing || missingAdminPassword || !canInstall}
+        >
+          {installing ? (
+            <>
+              <Loader2 className="w-4 h-4 me-2 animate-spin" />
+              {t("quick.step3.creatingButton")}
+            </>
+          ) : (
+            <>
+              <Plus className="w-4 h-4 me-2" />
+              {t("quick.step3.createButton")}
+            </>
+          )}
+        </Button>
+      </DisabledReason>
+    ) : (
+      <DisabledReason reason={installReason}>
+        <Button
+          variant="command"
+          onClick={handleInstall}
+          disabled={installing || missingAdminPassword || !canInstall}
+        >
+          {installing ? (
+            <>
+              <Loader2 className="w-4 h-4 me-2 animate-spin" />
+              {t("full.step4.installingButton")}
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4 me-2" />
+              {t("full.step4.installButton")}
+            </>
+          )}
+        </Button>
+      </DisabledReason>
+    );
 
-              <Button
-                onClick={() => setCurrentStep((s) => s + 1)}
-                disabled={!canProceed}
-              >
-                {t("common.nextStepButton")}
-                <ChevronRight className="w-4 h-4 ms-2" />
-              </Button>
-            </div>
+  return (
+    <div className="space-y-6 page-transition">
+      {header}
 
-            {!canProceed && (
-              <p className="text-sm text-warning">
-                {getStepRequirementMessage()}
-              </p>
-            )}
-          </div>
-        )}
+      <PageAlerts alerts={resumeAlerts} />
 
-        {isLastStep && !installing && !installComplete && (
-          <div className="flex justify-start">
+      <Stepper
+        steps={stepperSteps}
+        onStepClick={installing ? undefined : (id) => setCurrentStep(Number(id))}
+      />
+
+      <SectionCard title={currentStepDef.title}>
+        <div className="contents" onChangeCapture={() => setFormTouched(true)}>
+          {currentStepDef.render()}
+        </div>
+      </SectionCard>
+
+      {/* The wizard's one footer: Back, why Next waits, Next / Install. */}
+      {!installComplete && (
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-border/60 bg-card px-4 py-3 shadow-[0_10px_30px_-12px_hsl(0_0%_0%/0.7)]">
+          {showBack && (
             <Button
               variant="outline"
-              onClick={() => setCurrentStep((s) => s - 1)}
+              onClick={() => (currentStep === 1 ? goTo("select") : setCurrentStep(currentStep - 1))}
             >
-              <ChevronLeft className="w-4 h-4 me-2" />
-              {t("common.backButton")}
+              <ChevronLeft className="w-4 h-4 me-2 rtl:-scale-x-100" aria-hidden="true" />
+              {currentStep === 1 ? t("common.chooseSetupType") : t("common.backButton")}
             </Button>
+          )}
+          {requirement && (
+            <p className="min-w-0 flex-1 text-sm text-warning" role="status">
+              {requirement}
+            </p>
+          )}
+          <div className="ms-auto">
+            {isLastStep ? (
+              finishButton
+            ) : (
+              <Button variant="command" onClick={() => setCurrentStep(currentStep + 1)} disabled={!canProceed}>
+                {t("common.nextStepButton")}
+                <ChevronRight className="w-4 h-4 ms-2 rtl:-scale-x-100" aria-hidden="true" />
+              </Button>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <FolderBrowser
-        open={browseOpen}
-        onOpenChange={setBrowseOpen}
-        onSelect={(path) => browseSetter?.fn(path)}
-        initialPath={browseSetter?.initial}
-        title={browseSetter?.title}
-      />
-    </>
+      {folderBrowser}
+    </div>
   );
 }

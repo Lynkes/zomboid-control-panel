@@ -7,7 +7,10 @@
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mod",
   "modsCount_many": "{{count}} mod",
-  "preview": "Apèsi",
+  "preview": "Apèsi epi aplike",
+  "previewOnly": "Apèsi",
   "exportTitle": "Ekspòte modèl",
-  "deleteTitle": "Efase modèl"
+  "deleteTitle": "Efase modèl",
+  "hideTitle": "Kache modèl",
+  "actionsAria": "Aksyon pou {{name}}"
 }

@@ -94,7 +94,7 @@
     "retry": "Повторити"
   },
   "pageHeader": {
-    "title": "Менеджер модів",
+    "title": "Моди",
     "description": "Додавай, оновлюй і налаштовуй моди Steam Workshop на своєму сервері",
     "eyebrow": "Workshop",
     "addMod": "Додати мод"
@@ -124,7 +124,11 @@
     "autoRestart": "Автоперезапуск",
     "autoRestartAria": "Увімкнути або вимкнути автоперезапуск при оновленні мода",
     "updatesCount_few": "{{count}} оновлень",
-    "updatesCount_many": "{{count}} оновлень"
+    "updatesCount_many": "{{count}} оновлень",
+    "autoRestartOn": "Автоперезапуск: увімкнено",
+    "autoRestartOff": "Автоперезапуск: вимкнено",
+    "autoRestartOnAria": "Автоперезапуск увімкнено. Відкрити його налаштування",
+    "autoRestartOffAria": "Автоперезапуск вимкнено. Відкрити його налаштування"
   },
   "restartPending": {
     "title": "Очікується перезапуск",
@@ -194,8 +198,8 @@
       "hint": "Додати за ID Workshop або URL"
     },
     "collection": {
-      "label": "Імпорт колекції",
-      "hint": "Отримати всі об'єкти зі Steam-колекції"
+      "label": "Колекції",
+      "hint": "Імпортувати колекцію або синхронізувати свою"
     },
     "order": {
       "label": "Порядок завантаження",
@@ -212,7 +216,10 @@
     "tools": {
       "label": "Інструменти",
       "hint": "Відновлення, усунення дублікатів та очищення"
-    }
+    },
+    "groupLibrary": "Бібліотека",
+    "groupServer": "На сервері",
+    "groupTools": "Інструменти"
   },
   "collectionDialog": {
     "title": "Імпорт колекції Steam Workshop",
@@ -237,7 +244,8 @@
     "openWorkshopAria": "Відкрити сторінку Workshop (у новій вкладці)",
     "cancel": "Скасувати",
     "adding": "Додавання...",
-    "addToServer": "Додати {{count}} модів на сервер"
+    "addToServer": "Додати {{count}} модів на сервер",
+    "fetchAria": "Знайти колекцію"
   },
   "addModDialog": {
     "title": "Додати мод із Workshop",
@@ -296,7 +304,8 @@
     "currentMaxDelay": "• Максимальна затримка: {{minutes}} хв",
     "cancel": "Скасувати",
     "saving": "Збереження...",
-    "saveSettings": "Зберегти налаштування"
+    "saveSettings": "Зберегти налаштування",
+    "autoRestartHint": "Перезапускати сервер автоматично, коли Steam публікує оновлення для одного з його модів."
   },
   "installedTab": {
     "searchPlaceholder": "Пошук модів...",
@@ -314,6 +323,7 @@
     "collectionDrift": "розбіжностей: {{count}}",
     "collectionSyncTooltip": "Синхронізувати відстежувані моди → колекція Steam Workshop",
     "collectionSync": "Синхронізувати",
+    "collectionSyncAria": "Синхронізувати колекцію",
     "collectionChecking": "Перевірка колекції…",
     "selectedCount": "вибрано: {{count}}",
     "deselect": "Зняти вибір",
@@ -349,7 +359,14 @@
     "modFallback": "Мод {{id}}",
     "selectAria": "Вибрати {{name}}",
     "removeModAria": "Вилучити мод {{name}}",
-    "removeFromServer": "Вилучити із сервера"
+    "removeFromServer": "Вилучити із сервера",
+    "loading": "Завантаження модів",
+    "selectionAria": "Вибрані моди",
+    "allDeactivatedTitle": "Жодного відстежуваного мода немає на сервері",
+    "allDeactivatedDesc_one": "{{count}} відстежуваний мод деактивовано. Знову ввімкни його в розділі «Деактивовані».",
+    "allDeactivatedDesc_few": "{{count}} відстежувані моди деактивовано. Знову ввімкни їх у розділі «Деактивовані».",
+    "allDeactivatedDesc_many": "{{count}} відстежуваних модів деактивовано. Знову ввімкни їх у розділі «Деактивовані».",
+    "allDeactivatedDesc_other": "{{count}} відстежуваних модів деактивовано. Знову ввімкни їх у розділі «Деактивовані»."
   },
   "disabledPanel": {
     "title": "Вимкнені моди на диску",
@@ -362,7 +379,11 @@
     "scanFailedDesc": "Сканування папки Workshop не вдалося. Спробуй оновити ще раз.",
     "openWorkshopPage": "Відкрити сторінку Workshop",
     "enable": "Увімкнути",
-    "deleteFromDisk": "Видалити з диска"
+    "deleteFromDisk": "Видалити з диска",
+    "sectionTitle": "На диску, але не на сервері",
+    "description": "Завантажені в папку Workshop, але відсутні в WorkshopItems= сервера, тому сервер їх не завантажує.",
+    "notScanned": "Ще не проскановано.",
+    "deleteFromDiskAria": "Видалити {{name}} з диска"
   },
   "ignoredPanel": {
     "count_one": "{{count}} ігнорований мод",
@@ -378,7 +399,8 @@
     "removeSelected": "Прибрати вибрані ({{n}})",
     "reTrackHint": "Прибирає цей мод зі списку ігнорованих, щоб синхронізація та імпорт колекції могли додати його знову. Конфігурація сервера й файли моду не змінюються.",
     "count_few": "{{count}} ігнорованих модів",
-    "count_many": "{{count}} ігнорованих модів"
+    "count_many": "{{count}} ігнорованих модів",
+    "description": "Синхронізація та імпорт колекції не додадуть їх знову."
   },
   "serverConfigTab": {
     "summaryMods": "модів",
@@ -386,12 +408,11 @@
     "summaryWorkshopItems_other": "об'єктів Workshop",
     "summaryMaps_one": "карта",
     "summaryMaps_other": "карт",
-    "duplicateModIdsFound": "Знайдено дубльовані ID модів: {{ids}}",
+    "duplicateModIdsFound": "Указано в Mods= більше одного разу: {{ids}}. Сервер завантажує кожен мод лише раз, тож зайві записи нічого не дають.",
+    "removeExtraEntries": "Прибрати зайві записи",
     "workshopItemsNoModIds": "Налаштовано {{count}} об'єктів Workshop, але немає жодного ID мода. Запусти «Синхронізувати ID модів» після завантаження модів.",
-    "duplicateModsTitle": "Дубльовані моди",
     "missingModIdsTitle": "Відсутні ID модів",
     "outdatedDependencyTitle": "Застаріла залежність",
-    "fix": "Виправити",
     "deduplicateEndpointUnavailable": "Не вдалося усунути дублікати — точка доступу сервера недоступна",
     "deduplicateError": "Помилка: {{message}}",
     "notConfiguredTitle": "Файл конфігурації сервера не знайдено",
@@ -418,7 +439,6 @@
     "missingDepTooltip": "Принаймні один увімкнений мод потребує іншого мода, який не увімкнено. Див. вкладку «Конфлікти» → «Відсутні залежності».",
     "missingDep_one": "{{count}} відсутня залежність",
     "missingDep_other": "{{count}} відсутніх залежностей",
-    "duplicateIdTooltip": "Кілька об'єктів Workshop оголошують той самий внутрішній ID мода. Завантажиться лише один — переглянь вкладку «Конфлікти».",
     "duplicateId_one": "{{count}} дубльований ID",
     "duplicateId_other": "{{count}} дубльованих ID",
     "savedToIni": "Збережено в INI",
@@ -440,8 +460,6 @@
     "removeFromServer": "Вилучити із сервера",
     "missingRequiredId": "Відсутній обов'язковий ID:",
     "missingRequiredTooltip": "{{dep}} не увімкнено — цей мод може не працювати",
-    "duplicateTooltip_one": "Також надається об'єктом Workshop {{ids}}",
-    "duplicateTooltip_other": "Також надається об'єктами Workshop {{ids}}",
     "duplicate": "дублікат",
     "enabled": "Увімкнено",
     "disabled": "Вимкнено",
@@ -453,7 +471,6 @@
     "enabledLabel": "увімкнено",
     "clickToEnable": "Натисни, щоб увімкнути",
     "clickToDisable": "Натисни, щоб вимкнути",
-    "chipTooltipDupe": "⚠ Також є у Workshop {{ids}}",
     "chipTooltipClash": "⚠ Конфліктує з {{names}} — обидва увімкнені й мають спільні файли. Той, що завантажиться останнім, перезапише інший.",
     "chipTooltipOverlap": "Варіант {{names}} — вони мають спільні файли, тож одночасно має бути увімкнений лише один. Зараз усе гаразд.",
     "clashWarning": "Увімкнено два варіанти цього мода, які мають спільні файли. Один перезапише інший — вимкни один із них.",
@@ -506,7 +523,6 @@
     "addedButton": "Додано",
     "addButton": "Додати",
     "openFullWorkshopSearch": "Відкрити повний пошук у Workshop",
-    "duplicateInternalIdsTitle": "Дубльовані внутрішні ID",
     "showRawModsLine": "Показати сирий рядок <1>Mods=</1>",
     "removeWorkshopDialogTitle": "Вилучити об'єкт Workshop?",
     "removeWorkshopDialogDesc": "Це вилучить об'єкт Workshop та його ID модів з INI сервера. Файли Workshop на диску не буде видалено.",
@@ -518,12 +534,16 @@
     "missingDep_many": "{{count}} відсутніх залежностей",
     "duplicateId_few": "{{count}} дубльованих ID",
     "duplicateId_many": "{{count}} дубльованих ID",
-    "duplicateTooltip_few": "Також надається об'єктами Workshop {{ids}}",
-    "duplicateTooltip_many": "Також надається об'єктами Workshop {{ids}}",
     "restoreDismissedTooltip_few": "Повернути {{count}} відхилених пар конфліктів для цього об'єкта Workshop",
     "restoreDismissedTooltip_many": "Повернути {{count}} відхилених пар конфліктів для цього об'єкта Workshop",
     "dismissedCount_few": "{{count}} відхилених конфліктів",
-    "dismissedCount_many": "{{count}} відхилених конфліктів"
+    "dismissedCount_many": "{{count}} відхилених конфліктів",
+    "hasNoteChip": "З нотаткою ({{count}})",
+    "updatesChip": "Є оновлення ({{count}})",
+    "noFilterMatches": "Жоден об'єкт Workshop не відповідає цим фільтрам.",
+    "select": "Вибрати",
+    "selectItemAria": "Вибрати {{name}}",
+    "selectionAria": "Вибрані об'єкти Workshop"
   },
   "loadOrder": {
     "emptyTitle": "У порядку завантаження немає модів",
@@ -536,8 +556,8 @@
     "groupNeedsTwo": "Виберіть щонайменше 2 моди, щоб створити групу.",
     "selectRowAria": "Вибрати {{name}}",
     "previewLockHint": "Застосуй або скасуй запропонований порядок нижче, перш ніж змінювати його вручну.",
-    "filteredHint": "Показано лише моди, що відповідають «{{query}}» (фільтр із вкладки «Активні на сервері»). Поки фільтр задано, перетягування вимкнено; кнопки зі стрілками й далі переміщують моди в межах повного порядку завантаження.",
-    "autoSort": "Автосортування за залежностями",
+    "filteredHint": "Показано лише моди, що відповідають «{{query}}». Поки діє фільтр, перетягування вимкнено; кнопки зі стрілками й далі переміщують моди в межах повного порядку завантаження.",
+    "autoSort": "Автосортування",
     "proposedOrder_one": "Запропонований порядок: {{count}} мод буде переміщено",
     "proposedOrder_other": "Запропонований порядок: {{count}} модів буде переміщено",
     "basedOnDependencies_one": "На основі {{count}} залежності, оголошеної в mod.info. Моди без залежностей зберігають твій порядок.",
@@ -566,7 +586,31 @@
     "basedOnDependencies_few": "На основі {{count}} залежностей, оголошених у mod.info. Моди без залежностей зберігають твій порядок.",
     "basedOnDependencies_many": "На основі {{count}} залежностей, оголошених у mod.info. Моди без залежностей зберігають твій порядок.",
     "missingRequirements_few": "{{count}} потрібних модів не увімкнено, тому їх не вдалося впорядкувати (див. вкладку «Конфлікти»).",
-    "missingRequirements_many": "{{count}} потрібних модів не увімкнено, тому їх не вдалося впорядкувати (див. вкладку «Конфлікти»)."
+    "missingRequirements_many": "{{count}} потрібних модів не увімкнено, тому їх не вдалося впорядкувати (див. вкладку «Конфлікти»).",
+    "searchPlaceholder": "Фільтр за ID або назвою мода...",
+    "searchAria": "Фільтрувати порядок завантаження",
+    "showGroups": "Показати групи",
+    "blockCount_one": "{{count}} мод",
+    "blockCount_few": "{{count}} моди",
+    "blockCount_many": "{{count}} модів",
+    "blockCount_other": "{{count}} модів",
+    "blockTogether": "Тримаються разом",
+    "blockApart": "Учасники розрізнені",
+    "gather": "Зібрати разом",
+    "gatheredAnnouncement": "Групу {{name}} зібрано разом",
+    "blockToTopAria": "Перемістити групу {{name}} на початок",
+    "blockUpAria": "Перемістити групу {{name}} вгору",
+    "blockDownAria": "Перемістити групу {{name}} вниз",
+    "blockToBottomAria": "Перемістити групу {{name}} в кінець",
+    "blockAlreadyFirst": "Група вже завантажується першою",
+    "blockAlreadyLast": "Група вже завантажується останньою",
+    "blockMovedAnnouncement": "Групу {{name}} переміщено на позицію {{position}} з {{total}}",
+    "collapseBlockAria": "Згорнути групу {{name}}",
+    "expandBlockAria": "Розгорнути групу {{name}}",
+    "blockConflictsAria_one": "{{count}} конфлікт файлів стосується {{name}}. Показати",
+    "blockConflictsAria_few": "{{count}} конфлікти файлів стосуються {{name}}. Показати",
+    "blockConflictsAria_many": "{{count}} конфліктів файлів стосуються {{name}}. Показати",
+    "blockConflictsAria_other": "{{count}} конфліктів файлів стосуються {{name}}. Показати"
   },
   "addModsTab": {
     "syncTitle": "Синхронізувати ID модів із завантажень",
@@ -607,7 +651,8 @@
     "applyPreset": "Застосувати пресет",
     "deleteDialogTitle": "Видалити пресет «{{name}}»?",
     "deleteDialogDesc": "Цей пресет буде видалено назавжди. Цю дію не можна скасувати.",
-    "deletePreset": "Видалити пресет"
+    "deletePreset": "Видалити пресет",
+    "actionsAria": "Дії для пресета {{name}}"
   },
   "toolsTab": {
     "mapsTitle": "Maps= ({{count}})",
@@ -688,6 +733,8 @@
   "toasts": {
     "serverChangedSinceLoadTitle": "Active server changed",
     "serverChangedSinceLoadDesc": "The active server changed while you had an unsaved mod order. Discard or keep editing -- saving now would write it to the wrong server.",
+    "serverModsChangedTitle": "Список модів на сервері змінився",
+    "serverModsChangedDesc": "Відколи ця сторінка завантажила список, на сервері ввімкнули або вимкнули моди. Їх уже додано до твого порядку: перевір його і збережи ще раз.",
     "pendingAddServerChangedTitle": "Активний сервер змінено",
     "pendingAddServerChangedDesc": "Активний сервер змінився, поки моди очікували на додавання. Показані ідентифікатори та папки карт було знайдено для попереднього сервера — закрийте це вікно й почніть спочатку для сервера, який активний зараз.",
     "noActiveServerTitle": "Немає активного сервера",
@@ -947,6 +994,114 @@
     "loadOrderCyclesDesc_few": "Кожна залежність, яку можна задовольнити, уже завантажується першою. {{count}} циклічних залежностей упорядкувати неможливо.",
     "loadOrderCyclesDesc_many": "Кожна залежність, яку можна задовольнити, уже завантажується першою. {{count}} циклічних залежностей упорядкувати неможливо.",
     "autoSortAppliedDesc_few": "{{count}} модів переміщено. Натисни «Зберегти порядок», щоб записати це в INI сервера.",
-    "autoSortAppliedDesc_many": "{{count}} модів переміщено. Натисни «Зберегти порядок», щоб записати це в INI сервера."
+    "autoSortAppliedDesc_many": "{{count}} модів переміщено. Натисни «Зберегти порядок», щоб записати це в INI сервера.",
+    "noSortRulesDesc": "Жоден увімкнений мод не оголошує вимог, і жодна група не задає порядку чи місця, тож сортувати нема за чим.",
+    "loadOrderRulesMetDesc": "Усі залежності, порядок груп і їхнє розміщення вже виконано."
+  },
+  "listMode": {
+    "aria": "Показувати список як",
+    "list": "Список",
+    "groups": "Групи"
+  },
+  "sort": {
+    "aria": "Сортувати за",
+    "status": "Сортування: стан оновлення",
+    "name": "Сортування: назва",
+    "updated": "Сортування: нещодавно оновлені",
+    "config": "Сортування: порядок у конфігурації",
+    "loadOrder": "Сортування: порядок завантаження"
+  },
+  "filters": {
+    "filteredBy": "Фільтри:",
+    "activeAria": "Активні фільтри",
+    "removeAria": "Прибрати фільтр: {{name}}",
+    "clearAll": "Очистити фільтри",
+    "updatesOnly": "Лише з оновленнями",
+    "updates": "Є оновлення",
+    "hasNote": "З нотаткою",
+    "ungrouped": "Без групи",
+    "allGroups": "Усі групи",
+    "inGroup": "У групі {{name}}",
+    "groupAria": "Фільтр за групою",
+    "multiId": "Лише з кількома ID",
+    "needsAttention": "Потребує уваги",
+    "notEnabled": "Не ввімкнені",
+    "missingDep": "Відсутня залежність"
+  },
+  "whatChanged": {
+    "label": "Що змінилося",
+    "updateLabel": "Оновлення · що змінилося",
+    "aria": "Що змінилося в {{name}}: список змін у Steam (у новій вкладці)"
+  },
+  "rowMenu": {
+    "actionsAria": "Дії для {{name}}"
+  },
+  "notes": {
+    "addAction": "Додати нотатку",
+    "editAction": "Редагувати нотатку",
+    "addTitle": "Додати нотатку",
+    "editTitle": "Редагувати нотатку",
+    "dialogDesc": "Нотатка до {{name}}. Її бачать усі адміни цієї панелі.",
+    "label": "Нотатка",
+    "placeholder": "Навіщо він тут, яку версію залишити, кого спитати перед вилученням",
+    "counter": "{{count}} / {{max}}",
+    "save": "Зберегти нотатку",
+    "delete": "Видалити нотатку",
+    "cancel": "Скасувати",
+    "close": "Закрити",
+    "lastEdited": "Останнє редагування: {{name}}, {{date}}",
+    "lastEditedNoName": "Останнє редагування: {{date}}",
+    "sharedHint": "Спільна для всіх адмінів цієї панелі.",
+    "savedTitle": "Нотатку збережено",
+    "deletedTitle": "Нотатку видалено",
+    "saveFailedFallback": "Не вдалося зберегти нотатку.",
+    "indicatorAria": "Нотатка: {{text}}",
+    "inspectorTitle": "Нотатка",
+    "empty": "Нотатки ще немає."
+  },
+  "collectionView": {
+    "importTitle": "Імпортувати колекцію",
+    "importDesc": "Додай на цей сервер усі моди колекції Steam Workshop за раз."
+  },
+  "autoSort": {
+    "rules": {
+      "dependencies": "Залежності",
+      "groupOrder": "Порядок груп",
+      "together": "Тримаються разом",
+      "placement": "Розміщення",
+      "winners": "Збережені переможці конфліктів"
+    },
+    "reason": {
+      "requires": "після {{mod}}, якого він потребує",
+      "requiredBy": "перед {{mod}}, якому він потрібен",
+      "groupOrder": "зберігає порядок групи {{group}}",
+      "together": "тримається разом із групою {{group}}",
+      "placementFirst": "група {{group}} завантажується першою",
+      "placementLast": "група {{group}} завантажується останньою",
+      "winner": "і далі перезаписує {{mod}}",
+      "keepsWinner": "лишається перед {{mod}}, який його перезаписує"
+    },
+    "issue": {
+      "groupVsDependency": "Група {{group}} ставить {{before}} перед {{after}}, але залежність вимагає навпаки: перемагає залежність. Виправ групу кнопкою «Автовпорядкувати учасників».",
+      "groupVsGroup": "Група {{group}} ставить {{before}} перед {{after}}, але інша група вимагає навпаки: перемагає група, що стоїть першою в списку.",
+      "split": "{{groups}}: не вдається завантажити одним блоком, бо {{mods}} має завантажуватися між модами групи.",
+      "placement": "{{mods}} має завантажуватися перед групою з розміщенням «На початку», тож теж завантажується на початку ({{groups}}).",
+      "winner": {
+        "dependency": "{{newWinner}} тепер перезаписує {{previousWinner}}: залежність вимагає, щоб він завантажувався пізніше.",
+        "group": "{{newWinner}} тепер перезаписує {{previousWinner}}: порядок групи вимагає, щоб він завантажувався пізніше.",
+        "placement": "{{newWinner}} тепер перезаписує {{previousWinner}}: розміщення групи вимагає, щоб він завантажувався пізніше."
+      }
+    },
+    "issuesTitle_one": "{{count}} правило неможливо виконати",
+    "issuesTitle_few": "{{count}} правила неможливо виконати",
+    "issuesTitle_many": "{{count}} правил неможливо виконати",
+    "issuesTitle_other": "{{count}} правил неможливо виконати",
+    "moreIssues": "ще +{{count}}",
+    "movesTo": "переміщується на",
+    "otherMods": "Інші моди",
+    "groupMoves_one": "{{count}} переміщений",
+    "groupMoves_few": "{{count}} переміщені",
+    "groupMoves_many": "{{count}} переміщених",
+    "groupMoves_other": "{{count}} переміщених"
   }
 }

@@ -283,6 +283,8 @@ describe("scanAllCandidates", () => {
     fs.mkdirSync(installDir, { recursive: true });
     fs.writeFileSync(path.join(installDir, "start-server.sh"), "");
     fs.mkdirSync(path.join(dataDir, "Saves"), { recursive: true });
+    fs.mkdirSync(path.join(dataDir, "Server"), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, "Server", "servertest.ini"), "");
 
     vi.stubEnv("PZ_SERVER_PATH", installDir);
     vi.stubEnv("PZ_SAVE_PATH", dataDir);
@@ -292,7 +294,48 @@ describe("scanAllCandidates", () => {
     expect(env.status).toBe("ready");
     expect(env.installPath).toBe(installDir);
     expect(env.dataPath).toBe(dataDir);
+    expect(env.serverNames).toEqual(["servertest"]);
     expect(env.reason).toMatch(/complete project zomboid server/i);
+  });
+
+  // "ready" opens the automatic Add dialog, which needs a Server/<name>.ini;
+  // a data folder valid only through Saves/ (or Lua/) used to count as ready
+  // and opened a dialog with no config, an empty name and a disabled Add.
+  it.each(["Saves", "Lua"])(
+    "reports 'no-config' with its own reason when the data folder has %s/ but no server .ini",
+    (marker) => {
+      const installDir = path.join(tmpRoot, "install");
+      const dataDir = path.join(tmpRoot, "data");
+      fs.mkdirSync(installDir, { recursive: true });
+      fs.writeFileSync(path.join(installDir, "start-server.sh"), "");
+      fs.mkdirSync(path.join(dataDir, marker), { recursive: true });
+
+      vi.stubEnv("PZ_SERVER_PATH", installDir);
+      vi.stubEnv("PZ_SAVE_PATH", dataDir);
+
+      const results = scanAllCandidates();
+      const env = results.find((r) => r.source === "environment");
+      expect(env.status).toBe("no-config");
+      expect(env.serverNames).toEqual([]);
+      expect(env.dataPath).toBe(dataDir);
+      expect(env.reason).toMatch(/no server configuration/i);
+    },
+  );
+
+  it("still reports 'ready' when the server .ini sits under the install folder instead of the data folder", () => {
+    const installDir = path.join(tmpRoot, "install");
+    const dataDir = path.join(tmpRoot, "data");
+    fs.mkdirSync(path.join(installDir, "Server"), { recursive: true });
+    fs.writeFileSync(path.join(installDir, "start-server.sh"), "");
+    fs.writeFileSync(path.join(installDir, "Server", "servertest.ini"), "");
+    fs.mkdirSync(path.join(dataDir, "Saves"), { recursive: true });
+
+    vi.stubEnv("PZ_SERVER_PATH", installDir);
+    vi.stubEnv("PZ_SAVE_PATH", dataDir);
+
+    const env = scanAllCandidates().find((r) => r.source === "environment");
+    expect(env.status).toBe("ready");
+    expect(env.serverNames).toEqual(["servertest"]);
   });
 
   it("reports 'install-only' with a human reason when the server install exists but no data path resolves", () => {
@@ -379,9 +422,12 @@ describe("scanAllCandidates", () => {
       throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
     });
     vi.spyOn(fs, "existsSync").mockImplementation((p) => isUnderSteamPz(p));
-    vi.spyOn(fs, "readdirSync").mockImplementation((p) =>
-      normalize(p) === "/steam/pz" ? ["start-server.sh"] : [],
-    );
+    vi.spyOn(fs, "readdirSync").mockImplementation((p) => {
+      if (normalize(p) === "/steam/pz") return ["start-server.sh"];
+      // "ready" needs a server config to read (Server/<name>.ini).
+      if (normalize(p) === "/steam/pz/Zomboid/Server") return ["servertest.ini"];
+      return [];
+    });
 
     const results = scanAllCandidates();
     const steamPz = results.find((r) => r.installPath === "/steam/pz");

@@ -66,6 +66,87 @@ describe("route registration", () => {
     expect(at("/groups/import", "post")).toBeGreaterThan(-1);
     expect(at("/groups/status", "get")).toBeGreaterThan(-1);
     expect(at("/groups/apply", "post")).toBeGreaterThan(-1);
+    expect(at("/groups/suggestions", "get")).toBeGreaterThan(-1);
+    expect(at("/groups/suggestions/dismiss", "post")).toBeGreaterThan(-1);
+    expect(at("/groups/suggestions/dismiss", "post")).toBeLessThan(at("/groups/:id/enable", "post"));
+    expect(at("/groups/:id/disable", "post")).toBeGreaterThan(-1);
+  });
+});
+
+describe("group colour and keepTogether", () => {
+  it("round-trips them through create, list and update", async () => {
+    const { group } = (await create({ name: "KI5", modIds: ["lib", "core"], color: "teal", keepTogether: true })).getBody();
+    expect(group).toMatchObject({ color: "teal", keepTogether: true });
+    expect((await call("/groups", "get")).getBody().groups[0]).toMatchObject({ color: "teal", keepTogether: true });
+
+    let res = await call("/groups/:id", "put", { params: { id: group.id }, body: { color: null, keepTogether: false } });
+    expect(res.getStatusCode()).toBe(200);
+    expect(res.getBody().group).toMatchObject({ name: "KI5", modIds: ["lib", "core"], color: null, keepTogether: false });
+
+    res = await call("/groups/:id", "put", { params: { id: group.id }, body: { color: "pink" } });
+    expect(res.getBody().group).toMatchObject({ color: "pink", keepTogether: false });
+    expect((await db.getModGroups())[0]).toMatchObject({ color: "pink", keepTogether: false });
+  });
+
+  it("reads a group stored before they existed as color null, keepTogether false", async () => {
+    await seed(["Old", "a", "b"]);
+    expect((await db.getModGroups())[0]).not.toHaveProperty("color");
+    expect((await call("/groups", "get")).getBody().groups[0]).toMatchObject({ color: null, keepTogether: false });
+    const res = await call("/groups/:id", "put", { params: { id: "seed-0" }, body: { name: "Renamed" } });
+    expect(res.getBody().group).toMatchObject({ name: "Renamed", color: null, keepTogether: false });
+  });
+
+  it("refuses another colour or a keepTogether that is not a boolean, on create and update", async () => {
+    await seed(["KI5", "lib", "core"]);
+    for (const [body, field] of [
+      [{ color: "purple" }, "color"],
+      [{ color: "" }, "color"],
+      [{ color: 1 }, "color"],
+      [{ keepTogether: "true" }, "keepTogether"],
+      [{ keepTogether: null }, "keepTogether"],
+    ]) {
+      let res = await create({ name: "n", modIds: ["a"], ...body });
+      expect(res.getStatusCode(), JSON.stringify(body)).toBe(400);
+      expect(res.getBody()).toMatchObject({ code: "MODS_GROUP_INVALID", params: { field } });
+      res = await call("/groups/:id", "put", { params: { id: "seed-0" }, body });
+      expect(res.getStatusCode()).toBe(400);
+      expect(res.getBody()).toMatchObject({ code: "MODS_GROUP_INVALID", params: { field } });
+    }
+    expect(await db.getModGroups()).toHaveLength(1);
+    expect((await db.getModGroups())[0]).not.toHaveProperty("color");
+  });
+
+  it("imports a shared file with them, without them, and with values this version does not know", async () => {
+    const doc = { schema: 1, kind: "zcp-mod-group", name: "Pack", modIds: ["a", "b"] };
+    const importDoc = (document) => call("/groups/import", "post", { body: { document } });
+
+    let res = await importDoc({ ...doc, color: "violet", keepTogether: true });
+    expect(res.getStatusCode()).toBe(201);
+    expect(res.getBody().group).toMatchObject({ color: "violet", keepTogether: true });
+
+    res = await importDoc(doc);
+    expect(res.getBody().group).toMatchObject({ name: "Pack (2)", color: null, keepTogether: false });
+
+    res = await importDoc({ ...doc, color: "chartreuse", keepTogether: "yes" });
+    expect(res.getStatusCode()).toBe(201);
+    expect(res.getBody().group).toMatchObject({ color: null, keepTogether: false });
+  });
+
+  it("keeps a group together on a load-order save and in POST /groups/apply", async () => {
+    await create({ name: "KI5", modIds: ["lib", "core", "addon"], keepTogether: true });
+    let res = await call("/save-order", "post", { body: { modIds: ["x", "core", "y", "lib", "z", "addon", "w"] } });
+    expect(res.getStatusCode()).toBe(200);
+    expect(modsLine()).toBe("x;lib;core;addon;y;z;w");
+    expect(res.getBody().groupConflicts).toEqual([]);
+
+    fx.writeIni("Mods=addon;x;lib;y;core\n");
+    res = await call("/groups/apply", "post", { body: {} });
+    expect(res.getBody()).toMatchObject({ written: true, order: ["lib", "core", "addon", "x", "y"] });
+    expect(modsLine()).toBe("lib;core;addon;x;y");
+
+    // members in order but apart: the status says so
+    fx.writeIni("Mods=lib;x;core;addon\n");
+    expect((await call("/groups/status", "get")).getBody()).toMatchObject({ inOrder: false });
   });
 });
 
@@ -94,6 +175,9 @@ describe("POST /groups", () => {
       name: "KI5 Vehicles",
       description: "Cars",
       modIds: ["lib", "core", "addon"],
+      color: null,
+      keepTogether: false,
+      placement: null,
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
     });
@@ -528,5 +612,28 @@ describe("POST /save-order and mod groups", () => {
     const res = await saveOrder(["3519629457", "lib"]);
     expect(Object.keys(res.getBody()).sort()).toEqual(["groupConflicts", "groupsAdjusted", "message", "modCount"]);
     expect(modsLine()).toBe("lib;3519629457");
+  });
+});
+
+describe("group placement (where the load-order plan puts a group)", () => {
+  it("is stored on create, changed on update, imported, and validated", async () => {
+    const { group } = (await create({ name: "Fixes", modIds: ["fix1", "fix2"], placement: "last" })).getBody();
+    expect(group.placement).toBe("last");
+    const updated = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: "first" } });
+    expect(updated.getBody().group.placement).toBe("first");
+    const cleared = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: null } });
+    expect(cleared.getBody().group.placement).toBeNull();
+    const bad = await call("/groups/:id", "put", { params: { id: group.id }, body: { placement: "middle" } });
+    expect(bad.getStatusCode()).toBe(400);
+    expect(bad.getBody()).toMatchObject({ code: "MODS_GROUP_INVALID", params: { field: "placement" } });
+    const imported = await call("/groups/import", "post", {
+      body: { document: { schema: 1, kind: "zcp-mod-group", name: "Frameworks", modIds: ["lib"], placement: "first" } },
+    });
+    expect(imported.getBody().group.placement).toBe("first");
+  });
+
+  it("reads a group stored without one as null", async () => {
+    await seed(["Old", "a", "b"]);
+    expect((await call("/groups", "get")).getBody().groups[0].placement).toBeNull();
   });
 });

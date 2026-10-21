@@ -153,8 +153,15 @@ async function waitForLoaded() {
   await waitFor(() => expect(getTrackedMods).toHaveBeenCalled())
 }
 
+// Opening Conflicts without a scan starts one over an EventSource (jsdom has none).
+class FakeEventSource {
+  addEventListener() {}
+  close() {}
+}
+
 describe('Mods.tsx: activeServerChanged also blocks the inline conflict "Make X win" promote action', () => {
   it('does not let "Make X win" write the previous server\'s stale order into the new active server', async () => {
+    vi.stubGlobal('EventSource', FakeEventSource)
     primeReadMocks()
     renderMods()
     await waitForLoaded()
@@ -170,11 +177,27 @@ describe('Mods.tsx: activeServerChanged also blocks the inline conflict "Make X 
     act(() => { emitActiveServerChanged() })
     await waitFor(() => expect(screen.getByRole('button', { name: /save order/i })).toBeDisabled())
 
-    // Now go to the Conflicts tab and try the inline "Make X win" action --
-    // a completely separate write path that must be guarded the same way.
+    // The old server's conflict scan (and with it every "Make X win") is
+    // gone after the switch: nothing of it can be written into the new one.
     // The nav button's accessible name is its label immediately followed by
-    // its hint text with no separating space ("ConflictsClashes and missing
-    // dependencies"), so match on the label prefix only.
+    // its hint text with no separating space, so match on the label prefix.
+    fireEvent.click(await screen.findByRole('button', { name: /^conflicts/i }))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryAllByText('Mod Alpha')).toHaveLength(0)
+    expect(screen.queryByRole('button', { name: /make a win/i })).toBeNull()
+    expect(saveModOrder).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
+  it('does not let "Make X win" write over unsaved Load order moves', async () => {
+    primeReadMocks()
+    renderMods()
+    await waitForLoaded()
+
+    fireEvent.click(await screen.findByRole('button', { name: /load order/i }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Move modA down' }))
+    await screen.findByRole('button', { name: /save order/i })
+
     fireEvent.click(await screen.findByRole('button', { name: /^conflicts/i }))
     // Two "Mod Alpha" labels render: the top-conflicting-mods filter chip
     // and the accordion trigger for the pair itself -- only the latter has
@@ -186,12 +209,12 @@ describe('Mods.tsx: activeServerChanged also blocks the inline conflict "Make X 
     expect(trigger).not.toBeUndefined()
     fireEvent.click(trigger!)
 
-    const makeAWin = await screen.findByRole('button', { name: /make a win/i })
-    expect(makeAWin).not.toBeDisabled()
-    fireEvent.click(makeAWin)
+    fireEvent.click(await screen.findByRole('button', { name: /make a win/i }))
 
     // Give any (incorrect) async write a chance to fire before asserting.
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(saveModOrder).not.toHaveBeenCalled()
+    // The unsaved moves are still there to save or discard.
+    expect(screen.getByRole('button', { name: /save order/i })).not.toBeDisabled()
   })
 })
