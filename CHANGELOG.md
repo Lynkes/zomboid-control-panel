@@ -7,14 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- **Problems found (Diagnostics):** the server's latest log and the panel's errors read into grouped problems (Lua errors per mod, missing mods, Workshop, Steam, ports, RCON, memory, chunks, crashes), each with its fix and a "Fix all safe issues" with Undo.
-- **Fix everything (Mods → Conflicts and Health):** one preview of the safe health fixes, the suggested conflict winners as pinned rules and the smart sort, with what is left afterwards; applies them in one run with a single Undo.
-### Changed
-
-- **Scheduler redesign:** tasks read as plain schedules ("Every day at 06:00") with next and last run at a glance, one-click presets and Duplicate; the task dialog asks what to run first and previews the next runs instead of showing raw cron.
-
 ## [1.5.0] - 2026-10-20
 
 ### Security
@@ -67,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Mod Manager, Groups view:** Active on server can list mods by group with Enable all / Disable all per group, every mod row has colour dots and "Add to group" (also for a selection), group blocks on the Load order tab move as one, and a group's conflict badge opens Conflicts filtered to it.
 - **Group-aware Auto-sort:** Auto-sort keeps dependencies, each group's order, kept-together blocks and conflict winners, can put a group first or last, and shows why each mod moves before you apply it.
 - **Mod list filters and sorting:** filter by group, note, update or missing dependency, sort by name, load order or last update; the panel remembers your chips, and updated mods link to their Workshop change notes.
+- **Problems found (Diagnostics):** the server's latest log and the panel's errors read into grouped problems (Lua errors per mod, missing mods, Workshop, Steam, ports, RCON, memory, chunks, crashes), each with its fix and a "Fix all safe issues" with Undo.
+- **Fix everything (Mods → Conflicts and Health):** one preview of the safe health fixes, the suggested conflict winners as pinned rules and the smart sort, with what is left afterwards; applies them in one run with a single Undo.
 
 ### Changed
 
@@ -74,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
 - **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
 - **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.
+- **Scheduler redesign:** tasks read as plain schedules ("Every day at 06:00") with next and last run at a glance, one-click presets and Duplicate; the task dialog asks what to run first and previews the next runs instead of showing raw cron.
 
 ### Fixed
 
