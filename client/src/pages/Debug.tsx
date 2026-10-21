@@ -102,6 +102,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { DisabledReason } from "@/components/DisabledReason";
 import { BridgeStatusBadge } from "@/components/BridgeStatusBadge";
+import { ProblemsFound } from "@/components/diagnostics/ProblemsFound";
 import { NumberInput } from "@/components/NumberInput";
 import { cn, copyText } from "@/lib/utils";
 import { formatElapsed } from "@/lib/durationText";
@@ -3213,6 +3214,8 @@ export default function Debug() {
 
         {/* Diagnostics Tab — Smart health checks with green/amber/red */}
         <TabsContent value="diagnostics" className="mt-0 space-y-4">
+          {/* First: what the logs say went wrong, with the fix for each. */}
+          <ProblemsFound />
           <p className="text-sm text-muted-foreground">
             {t("diagnostics.tabSubtitle")}
           </p>

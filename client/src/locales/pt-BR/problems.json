@@ -1,0 +1,171 @@
+{
+  "title": "Problemas encontrados",
+  "description": "Erros do último log do servidor e do painel, cada um com o que fazer a respeito.",
+  "rescan": "Analisar de novo",
+  "scanning": "Analisando…",
+  "scanDone": "Análise concluída",
+  "scanDoneCount": "Problemas encontrados: {{n}}",
+  "scanFailed": "Não foi possível procurar problemas: {{message}}",
+  "scanFailedFallback": "o painel não respondeu",
+  "scannedAt": "Analisado {{time}}",
+  "times": "Visto {{n}}×",
+  "lastSeen": "Última vez {{time}}",
+  "lastSeenLog": "Log de {{time}}",
+  "modLine": "Mod: {{mod}}",
+  "workshopLine": "Item da Workshop",
+  "showLines": "Mostrar linhas do log ({{n}})",
+  "hideLines": "Ocultar linhas do log",
+  "fixedNote": "Corrigido. Esta entrada sai do log na próxima inicialização do servidor.",
+  "noPermission": "Sua função pode ver este problema, mas não aplicar suas correções.",
+  "partialLog": "O log é longo: o início e o fim dele foram lidos.",
+  "undo": "Desfazer",
+  "undoneToast": "Desfeito",
+  "severity": {
+    "critical": "Críticos",
+    "warning": "Avisos",
+    "info": "Informações"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Servidor",
+    "network": "Rede",
+    "panel": "Painel"
+  },
+  "empty": {
+    "title": "Nenhum problema encontrado",
+    "checked": "Verificado: {{lines}} linhas de {{file}} (gravado {{time}}), {{panel}} erros do painel e {{mods}} mods instalados.",
+    "noLog": "O log do servidor não foi encontrado na pasta de dados dele, então só os erros do próprio painel foram verificados ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Erro de Lua em {{mod}}",
+      "titleVanilla": "Erro de Lua nos scripts do jogo",
+      "why": "Um script falhou. O resto desse script para, então parte do mod não funciona. Desativar o mod interrompe o erro; o autor pode corrigi-lo."
+    },
+    "luaFileError": {
+      "title": "Um arquivo Lua não pôde ser carregado",
+      "why": "O jogo encontrou um erro em {{file}} e o ignorou. Geralmente é um mod feito para outra versão do jogo."
+    },
+    "modRequiredMissing": {
+      "title": "O mod necessário {{mod}} está faltando",
+      "why": "Um mod precisa de \"{{mod}}\", mas nenhum item da Workshop instalado o fornece, então o mod que precisa dele é ignorado."
+    },
+    "modInfoMissing": {
+      "title": "Uma pasta de mod não tem mod.info",
+      "why": "O jogo não consegue ler este mod: o download está incompleto ou ele não foi feito para a Build 42."
+    },
+    "workshopDownload": {
+      "title": "O item da Workshop {{id}} não foi baixado",
+      "why": "O servidor não conseguiu baixá-lo (removido, privado ou recusado pela Steam) e para ao iniciar."
+    },
+    "workshopOutdated": {
+      "title": "Um mod da Workshop foi atualizado",
+      "why": "O servidor ainda roda a versão antiga. Os jogadores recebem a nova e não conseguem entrar (\"Workshop item version is different than the server's\") até o servidor reiniciar."
+    },
+    "steamUnreachable": {
+      "title": "O servidor não conseguiu acessar a Steam",
+      "why": "Ele parou ao iniciar. Verifique a rede, o firewall ou o proxy desta máquina e inicie-o de novo."
+    },
+    "steamOff": {
+      "title": "O servidor está rodando sem Steam",
+      "why": "Ele iniciou sem Steam, então nenhum dos seus {{n}} itens da Workshop é carregado. Desligue \"Sem Steam\" nas configurações do servidor."
+    },
+    "portInUse": {
+      "title": "A porta do jogo não pôde ser aberta",
+      "why": "A porta {{port}} não pôde ser aberta (código {{code}}). Outro programa, muitas vezes uma segunda cópia deste servidor, está usando-a. Pare-o ou escolha outra porta."
+    },
+    "rconPortInUse": {
+      "title": "A porta RCON {{port}} já está em uso",
+      "why": "O RCON não funciona, então o painel não consegue enviar comandos ao servidor. Escolha outra porta RCON."
+    },
+    "rconAuth": {
+      "title": "Senha do RCON recusada",
+      "why": "Uma conexão ao RCON usou a senha errada. Se foi o painel, informe aqui a mesma senha do RCON que está no arquivo .ini do servidor."
+    },
+    "outOfMemory": {
+      "title": "O servidor ficou sem memória",
+      "why": "O Java ficou sem memória ({{detail}}). O servidor trava ou para. Dê mais memória a ele.",
+      "whyPlain": "O Java ficou sem memória. O servidor trava ou para. Dê mais memória a ele."
+    },
+    "chunkLoad": {
+      "title": "Chunks do mapa não puderam ser carregados",
+      "why": "Alguns chunks não puderam ser lidos ({{chunks}}). Eles podem estar danificados; a Limpeza do mapa pode redefini-los."
+    },
+    "startupCrash": {
+      "title": "O servidor travou ao iniciar",
+      "why": "Ele parou antes de \"SERVER STARTED\". As últimas linhas do log, abaixo, dizem por quê."
+    },
+    "javaException": {
+      "title": "Erro do jogo: {{exception}}",
+      "why": "O jogo relatou um erro inesperado. Se ele voltar, as linhas do log ajudam a achar a causa."
+    },
+    "other": {
+      "title": "Erro registrado",
+      "why": "O jogo registrou este erro. Muitos são inofensivos; veja-o se algo não funcionar."
+    },
+    "panelBridge": {
+      "title": "Erro do PanelBridge",
+      "why": "O PanelBridge, o ajudante do painel dentro do jogo, relatou um erro. Alguns recursos ao vivo podem não funcionar."
+    },
+    "panelError": {
+      "title": "Erro do painel ({{source}})",
+      "why": "O próprio painel relatou este erro."
+    }
+  },
+  "fix": {
+    "disableMod": "Desativar {{mod}}",
+    "modsHealthFix": "Aplicar a correção da verificação de saúde",
+    "raiseMemory": "Aumentar a memória máxima: {{current}} GB → {{next}} GB",
+    "restartServer": "Reiniciar servidor",
+    "startServer": "Iniciar servidor",
+    "open": "Abrir",
+    "openModsHealth": "Abrir Mods › Verificação de saúde",
+    "openMods": "Abrir Mods",
+    "openServers": "Abrir Servidores",
+    "openBridge": "Abrir as configurações do PanelBridge",
+    "openChunks": "Abrir Limpeza do mapa",
+    "openLogs": "Abrir Logs",
+    "openConsole": "Abrir Console"
+  },
+  "confirm": {
+    "title": "Tem certeza absoluta?",
+    "disableMod": "{{mod}} é removido de Mods=. A partir da próxima reinicialização, os itens e construções dele podem sumir do mundo. Desfazer o coloca de volta.",
+    "healthFix": "Isso muda a lista de mods: {{label}}. Desfazer a deixa como estava.",
+    "restart": "O servidor reinicia agora e os jogadores são desconectados.",
+    "start": "O servidor inicia com as configurações atuais."
+  },
+  "toast": {
+    "applied": "Correção aplicada",
+    "modDisabled": "{{mod}} desativado",
+    "nextRestart": "Vale a partir da próxima reinicialização do servidor.",
+    "memory": "Memória máxima definida em {{next}} GB",
+    "nextStart": "Vale a partir da próxima inicialização do servidor.",
+    "healthGone": "A verificação de saúde dos mods não tem mais nada a corrigir aqui.",
+    "restarting": "Reinicialização solicitada",
+    "starting": "Inicialização solicitada",
+    "fixFailed": "Não foi possível aplicar a correção: {{message}}"
+  },
+  "fixAll": {
+    "button": "Corrigir todos os problemas seguros",
+    "title": "Corrigir todos os problemas seguros",
+    "description": "Estas correções mudam só o que está listado, nada reinicia, e Desfazer coloca tudo de volta.",
+    "reason": "Corrige \"{{title}}\" na lista de mods.",
+    "memoryReason": "Corrige \"{{title}}\". Vale a partir da próxima inicialização.",
+    "needsDecision": "Mais {{n}} problemas precisam da sua decisão: use os botões de cada um.",
+    "nothing": "Nenhum problema aqui tem uma correção automática segura. Use os botões de cada problema.",
+    "apply": "Aplicar {{n}} correções",
+    "cancel": "Cancelar",
+    "close": "Fechar",
+    "snapshotStep": "Guardando a lista de mods para Desfazer",
+    "running": "Corrigindo {{current}} de {{total}}: {{label}}",
+    "undoing": "Desfazendo…",
+    "doneTitle": "Correções aplicadas",
+    "doneDesc": "Aplicadas: {{applied}}. Já resolvidas: {{skipped}}. Valem a partir da próxima inicialização do servidor.",
+    "failedTitle": "Parou em: {{label}}",
+    "failedDesc": "{{message}}. As correções anteriores continuam aplicadas ({{applied}}); Desfazer as retira.",
+    "failedFallback": "o painel não respondeu",
+    "undoneTitle": "Desfeito",
+    "undoneDesc": "Tudo o que esta execução mudou voltou a ser como era.",
+    "undoFailed": "Não foi possível desfazer: {{message}}"
+  }
+}
