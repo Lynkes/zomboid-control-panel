@@ -611,7 +611,22 @@ function windowsPowerShellPath() {
 const WIN32_PROCESS_COLUMNS = `ProcessId,CommandLine,${WIN32_PROCESS_START_MS}`;
 
 // The full scan's query: every process that could be a dedicated server.
-const WIN32_SERVER_SCAN_SCRIPT = `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+// Filtered by WMI itself (-Filter), not by Where-Object: piping every process
+// through PowerShell made WMI read every process's command line first, and
+// on a slow or antivirus-heavy PC that took past the 8 s timeout on every
+// poll (a 1.5.0 support bundle: 2,057 failed scans, server state "unknown",
+// an auto-restart that quit the server and never started it again). WQL
+// matches Name case-insensitively; the filter is built from single-quoted
+// pieces so no double quote has to survive Windows argument quoting.
+const WIN32_SERVER_SCAN_SCRIPT = `$f = 'Name=''java.exe'' OR Name=''ProjectZomboid64.exe'' OR Name=''ProjectZomboid32.exe'''; Get-CimInstance Win32_Process -Filter $f | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+
+// The full scan's PowerShell timeout: 8 s, and 15 s for good once a scan has
+// timed out on this PC (see _scanWindowsServerProcesses()).
+const WIN32_SCAN_SLOW_TIMEOUT_MS = 15000;
+let win32ScanTimeoutMs = 8000;
+export function _resetWin32ScanTimeoutForTests() {
+  win32ScanTimeoutMs = 8000;
+}
 
 // How long the scan waits before looking again at processes that came back
 // with no command line (see _scanWindowsServerProcesses()). A 4 GB JVM took
@@ -1895,11 +1910,26 @@ export class ServerManager {
     try {
       const { error, stdout, stderr } = await runWindowsPowerShell(
         WIN32_SERVER_SCAN_SCRIPT,
-        8000,
+        win32ScanTimeoutMs,
       );
+      if (error?.killed && win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS) {
+        // A PC this slow keeps the longer wait from now on (and the scan
+        // skips its second look, so it stays inside the 18 s outer guard).
+        win32ScanTimeoutMs = WIN32_SCAN_SLOW_TIMEOUT_MS;
+        log.warn(
+          `getServerProcessDetails: the Windows process scan took longer than 8 s; waiting up to ${WIN32_SCAN_SLOW_TIMEOUT_MS / 1000} s from now on`,
+        );
+      }
       const diagnostics = String(stderr || "").trim();
       if (error || diagnostics) {
-        const detail = [error?.message, diagnostics].filter(Boolean).join(": ");
+        // error.message is "Command failed: <the whole script>" and says
+        // nothing about why; name the cause first.
+        const cause = error?.killed
+          ? "timed out"
+          : error && error.code != null
+            ? `exit code ${error.code}`
+            : null;
+        const detail = [cause, diagnostics, cause ? null : error?.message].filter(Boolean).join(": ");
         log.warn(
           `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
         );
@@ -1966,6 +1996,7 @@ export class ServerManager {
       const pids = rows.unreadable.map((row) => row.pid).join(", ");
       if (
         lookAgain &&
+        win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS &&
         !keys.every((key) => knownUnreadableWin32Processes.has(key))
       ) {
         log.debug(
