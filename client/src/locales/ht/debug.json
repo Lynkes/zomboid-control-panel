@@ -1194,6 +1194,11 @@
               "label": "Deteksyon otomatik build B42 echwe",
               "message": "Ap itilize build kode an dwa {{build}} paske dekouvèt echwe: {{reason}}. Sa a pa ap swiv pwochen build kat PZ jiskaske dekouvèt kòmanse fonksyone ankò.",
               "hint": "Dekouvèt mande sèvis kat la ki build ki aktyèl, lè l itilize curl sistèm nan. Ateri isit la vle di demand sa a pa t reyisi — curl manke, panèl la pa gen aksè rezo sòti, oswa sèvis kat la te refize demand lan. De premye yo vo lapenn tcheke sou kote ou; twazyèm nan ka pa reparab soti nan panèl la. Veye sa apre yon lansman kat Project Zomboid, paske se lè sa a yon build ansyen parèt kòm jeyometri kat ki mal."
+            },
+            "info": {
+              "label": "Vèsyon kat {{build}} (entegre)",
+              "message": "pzmap.org pa t reponn verifikasyon vèsyon otomatik panèl la ({{reason}}), donk kat la sèvi ak vèsyon entegre {{build}}. Kat la mache nòmalman.",
+              "hint": "pzmap.org pwoteje lis vèsyon li ak yon pwoteksyon kont bòt ki konn refize sèvè yo. Pa gen anyen pou w ranje bò kote w. Apre yon mizajou kat Project Zomboid, mete panèl la ajou pou w jwenn nouvo vèsyon kat la."
             }
           }
         },

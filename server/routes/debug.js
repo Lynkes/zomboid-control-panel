@@ -6059,16 +6059,29 @@ router.get("/worldmap", requirePermission("diagnostics.manage"), async (req, res
           ),
         );
       } else {
-        // 'fallback', or any value outside the current contract -- treat as
-        // the failure state rather than as healthy.
+        // 'fallback': pzmap.org's bot protection refuses some networks for
+        // good (Tower: HTTP 403 on every try). The built-in build is the
+        // newest the panel knows and the map works, so this is information,
+        // not a warning the operator can act on. A broken map still shows up
+        // in the tile checks below. Any value outside the contract still
+        // fails closed to the warning.
         checks.push(
-          diagWarn(
+          resolution.source !== "fallback" ? diagWarn(
             "worldmap.tiles.buildDetect",
             "B42 build auto-detect failed",
             `Using hardcoded build ${resolution.directory} because discovery failed: ${resolution.reason || "unknown reason"}. This will not track the next PZ map build until discovery starts working again.`,
             {
               category: "worldmap",
-              hint: "Discovery reads build_list.json and each candidate's layer0.dzi from tiles.pzmap.org. If upstream is blocking the panel's requests specifically (e.g. bot protection keyed on the HTTP client), this may not be fixable from the panel side — watch for this warning after the next PZ map release, since that's when a stale build actually shows up as wrong map geometry.",
+              hint: "Discovery asks the map service which build is current. If upstream is blocking the panel's requests, this may not be fixable from the panel side.",
+              params: { build: resolution.directory, reason: resolution.reason || "unknown reason" },
+            },
+          ) : diagInfo(
+            "worldmap.tiles.buildDetect",
+            `Map build ${resolution.directory} (built in)`,
+            `pzmap.org did not answer the panel's automatic build check (${resolution.reason || "unknown reason"}), so the map uses the panel's built-in build ${resolution.directory}. The map works normally.`,
+            {
+              category: "worldmap",
+              hint: "pzmap.org guards its build list with bot protection that sometimes refuses servers. Nothing needs fixing on your side. After a Project Zomboid map update, update the panel to get the new map build.",
               params: { build: resolution.directory, reason: resolution.reason || "unknown reason" },
             },
           ),

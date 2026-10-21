@@ -1188,6 +1188,11 @@
               "label": "Échec de la détection automatique du build B42",
               "message": "Utilisation du build codé en dur {{build}} car la détection a échoué : {{reason}}. Le prochain build de carte de PZ ne sera pas pris en compte tant que la détection ne fonctionnera pas à nouveau.",
               "hint": "La détection demande au service de cartes quel build est actuel, en utilisant le curl du système. Arriver ici signifie que cette requête a échoué — curl est absent, le panneau n'a pas d'accès réseau sortant, ou le service de cartes a refusé la requête. Les deux premiers cas méritent d'être vérifiés de votre côté ; le troisième n'est peut-être pas corrigeable depuis le panneau. Surveillez cet avertissement après une sortie de carte de Project Zomboid, car c'est alors qu'un build obsolète se traduit par une géométrie de carte incorrecte."
+            },
+            "info": {
+              "label": "Version de carte {{build}} (intégrée)",
+              "message": "pzmap.org n'a pas répondu à la vérification automatique de version du panel ({{reason}}), la carte utilise donc la version intégrée {{build}}. La carte fonctionne normalement.",
+              "hint": "pzmap.org protège sa liste de versions avec une protection anti-bot qui refuse parfois les serveurs. Rien à corriger de votre côté. Après une mise à jour de la carte de Project Zomboid, mettez le panel à jour pour obtenir la nouvelle version."
             }
           }
         },

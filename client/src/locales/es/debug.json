@@ -1188,6 +1188,11 @@
               "label": "Error en la detección automática de la compilación B42",
               "message": "Se está usando la compilación fija {{build}} porque la detección falló: {{reason}}. No se tendrá en cuenta la próxima compilación del mapa de PZ hasta que la detección vuelva a funcionar.",
               "hint": "La detección pregunta al servicio de mapas cuál es la compilación actual, usando el curl del sistema. Llegar aquí significa que esa solicitud no tuvo éxito: falta curl, el panel no tiene acceso de red saliente, o el servicio de mapas rechazó la solicitud. Conviene comprobar los dos primeros casos por su parte; el tercero puede no ser corregible desde el panel. Vigile este aviso tras una publicación de mapa de Project Zomboid, ya que es entonces cuando una compilación obsoleta se manifiesta como una geometría de mapa incorrecta."
+            },
+            "info": {
+              "label": "Versión del mapa {{build}} (integrada)",
+              "message": "pzmap.org no respondió a la comprobación automática de versión del panel ({{reason}}), así que el mapa usa la versión integrada {{build}}. El mapa funciona con normalidad.",
+              "hint": "pzmap.org protege su lista de versiones con una protección antibots que a veces rechaza servidores. No hay nada que arreglar por tu parte. Tras una actualización del mapa de Project Zomboid, actualiza el panel para obtener la nueva versión."
             }
           }
         },

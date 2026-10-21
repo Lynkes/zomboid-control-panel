@@ -1188,6 +1188,11 @@
               "label": "Falha na detecção automática da build B42",
               "message": "Usando a build fixa {{build}} porque a detecção falhou: {{reason}}. Isso não vai acompanhar a próxima build do mapa do PZ até a detecção voltar a funcionar.",
               "hint": "A detecção pergunta ao serviço de mapas qual build é a atual, usando o curl do sistema. Se você chegou aqui, essa requisição não teve sucesso — o curl não está instalado, o painel não tem acesso de rede de saída ou o serviço de mapas recusou a requisição. Vale verificar os dois primeiros do seu lado; o terceiro talvez não tenha solução pelo painel. Fique atento a isso depois de um lançamento de mapa do Project Zomboid, pois é quando uma build desatualizada aparece como geometria errada no mapa."
+            },
+            "info": {
+              "label": "Versão do mapa {{build}} (embutida)",
+              "message": "O pzmap.org não respondeu à verificação automática de versão do painel ({{reason}}), então o mapa usa a versão embutida {{build}}. O mapa funciona normalmente.",
+              "hint": "O pzmap.org protege sua lista de versões com uma proteção contra bots que às vezes recusa servidores. Não há nada para corrigir do seu lado. Depois de uma atualização do mapa do Project Zomboid, atualize o painel para obter a nova versão."
             }
           }
         },
