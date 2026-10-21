@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Problems found (Diagnostics):** the server's latest log and the panel's errors read into grouped problems (Lua errors per mod, missing mods, Workshop, Steam, ports, RCON, memory, chunks, crashes), each with its fix and a "Fix all safe issues" with Undo.
 - **Fix everything (Mods → Conflicts and Health):** one preview of the safe health fixes, the suggested conflict winners as pinned rules and the smart sort, with what is left afterwards; applies them in one run with a single Undo.
 ### Changed
 

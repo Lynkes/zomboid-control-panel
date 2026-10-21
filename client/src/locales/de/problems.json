@@ -1,0 +1,171 @@
+{
+  "title": "Gefundene Probleme",
+  "description": "Fehler aus dem letzten Log des Servers und aus dem Panel, jeweils mit dem, was zu tun ist.",
+  "rescan": "Erneut prüfen",
+  "scanning": "Wird geprüft…",
+  "scanDone": "Prüfung abgeschlossen",
+  "scanDoneCount": "Gefundene Probleme: {{n}}",
+  "scanFailed": "Die Problemsuche ist fehlgeschlagen: {{message}}",
+  "scanFailedFallback": "das Panel hat nicht geantwortet",
+  "scannedAt": "Geprüft {{time}}",
+  "times": "{{n}}× gesehen",
+  "lastSeen": "Zuletzt {{time}}",
+  "lastSeenLog": "Log vom {{time}}",
+  "modLine": "Mod: {{mod}}",
+  "workshopLine": "Workshop-Objekt",
+  "showLines": "Logzeilen anzeigen ({{n}})",
+  "hideLines": "Logzeilen ausblenden",
+  "fixedNote": "Behoben. Der Eintrag verschwindet beim nächsten Serverstart aus dem Log.",
+  "noPermission": "Deine Rolle sieht dieses Problem, darf seine Korrekturen aber nicht anwenden.",
+  "partialLog": "Das Log ist lang: Anfang und Ende wurden gelesen.",
+  "undo": "Rückgängig",
+  "undoneToast": "Rückgängig gemacht",
+  "severity": {
+    "critical": "Kritisch",
+    "warning": "Warnungen",
+    "info": "Info"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Server",
+    "network": "Netzwerk",
+    "panel": "Panel"
+  },
+  "empty": {
+    "title": "Keine Probleme gefunden",
+    "checked": "Geprüft: {{lines}} Zeilen von {{file}} (geschrieben {{time}}), {{panel}} Panel-Fehler und {{mods}} installierte Mods.",
+    "noLog": "Das Log des Servers wurde in seinem Datenordner nicht gefunden, daher wurden nur die eigenen Fehler des Panels geprüft ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Lua-Fehler in {{mod}}",
+      "titleVanilla": "Lua-Fehler in den Skripten des Spiels",
+      "why": "Ein Skript ist fehlgeschlagen. Der Rest dieses Skripts läuft nicht weiter, daher funktioniert ein Teil der Mod nicht. Deaktivieren stoppt den Fehler; der Autor kann ihn beheben."
+    },
+    "luaFileError": {
+      "title": "Eine Lua-Datei konnte nicht geladen werden",
+      "why": "Das Spiel hat einen Fehler in {{file}} gefunden und die Datei übersprungen. Meist ist es eine Mod für eine andere Spielversion."
+    },
+    "modRequiredMissing": {
+      "title": "Benötigte Mod {{mod}} fehlt",
+      "why": "Eine Mod braucht „{{mod}}“, aber kein installiertes Workshop-Objekt liefert sie, daher wird die Mod, die sie braucht, übersprungen."
+    },
+    "modInfoMissing": {
+      "title": "Ein Mod-Ordner hat keine mod.info",
+      "why": "Das Spiel kann diese Mod nicht lesen: Der Download ist unvollständig oder sie ist nicht für Build 42 gemacht."
+    },
+    "workshopDownload": {
+      "title": "Workshop-Objekt {{id}} wurde nicht heruntergeladen",
+      "why": "Der Server konnte es nicht herunterladen (entfernt, privat oder von Steam abgelehnt) und stoppt beim Starten."
+    },
+    "workshopOutdated": {
+      "title": "Eine Workshop-Mod wurde aktualisiert",
+      "why": "Der Server läuft noch mit der alten Version. Spieler erhalten die neue und können nicht beitreten („Workshop item version is different than the server's“), bis der Server neu startet."
+    },
+    "steamUnreachable": {
+      "title": "Der Server hat Steam nicht erreicht",
+      "why": "Er hat beim Starten angehalten. Prüfe Netzwerk, Firewall oder Proxy dieses Rechners und starte ihn dann erneut."
+    },
+    "steamOff": {
+      "title": "Der Server läuft ohne Steam",
+      "why": "Er wurde ohne Steam gestartet, daher lädt keines seiner {{n}} Workshop-Objekte. Schalte „Kein Steam“ in den Einstellungen des Servers aus."
+    },
+    "portInUse": {
+      "title": "Der Spielport konnte nicht geöffnet werden",
+      "why": "Port {{port}} konnte nicht geöffnet werden (Code {{code}}). Ein anderes Programm, oft eine zweite Kopie dieses Servers, nutzt ihn. Beende es oder wähle einen anderen Port."
+    },
+    "rconPortInUse": {
+      "title": "RCON-Port {{port}} ist bereits belegt",
+      "why": "RCON funktioniert nicht, daher kann das Panel keine Befehle an den Server senden. Wähle einen anderen RCON-Port."
+    },
+    "rconAuth": {
+      "title": "RCON-Passwort abgelehnt",
+      "why": "Eine RCON-Verbindung hat das falsche Passwort benutzt. War es das Panel, gib dem Server hier dasselbe RCON-Passwort wie in seiner .ini-Datei."
+    },
+    "outOfMemory": {
+      "title": "Dem Server ist der Speicher ausgegangen",
+      "why": "Java hat keinen Speicher mehr ({{detail}}). Der Server friert ein oder stoppt. Gib ihm mehr Speicher.",
+      "whyPlain": "Java hat keinen Speicher mehr. Der Server friert ein oder stoppt. Gib ihm mehr Speicher."
+    },
+    "chunkLoad": {
+      "title": "Kartenchunks konnten nicht geladen werden",
+      "why": "Einige Chunks konnten nicht gelesen werden ({{chunks}}). Sie sind womöglich beschädigt; die Kartenbereinigung kann sie zurücksetzen."
+    },
+    "startupCrash": {
+      "title": "Der Server ist beim Starten abgestürzt",
+      "why": "Er hat vor „SERVER STARTED“ angehalten. Die letzten Zeilen seines Logs unten sagen, warum."
+    },
+    "javaException": {
+      "title": "Spielfehler: {{exception}}",
+      "why": "Das Spiel hat einen unerwarteten Fehler gemeldet. Kehrt er wieder, helfen seine Logzeilen, die Ursache zu finden."
+    },
+    "other": {
+      "title": "Protokollierter Fehler",
+      "why": "Das Spiel hat diesen Fehler protokolliert. Viele sind harmlos; sieh ihn dir an, wenn etwas nicht funktioniert."
+    },
+    "panelBridge": {
+      "title": "PanelBridge-Fehler",
+      "why": "PanelBridge, der Helfer des Panels im Spiel, hat einen Fehler gemeldet. Einige Live-Funktionen gehen eventuell nicht."
+    },
+    "panelError": {
+      "title": "Panel-Fehler ({{source}})",
+      "why": "Das Panel selbst hat diesen Fehler gemeldet."
+    }
+  },
+  "fix": {
+    "disableMod": "{{mod}} deaktivieren",
+    "modsHealthFix": "Korrektur der Zustandsprüfung anwenden",
+    "raiseMemory": "Max. Speicher erhöhen: {{current}} GB → {{next}} GB",
+    "restartServer": "Server neu starten",
+    "startServer": "Server starten",
+    "open": "Öffnen",
+    "openModsHealth": "Mods › Zustandsprüfung öffnen",
+    "openMods": "Mods öffnen",
+    "openServers": "Alle Server öffnen",
+    "openBridge": "PanelBridge-Einstellungen öffnen",
+    "openChunks": "Kartenbereinigung öffnen",
+    "openLogs": "Protokolle öffnen",
+    "openConsole": "Konsole öffnen"
+  },
+  "confirm": {
+    "title": "Bist du dir absolut sicher?",
+    "disableMod": "{{mod}} wird aus Mods= entfernt. Ab dem nächsten Neustart können seine Gegenstände und Gebäude aus der Welt verschwinden. Rückgängig stellt die Mod wieder her.",
+    "healthFix": "Das ändert die Mod-Liste: {{label}}. Rückgängig stellt sie wieder her.",
+    "restart": "Der Server startet jetzt neu und Spieler werden getrennt.",
+    "start": "Der Server startet mit seinen aktuellen Einstellungen."
+  },
+  "toast": {
+    "applied": "Korrektur angewendet",
+    "modDisabled": "{{mod}} deaktiviert",
+    "nextRestart": "Gilt ab dem nächsten Neustart des Servers.",
+    "memory": "Max. Speicher auf {{next}} GB gesetzt",
+    "nextStart": "Gilt ab dem nächsten Start des Servers.",
+    "healthGone": "Die Zustandsprüfung der Mods hat dafür nichts mehr zu korrigieren.",
+    "restarting": "Neustart angefordert",
+    "starting": "Start angefordert",
+    "fixFailed": "Die Korrektur ist fehlgeschlagen: {{message}}"
+  },
+  "fixAll": {
+    "button": "Alle sicheren Probleme beheben",
+    "title": "Alle sicheren Probleme beheben",
+    "description": "Diese Korrekturen ändern nur das Aufgeführte, nichts startet neu, und Rückgängig stellt alles wieder her.",
+    "reason": "Behebt „{{title}}“ in der Mod-Liste.",
+    "memoryReason": "Behebt „{{title}}“. Gilt ab dem nächsten Start.",
+    "needsDecision": "{{n}} weitere Probleme brauchen deine Entscheidung: nutze ihre eigenen Schaltflächen.",
+    "nothing": "Kein Problem hier hat eine sichere automatische Korrektur. Nutze die Schaltflächen bei jedem Problem.",
+    "apply": "{{n}} Korrekturen anwenden",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "snapshotStep": "Mod-Liste für Rückgängig sichern",
+    "running": "Korrektur {{current}} von {{total}}: {{label}}",
+    "undoing": "Wird rückgängig gemacht…",
+    "doneTitle": "Korrekturen angewendet",
+    "doneDesc": "Angewendet: {{applied}}. Bereits gelöst: {{skipped}}. Sie gelten ab dem nächsten Start des Servers.",
+    "failedTitle": "Angehalten bei: {{label}}",
+    "failedDesc": "{{message}}. Die Korrekturen davor bleiben angewendet ({{applied}}); Rückgängig stellt sie wieder her.",
+    "failedFallback": "das Panel hat nicht geantwortet",
+    "undoneTitle": "Rückgängig gemacht",
+    "undoneDesc": "Alles, was dieser Durchlauf geändert hat, ist wieder wie vorher.",
+    "undoFailed": "Rückgängig ist fehlgeschlagen: {{message}}"
+  }
+}

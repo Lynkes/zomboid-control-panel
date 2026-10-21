@@ -1,0 +1,171 @@
+{
+  "title": "Problèmes détectés",
+  "description": "Erreurs du dernier journal du serveur et du panneau, chacune avec la marche à suivre.",
+  "rescan": "Réanalyser",
+  "scanning": "Analyse…",
+  "scanDone": "Analyse terminée",
+  "scanDoneCount": "Problèmes détectés : {{n}}",
+  "scanFailed": "Impossible de rechercher les problèmes : {{message}}",
+  "scanFailedFallback": "le panneau n'a pas répondu",
+  "scannedAt": "Analysé {{time}}",
+  "times": "Vu {{n}}×",
+  "lastSeen": "Dernière fois {{time}}",
+  "lastSeenLog": "Journal du {{time}}",
+  "modLine": "Mod : {{mod}}",
+  "workshopLine": "Objet du Workshop",
+  "showLines": "Afficher les lignes du journal ({{n}})",
+  "hideLines": "Masquer les lignes du journal",
+  "fixedNote": "Corrigé. Cette entrée quittera le journal au prochain démarrage du serveur.",
+  "noPermission": "Votre rôle voit ce problème mais ne peut pas appliquer ses corrections.",
+  "partialLog": "Le journal est long : son début et sa fin ont été lus.",
+  "undo": "Annuler",
+  "undoneToast": "Annulé",
+  "severity": {
+    "critical": "Critiques",
+    "warning": "Avertissements",
+    "info": "Infos"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Serveur",
+    "network": "Réseau",
+    "panel": "Panneau"
+  },
+  "empty": {
+    "title": "Aucun problème détecté",
+    "checked": "Vérifié : {{lines}} lignes de {{file}} (écrit {{time}}), {{panel}} erreurs du panneau et {{mods}} mods installés.",
+    "noLog": "Le journal du serveur est introuvable dans son dossier de données : seules les erreurs du panneau ont été vérifiées ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Erreur Lua dans {{mod}}",
+      "titleVanilla": "Erreur Lua dans les scripts du jeu",
+      "why": "Un script a échoué. La suite de ce script ne s'exécute pas, donc une partie du mod ne marche pas. Désactiver le mod arrête l'erreur ; son auteur peut la corriger."
+    },
+    "luaFileError": {
+      "title": "Un fichier Lua n'a pas pu être chargé",
+      "why": "Le jeu a trouvé une erreur dans {{file}} et l'a ignoré. C'est souvent un mod fait pour une autre version du jeu."
+    },
+    "modRequiredMissing": {
+      "title": "Le mod requis {{mod}} est absent",
+      "why": "Un mod a besoin de « {{mod}} », mais aucun objet du Workshop installé ne le fournit : le mod qui en dépend est ignoré."
+    },
+    "modInfoMissing": {
+      "title": "Un dossier de mod n'a pas de mod.info",
+      "why": "Le jeu ne peut pas lire ce mod : son téléchargement est incomplet ou il n'est pas fait pour la Build 42."
+    },
+    "workshopDownload": {
+      "title": "L'objet du Workshop {{id}} n'a pas été téléchargé",
+      "why": "Le serveur n'a pas pu le télécharger (retiré, privé ou refusé par Steam) et s'arrête au démarrage."
+    },
+    "workshopOutdated": {
+      "title": "Un mod du Workshop a été mis à jour",
+      "why": "Le serveur utilise encore l'ancienne version. Les joueurs reçoivent la nouvelle et ne peuvent pas se connecter (« Workshop item version is different than the server's ») tant que le serveur n'a pas redémarré."
+    },
+    "steamUnreachable": {
+      "title": "Le serveur n'a pas pu joindre Steam",
+      "why": "Il s'est arrêté au démarrage. Vérifiez le réseau, le pare-feu ou le proxy de cette machine, puis relancez-le."
+    },
+    "steamOff": {
+      "title": "Le serveur tourne sans Steam",
+      "why": "Il a démarré sans Steam, donc aucun de ses {{n}} objets du Workshop ne se charge. Désactivez « Sans Steam » dans les paramètres du serveur."
+    },
+    "portInUse": {
+      "title": "Le port du jeu n'a pas pu être ouvert",
+      "why": "Le port {{port}} n'a pas pu être ouvert (code {{code}}). Un autre programme, souvent une seconde copie de ce serveur, l'utilise. Arrêtez-le ou choisissez un autre port."
+    },
+    "rconPortInUse": {
+      "title": "Le port RCON {{port}} est déjà utilisé",
+      "why": "RCON ne fonctionne pas : le panneau ne peut pas envoyer de commandes au serveur. Choisissez un autre port RCON."
+    },
+    "rconAuth": {
+      "title": "Mot de passe RCON refusé",
+      "why": "Une connexion RCON a utilisé un mauvais mot de passe. Si c'était le panneau, donnez au serveur ici le même mot de passe RCON que dans son fichier .ini."
+    },
+    "outOfMemory": {
+      "title": "Le serveur a manqué de mémoire",
+      "why": "Java a manqué de mémoire ({{detail}}). Le serveur se fige ou s'arrête. Donnez-lui plus de mémoire.",
+      "whyPlain": "Java a manqué de mémoire. Le serveur se fige ou s'arrête. Donnez-lui plus de mémoire."
+    },
+    "chunkLoad": {
+      "title": "Des chunks de la carte n'ont pas pu être chargés",
+      "why": "Certains chunks n'ont pas pu être lus ({{chunks}}). Ils sont peut-être abîmés ; le Nettoyage de la carte peut les réinitialiser."
+    },
+    "startupCrash": {
+      "title": "Le serveur a planté au démarrage",
+      "why": "Il s'est arrêté avant « SERVER STARTED ». Les dernières lignes de son journal, ci-dessous, disent pourquoi."
+    },
+    "javaException": {
+      "title": "Erreur du jeu : {{exception}}",
+      "why": "Le jeu a signalé une erreur inattendue. Si elle revient, ses lignes du journal aident à trouver la cause."
+    },
+    "other": {
+      "title": "Erreur journalisée",
+      "why": "Le jeu a journalisé cette erreur. Beaucoup sont sans conséquence ; regardez-la si quelque chose ne marche pas."
+    },
+    "panelBridge": {
+      "title": "Erreur PanelBridge",
+      "why": "PanelBridge, l'assistant du panneau dans le jeu, a signalé une erreur. Certaines fonctions en direct peuvent ne pas marcher."
+    },
+    "panelError": {
+      "title": "Erreur du panneau ({{source}})",
+      "why": "Le panneau lui-même a signalé cette erreur."
+    }
+  },
+  "fix": {
+    "disableMod": "Désactiver {{mod}}",
+    "modsHealthFix": "Appliquer la correction du bilan de santé",
+    "raiseMemory": "Augmenter la mémoire max : {{current}} Go → {{next}} Go",
+    "restartServer": "Redémarrer le serveur",
+    "startServer": "Démarrer le serveur",
+    "open": "Ouvrir",
+    "openModsHealth": "Ouvrir Mods › Bilan de santé",
+    "openMods": "Ouvrir Mods",
+    "openServers": "Ouvrir Serveurs",
+    "openBridge": "Ouvrir les paramètres PanelBridge",
+    "openChunks": "Ouvrir Nettoyage de la carte",
+    "openLogs": "Ouvrir Journaux",
+    "openConsole": "Ouvrir Console"
+  },
+  "confirm": {
+    "title": "Êtes-vous absolument sûr ?",
+    "disableMod": "{{mod}} est retiré de Mods=. Dès le prochain redémarrage, ses objets et bâtiments peuvent disparaître du monde. Annuler le remet.",
+    "healthFix": "Cela modifie la liste des mods : {{label}}. Annuler la remet en l'état.",
+    "restart": "Le serveur redémarre maintenant et les joueurs sont déconnectés.",
+    "start": "Le serveur démarre avec ses paramètres actuels."
+  },
+  "toast": {
+    "applied": "Correction appliquée",
+    "modDisabled": "{{mod}} désactivé",
+    "nextRestart": "Prend effet au prochain redémarrage du serveur.",
+    "memory": "Mémoire max réglée sur {{next}} Go",
+    "nextStart": "Prend effet au prochain démarrage du serveur.",
+    "healthGone": "Le bilan de santé des mods n'a plus rien à corriger ici.",
+    "restarting": "Redémarrage demandé",
+    "starting": "Démarrage demandé",
+    "fixFailed": "Impossible d'appliquer la correction : {{message}}"
+  },
+  "fixAll": {
+    "button": "Corriger tous les problèmes sûrs",
+    "title": "Corriger tous les problèmes sûrs",
+    "description": "Ces corrections ne changent que ce qui est listé, rien ne redémarre, et Annuler remet tout en l'état.",
+    "reason": "Corrige « {{title}} » dans la liste des mods.",
+    "memoryReason": "Corrige « {{title}} ». Prend effet au prochain démarrage.",
+    "needsDecision": "{{n}} autres problèmes demandent votre décision : utilisez leurs propres boutons.",
+    "nothing": "Aucun problème ici n'a de correction automatique sûre. Utilisez les boutons de chaque problème.",
+    "apply": "Appliquer {{n}} corrections",
+    "cancel": "Annuler l'opération",
+    "close": "Fermer",
+    "snapshotStep": "Sauvegarde de la liste des mods pour Annuler",
+    "running": "Correction {{current}} sur {{total}} : {{label}}",
+    "undoing": "Annulation…",
+    "doneTitle": "Corrections appliquées",
+    "doneDesc": "Appliquées : {{applied}}. Déjà résolues : {{skipped}}. Elles prennent effet au prochain démarrage du serveur.",
+    "failedTitle": "Arrêté à : {{label}}",
+    "failedDesc": "{{message}}. Les corrections précédentes restent appliquées ({{applied}}) ; Annuler les retire.",
+    "failedFallback": "le panneau n'a pas répondu",
+    "undoneTitle": "Annulé",
+    "undoneDesc": "Tout ce que cette exécution a changé est revenu comme avant.",
+    "undoFailed": "Impossible d'annuler : {{message}}"
+  }
+}

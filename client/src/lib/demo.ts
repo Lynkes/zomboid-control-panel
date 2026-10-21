@@ -1,4 +1,4 @@
-import type { ServerSetupPlan } from './api'
+import type { ServerProblem, ServerProblemsResult, ServerSetupPlan } from './api'
 import { demoConflictSuggestion, demoSmartResponse } from './demoSmart'
 import { BRIDGE_MOD_ID, type DeliveryMethod, type DeliveryPlanResponse, type DeliveryStatus } from './bridgeDeliveryTypes'
 
@@ -1390,6 +1390,149 @@ export function getDemoFilesResponse(url: URL, method: string): Response {
   return jsonResponse(DEMO_NOT_FOUND, 404)
 }
 
+// "Problems found" on Diagnostics: one of each fix kind, matching the demo
+// mod list (Brita needs the missing Arsenal(26)GunFighter, so its Mods
+// health fix resolves).
+export function getDemoProblems(now: number = Date.now()): ServerProblemsResult {
+  const at = (minutesAgo: number) => new Date(now - minutesAgo * 60_000).toISOString()
+  const base = { source: 'game' as const, timesFromLog: true, modId: null, workshopId: null, mod: null, params: {}, samples: [] }
+  const findings: ServerProblem[] = [
+    {
+      ...base,
+      id: 'outOfMemory-6d1f0c2a9b3e4f50',
+      kind: 'outOfMemory',
+      category: 'server',
+      severity: 'critical',
+      count: 1,
+      firstSeen: at(42),
+      lastSeen: at(42),
+      message: 'Exception in thread "Thread-31" java.lang.OutOfMemoryError: Java heap space',
+      cause: 'The server ran out of memory.',
+      params: { detail: 'Java heap space' },
+      samples: ['Exception in thread "Thread-31" java.lang.OutOfMemoryError: Java heap space'],
+      fixes: [
+        { id: 'raiseMemory', type: 'action', action: 'raiseMemory', params: { serverId: 'demo-server', currentGb: 6, nextGb: 8 }, capability: 'servers.manage', safe: true, confirm: false, undo: true, restartNeeded: true },
+        { id: 'restartServer', type: 'action', action: 'restartServer', params: {}, capability: 'server.control', safe: false, confirm: true, undo: false },
+        { id: 'openServers', type: 'link', to: '/servers', safe: false, confirm: false, undo: false },
+      ],
+    },
+    {
+      ...base,
+      id: 'modRequiredMissing-2b7c4e91a0d35f68',
+      kind: 'modRequiredMissing',
+      category: 'mods',
+      severity: 'critical',
+      count: 2,
+      firstSeen: at(58),
+      lastSeen: at(57),
+      message: 'ZomboidFileSystem.loadMod> required mod "Arsenal(26)GunFighter" not found',
+      cause: 'A mod needs "Arsenal(26)GunFighter", which is not installed.',
+      params: { missingModId: 'Arsenal(26)GunFighter' },
+      samples: ['ERROR: Mod          f:0, t:1774895890000, st:0> ZomboidFileSystem.loadMod> required mod "Arsenal(26)GunFighter" not found'],
+      fixes: [
+        { id: 'modsHealth', type: 'action', action: 'modsHealthFix', params: { kinds: ['requiredNotInstalled', 'requiredLoadedImplicitly'], modId: 'Arsenal(26)GunFighter' }, capability: 'mods.manage', safe: true, confirm: false, undo: true },
+        { id: 'openModsHealth', type: 'link', to: '/mods?view=health', safe: false, confirm: false, undo: false },
+      ],
+    },
+    {
+      ...base,
+      id: 'luaError-91f3d0a6c2b84e17',
+      kind: 'luaError',
+      category: 'mods',
+      severity: 'warning',
+      count: 14,
+      firstSeen: at(55),
+      lastSeen: at(3),
+      message: 'attempted index: getModData of non-table: null',
+      cause: 'A Lua script of the mod "Brita\'s Weapon Pack" failed.',
+      modId: 'Brita',
+      workshopId: '2169435993',
+      mod: { id: 'Brita', name: "Brita's Weapon Pack", workshopId: '2169435993', enabled: true },
+      params: { modName: "Brita's Weapon Pack", file: 'BritaGunsTooltip.lua', line: 88, function: 'onTooltip', vanilla: false },
+      samples: [
+        [
+          'ERROR: General      f:0, t:1774895897563, st:0> KahluaThread.flushErrorMessage      > dumping Lua stack trace',
+          '-----------------------------------------',
+          'STACK TRACE',
+          '-----------------------------------------',
+          "function: onTooltip -- file: BritaGunsTooltip.lua line # 88 | MOD: Brita's Weapon Pack",
+          'ERROR: General      f:0, t:1774895897564, st:0> ExceptionLogger.logException> Exception thrown',
+          '\tjava.lang.RuntimeException: attempted index: getModData of non-table: null at KahluaThread.tableget(KahluaThread.java:1540).',
+        ].join('\n'),
+      ],
+      fixes: [
+        { id: 'disableMod', type: 'action', action: 'disableMod', params: { modId: 'Brita' }, capability: 'mods.manage', safe: false, confirm: true, undo: true },
+        { id: 'openMods', type: 'link', to: '/mods?view=active', safe: false, confirm: false, undo: false },
+      ],
+    },
+    {
+      ...base,
+      id: 'workshopOutdated-0c8e5b7d3a1f2946',
+      kind: 'workshopOutdated',
+      category: 'mods',
+      severity: 'warning',
+      count: 1,
+      firstSeen: at(9),
+      lastSeen: at(9),
+      message: 'CheckModsNeedUpdate: Mods need update',
+      cause: 'A Workshop mod was updated after the server started.',
+      samples: ['LOG  : General      f:0, t:1774895990000, st:0> CheckModsNeedUpdate: Mods need update'],
+      fixes: [
+        { id: 'restartServer', type: 'action', action: 'restartServer', params: {}, capability: 'server.control', safe: false, confirm: true, undo: false },
+        { id: 'openMods', type: 'link', to: '/mods?view=active', safe: false, confirm: false, undo: false },
+      ],
+    },
+    {
+      ...base,
+      id: 'rconAuth-5e2a9c17b04d8f63',
+      kind: 'rconAuth',
+      category: 'network',
+      severity: 'warning',
+      source: 'panel',
+      count: 3,
+      firstSeen: at(30),
+      lastSeen: at(12),
+      message: 'Authentication failed. Check RCON password in server settings.',
+      cause: 'An RCON connection used the wrong password.',
+      params: { from: 'panel' },
+      samples: ['[RCON] Authentication failed. Check RCON password in server settings.'],
+      fixes: [{ id: 'openServers', type: 'link', to: '/servers', safe: false, confirm: false, undo: false }],
+    },
+    {
+      ...base,
+      id: 'other-a4c81f06e9d2b375',
+      kind: 'other',
+      category: 'server',
+      severity: 'info',
+      count: 6,
+      firstSeen: at(59),
+      lastSeen: at(59),
+      message: 'CellLoader> missing tile vegetation_groundcover_01_19',
+      cause: 'The game logged an error.',
+      params: { origin: null },
+      samples: ['ERROR: General      f:0> CellLoader> missing tile vegetation_groundcover_01_19'],
+      fixes: [{ id: 'openLogs', type: 'link', to: '/debug?tab=logs', safe: false, confirm: false, undo: false }],
+    },
+  ]
+  const counts = { critical: 0, warning: 0, info: 0, total: findings.length }
+  for (const finding of findings) counts[finding.severity]++
+  return {
+    scannedAt: new Date(now).toISOString(),
+    server: { id: 'demo-server', name: 'Demo Server', running: true },
+    counts,
+    findings,
+    checked: {
+      gameLogLines: 18_412,
+      serverStarted: true,
+      panelErrors: 3,
+      mods: 42,
+      hiddenFindings: 0,
+      modList: true,
+      gameLog: { found: true, file: 'server-console.txt', modified: at(1), partial: false, bytes: 2_310_144 },
+    },
+  }
+}
+
 export function installDemoFetchShim(): void {
   if (!isDemoMode() || demoFetchInstalled) return
 
@@ -1436,6 +1579,9 @@ export function installDemoFetchShim(): void {
     }
     if (path === '/api/server/setup-plan') {
       return jsonResponse(getDemoSetupPlan())
+    }
+    if (path === '/api/debug/problems') {
+      return jsonResponse(getDemoProblems())
     }
     if (path === '/api/servers/active/status') {
       return jsonResponse(demoComposedStatus())

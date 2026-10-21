@@ -4769,7 +4769,84 @@ export const debugApi = {
       hostMemTotal?: number;
     }>;
   }> => apiGet(`/debug/performance-history?limit=${limit}`),
+  // "Problems found": the latest game log and the panel's own errors as
+  // findings with their fixes (server/utils/serverErrorFinder.js).
+  getProblems: (): Promise<ServerProblemsResult> => apiGet("/debug/problems"),
 };
+
+export type ServerProblemSeverity = "critical" | "warning" | "info";
+export type ServerProblemCategory = "mods" | "server" | "network" | "panel";
+export type ServerProblemKind =
+  | "luaError"
+  | "luaFileError"
+  | "modRequiredMissing"
+  | "modInfoMissing"
+  | "workshopDownload"
+  | "workshopOutdated"
+  | "steamUnreachable"
+  | "steamOff"
+  | "portInUse"
+  | "rconPortInUse"
+  | "rconAuth"
+  | "outOfMemory"
+  | "chunkLoad"
+  | "startupCrash"
+  | "javaException"
+  | "other"
+  | "panelBridge"
+  | "panelError";
+
+export type ServerProblemFix =
+  | {
+      id: string;
+      type: "action";
+      action: "disableMod" | "modsHealthFix" | "raiseMemory" | "restartServer" | "startServer";
+      params: Record<string, unknown>;
+      capability: string;
+      safe: boolean;
+      confirm: boolean;
+      undo: boolean;
+      restartNeeded?: boolean;
+    }
+  | { id: string; type: "link"; to: string; safe: false; confirm: false; undo: false };
+
+export interface ServerProblem {
+  // Stable while the problem is the same (its kind and what it is about).
+  id: string;
+  kind: ServerProblemKind;
+  category: ServerProblemCategory;
+  severity: ServerProblemSeverity;
+  source: "game" | "panel";
+  count: number;
+  firstSeen: string | null;
+  lastSeen: string | null;
+  // False: lastSeen is the log's last write, not the line's own time.
+  timesFromLog: boolean;
+  message: string | null;
+  cause: string;
+  modId: string | null;
+  workshopId: string | null;
+  mod: { id: string; name: string; workshopId: string | null; enabled: boolean } | null;
+  params: Record<string, unknown>;
+  samples: string[];
+  fixes: ServerProblemFix[];
+}
+
+export interface ServerProblemsResult {
+  scannedAt: string;
+  server: { id: number | string | null; name: string | null; running: boolean | null } | null;
+  counts: { critical: number; warning: number; info: number; total: number };
+  findings: ServerProblem[];
+  checked: {
+    gameLogLines: number;
+    serverStarted: boolean;
+    panelErrors: number;
+    mods: number;
+    hiddenFindings: number;
+    modList: boolean;
+    gameLog: { found: boolean; file: string | null; modified: string | null; partial: boolean; bytes: number; reason?: string };
+  };
+}
 
 // Auth API
 export const authApi = {
