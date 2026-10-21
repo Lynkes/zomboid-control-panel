@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-10-21
+
 ### Fixed
 
 - **Windows server detection on slow PCs:** the process check asks Windows only for Java and Zomboid processes, waits longer after a timeout, and logs why it failed; on some PCs every check timed out, so Start stayed disabled and an auto-restart left the server stopped.
