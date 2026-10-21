@@ -1,12 +1,12 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.77
+    Version: 1.7.78
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
-                vNEXT Changes:
+                v1.7.78 Changes:
                 - Fix: a character import can no longer freeze the server.
                     importPlayerData levelled each perk once per level in the
                     file, so a level of 1e9 ran a billion LevelPerk calls on
@@ -767,7 +767,7 @@ if not (isServer and isServer()) then return end
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.77",
+    VERSION = "1.7.78",
     -- Change only for a breaking wire-format change. Bridge changes must be additive: a
     -- Workshop server runs whatever version was last published, not the panel's bundled one.
     PROTOCOL_VERSION = "queue-v1",
