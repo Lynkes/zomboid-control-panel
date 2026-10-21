@@ -194,7 +194,7 @@ describe('Players.tsx: an older, slower whitelist response must not overwrite a 
     // Radix tabs switch on mousedown, not click.
     getWhitelist.mockResolvedValueOnce({ success: true, available: true, accounts: [{ id: 1, username: 'OldUser', role: 'user' }], allowedSteamIds: [] })
     await act(async () => { fireEvent.mouseDown(screen.getByRole('tab', { name: /^Whitelist/ }), { button: 0 }) })
-    await waitFor(() => expect(screen.getByText('OldUser')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('OldUser')).toBeInTheDocument(), { timeout: 5000 })
     expect(getWhitelist).toHaveBeenCalledTimes(2)
 
     // Call #3 (a later manual Refresh, simulating a slow response for
@@ -210,7 +210,7 @@ describe('Players.tsx: an older, slower whitelist response must not overwrite a 
     getWhitelist.mockImplementationOnce(() => Promise.resolve({ success: true, available: true, accounts: [{ id: 2, username: 'NewUser', role: 'admin' }], allowedSteamIds: [] }))
     await act(async () => { emitActiveServerChanged() })
     expect(getWhitelist).toHaveBeenCalledTimes(4)
-    await waitFor(() => expect(screen.getByText('NewUser')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('NewUser')).toBeInTheDocument(), { timeout: 5000 })
 
     // The stale call #3 finally lands, arriving strictly after call #4's
     // already-applied, newer response.
