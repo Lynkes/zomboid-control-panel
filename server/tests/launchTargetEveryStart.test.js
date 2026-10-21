@@ -667,6 +667,38 @@ describe("POST /api/server/start forwards the refusal's code", () => {
     expect(body.params).toEqual({ port: 16261, name: "Main" });
   });
 
+  it("SERVER_START_STATE_UNKNOWN reaches the dashboard, and only a literal ignoreUnknownState: true is passed on", async () => {
+    const m = await importForPlatform(process.platform);
+    const layer = m.default.stack.find(
+      (entry) => entry.route?.path === "/start" && entry.route.methods.post,
+    );
+    const handler = layer.route.stack[layer.route.stack.length - 1].handle;
+    const serverManager = {
+      startServer: vi.fn(async () => {
+        throw m.serverStateUnknownError();
+      }),
+    };
+    const app = { get: (key) => ({ serverManager, rconService: {} })[key] };
+    const call = async (body) => {
+      const res = { status: vi.fn(), json: vi.fn() };
+      res.status.mockReturnValue(res);
+      await handler({ app, body }, res);
+      return res;
+    };
+
+    const res = await call(undefined);
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json.mock.calls[0][0].code).toBe("SERVER_START_STATE_UNKNOWN");
+    await call({ ignoreUnknownState: "true" });
+    await call({ ignoreUnknownState: true });
+
+    expect(serverManager.startServer.mock.calls.map(([options]) => options.ignoreUnknownState)).toEqual([
+      false,
+      false,
+      true,
+    ]);
+  });
+
   it("an uncoded start failure keeps the plain-message shape", async () => {
     const m = await importForPlatform(process.platform);
     const router = m.default;

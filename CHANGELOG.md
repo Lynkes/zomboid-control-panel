@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Windows server detection on slow PCs:** the process check asks Windows only for Java and Zomboid processes, waits longer after a timeout, and logs why it failed; on some PCs every check timed out, so Start stayed disabled and an auto-restart left the server stopped.
+- **Start and restart when Windows process detection fails:** a closed RCON port plus the game log's shutdown lines now count as proof the server stopped, Start offers "Start anyway" when nothing can tell, and Problems found explains the failing check.
 
 ## [1.5.0] - 2026-10-20
 

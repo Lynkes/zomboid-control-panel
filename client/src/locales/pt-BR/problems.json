@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Erro do painel ({{source}})",
       "why": "O próprio painel relatou este erro."
+    },
+    "processScanFailing": {
+      "title": "A detecção de processos do Windows falha repetidamente",
+      "why": "A verificação do processo do servidor feita pelo painel falhou {{n}} vezes recentemente, geralmente porque este PC é lento ou um antivírus examina cada verificação do PowerShell. O painel agora espera mais por ela, e o início e as reinicializações também aceitam a porta RCON fechada junto com as linhas de desligamento do log do jogo como prova de que o servidor parou. Se ainda assim não conseguir saber, Iniciar pede sua confirmação."
     }
   },
   "fix": {

@@ -929,7 +929,10 @@ export const serverApi = {
   getNetworkInterfaces: (): Promise<{
     interfaces: { name: string; address: string }[];
   }> => apiGet("/server/network-interfaces"),
-  start: () => apiPost("/server/start"),
+  // ignoreUnknownState: the operator confirmed "start anyway" after a
+  // SERVER_START_STATE_UNKNOWN refusal (process detection keeps failing).
+  start: (options?: { ignoreUnknownState?: boolean }) =>
+    apiPost("/server/start", options?.ignoreUnknownState ? { ignoreUnknownState: true } : undefined),
   // Unlike /server/start and /server/restart (both explicitly "return
   // immediately, progress via socket/poll" -- see their own server-side
   // comments), POST /server/stop and /server/force-stop hold the request
@@ -4800,7 +4803,8 @@ export type ServerProblemKind =
   | "javaException"
   | "other"
   | "panelBridge"
-  | "panelError";
+  | "panelError"
+  | "processScanFailing";
 
 export type ServerProblemFix =
   | {

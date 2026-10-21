@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Erreur du panneau ({{source}})",
       "why": "Le panneau lui-même a signalé cette erreur."
+    },
+    "processScanFailing": {
+      "title": "La détection des processus Windows échoue sans cesse",
+      "why": "La vérification du processus du serveur par le panneau a échoué {{n}} fois récemment, le plus souvent parce que ce PC est lent ou qu'un antivirus analyse chaque vérification PowerShell. Le panneau l'attend désormais plus longtemps, et le démarrage et les redémarrages acceptent aussi le port RCON fermé avec les lignes d'arrêt du journal du jeu comme preuve que le serveur est arrêté. S'il ne peut toujours pas le savoir, Démarrer vous demande de confirmer."
     }
   },
   "fix": {

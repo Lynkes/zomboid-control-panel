@@ -24,7 +24,7 @@ import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { RoutePageSkeleton } from '@/components/PageSkeleton'
 import { AddServerChoices } from '@/components/AddServerChoices'
 import {
-  serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
+  ApiError, serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
   MountDiscoveryCandidate, ScheduledBackupAttempt,
 } from '@/lib/api'
@@ -952,7 +952,11 @@ export default function Dashboard() {
   const handleAction = async (
     action: string,
     fn: () => Promise<unknown>,
-    options?: { errorAction?: (error: unknown) => ReactElement | undefined },
+    options?: {
+      errorAction?: (error: unknown) => ReactElement | undefined
+      // true when it dealt with the error itself (no error toast)
+      handleError?: (error: unknown) => boolean
+    },
   ) => {
     setLoading(action)
     try {
@@ -1102,6 +1106,7 @@ export default function Dashboard() {
       // Every other action refreshes after its toast, as it always has.
       if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
+      if (options?.handleError?.(error)) return
       toast({
         title: t('toasts.errorTitle'),
         description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
@@ -1124,9 +1129,24 @@ export default function Dashboard() {
   // here, inside the function, not just on the buttons that call it. Same
   // lesson as Console.tsx's Enter-key path: a disabled attribute is an
   // affordance, the function guard is the actual gate.
+  // Process detection can't tell whether the server is running and nothing
+  // else proved it stopped (SERVER_START_STATE_UNKNOWN): the operator may
+  // start it anyway, after a confirm, instead of a Start that never works.
   const startServer = () => {
     if (!canControlServer) return
-    void handleAction('Start server', serverApi.start)
+    void handleAction('Start server', () => serverApi.start(), {
+      handleError: (error) => {
+        if (!(error instanceof ApiError) || error.code !== 'SERVER_START_STATE_UNKNOWN') return false
+        setConfirmAction({
+          actionId: 'Start server',
+          title: t('confirm.startUnknownState.title'),
+          description: t('confirm.startUnknownState.description'),
+          action: () => serverApi.start({ ignoreUnknownState: true }),
+          variant: 'warning',
+        })
+        return true
+      },
+    })
   }
   const saveWorld = () => {
     if (!canControlServer) return
@@ -1189,6 +1209,9 @@ export default function Dashboard() {
     status,
     composedStatus,
   })
+  // Unknown only because this PC's process scan failed: Start stays usable
+  // (the server checks other signs, then startServer() offers a confirm).
+  const scanUnknown = hostUnknown && provider === 'native' && composedStatus?.host.status === 'unknown'
   const modsPending = maintenance.modUpdatesAvailable > 0
   const staleLink = !lastUpdated || Date.now() - lastUpdated.getTime() > 60_000
 
@@ -1292,7 +1315,7 @@ export default function Dashboard() {
         // treatment isRemote/hostUnknown already get here. The header Start
         // button (which DOES carry a DisabledReason) remains the explained
         // affordance for why this operator can't start the server.
-        action: hostUnknown || activeServer?.isRemote || !canControlServer
+        action: (hostUnknown && !scanUnknown) || activeServer?.isRemote || !canControlServer
           ? undefined
           : {
               label: t('actions.start'),
@@ -1634,7 +1657,7 @@ export default function Dashboard() {
     }>
       <Button
         onClick={startServer}
-        disabled={hostUnknown || loading !== null || isRemote || !canControlServer}
+        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer}
         variant="command"
         size="sm"
       >

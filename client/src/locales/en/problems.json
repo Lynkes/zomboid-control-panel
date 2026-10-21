@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Panel error ({{source}})",
       "why": "The panel itself reported this error."
+    },
+    "processScanFailing": {
+      "title": "Windows process detection keeps failing",
+      "why": "The panel's check for the server process failed {{n}} times recently, usually because this PC is slow or antivirus software scans each PowerShell check. The panel now waits longer for it, and Start and restarts also accept the RCON port closing plus the game log's shutdown lines as proof the server stopped. If it still can't tell, Start asks you to confirm."
     }
   },
   "fix": {

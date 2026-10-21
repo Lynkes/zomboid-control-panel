@@ -282,6 +282,13 @@ export function defaultRestartWarningMinutes() {
   return minutes;
 }
 
+// Whether the server process the panel itself spawned is still running:
+// what confirms a start while the process scan can't answer.
+function launchedProcessRunning(serverManager) {
+  const child = serverManager?.serverProcess;
+  return Boolean(child && child.exitCode === null && child.signalCode === null);
+}
+
 export class Scheduler {
   constructor(rconService, serverManager) {
     this.rconService = rconService;
@@ -869,6 +876,22 @@ export class Scheduler {
       }
     } finally {
       if (cleanup) await cleanup();
+    }
+  }
+
+  // serverManager.checkStoppedEvidence(), for a restart whose process scan
+  // can't answer; "not stopped" when the manager has no such check.
+  async _readStoppedEvidence(serverManager, options) {
+    if (typeof serverManager?.checkStoppedEvidence !== "function") {
+      return { stopped: false, reason: "no other check is available" };
+    }
+    try {
+      const evidence = await serverManager.checkStoppedEvidence(options);
+      return evidence && typeof evidence === "object"
+        ? { stopped: evidence.stopped === true, reason: String(evidence.reason || "no reason given") }
+        : { stopped: false, reason: "no answer" };
+    } catch (error) {
+      return { stopped: false, reason: `the check failed (${error.message})` };
     }
   }
 
@@ -1960,7 +1983,15 @@ export class Scheduler {
       }
 
       if (!wasRunning) {
-        if (processScanFailed) {
+        const evidence = processScanFailed
+          ? await this._readStoppedEvidence(serverManager, { serverId: pinnedServerId })
+          : null;
+        if (evidence?.stopped) {
+          log.info(
+            `Auto-restart: process detection failed, but ${evidence.reason}, so the server counts as stopped`,
+          );
+        } else if (processScanFailed) {
+          if (evidence) log.warn(`Auto-restart: process detection failed and ${evidence.reason}`);
           const restartDuration = Date.now() - restartStartTime;
           const errorMsg =
             "Could not confirm whether the server is stopped because process detection failed";
@@ -2010,7 +2041,14 @@ export class Scheduler {
         const postStartDetails = await readProcessDetails();
         const isNowRunning =
           rconService.connected ||
-          Boolean(postStartDetails && !postStartDetails.scanFailed && postStartDetails.running);
+          Boolean(postStartDetails && !postStartDetails.scanFailed && postStartDetails.running) ||
+          // A scan that can't answer: the process the panel launched.
+          Boolean(
+            (!postStartDetails || postStartDetails.scanFailed) &&
+              started?.success &&
+              !managedStart.handled &&
+              launchedProcessRunning(serverManager),
+          );
 
         const restartDuration = Date.now() - restartStartTime;
         if (isNowRunning) {
@@ -2343,7 +2381,7 @@ export class Scheduler {
             code: ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
           };
         };
-        const processDetails = await waitForProcessExit(readProcessDetails, {
+        let processDetails = await waitForProcessExit(readProcessDetails, {
           polls: 60,
           intervalMs: 1000,
           maxElapsedMs: 2 * 60 * 1000,
@@ -2351,7 +2389,22 @@ export class Scheduler {
           context: "Auto-restart",
           ownProcesses: initialProcessDetails?.owned,
         });
-        if (processDetails.scanFailed) return stopUnconfirmed();
+        if (processDetails.scanFailed) {
+          // Still unknown: the RCON port refusing connections plus the
+          // console log's shutdown lines settle it
+          // (serverManager.checkStoppedEvidence()).
+          const evidence = await this._readStoppedEvidence(serverManager, {
+            serverId: pinnedServerId,
+          });
+          if (!evidence.stopped) {
+            log.warn(`Auto-restart: process detection never answered and ${evidence.reason}`);
+            return stopUnconfirmed();
+          }
+          log.info(
+            `Auto-restart: process detection never answered, but ${evidence.reason}, so the old server counts as stopped`,
+          );
+          processDetails = { ...processDetails, running: false, scanFailed: false };
+        }
 
         // Force stop if needed
         if (processDetails.running) {
@@ -2458,6 +2511,19 @@ export class Scheduler {
           ) {
             serverStarted = true;
             log.info("Auto-restart: Server process detected as running");
+            break;
+          }
+          // A scan that can't answer can't confirm the start either; the
+          // process the panel just launched still running does.
+          if (
+            (!processDetails || processDetails.scanFailed) &&
+            restarted?.success &&
+            launchedProcessRunning(serverManager)
+          ) {
+            serverStarted = true;
+            log.info(
+              "Auto-restart: process detection can't answer, but the server process the panel launched is running",
+            );
             break;
           }
         }

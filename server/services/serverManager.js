@@ -41,6 +41,8 @@ import {
   readProcessStateWithRetry,
   waitForProcessExit,
 } from "../utils/processScanRetry.js";
+import { readStoppedEvidence } from "../utils/stoppedEvidence.js";
+import { gameLogFolderOf, zomboidDataFolderHolds } from "./zomboidDataPath.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -559,6 +561,17 @@ export function gamePortInUseError({ port, serverName }) {
   );
   error.code = ErrorCode.SERVER_START_GAME_PORT_IN_USE;
   error.params = { port, name: serverName };
+  return error;
+}
+
+// startServer()'s refusal when the process scan can't tell whether the server
+// is running and nothing else proves it stopped. Coded so the Dashboard can
+// offer "start anyway" (POST /start's ignoreUnknownState).
+export function serverStateUnknownError() {
+  const error = new Error(
+    "Could not confirm the server is stopped because process detection failed, and nothing else shows it stopped (a closed RCON port and the game log's shutdown lines). Start it anyway only if you're sure it isn't running on this PC.",
+  );
+  error.code = ErrorCode.SERVER_START_STATE_UNKNOWN;
   return error;
 }
 
@@ -2316,7 +2329,44 @@ export class ServerManager {
     return this.startTime;
   }
 
-  async startServer({ skipRunningCheck = false, serverId = this._serverId } = {}) {
+  /**
+   * Secondary proof that this (local) server is stopped, for when the
+   * process scan can't answer: its RCON port refuses connections AND its
+   * console log shows the shutdown (utils/stoppedEvidence.js). Resolves to
+   * { stopped, reason } and never throws; a remote server is never "stopped"
+   * by this.
+   */
+  async checkStoppedEvidence({ serverId = this._serverId } = {}) {
+    try {
+      if (serverId !== this._serverId) this.configLoaded = false;
+      await this.loadConfig(serverId);
+      if (this._serverRecord?.isRemote) {
+        return { stopped: false, reason: "the server is remote" };
+      }
+      const rconPort = resolveConfiguredRconPort(
+        this.rconPort ?? (await getSetting("rconPort")),
+      );
+      if (rconPort === null) {
+        return { stopped: false, reason: "the RCON port setting is invalid" };
+      }
+      const rconHost = this.rconHost || (await getSetting("rconHost")) || "127.0.0.1";
+      // The same folder rule the Console page reads the log under.
+      const dataFolder = this.savePath;
+      const consoleLogPath =
+        dataFolder && zomboidDataFolderHolds(dataFolder)
+          ? path.join(gameLogFolderOf(dataFolder), "server-console.txt")
+          : null;
+      return await readStoppedEvidence({ rconHost, rconPort, consoleLogPath });
+    } catch (error) {
+      return { stopped: false, reason: `the evidence could not be read (${error.message})` };
+    }
+  }
+
+  async startServer({
+    skipRunningCheck = false,
+    serverId = this._serverId,
+    ignoreUnknownState = false,
+  } = {}) {
     // Prevent concurrent start attempts
     if (this._starting) {
       throw new Error("Server start already in progress");
@@ -2471,9 +2521,22 @@ export class ServerManager {
       if (!skipRunningCheck) {
         const processDetails = await this.getServerProcessDetails();
         if (!processDetails || processDetails.scanFailed) {
-          throw new Error(
-            "Could not confirm the server is stopped because process detection failed",
-          );
+          // The scan can't tell: other proof it stopped, else the operator's
+          // explicit "start anyway" (POST /start's ignoreUnknownState). The
+          // RCON and game port checks below still run either way.
+          const evidence = await this.checkStoppedEvidence({ serverId });
+          if (evidence.stopped) {
+            log.info(
+              `Start: process detection failed, but ${evidence.reason}, so the server counts as stopped`,
+            );
+          } else if (ignoreUnknownState) {
+            log.warn(
+              `Start: process detection failed and ${evidence.reason}; starting anyway because the operator confirmed it`,
+            );
+          } else {
+            log.warn(`Start refused: process detection failed and ${evidence.reason}`);
+            throw serverStateUnknownError();
+          }
         }
         if (processDetails.running) {
           throw new Error("Server is already running");

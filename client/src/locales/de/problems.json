@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Panel-Fehler ({{source}})",
       "why": "Das Panel selbst hat diesen Fehler gemeldet."
+    },
+    "processScanFailing": {
+      "title": "Die Windows-Prozesserkennung schlägt immer wieder fehl",
+      "why": "Die Prüfung des Panels auf den Serverprozess ist zuletzt {{n}}-mal fehlgeschlagen, meist weil dieser PC langsam ist oder ein Virenscanner jede PowerShell-Prüfung untersucht. Das Panel wartet jetzt länger darauf, und Start und Neustarts werten einen geschlossenen RCON-Port zusammen mit den Shutdown-Zeilen im Spiellog als Beweis, dass der Server gestoppt ist. Kann es das trotzdem nicht feststellen, fragt Start nach einer Bestätigung."
     }
   },
   "fix": {

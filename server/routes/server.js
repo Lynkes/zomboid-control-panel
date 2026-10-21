@@ -2254,10 +2254,15 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
 
     // startServer() refreshes the launch target itself and carries any
     // script backup notices back as result.scriptWarnings.
+    // ignoreUnknownState: the operator confirmed "start anyway" after a
+    // SERVER_START_STATE_UNKNOWN refusal. It only waives the failed process
+    // scan; every other guard in startServer() (already running, RCON and
+    // game ports in use, ...) still applies.
     const launched = managed.handled
       ? { success: true, message: managed.message || "Container starting" }
       : await serverManager.startServer({
           serverId: activeServer?.id ?? null,
+          ignoreUnknownState: req.body?.ignoreUnknownState === true,
         });
     // SECURITY (2026-10-05, PT3): with the server's folders refused (a data
     // folder that no longer meets the data-folder rule, or a config folder

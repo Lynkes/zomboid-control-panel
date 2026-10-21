@@ -365,6 +365,9 @@ function fixesFor(kind, finding, ctx) {
     case "panelError":
       out.push(LINKS.logs());
       break;
+    case "processScanFailing":
+      // Nothing to click: the panel already works around it.
+      break;
     default:
       out.push(LINKS.logs());
   }
@@ -392,7 +395,13 @@ const KIND_META = {
   other: { category: "server", severity: "info" },
   panelBridge: { category: "panel", severity: "warning" },
   panelError: { category: "panel", severity: "warning" },
+  processScanFailing: { category: "panel", severity: "warning" },
 };
+
+// ServerManager's warning when a Windows process scan fails; this many in the
+// panel's recent log make one finding (a 1.5.0 support bundle had 2,057).
+const PROCESS_SCAN_FAILED_RE = /Windows process scan failed \((.*)\)/;
+export const PROCESS_SCAN_FAILURES_FOR_FINDING = 3;
 
 export const FINDING_KINDS = Object.freeze(Object.keys(KIND_META));
 
@@ -777,13 +786,21 @@ export function findServerErrors(input = {}) {
 
   // The panel's own errors, from its in-memory log.
   let panelEntries = 0;
+  const scanFailures = [];
   for (const raw of Array.isArray(panelLog) ? panelLog : []) {
-    if (!raw || raw.level !== "error") continue;
-    panelEntries++;
+    if (!raw) continue;
     const text = typeof raw.message === "string" ? raw.message : JSON.stringify(raw.message ?? "");
     const first = String(text).split(/\r?\n/)[0];
-    const source = typeof raw.source === "string" ? raw.source : "server";
     const time = raw.timestamp ? new Date(raw.timestamp).getTime() : null;
+    // Failed Windows process scans are warnings, one per poll: counted
+    // into the one finding below, not listed one by one.
+    if (PROCESS_SCAN_FAILED_RE.test(first)) {
+      scanFailures.push({ first, time });
+      continue;
+    }
+    if (raw.level !== "error") continue;
+    panelEntries++;
+    const source = typeof raw.source === "string" ? raw.source : "server";
     const rcon = /rcon/i.test(source) && /authenticat|auth_failed|password/i.test(first);
     record(rcon ? "rconAuth" : "panelError", rcon ? "rcon" : `${source}|${normaliseMessage(first)}`, {
       at: Number.MAX_SAFE_INTEGER,
@@ -793,6 +810,23 @@ export function findServerErrors(input = {}) {
       params: rcon ? { from: "panel" } : { source },
       source: "panel",
     });
+  }
+  if (scanFailures.length >= PROCESS_SCAN_FAILURES_FOR_FINDING) {
+    const last = scanFailures[scanFailures.length - 1];
+    const group = record("processScanFailing", "windows", {
+      at: Number.MAX_SAFE_INTEGER,
+      time: Number.isFinite(last.time) ? last.time : null,
+      sample: redactLine(last.first, redact),
+      message: last.first,
+      params: {
+        n: scanFailures.length,
+        timedOut: scanFailures.some((entry) => /timed out/i.test(PROCESS_SCAN_FAILED_RE.exec(entry.first)[1])),
+      },
+      source: "panel",
+    });
+    group.count = scanFailures.length;
+    const first = scanFailures.find((entry) => Number.isFinite(entry.time));
+    if (first) group.firstSeen = first.time;
   }
 
   // Shape the findings: the "other" groups capped to the most frequent.
@@ -894,6 +928,8 @@ function causeOf(kind, params) {
       return "PanelBridge, the panel's in-game helper, reported an error.";
     case "panelError":
       return "The panel itself reported an error.";
+    case "processScanFailing":
+      return `The panel's check for the server process failed ${params.n} times, usually because the PC is slow or antivirus software scans each PowerShell check. The panel waits longer for it; Start and restarts also accept the RCON port closing plus the game log's shutdown lines as proof the server stopped, and Start asks you to confirm when it still can't tell.`;
     default:
       return "The game logged an error.";
   }

@@ -117,6 +117,10 @@
   },
   "confirm": {
     "cancel": "Cancelar",
+    "startUnknownState": {
+      "title": "Iniciar de todos modos",
+      "description": "El panel no puede saber si el servidor se está ejecutando en este PC — la detección de procesos falla una y otra vez. ¿Iniciar de todos modos? Dos copias del mismo servidor pueden dañar su mundo."
+    },
     "stopServer": {
       "title": "Detener servidor",
       "description": "¿Detener el servidor? Se desconectará a todos los jugadores conectados."

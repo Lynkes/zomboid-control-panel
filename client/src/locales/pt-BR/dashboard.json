@@ -117,6 +117,10 @@
   },
   "confirm": {
     "cancel": "Cancelar",
+    "startUnknownState": {
+      "title": "Iniciar mesmo assim",
+      "description": "O painel não consegue saber se o servidor está rodando neste PC — a detecção de processos falha repetidamente. Iniciar mesmo assim? Duas cópias do mesmo servidor podem danificar o mundo dele."
+    },
     "stopServer": {
       "title": "Parar servidor",
       "description": "Tem certeza de que deseja parar o servidor? Todos os jogadores conectados serão desconectados."

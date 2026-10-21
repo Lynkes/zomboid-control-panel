@@ -116,6 +116,10 @@
   },
   "confirm": {
     "cancel": "Abbrechen",
+    "startUnknownState": {
+      "title": "Trotzdem starten",
+      "description": "Das Panel kann nicht feststellen, ob der Server auf diesem PC läuft — die Prozesserkennung schlägt immer wieder fehl. Trotzdem starten? Zwei Kopien desselben Servers können seine Welt beschädigen."
+    },
     "stopServer": {
       "title": "Server stoppen",
       "description": "Möchtest du den Server wirklich stoppen? Alle verbundenen Spieler werden getrennt."
