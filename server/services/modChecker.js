@@ -768,7 +768,14 @@ export class ModChecker extends EventEmitter {
             // Capped and parsed line by line (utils/modInfoText.js): the file
             // is the Workshop author's, and a regex over all of it
             // backtracked for seconds on a mod.info of blank lines.
-            const name = modInfoName(readModInfoTextSync(modInfoPath));
+            // A mod.info that is not a regular file (a FIFO would block) or
+            // cannot be read falls back to the folder name below.
+            let name = null;
+            try {
+              name = modInfoName(readModInfoTextSync(modInfoPath));
+            } catch {
+              name = null;
+            }
             if (name) {
               // Update cache
               this.modNameCache.set(workshopId, {

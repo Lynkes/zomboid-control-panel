@@ -93,7 +93,7 @@ describe("conflict scan regression on the old fixture shapes", () => {
     const files = body.pairs.flatMap((p) => p.files.map((f) => f.file)).sort();
     expect(files).toEqual(Object.keys(STILL_CONFLICTS).sort());
     for (const file of Object.keys(NEWLY_BENIGN)) expect(files).not.toContain(file);
-    expect(body.benignSkipped).toEqual({ nonGameplay: 1, notLoaded: 1, sameDefinitions: 1 });
+    expect(body.benignSkipped).toEqual({ nonGameplay: 1, notLoaded: 1, sameDefinitions: 1, layeredAdditions: 0 });
     expect(body.identicalSkipped).toBe(1);
   });
 });
