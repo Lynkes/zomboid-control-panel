@@ -86,8 +86,7 @@
       "body": "{{a}} 和 {{b}} 都会加载，但 {{declaredBy}} 的 mod.info 表明它们不能一起使用。只保留其中一个。"
     },
     "duplicateModId": {
-      "title": "两个创意工坊项目包含同一个模组 ID",
-      "body": "{{mod}} 同时存在于 {{items}} 中。游戏加载哪一份是不确定的：请移除你不需要的项目。"
+      "title": "相同的模组被安装了两次"
     },
     "mapNotInMapLine": {
       "title": "Map= 中缺少一张地图",
@@ -120,6 +119,19 @@
       "body_one": "{{count}} 个创意工坊项目有更新。重启服务器即可安装；玩家加入时会收到更新。",
       "body_other": "{{count}} 个创意工坊项目有更新。重启服务器即可安装；玩家加入时会收到更新。"
     }
+  },
+  "duplicates": {
+    "pair": "2 个创意工坊项目包含相同的模组（{{mods}}）：{{items}}。服务器每个模组只加载一份，加载哪一份是不确定的。请只保留其中一个项目。",
+    "many": "多个创意工坊项目包含相同的模组（{{mods}}）：{{items}}。服务器每个模组只加载一份，加载哪一份是不确定的。请只保留其中一个。",
+    "defined": "{{mods}} 安装了不止一份。服务器加载来自{{from}}的那份，忽略其他的。",
+    "local": "服务器的 mods 文件夹中有不止一份 {{mods}}。服务器只加载其中一份，加载哪一份是不确定的。请只保留一份。",
+    "sourceLocal": "服务器的 mods 文件夹",
+    "sourceStaged": "暂存的创意工坊上传",
+    "keep": "保留 {{item}}",
+    "confirmKeep": "{{item}} 将保留。会先备份服务器 INI，然后从中移除以下内容：",
+    "removedItem": "从 WorkshopItems= 移除：{{item}}",
+    "removedMod": "从 Mods= 移除：{{mod}}",
+    "removedRepeat": "从 Mods= 移除：{{mod}} 的多余条目"
   },
   "fix": {
     "removeMods": "从模组列表中移除 {{mods}}",

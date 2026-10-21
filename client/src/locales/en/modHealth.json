@@ -86,8 +86,7 @@
       "body": "{{a}} and {{b}} both load, but the mod.info of {{declaredBy}} says they do not work together. Keep only one of them."
     },
     "duplicateModId": {
-      "title": "Two Workshop items ship the same mod ID",
-      "body": "{{mod}} is in {{items}}. Which copy the game loads is not defined: remove the item you do not want."
+      "title": "The same mods are installed twice"
     },
     "mapNotInMapLine": {
       "title": "A map is missing from Map=",
@@ -120,6 +119,19 @@
       "body_one": "{{count}} Workshop item has an update. Restart the server to install it; players get it when they join.",
       "body_other": "{{count}} Workshop items have updates. Restart the server to install them; players get them when they join."
     }
+  },
+  "duplicates": {
+    "pair": "2 Workshop items ship the same mods ({{mods}}): {{items}}. The server loads only one copy of each, and which one isn't defined. Keep one of the two items.",
+    "many": "Several Workshop items ship the same mods ({{mods}}): {{items}}. The server loads only one copy of each, and which one isn't defined. Keep one of them.",
+    "defined": "More than one copy of {{mods}} is installed. The server loads the one from {{from}} and ignores the others.",
+    "local": "The server's mods folder has more than one copy of {{mods}}. The server loads only one, and which one isn't defined. Keep one copy.",
+    "sourceLocal": "the server's mods folder",
+    "sourceStaged": "a staged Workshop upload",
+    "keep": "Keep {{item}}",
+    "confirmKeep": "{{item}} stays. A backup of the server ini is made, then this is removed from it:",
+    "removedItem": "From WorkshopItems=: {{item}}",
+    "removedMod": "From Mods=: {{mod}}",
+    "removedRepeat": "From Mods=: the extra entry of {{mod}}"
   },
   "fix": {
     "removeMods": "Remove {{mods}} from the mod list",

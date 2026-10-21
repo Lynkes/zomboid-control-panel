@@ -89,8 +89,7 @@
       "body": "{{a}} y {{b}} se cargan los dos, pero el mod.info de {{declaredBy}} dice que no funcionan juntos. Quédate solo con uno."
     },
     "duplicateModId": {
-      "title": "Dos elementos del Workshop incluyen el mismo ID de mod",
-      "body": "{{mod}} está en {{items}}. No está definido qué copia carga el juego: quita el elemento que no quieras."
+      "title": "Los mismos mods están instalados dos veces"
     },
     "mapNotInMapLine": {
       "title": "Falta un mapa en Map=",
@@ -126,6 +125,19 @@
       "body_many": "{{count}} elementos del Workshop tienen actualizaciones. Reinicia el servidor para instalarlas; los jugadores las reciben al unirse.",
       "body_other": "{{count}} elementos del Workshop tienen actualizaciones. Reinicia el servidor para instalarlas; los jugadores las reciben al unirse."
     }
+  },
+  "duplicates": {
+    "pair": "2 elementos del Workshop incluyen los mismos mods ({{mods}}): {{items}}. El servidor carga solo una copia de cada uno, y no está definido cuál. Quédate con uno de los dos elementos.",
+    "many": "Varios elementos del Workshop incluyen los mismos mods ({{mods}}): {{items}}. El servidor carga solo una copia de cada uno, y no está definido cuál. Quédate con uno de ellos.",
+    "defined": "Hay más de una copia de {{mods}} instalada. El servidor carga la de {{from}} e ignora las demás.",
+    "local": "La carpeta mods del servidor tiene más de una copia de {{mods}}. El servidor carga solo una, y no está definido cuál. Deja una sola copia.",
+    "sourceLocal": "la carpeta mods del servidor",
+    "sourceStaged": "una subida al Workshop preparada",
+    "keep": "Quedarse con {{item}}",
+    "confirmKeep": "{{item}} se queda. Se hace una copia de seguridad del INI del servidor y luego se quita de él lo siguiente:",
+    "removedItem": "De WorkshopItems=: {{item}}",
+    "removedMod": "De Mods=: {{mod}}",
+    "removedRepeat": "De Mods=: la entrada de más de {{mod}}"
   },
   "fix": {
     "removeMods": "Quitar {{mods}} de la lista de mods",

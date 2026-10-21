@@ -22,7 +22,9 @@
 //                                     Workshop item's, which beats a local
 //                                     one (<Zomboid>/mods); between two
 //                                     Workshop items (or two local folders)
-//                                     which one loads is not defined
+//                                     which one loads is not defined. One
+//                                     issue per set of copies, with a "Keep
+//                                     <item>" fix per Workshop item
 //             mapNotInMapLine         a loaded mod ships a map Map= lacks
 //             mapFolderWithoutMod     Map= names a folder no loaded mod ships
 //             orderProblems           the planner would reorder Mods= for
@@ -166,6 +168,7 @@ const uniq = (list) => [...new Set(list)];
 export function computeModHealth(input) {
   const {
     modsLine = [],
+    tokens = [],
     workshopItems = [],
     maps = [],
     catalog = [],
@@ -431,7 +434,9 @@ export function computeModHealth(input) {
   }
 
   // ── duplicateModId ──
-  // Every Build 42 copy of each loaded id, in the order the game looks.
+  // Every Build 42 copy of each loaded id, in the order the game looks. One
+  // issue per set of copies: two Workshop items that both ship the same four
+  // mods (a fork next to its original) are one problem, not four.
   let copies = providers;
   if (!(copies instanceof Map)) {
     copies = new Map();
@@ -443,25 +448,82 @@ export function computeModHealth(input) {
       }
     }
   }
+  const sourceKey = (c) => `${c.source}:${c.workshopId || ""}`;
+  // What still ships an id once some Workshop items are gone: "w:<item>" for
+  // every item that has it, "staged:"/"local:" for the other folders.
+  const shippedBy = new Map();
+  const shipped = (id, key) => {
+    if (!shippedBy.has(id)) shippedBy.set(id, new Set());
+    shippedBy.get(id).add(key);
+  };
+  for (const [ws, mods] of itemMods) for (const mod of mods) shipped(mod.id, `w:${ws}`);
+  for (const [id, list] of copies) for (const c of list) shipped(id, c.source === "workshop" ? `w:${c.workshopId}` : sourceKey(c));
+  const repeatedInModsLine = new Set();
+  const seenTokens = new Set();
+  for (const token of Array.isArray(tokens) ? tokens : []) {
+    if (seenTokens.has(token?.id)) repeatedInModsLine.add(token.id);
+    else seenTokens.add(token?.id);
+  }
+  const loadIndex = new Map(effective.map((id, i) => [id, i]));
+  // "Keep <keep>": the other items leave WorkshopItems=, and so do the Mods=
+  // entries nothing else ships; a shared id listed twice keeps one entry.
+  const keepItemFix = (keep, removing, shared) => {
+    if (!isWritableWorkshopId(keep) || removing.length === 0) return null;
+    if (removing.some((ws) => !isWritableWorkshopId(ws) || ws === bridgeItem)) return null;
+    const off = new Set(removing.map((ws) => `w:${ws}`));
+    const onlyThere = uniq(removing.flatMap((ws) => (itemMods.get(ws) || []).map((m) => m.id))).filter(
+      (id) => listed.has(id) && id !== bridgeModId && isWritableModId(id) && ![...(shippedBy.get(id) || [])].some((key) => !off.has(key)),
+    );
+    onlyThere.sort((a, b) => listedIndex.get(a) - listedIndex.get(b));
+    const dedupe = shared.filter((id) => repeatedInModsLine.has(id) && isWritableModId(id));
+    return {
+      action: "removeWorkshopItems",
+      params: {
+        workshopIds: removing,
+        keep,
+        ...(onlyThere.length ? { modIds: onlyThere } : {}),
+        ...(dedupe.length ? { dedupeModIds: dedupe } : {}),
+      },
+      label: `Keep Workshop item ${keep}: remove ${removing.join(", ")}`,
+    };
+  };
+  const duplicateSets = new Map();
   for (const [id, list] of copies) {
-    if (!loaded.has(id)) continue;
-    const distinct = list;
-    if (distinct.length < 2) continue;
-    const best = Math.min(...distinct.map((c) => SOURCE_RANK[c.source] ?? 9));
-    const first = distinct.filter((c) => (SOURCE_RANK[c.source] ?? 9) === best);
-    const items = uniq(distinct.filter((c) => c.workshopId).map((c) => c.workshopId));
+    if (!loaded.has(id) || list.length < 2) continue;
+    const signature = list.map(sourceKey).sort().join("\n");
+    if (!duplicateSets.has(signature)) duplicateSets.set(signature, { list, ids: [] });
+    duplicateSets.get(signature).ids.push(id);
+  }
+  for (const { list, ids } of duplicateSets.values()) {
+    ids.sort((a, b) => loadIndex.get(a) - loadIndex.get(b));
+    const best = Math.min(...list.map((c) => SOURCE_RANK[c.source] ?? 9));
+    const first = list.filter((c) => (SOURCE_RANK[c.source] ?? 9) === best);
+    const items = uniq(list.filter((c) => c.workshopId).map((c) => c.workshopId));
+    // The copy the game loads, or null when that is not defined (two
+    // Workshop items, or two local folders).
+    const loads = first.length === 1 ? { source: first[0].source, workshopId: first[0].workshopId || null } : null;
+    const fixes = [];
+    if (!loads && items.length >= 2 && list.every((c) => c.source === "workshop")) {
+      for (const keep of items) {
+        const fix = keepItemFix(keep, items.filter((ws) => ws !== keep), ids);
+        if (fix) fixes.push(fix);
+      }
+    }
+    const titles = {};
+    for (const ws of items) if (steamTitles.get(ws)) titles[ws] = steamTitles.get(ws);
     add("duplicateModId", "warning", {
-      modIds: [id],
+      modIds: ids,
       workshopIds: items,
       params: {
-        modId: id,
+        modId: ids[0],
+        modIds: ids.slice(0, HEALTH_LIMITS.maxListed),
         workshopIds: items,
-        copies: distinct.map((c) => ({ source: c.source, workshopId: c.workshopId || null })),
-        // The copy the game loads, or null when that is not defined (two
-        // Workshop items, or two local folders).
-        loads: first.length === 1 ? { source: first[0].source, workshopId: first[0].workshopId || null } : null,
+        copies: list.map((c) => ({ source: c.source, workshopId: c.workshopId || null })),
+        loads,
+        ...(Object.keys(titles).length ? { titles } : {}),
       },
-      subjects: [`m:${id}`, ...distinct.map((c) => `${c.source}:${c.workshopId || ""}`)],
+      fixes,
+      subjects: [...ids.map((id) => `m:${id}`), ...list.map(sourceKey)],
     });
   }
 

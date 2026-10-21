@@ -86,8 +86,7 @@
       "body": "{{a}} ak {{b}} tou de chaje, men mod.info {{declaredBy}} di yo pa mache ansanm. Kenbe youn sèlman."
     },
     "duplicateModId": {
-      "title": "De atik Workshop gen menm ID mod la",
-      "body": "{{mod}} nan {{items}}. Pa gen anyen ki di ki kopi jwèt la ap chaje: retire atik ou pa vle a."
+      "title": "Menm mod yo enstale de fwa"
     },
     "mapNotInMapLine": {
       "title": "Yon kat manke nan Map=",
@@ -120,6 +119,19 @@
       "body_one": "{{count}} atik Workshop gen yon mizajou. Redemare sèvè a pou enstale l; jwè yo resevwa l lè yo antre.",
       "body_other": "{{count}} atik Workshop gen mizajou. Redemare sèvè a pou enstale yo; jwè yo resevwa yo lè yo antre."
     }
+  },
+  "duplicates": {
+    "pair": "2 atik Workshop gen menm mod yo ({{mods}}): {{items}}. Sèvè a chaje yon sèl kopi chak mod, epi pa gen anyen ki di ki kopi. Kenbe youn nan de atik yo.",
+    "many": "Plizyè atik Workshop gen menm mod yo ({{mods}}): {{items}}. Sèvè a chaje yon sèl kopi chak mod, epi pa gen anyen ki di ki kopi. Kenbe youn ladan yo.",
+    "defined": "Gen plis pase yon kopi {{mods}} ki enstale. Sèvè a chaje sa ki soti nan {{from}} epi li inyore lòt yo.",
+    "local": "Dosye mods sèvè a gen plis pase yon kopi {{mods}}. Sèvè a chaje yon sèl, epi pa gen anyen ki di kiyès. Kenbe yon sèl kopi.",
+    "sourceLocal": "dosye mods sèvè a",
+    "sourceStaged": "yon voye Workshop ki prepare",
+    "keep": "Kenbe {{item}}",
+    "confirmKeep": "{{item}} ap rete. Yo fè yon kopi sekou INI sèvè a, epi yo retire sa ki anba a ladan l:",
+    "removedItem": "Nan WorkshopItems=: {{item}}",
+    "removedMod": "Nan Mods=: {{mod}}",
+    "removedRepeat": "Nan Mods=: antre an plis {{mod}} an"
   },
   "fix": {
     "removeMods": "Retire {{mods}} nan lis mods la",

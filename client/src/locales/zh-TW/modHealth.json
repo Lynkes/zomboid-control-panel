@@ -86,8 +86,7 @@
       "body": "{{a}} 和 {{b}} 都會載入，但 {{declaredBy}} 的 mod.info 表明它們不能一起使用。只保留其中一個。"
     },
     "duplicateModId": {
-      "title": "兩個工作坊項目包含同一個模組 ID",
-      "body": "{{mod}} 同時存在於 {{items}} 中。遊戲載入哪一份是不確定的：請移除你不需要的項目。"
+      "title": "相同的模組被安裝了兩次"
     },
     "mapNotInMapLine": {
       "title": "Map= 中缺少一張地圖",
@@ -120,6 +119,19 @@
       "body_one": "{{count}} 個工作坊項目有更新。重新啟動伺服器即可安裝；玩家加入時會收到更新。",
       "body_other": "{{count}} 個工作坊項目有更新。重新啟動伺服器即可安裝；玩家加入時會收到更新。"
     }
+  },
+  "duplicates": {
+    "pair": "2 個工作坊項目包含相同的模組（{{mods}}）：{{items}}。伺服器每個模組只載入一份，載入哪一份是不確定的。請只保留其中一個項目。",
+    "many": "多個工作坊項目包含相同的模組（{{mods}}）：{{items}}。伺服器每個模組只載入一份，載入哪一份是不確定的。請只保留其中一個。",
+    "defined": "{{mods}} 安裝了不只一份。伺服器載入來自{{from}}的那份，忽略其他的。",
+    "local": "伺服器的 mods 資料夾中有不只一份 {{mods}}。伺服器只載入其中一份，載入哪一份是不確定的。請只保留一份。",
+    "sourceLocal": "伺服器的 mods 資料夾",
+    "sourceStaged": "暫存的工作坊上傳",
+    "keep": "保留 {{item}}",
+    "confirmKeep": "{{item}} 將保留。會先備份伺服器 INI，然後從中移除以下內容：",
+    "removedItem": "從 WorkshopItems= 移除：{{item}}",
+    "removedMod": "從 Mods= 移除：{{mod}}",
+    "removedRepeat": "從 Mods= 移除：{{mod}} 的多餘項目"
   },
   "fix": {
     "removeMods": "從模組清單中移除 {{mods}}",

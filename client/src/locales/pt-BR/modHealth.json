@@ -89,8 +89,7 @@
       "body": "{{a}} e {{b}} carregam juntos, mas o mod.info de {{declaredBy}} diz que eles não funcionam juntos. Mantenha só um deles."
     },
     "duplicateModId": {
-      "title": "Dois itens do Workshop trazem o mesmo ID de mod",
-      "body": "{{mod}} está em {{items}}. Não está definido qual cópia o jogo carrega: remova o item que você não quer."
+      "title": "Os mesmos mods estão instalados duas vezes"
     },
     "mapNotInMapLine": {
       "title": "Falta um mapa em Map=",
@@ -126,6 +125,19 @@
       "body_many": "{{count}} itens do Workshop têm atualizações. Reinicie o servidor para instalá-las; os jogadores as recebem ao entrar.",
       "body_other": "{{count}} itens do Workshop têm atualizações. Reinicie o servidor para instalá-las; os jogadores as recebem ao entrar."
     }
+  },
+  "duplicates": {
+    "pair": "2 itens do Workshop trazem os mesmos mods ({{mods}}): {{items}}. O servidor carrega só uma cópia de cada um, e qual delas não está definido. Fique com um dos dois itens.",
+    "many": "Vários itens do Workshop trazem os mesmos mods ({{mods}}): {{items}}. O servidor carrega só uma cópia de cada um, e qual delas não está definido. Fique com um deles.",
+    "defined": "Há mais de uma cópia de {{mods}} instalada. O servidor carrega a de {{from}} e ignora as outras.",
+    "local": "A pasta mods do servidor tem mais de uma cópia de {{mods}}. O servidor carrega só uma, e qual delas não está definido. Deixe só uma cópia.",
+    "sourceLocal": "a pasta mods do servidor",
+    "sourceStaged": "um envio ao Workshop preparado",
+    "keep": "Ficar com {{item}}",
+    "confirmKeep": "{{item}} fica. É feito um backup do INI do servidor e depois isto é retirado dele:",
+    "removedItem": "De WorkshopItems=: {{item}}",
+    "removedMod": "De Mods=: {{mod}}",
+    "removedRepeat": "De Mods=: a entrada a mais de {{mod}}"
   },
   "fix": {
     "removeMods": "Remover {{mods}} da lista de mods",

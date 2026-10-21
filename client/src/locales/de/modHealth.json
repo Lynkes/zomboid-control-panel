@@ -86,8 +86,7 @@
       "body": "{{a}} und {{b}} laden beide, aber laut der mod.info von {{declaredBy}} funktionieren sie nicht zusammen. Behalte nur einen davon."
     },
     "duplicateModId": {
-      "title": "Zwei Workshop-Objekte liefern dieselbe Mod-ID",
-      "body": "{{mod}} steckt in {{items}}. Welche Kopie das Spiel lädt, ist nicht festgelegt: Entferne das Objekt, das du nicht willst."
+      "title": "Dieselben Mods sind doppelt installiert"
     },
     "mapNotInMapLine": {
       "title": "Eine Karte fehlt in Map=",
@@ -120,6 +119,19 @@
       "body_one": "{{count}} Workshop-Objekt hat ein Update. Starte den Server neu, um es zu installieren; Spieler erhalten es beim Beitreten.",
       "body_other": "{{count}} Workshop-Objekte haben Updates. Starte den Server neu, um sie zu installieren; Spieler erhalten sie beim Beitreten."
     }
+  },
+  "duplicates": {
+    "pair": "2 Workshop-Objekte liefern dieselben Mods ({{mods}}): {{items}}. Der Server lädt jeden Mod nur einmal, und welche Kopie, ist nicht festgelegt. Behalte eines der beiden Objekte.",
+    "many": "Mehrere Workshop-Objekte liefern dieselben Mods ({{mods}}): {{items}}. Der Server lädt jeden Mod nur einmal, und welche Kopie, ist nicht festgelegt. Behalte eines davon.",
+    "defined": "Von {{mods}} ist mehr als eine Kopie installiert. Der Server lädt die aus {{from}} und ignoriert die anderen.",
+    "local": "Im mods-Ordner des Servers liegt mehr als eine Kopie von {{mods}}. Der Server lädt nur eine, und welche, ist nicht festgelegt. Behalte eine Kopie.",
+    "sourceLocal": "dem mods-Ordner des Servers",
+    "sourceStaged": "einem bereitgestellten Workshop-Upload",
+    "keep": "{{item}} behalten",
+    "confirmKeep": "{{item}} bleibt. Die Server-INI wird gesichert, dann wird daraus Folgendes entfernt:",
+    "removedItem": "Aus WorkshopItems=: {{item}}",
+    "removedMod": "Aus Mods=: {{mod}}",
+    "removedRepeat": "Aus Mods=: der zusätzliche Eintrag von {{mod}}"
   },
   "fix": {
     "removeMods": "{{mods}} aus der Mod-Liste entfernen",

@@ -153,7 +153,11 @@ function writableModId(id) {
  *                                                     `before` (else at the end)
  *   addWorkshopItems    { workshopIds, modIds?, before? }  WorkshopItems=, and
  *                                                     those mods as addMods
- *   removeWorkshopItems { workshopIds }               leave WorkshopItems=
+ *   removeWorkshopItems { workshopIds, modIds?, dedupeModIds? }  leave
+ *                                                     WorkshopItems= (modIds
+ *                                                     leave Mods=; a
+ *                                                     dedupeModIds id keeps
+ *                                                     one Mods= entry)
  *   addMapFolders       { folders }                   in front of Map=
  *   removeMapFolders    { folders }                   leave Map= (the vanilla
  *                                                     map stays when nothing else is left)
@@ -202,6 +206,22 @@ export function applyModListFix(content, { action, params = {} }, { order = null
       const items = splitIniList(text.match(WORKSHOP_ITEMS_RE)?.[1]);
       const kept = items.filter((id) => !off.has(id));
       if (kept.length !== items.length) text = setIniLine(text, WORKSHOP_ITEMS_LINE_RE, "WorkshopItems", sanitizeIniList(kept));
+      // "Keep <item>" of a duplicate: the mods only the removed items ship
+      // leave Mods=, and a shared id listed twice keeps its first entry.
+      const offMods = new Set(params.modIds || []);
+      const once = new Set(params.dedupeModIds || []);
+      if (offMods.size > 0 || once.size > 0) {
+        const tokens = modTokens();
+        const seen = new Set();
+        const keptTokens = tokens.filter((t) => {
+          if (offMods.has(t.id)) return false;
+          if (!once.has(t.id)) return true;
+          if (seen.has(t.id)) return false;
+          seen.add(t.id);
+          return true;
+        });
+        if (keptTokens.length !== tokens.length) writeMods(keptTokens);
+      }
       break;
     }
     case "addMapFolders":

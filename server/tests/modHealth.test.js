@@ -135,6 +135,60 @@ describe("computeModHealth", () => {
   });
 });
 
+describe("duplicate mod IDs: a fork next to its original", () => {
+  // Workshop 3414634809 "Spongie's Character Customisation - Details Pack HD
+  // Textures" and its fork 3699104148 "... [TWIST] ..." ship the same IDs.
+  const SHARED = ["SPNCCDetails", "SPNCCDetailsHD", "SPNCCFaces", "SPNCC"];
+  const ORIGINAL = "3414634809";
+  const FORK = "3699104148";
+  const catalog = [...SHARED.map((id) => ({ id, workshopId: ORIGINAL })), ...SHARED.map((id) => ({ id, workshopId: FORK }))];
+
+  it("is one issue for the pair of items, naming all four mods, with Keep <item> for each", () => {
+    const body = healthFor({ modsLine: SHARED, catalog, steamTitles: new Map([[ORIGINAL, "Spongie's Character Customisation - Details Pack HD Textures"]]) });
+    const dups = body.issues.filter((i) => i.kind === "duplicateModId");
+    expect(dups).toHaveLength(1);
+    expect(dups[0]).toMatchObject({
+      severity: "warning",
+      modIds: SHARED,
+      workshopIds: [ORIGINAL, FORK],
+      params: { modId: "SPNCCDetails", modIds: SHARED, loads: null, titles: { [ORIGINAL]: "Spongie's Character Customisation - Details Pack HD Textures" } },
+    });
+    expect(dups[0].fixes).toEqual([
+      { action: "removeWorkshopItems", params: { workshopIds: [FORK], keep: ORIGINAL }, label: `Keep Workshop item ${ORIGINAL}: remove ${FORK}` },
+      { action: "removeWorkshopItems", params: { workshopIds: [ORIGINAL], keep: FORK }, label: `Keep Workshop item ${FORK}: remove ${ORIGINAL}` },
+    ]);
+  });
+
+  it("Keep removes the other item, the mods only it ships, and a shared ID listed twice", () => {
+    const modsLine = [...SHARED, "SPNCCTwistBody"];
+    const body = healthFor({
+      modsLine,
+      catalog: [...catalog, { id: "SPNCCTwistBody", workshopId: FORK }],
+      tokens: [...modsLine, "SPNCCDetails"].map((id) => ({ id, raw: id })),
+    });
+    const [dup] = body.issues.filter((i) => i.kind === "duplicateModId");
+    const keepOriginal = dup.fixes.find((f) => f.params.keep === ORIGINAL);
+    expect(keepOriginal.params).toEqual({ workshopIds: [FORK], keep: ORIGINAL, modIds: ["SPNCCTwistBody"], dedupeModIds: ["SPNCCDetails"] });
+    const ini = `Mods=${modsLine.join(";")};\\SPNCCDetails\nWorkshopItems=${ORIGINAL};${FORK}\n`;
+    expect(applyModListFix(ini, keepOriginal).content).toBe(`Mods=${SHARED.join(";")}\nWorkshopItems=${ORIGINAL}\n`);
+    const keepFork = dup.fixes.find((f) => f.params.keep === FORK);
+    expect(keepFork.params).toEqual({ workshopIds: [ORIGINAL], keep: FORK, dedupeModIds: ["SPNCCDetails"] });
+    expect(applyModListFix(ini, keepFork).content).toBe(`Mods=${modsLine.join(";")}\nWorkshopItems=${FORK}\n`);
+  });
+
+  it("offers no Keep that would remove PanelBridge's own item, and none when the copy that loads is defined", () => {
+    const withBridge = healthFor({ modsLine: SHARED, catalog, bridge: { modId: "PanelBridge", workshopId: FORK } });
+    const [dup] = withBridge.issues.filter((i) => i.kind === "duplicateModId");
+    expect(dup.fixes.map((f) => f.params.keep)).toEqual([FORK]);
+    const local = healthFor({
+      modsLine: ["SPNCC"],
+      catalog: [{ id: "SPNCC", workshopId: ORIGINAL }],
+      providers: new Map([["SPNCC", [{ source: "workshop", workshopId: ORIGINAL }, { source: "local" }]]]),
+    });
+    expect(local.issues.find((i) => i.kind === "duplicateModId")).toMatchObject({ params: { loads: { source: "workshop", workshopId: ORIGINAL } }, fixes: [] });
+  });
+});
+
 describe("findHealthFix", () => {
   const health = {
     issues: [

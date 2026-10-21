@@ -67,6 +67,9 @@ import { KindChip } from '@/components/mods/KindChip'
 import { ItemInsights } from '@/components/mods/ItemInsights'
 import { HealthView } from '@/components/mods/HealthView'
 import { HealthSummaryCard } from '@/components/mods/HealthSummaryCard'
+import { DuplicateItemsNotice } from '@/components/mods/DuplicateItemsNotice'
+import { duplicateItemSets, keepFixesFor, type DuplicateItemSet } from '@/components/mods/duplicateItems'
+import { useHealthText } from '@/components/mods/healthText'
 import { PinnedOrderCard } from '@/components/mods/PinnedOrderCard'
 import { OrderRuleDialog } from '@/components/mods/OrderRuleDialog'
 import { useSmartMods } from '@/components/mods/useSmartMods'
@@ -3436,7 +3439,6 @@ export default function Mods() {
   }
 
   const getGroupMissingDeps = (g: WsGroup) => Array.from(new Set(g.mods.flatMap(m => activeModsData.missingDepsMap.get(m.id) || [])))
-  const getGroupDuplicateIds = (g: WsGroup) => g.mods.filter(m => activeModsData.duplicateModIds.has(m.id)).map(m => m.id)
 
   const getInspectorDepKey = (g: WsGroup, dep: string) => `active-${g.wsId}-${dep}`
 
@@ -3562,6 +3564,31 @@ export default function Mods() {
   })
   const fixEverythingButton = (
     <FixEverythingButton onClick={fixEverything.openDialog} disabledReason={fixEverythingBlocked} busy={fixEverything.busy} />
+  )
+
+  // Workshop items that ship the same mods: one sentence per set of items,
+  // the same on the banner, the row badges, the chips and the inspector.
+  const modNameOf = useCallback((modId: string) => modIdNameMap.get(modId), [modIdNameMap])
+  const itemTitleOf = useCallback((workshopId: string) => trackedByWs.get(workshopId)?.name ?? undefined, [trackedByWs])
+  const duplicateText = useHealthText({ modName: modNameOf, itemTitle: itemTitleOf })
+  const duplicateSets = useMemo(() => duplicateItemSets(activeModsData.duplicateModIds), [activeModsData])
+  const duplicateSentenceOf = (modId: string) => {
+    const set = duplicateSets.find((s) => s.modIds.includes(modId))
+    if (!set) return ''
+    const titles = keepFixesFor(smart.health.health, set)?.issue.params.titles
+    return duplicateText.duplicateSentence(set.workshopIds, set.modIds, titles && typeof titles === 'object' ? (titles as Record<string, unknown>) : {})
+  }
+  const duplicateNotice = (set: DuplicateItemSet) => (
+    <DuplicateItemsNotice
+      key={set.key}
+      set={set}
+      store={smart.health}
+      canManage={canManageMods}
+      blockedReason={hasModOrderChanged ? tSmart('health.unsavedOrder') : savingModOrder ? tSmart('health.saving') : null}
+      modName={modNameOf}
+      itemTitle={itemTitleOf}
+      onFixed={afterHealthFix}
+    />
   )
 
   // The inspector's "Add" for a missing Steam required item: the health
@@ -5016,7 +5043,7 @@ export default function Mods() {
                           </span>
                         )}
                         {att.duplicate && (
-                          <span className="shrink-0 rounded border border-warning/40 bg-warning/15 px-1.5 text-[10px] text-foreground" title={t('activeMods.duplicateTooltip', { count: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).length, ids: (duplicateModIds.get(mod0.id) || []).filter(w => w !== g.wsId).join(', ') })}>
+                          <span className="shrink-0 rounded border border-warning/40 bg-warning/15 px-1.5 text-[10px] text-foreground" title={duplicateSentenceOf(mod0.id)}>
                             {t('activeMods.duplicate')}
                           </span>
                         )}
@@ -5109,7 +5136,7 @@ export default function Mods() {
                               const fmtSibs = (arr: string[]) => arr.length <= 4 ? arr.join(', ') : `${arr.slice(0, 4).join(', ')} (+${arr.length - 4} more)`
                               const tooltipBits = [
                                 `${mod.id}${mod.name !== mod.id ? ` — ${mod.name}` : ''}`,
-                                isDupe ? t('activeMods.chipTooltipDupe', { ids: (duplicateModIds.get(mod.id) || []).filter(w => w !== g.wsId).join(', ') }) : null,
+                                isDupe ? duplicateSentenceOf(mod.id) : null,
                                 isScanClashing
                                   ? t('activeMods.chipTooltipClash', { names: fmtSibs(enabledSibs) })
                                   : hasScanOverlap
@@ -5335,25 +5362,43 @@ export default function Mods() {
               </div>
             )
 
+            // Workshop items shipping the same mods, when one of those mods is
+            // enabled: the sentence and "Keep <item>". A Mods= entry listed
+            // twice is folded into its set's Keep (which keeps one entry);
+            // any other repeated entry keeps its own line and Fix.
+            const enabledIds = new Set(iniConfig.modIds)
+            const bannerSets = duplicateSets.filter((s) => s.modIds.some((id) => enabledIds.has(id)))
+            const coveredIds = new Set(bannerSets.flatMap((s) => s.modIds))
+            const bannerConflicts = detectedConflicts
+              .map((conflict) => conflict.type === 'duplicate'
+                ? { ...conflict, modIds: (conflict.modIds ?? []).filter((id) => !coveredIds.has(id)) }
+                : conflict)
+              .filter((conflict) => conflict.type !== 'duplicate' || (conflict.modIds?.length ?? 0) > 0)
             return (
               <>
                 <HealthSummaryCard health={smart.health.health} onReview={() => selectView('health')} />
-                {detectedConflicts.length > 0 && (
+                {(bannerConflicts.length > 0 || bannerSets.length > 0) && (
                   <div className="space-y-1.5">
-                    {detectedConflicts.map((conflict, idx) => (
+                    {bannerSets.map(duplicateNotice)}
+                    {bannerConflicts.map((conflict, idx) => (
                       <div
                         key={idx}
                         className={cn('flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-sm', conflict.severity === 'warning' ? 'border-warning/40 bg-warning/10' : 'border-border/60 bg-muted/40')}
                       >
                         <AlertTriangle className={cn('h-4 w-4 shrink-0', conflict.severity === 'warning' ? 'text-warning' : 'text-primary')} aria-hidden="true" />
-                        <span className="min-w-0 flex-1 break-words">
-                          <span className="font-medium text-foreground">
-                            {conflict.type === 'duplicate' && t('serverConfigTab.duplicateModsTitle')}
-                            {conflict.type === 'missing_modid' && t('serverConfigTab.missingModIdsTitle')}
-                            {conflict.type === 'outdated_dependency' && t('serverConfigTab.outdatedDependencyTitle')}
+                        {conflict.type === 'duplicate' ? (
+                          <span className="min-w-0 flex-1 break-words text-foreground">
+                            {t('serverConfigTab.duplicateModIdsFound', { ids: (conflict.modIds ?? []).join(', ') })}
                           </span>
-                          <span className="text-muted-foreground">: {conflict.message}</span>
-                        </span>
+                        ) : (
+                          <span className="min-w-0 flex-1 break-words">
+                            <span className="font-medium text-foreground">
+                              {conflict.type === 'missing_modid' && t('serverConfigTab.missingModIdsTitle')}
+                              {conflict.type === 'outdated_dependency' && t('serverConfigTab.outdatedDependencyTitle')}
+                            </span>
+                            <span className="text-muted-foreground">: {conflict.message}</span>
+                          </span>
+                        )}
                         {conflict.type === 'duplicate' && (
                           <DisabledReason reason={!canManageMods ? t('permissions.noModsManage') : null}>
                             <Button
@@ -5384,7 +5429,7 @@ export default function Mods() {
                               }}
                             >
                               {deduplicating ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Wrench aria-hidden="true" />}
-                              {t('serverConfigTab.fix')}
+                              {t('serverConfigTab.removeExtraEntries')}
                             </Button>
                           </DisabledReason>
                         )}
@@ -5430,7 +5475,10 @@ export default function Mods() {
                         {t('activeMods.workshopItems', { count: groups.length })}
                       </span>
                       {duplicateModIds.size > 0 && (
-                        <span className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 font-medium text-foreground" title={t('activeMods.duplicateIdTooltip')}>
+                        <span
+                          className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 font-medium text-foreground"
+                          title={duplicateSets.map((s) => duplicateSentenceOf(s.modIds[0])).join('\n')}
+                        >
                           <AlertTriangle className="h-3 w-3 shrink-0 text-warning" aria-hidden="true" />
                           {t('activeMods.duplicateId', { count: duplicateModIds.size })}
                         </span>
@@ -5739,7 +5787,7 @@ export default function Mods() {
                                       <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', mod.enabled ? 'bg-success' : 'bg-muted-foreground/50')} aria-hidden="true" />
                                       <span className="min-w-0 flex-1 truncate font-mono">{mod.id}</span>
                                       {missing.length > 0 && <AlertTriangle className="h-3 w-3 shrink-0 text-destructive" aria-label={t('activeMods.missingDependencyAria')} />}
-                                      {isDupe && <span className="shrink-0 rounded border border-warning/40 bg-warning/10 px-1 py-0 text-[10px] text-foreground">{t('activeMods.dupBadge')}</span>}
+                                      {isDupe && <span className="shrink-0 rounded border border-warning/40 bg-warning/10 px-1 py-0 text-[10px] text-foreground" title={duplicateSentenceOf(mod.id)}>{t('activeMods.dupBadge')}</span>}
                                     </button>
                                   </DisabledReason>
                                 )
@@ -5950,19 +5998,7 @@ export default function Mods() {
                             </div>
                           )}
 
-                          {getGroupDuplicateIds(inspectedGroup).length > 0 && (
-                            <div className="rounded-md border border-warning/40 bg-warning/10 px-2 py-2">
-                              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                                <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
-                                {t('activeMods.duplicateInternalIdsTitle')}
-                              </div>
-                              <div className="mt-1.5 flex flex-wrap gap-1">
-                                {getGroupDuplicateIds(inspectedGroup).map(id => (
-                                  <span key={id} className="rounded border border-warning/30 bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-foreground">{id}</span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                          {duplicateSets.filter((s) => s.workshopIds.includes(inspectedGroup.wsId)).map(duplicateNotice)}
 
                           <div className="border-t border-border/50 pt-3">
                             <DisabledReason reason={inspectedLockReason} className="w-full">

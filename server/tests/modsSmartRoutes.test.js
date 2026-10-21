@@ -447,6 +447,34 @@ describe("GET /health and POST /health/fix", () => {
     expect(fx.iniValue("Mods")).toBe("Twin;Dep;User;Rival");
   });
 
+  it("a fork next to its original: one problem for the pair, and Keep <item> removes the other item with a backup", async () => {
+    // Workshop 3414634809 (Spongie's ... Details Pack HD Textures) and its
+    // fork 3699104148 ([TWIST]) both ship the same four mod IDs.
+    for (const ws of ["3414634809", "3699104148"]) {
+      for (const id of ["SPNCCDetails", "SPNCCDetailsHD", "SPNCCFaces", "SPNCC"]) addMod(ws, id);
+    }
+    addMod("3699104148", "SPNCCTwistBody");
+    fx.writeIni("Mods=SPNCC;SPNCCFaces;SPNCCDetails;SPNCCDetailsHD;SPNCCTwistBody;\\SPNCCDetails\nWorkshopItems=3414634809;3699104148\n");
+    const dups = issuesOf(await health(), "duplicateModId");
+    expect(dups).toHaveLength(1);
+    const [dup] = dups;
+    expect(dup).toMatchObject({
+      modIds: ["SPNCC", "SPNCCFaces", "SPNCCDetails", "SPNCCDetailsHD"],
+      workshopIds: ["3414634809", "3699104148"],
+      params: { loads: null },
+    });
+    expect(dup.fixes.map((f) => f.params)).toEqual([
+      { workshopIds: ["3699104148"], keep: "3414634809", modIds: ["SPNCCTwistBody"], dedupeModIds: ["SPNCCDetails"] },
+      { workshopIds: ["3414634809"], keep: "3699104148", dedupeModIds: ["SPNCCDetails"] },
+    ]);
+    const res = await fix(dup, "removeWorkshopItems", dup.fixes[0].params);
+    expect(res.getBody()).toMatchObject({ applied: true });
+    expect(fx.iniValue("WorkshopItems")).toBe("3414634809");
+    expect(fx.iniValue("Mods")).toBe("SPNCC;SPNCCFaces;SPNCCDetails;SPNCCDetailsHD");
+    expect(fx.backups()).toHaveLength(1);
+    expect(issuesOf(res.getBody().health, "duplicateModId")).toEqual([]);
+  });
+
   it("reads Steam Required items from the cache and adds a missing one with the mod it needs", async () => {
     addMod("1000", "Car", { lines: ["require=tsarslib"] });
     addMod("1001", "tsarslib"); // downloaded, not listed

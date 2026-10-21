@@ -345,7 +345,11 @@ export function demoHealth(ctx: DemoSmartContext): ModHealth {
   issues.push(issue('duplicateModId', 'warning', {
     modIds: ['AuthenticZLite'],
     workshopIds: ['2849247394', '3000000001'],
-    params: { modId: 'AuthenticZLite', workshopIds: ['2849247394', '3000000001'] },
+    params: { modId: 'AuthenticZLite', modIds: ['AuthenticZLite'], workshopIds: ['2849247394', '3000000001'], loads: null },
+    fixes: [
+      { action: 'removeWorkshopItems', params: { workshopIds: ['3000000001'], keep: '2849247394' }, label: 'Keep Workshop item 2849247394: remove 3000000001' },
+      { action: 'removeWorkshopItems', params: { workshopIds: ['2849247394'], keep: '3000000001' }, label: 'Keep Workshop item 3000000001: remove 2849247394' },
+    ],
   }))
   issues.push(issue('updatesAvailable', 'info', {
     workshopIds: ['2169435993', '2730000105', '2169435922'],

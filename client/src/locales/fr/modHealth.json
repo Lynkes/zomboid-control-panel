@@ -89,8 +89,7 @@
       "body": "{{a}} et {{b}} se chargent tous les deux, mais le mod.info de {{declaredBy}} indique qu’ils ne fonctionnent pas ensemble. N’en gardez qu’un."
     },
     "duplicateModId": {
-      "title": "Deux objets Workshop fournissent le même ID de mod",
-      "body": "{{mod}} se trouve dans {{items}}. La copie chargée par le jeu n’est pas définie : retirez l’objet dont vous ne voulez pas."
+      "title": "Les mêmes mods sont installés en double"
     },
     "mapNotInMapLine": {
       "title": "Une carte manque dans Map=",
@@ -126,6 +125,19 @@
       "body_many": "{{count}} objets Workshop ont des mises à jour. Redémarrez le serveur pour les installer ; les joueurs les reçoivent en se connectant.",
       "body_other": "{{count}} objets Workshop ont des mises à jour. Redémarrez le serveur pour les installer ; les joueurs les reçoivent en se connectant."
     }
+  },
+  "duplicates": {
+    "pair": "2 objets Workshop fournissent les mêmes mods ({{mods}}) : {{items}}. Le serveur ne charge qu’une copie de chacun, et laquelle n’est pas définie. Gardez un seul des deux objets.",
+    "many": "Plusieurs objets Workshop fournissent les mêmes mods ({{mods}}) : {{items}}. Le serveur ne charge qu’une copie de chacun, et laquelle n’est pas définie. Gardez-en un seul.",
+    "defined": "Plusieurs copies de {{mods}} sont installées. Le serveur charge celle de {{from}} et ignore les autres.",
+    "local": "Le dossier mods du serveur contient plusieurs copies de {{mods}}. Le serveur n’en charge qu’une, et laquelle n’est pas définie. Gardez une seule copie.",
+    "sourceLocal": "le dossier mods du serveur",
+    "sourceStaged": "un envoi Workshop préparé",
+    "keep": "Garder {{item}}",
+    "confirmKeep": "{{item}} reste. Une sauvegarde de l’INI du serveur est faite, puis ceci en est retiré :",
+    "removedItem": "De WorkshopItems= : {{item}}",
+    "removedMod": "De Mods= : {{mod}}",
+    "removedRepeat": "De Mods= : l’entrée en trop de {{mod}}"
   },
   "fix": {
     "removeMods": "Retirer {{mods}} de la liste des mods",
