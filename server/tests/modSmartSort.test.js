@@ -337,6 +337,30 @@ describe("buildLoadOrderConstraints", () => {
     expect([...ranks].sort((x, y) => x - y)).toEqual(ranks);
   });
 
+  // Seen live (2026-10-20): Tomb's Player Body items list each other as Steam
+  // "Required items", and Chuck's alert system item lists errorMagnifier
+  // while errorMagnifier require=s the alert system; the plan reported six
+  // "could not be met" lines for what is only a subscribe list.
+  it("treats Steam Required items as a hint: no edge for mutual items or against require=, never reported", () => {
+    const mods = [
+      mod("TombBody", { workshopId: "10" }),
+      mod("TombCompat", { workshopId: "11" }),
+      mod("ChuckAlert", { workshopId: "20" }),
+      mod("errorMagnifier", { workshopId: "21", require: ["ChuckAlert"] }),
+    ];
+    const input = {
+      order: ["TombCompat", "TombBody", "ChuckAlert", "errorMagnifier"],
+      mods,
+      steamRequires: new Map([["10", ["11"]], ["11", ["10"]], ["20", ["21"]]]),
+    };
+    const built = buildLoadOrderConstraints(input);
+    expect(built.constraints.filter((c) => (c.reasons || [c.reason]).includes("steamRequired"))).toEqual([]);
+    const plan = planLoadOrder(input);
+    expect(plan.unsatisfied).toEqual([]);
+    expect(plan.cycles).toEqual([]);
+    expect(plan.order).toEqual(input.order);
+  });
+
   it("guesses a patch by name only when nothing is declared", () => {
     const mods = [mod("BritaWeapons", { name: "Brita Weapons" }), mod("BritaWeaponsPatch", { name: "Brita Weapons Patch" })];
     const built = buildLoadOrderConstraints({ order: ["BritaWeaponsPatch", "BritaWeapons"], mods });

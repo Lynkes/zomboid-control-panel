@@ -222,8 +222,15 @@ export function buildLoadOrderConstraints(input = {}) {
     outer: for (const [wsId, dependents] of itemMods) {
       for (const requiredWsId of input.steamRequires.get(wsId) || []) {
         if (requiredWsId === wsId || !itemMods.has(requiredWsId)) continue;
+        // "Required items" is a subscribe list, not a load order: two items
+        // that list each other (a mod and its compatibility pack) say nothing
+        // about order.
+        if ((input.steamRequires.get(requiredWsId) || []).includes(wsId)) continue;
         for (const before of itemMods.get(requiredWsId)) {
           for (const after of dependents) {
+            // The mods' own rules (require=, loadModAfter, a rule, a group)
+            // win: never add the opposite of one only to drop it in a loop.
+            if (edges.has(`${after}\u0000${before}`)) continue;
             if (steamEdges++ >= SMART_SORT_LIMITS.maxSteamEdges) break outer;
             add(before, after, "steamRequired", { workshopId: wsId, requiresWorkshopId: requiredWsId });
           }
@@ -395,6 +402,9 @@ export function planLoadOrder(input = {}) {
       satisfied++;
       continue;
     }
+    // A Steam "Required items" hint the mods' own rules overrule is not a
+    // problem to report (the owner saw six such "could not be met" lines).
+    if (c.reason === "steamRequired") continue;
     const why = c.state === "harder" || c.state === "placement" ? "conflictsWithHarder" : "cycle";
     const by = c.state === "placement" ? "groupPlacement" : c.by;
     unsatisfied.push({
@@ -592,6 +602,7 @@ function solve(input, ids) {
     let mods = null;
     for (const c of dropped) {
       c.state = "cycle";
+      if (c.reason === "steamRequired") continue; // a hint, see unsatisfied
       if (cycleReports >= SMART_SORT_LIMITS.maxCycleReports) continue;
       cycleReports++;
       if (!mods) mods = [...componentMods].sort((a, b) => index.get(a) - index.get(b)).slice(0, SMART_SORT_LIMITS.maxCycleMods);

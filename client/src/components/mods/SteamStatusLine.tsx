@@ -29,7 +29,9 @@ export function SteamStatusLine({
 
   let text: string
   if (status.rateLimited) text = t('steam.rateLimited')
-  else if (status.failed) text = t('steam.failed')
+  // One unreadable item (removed, private) fails the run: "could not be
+  // reached" only when nothing is known; otherwise the age + coverage say it.
+  else if (status.failed && (status.known === 0 || !age)) text = t('steam.failed')
   else if (!age || status.source === 'none') text = status.pending ? t('steam.pending') : t('steam.none')
   else text = t('steam.from', { age })
 
@@ -38,7 +40,7 @@ export function SteamStatusLine({
   return (
     <p className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground', className)}>
       <span>{text}</span>
-      {status.stale && !status.failed && age && <span className="text-warning">{t('steam.stale')}</span>}
+      {status.stale && status.known > 0 && age && <span className="text-warning">{t('steam.stale')}</span>}
       {coverage && <span>· {coverage}</span>}
       {status.pending && age && (
         <span className="inline-flex items-center gap-1">
