@@ -117,6 +117,10 @@
   },
   "confirm": {
     "cancel": "Anile",
+    "startUnknownState": {
+      "title": "Demare kanmenm",
+      "description": "Panèl la pa ka konnen si sèvè a ap fonksyone sou PC sa a — deteksyon pwosesis yo ap echwe san rete. Demare kanmenm? De kopi menm sèvè a ka domaje mond li."
+    },
     "stopServer": {
       "title": "Sispann sèvè a",
       "description": "Ou sèten w vle sispann sèvè a? Tout jwè konekte yo ap dekonekte."

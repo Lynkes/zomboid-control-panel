@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Error del panel ({{source}})",
       "why": "El propio panel informó de este error."
+    },
+    "processScanFailing": {
+      "title": "La detección de procesos de Windows falla una y otra vez",
+      "why": "La comprobación del proceso del servidor que hace el panel falló {{n}} veces recientemente, casi siempre porque este PC es lento o un antivirus analiza cada comprobación de PowerShell. El panel ahora la espera más tiempo, y el inicio y los reinicios también aceptan el puerto RCON cerrado junto con las líneas de apagado del registro del juego como prueba de que el servidor se detuvo. Si aun así no puede saberlo, Iniciar te pide confirmación."
     }
   },
   "fix": {

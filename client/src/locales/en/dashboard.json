@@ -116,6 +116,10 @@
   },
   "confirm": {
     "cancel": "Cancel",
+    "startUnknownState": {
+      "title": "Start anyway",
+      "description": "The panel can't tell whether the server is running on this PC — process detection keeps failing. Start anyway? Two copies of one server can damage its world."
+    },
     "stopServer": {
       "title": "Stop server",
       "description": "Are you sure you want to stop the server? All connected players will be disconnected."

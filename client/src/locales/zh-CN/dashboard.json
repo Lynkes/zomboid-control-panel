@@ -116,6 +116,10 @@
   },
   "confirm": {
     "cancel": "取消",
+    "startUnknownState": {
+      "title": "仍然启动",
+      "description": "面板无法判断服务器是否正在这台电脑上运行——进程检测一直失败。仍然启动吗？同一服务器的两个副本可能会损坏它的世界。"
+    },
     "stopServer": {
       "title": "停止服务器",
       "description": "确定要停止服务器吗？所有已连接的玩家都将被断开连接。"

@@ -647,6 +647,13 @@ export const ErrorCode = Object.freeze({
    * name). */
   SERVER_START_GAME_PORT_IN_USE: "SERVER_START_GAME_PORT_IN_USE",
   /** server/services/serverManager.js -- startServer() via
+   * serverStateUnknownError() (thrown, forwarded by POST /api/server/start
+   * like SERVER_START_GAME_PORT_IN_USE above): the process scan failed and
+   * nothing else (RCON port refused + the console log's shutdown lines)
+   * proves the server stopped. The Dashboard then offers "Start anyway",
+   * which resends POST /start with ignoreUnknownState. */
+  SERVER_START_STATE_UNKNOWN: "SERVER_START_STATE_UNKNOWN",
+  /** server/services/serverManager.js -- startServer() via
    * launchTargetRefusedError() (thrown, forwarded by POST /api/server/start
    * and by a failed Restart's scheduler:action_result like
    * SERVER_START_SCRIPT_MISSING above), and server/routes/servers.js -- POST

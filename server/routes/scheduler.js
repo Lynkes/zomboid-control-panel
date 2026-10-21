@@ -82,6 +82,9 @@ const CODED_ACTION_RESULT_CODES = new Set([
   ErrorCode.SERVER_START_SCRIPT_MISSING,
   ErrorCode.SERVER_RESTART_SCRIPT_MISSING,
   ErrorCode.SERVER_START_GAME_PORT_IN_USE,
+  // startServer()'s refusal when the process scan can't tell and nothing
+  // else proves the server stopped; the Dashboard offers "Start anyway".
+  ErrorCode.SERVER_START_STATE_UNKNOWN,
   ErrorCode.SERVER_LAUNCH_TARGET_REFUSED,
   ErrorCode.SERVER_RESTART_LAUNCH_TARGET_REFUSED,
   ErrorCode.SERVER_RESTART_RCON_UNAVAILABLE,

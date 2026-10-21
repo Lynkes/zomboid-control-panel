@@ -41,6 +41,8 @@ import {
   readProcessStateWithRetry,
   waitForProcessExit,
 } from "../utils/processScanRetry.js";
+import { readStoppedEvidence } from "../utils/stoppedEvidence.js";
+import { gameLogFolderOf, zomboidDataFolderHolds } from "./zomboidDataPath.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -562,6 +564,17 @@ export function gamePortInUseError({ port, serverName }) {
   return error;
 }
 
+// startServer()'s refusal when the process scan can't tell whether the server
+// is running and nothing else proves it stopped. Coded so the Dashboard can
+// offer "start anyway" (POST /start's ignoreUnknownState).
+export function serverStateUnknownError() {
+  const error = new Error(
+    "Could not confirm the server is stopped because process detection failed, and nothing else shows it stopped (a closed RCON port and the game log's shutdown lines). Start it anyway only if you're sure it isn't running on this PC.",
+  );
+  error.code = ErrorCode.SERVER_START_STATE_UNKNOWN;
+  return error;
+}
+
 // Whether a new file can be created in `dir`: what writeFileAtomic() needs
 // to write a launch script there (a temp file beside it, then a rename).
 // Tried for real rather than asked with fs.accessSync(W_OK), which on
@@ -611,7 +624,22 @@ function windowsPowerShellPath() {
 const WIN32_PROCESS_COLUMNS = `ProcessId,CommandLine,${WIN32_PROCESS_START_MS}`;
 
 // The full scan's query: every process that could be a dedicated server.
-const WIN32_SERVER_SCAN_SCRIPT = `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+// Filtered by WMI itself (-Filter), not by Where-Object: piping every process
+// through PowerShell made WMI read every process's command line first, and
+// on a slow or antivirus-heavy PC that took past the 8 s timeout on every
+// poll (a 1.5.0 support bundle: 2,057 failed scans, server state "unknown",
+// an auto-restart that quit the server and never started it again). WQL
+// matches Name case-insensitively; the filter is built from single-quoted
+// pieces so no double quote has to survive Windows argument quoting.
+const WIN32_SERVER_SCAN_SCRIPT = `$f = 'Name=''java.exe'' OR Name=''ProjectZomboid64.exe'' OR Name=''ProjectZomboid32.exe'''; Get-CimInstance Win32_Process -Filter $f | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+
+// The full scan's PowerShell timeout: 8 s, and 15 s for good once a scan has
+// timed out on this PC (see _scanWindowsServerProcesses()).
+const WIN32_SCAN_SLOW_TIMEOUT_MS = 15000;
+let win32ScanTimeoutMs = 8000;
+export function _resetWin32ScanTimeoutForTests() {
+  win32ScanTimeoutMs = 8000;
+}
 
 // How long the scan waits before looking again at processes that came back
 // with no command line (see _scanWindowsServerProcesses()). A 4 GB JVM took
@@ -1895,11 +1923,26 @@ export class ServerManager {
     try {
       const { error, stdout, stderr } = await runWindowsPowerShell(
         WIN32_SERVER_SCAN_SCRIPT,
-        8000,
+        win32ScanTimeoutMs,
       );
+      if (error?.killed && win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS) {
+        // A PC this slow keeps the longer wait from now on (and the scan
+        // skips its second look, so it stays inside the 18 s outer guard).
+        win32ScanTimeoutMs = WIN32_SCAN_SLOW_TIMEOUT_MS;
+        log.warn(
+          `getServerProcessDetails: the Windows process scan took longer than 8 s; waiting up to ${WIN32_SCAN_SLOW_TIMEOUT_MS / 1000} s from now on`,
+        );
+      }
       const diagnostics = String(stderr || "").trim();
       if (error || diagnostics) {
-        const detail = [error?.message, diagnostics].filter(Boolean).join(": ");
+        // error.message is "Command failed: <the whole script>" and says
+        // nothing about why; name the cause first.
+        const cause = error?.killed
+          ? "timed out"
+          : error && error.code != null
+            ? `exit code ${error.code}`
+            : null;
+        const detail = [cause, diagnostics, cause ? null : error?.message].filter(Boolean).join(": ");
         log.warn(
           `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
         );
@@ -1966,6 +2009,7 @@ export class ServerManager {
       const pids = rows.unreadable.map((row) => row.pid).join(", ");
       if (
         lookAgain &&
+        win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS &&
         !keys.every((key) => knownUnreadableWin32Processes.has(key))
       ) {
         log.debug(
@@ -2285,7 +2329,44 @@ export class ServerManager {
     return this.startTime;
   }
 
-  async startServer({ skipRunningCheck = false, serverId = this._serverId } = {}) {
+  /**
+   * Secondary proof that this (local) server is stopped, for when the
+   * process scan can't answer: its RCON port refuses connections AND its
+   * console log shows the shutdown (utils/stoppedEvidence.js). Resolves to
+   * { stopped, reason } and never throws; a remote server is never "stopped"
+   * by this.
+   */
+  async checkStoppedEvidence({ serverId = this._serverId } = {}) {
+    try {
+      if (serverId !== this._serverId) this.configLoaded = false;
+      await this.loadConfig(serverId);
+      if (this._serverRecord?.isRemote) {
+        return { stopped: false, reason: "the server is remote" };
+      }
+      const rconPort = resolveConfiguredRconPort(
+        this.rconPort ?? (await getSetting("rconPort")),
+      );
+      if (rconPort === null) {
+        return { stopped: false, reason: "the RCON port setting is invalid" };
+      }
+      const rconHost = this.rconHost || (await getSetting("rconHost")) || "127.0.0.1";
+      // The same folder rule the Console page reads the log under.
+      const dataFolder = this.savePath;
+      const consoleLogPath =
+        dataFolder && zomboidDataFolderHolds(dataFolder)
+          ? path.join(gameLogFolderOf(dataFolder), "server-console.txt")
+          : null;
+      return await readStoppedEvidence({ rconHost, rconPort, consoleLogPath });
+    } catch (error) {
+      return { stopped: false, reason: `the evidence could not be read (${error.message})` };
+    }
+  }
+
+  async startServer({
+    skipRunningCheck = false,
+    serverId = this._serverId,
+    ignoreUnknownState = false,
+  } = {}) {
     // Prevent concurrent start attempts
     if (this._starting) {
       throw new Error("Server start already in progress");
@@ -2440,9 +2521,22 @@ export class ServerManager {
       if (!skipRunningCheck) {
         const processDetails = await this.getServerProcessDetails();
         if (!processDetails || processDetails.scanFailed) {
-          throw new Error(
-            "Could not confirm the server is stopped because process detection failed",
-          );
+          // The scan can't tell: other proof it stopped, else the operator's
+          // explicit "start anyway" (POST /start's ignoreUnknownState). The
+          // RCON and game port checks below still run either way.
+          const evidence = await this.checkStoppedEvidence({ serverId });
+          if (evidence.stopped) {
+            log.info(
+              `Start: process detection failed, but ${evidence.reason}, so the server counts as stopped`,
+            );
+          } else if (ignoreUnknownState) {
+            log.warn(
+              `Start: process detection failed and ${evidence.reason}; starting anyway because the operator confirmed it`,
+            );
+          } else {
+            log.warn(`Start refused: process detection failed and ${evidence.reason}`);
+            throw serverStateUnknownError();
+          }
         }
         if (processDetails.running) {
           throw new Error("Server is already running");

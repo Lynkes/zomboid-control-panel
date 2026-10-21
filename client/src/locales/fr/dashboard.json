@@ -117,6 +117,10 @@
   },
   "confirm": {
     "cancel": "Annuler",
+    "startUnknownState": {
+      "title": "Démarrer quand même",
+      "description": "Le panneau ne peut pas savoir si le serveur tourne sur ce PC — la détection des processus échoue sans cesse. Démarrer quand même ? Deux copies du même serveur peuvent endommager son monde."
+    },
     "stopServer": {
       "title": "Arrêter le serveur",
       "description": "Voulez-vous vraiment arrêter le serveur ? Tous les joueurs connectés seront déconnectés."

@@ -110,6 +110,10 @@
     "panelError": {
       "title": "Erè panèl ({{source}})",
       "why": "Se panèl la menm ki rapòte erè sa a."
+    },
+    "processScanFailing": {
+      "title": "Deteksyon pwosesis Windows ap echwe san rete",
+      "why": "Verifikasyon panèl la fè pou pwosesis sèvè a echwe {{n}} fwa dènyèman, sitou paske PC sa a lan oswa yon antiviris ap egzamine chak verifikasyon PowerShell. Kounye a panèl la tann li pi lontan, epi demaraj ak redemaraj yo aksepte tou pò RCON ki fèmen ansanm ak liy fèmti nan jounal jwèt la kòm prèv sèvè a kanpe. Si li toujou pa ka konnen, Demare ap mande w konfime."
     }
   },
   "fix": {
