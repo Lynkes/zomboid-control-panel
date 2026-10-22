@@ -233,3 +233,37 @@ describe('Settings.tsx: Connection tab weighs the chosen servers together', () =
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartDelaySeconds: 45 }))
   })
 })
+
+// With a single local server the switch alone says what starts, as it did
+// before servers could be chosen.
+describe('Settings.tsx: Connection tab with a single local server', () => {
+  function primeSolo(settings: Record<string, unknown>) {
+    primeCommonMocks()
+    getAppSettings.mockResolvedValue({
+      settings: { panelPort: 8080, httpsEnabled: false, httpsPort: 8443, corsAllowedOrigins: '', ...settings },
+    } as never)
+    getAllServers.mockResolvedValue({
+      servers: [
+        { id: 's1', name: 'Solo', serverName: 'Solo', isActive: true, isRemote: false },
+        { id: 'r1', name: 'Hosted', serverName: 'Hosted', isActive: false, isRemote: true },
+      ],
+    } as never)
+  }
+
+  it('shows the switch alone', async () => {
+    primeSolo({ autoStartServer: true })
+    renderSettings()
+
+    await screen.findByRole('switch', { name: /start game servers when the panel starts/i })
+    expect(screen.queryByRole('checkbox', { name: /Solo/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Wait between servers')).not.toBeInTheDocument()
+  })
+
+  it('still shows the list when a saved one leaves that server out, which the switch alone would hide', async () => {
+    primeSolo({ autoStartServer: true, autoStartServerIds: ['gone'] })
+    renderSettings()
+
+    expect(await screen.findByRole('checkbox', { name: /Solo/ })).not.toBeChecked()
+    expect(screen.getByText('No server is checked, so none will start.')).toBeInTheDocument()
+  })
+})

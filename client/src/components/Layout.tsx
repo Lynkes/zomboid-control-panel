@@ -534,6 +534,24 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [mobileMenuOpen])
 
+  // Each local server's running state for the switcher, read when it opens
+  // with two servers or more (GET /servers/status, one process scan for
+  // all). One server: nothing to read, the strip above already says it.
+  const [switcherStates, setSwitcherStates] = useState<Record<string, boolean>>({})
+  const loadSwitcherStates = useCallback(async () => {
+    if ((servers?.length ?? 0) < 2) return
+    try {
+      const data = await serversApi.getStatus()
+      const next: Record<string, boolean> = {}
+      for (const row of data?.servers ?? []) {
+        if (!row.stateUnknown) next[String(row.id)] = Boolean(row.running)
+      }
+      setSwitcherStates(next)
+    } catch {
+      // No dots rather than wrong ones.
+    }
+  }, [servers?.length])
+
   // Fetch servers and active server
   useEffect(() => {
     const fetchServers = async () => {
@@ -826,7 +844,7 @@ export default function Layout({ children }: LayoutProps) {
   )
 
   const activeServerStrip = servers && servers.length > 0 && !sidebarCollapsed && (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => { if (open) void loadSwitcherStates() }}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -885,10 +903,27 @@ export default function Layout({ children }: LayoutProps) {
           >
             <div className="flex items-center gap-3 w-full">
               <div className={cn(
-                "w-8 h-8 rounded-lg flex items-center justify-center",
+                "relative w-8 h-8 rounded-lg flex items-center justify-center",
                 server.isActive ? "bg-primary/20" : "bg-muted/70"
               )}>
                 <Server className={cn("w-4 h-4", server.isActive && "text-primary")} />
+                {/* With several servers: which ones are up, without switching
+                    to each. Local servers only -- the process scan can't
+                    see a remote one. */}
+                {!server.isRemote && switcherStates[String(server.id)] !== undefined && (
+                  <>
+                    <span
+                      className={cn(
+                        "absolute -bottom-0.5 -end-0.5 h-2.5 w-2.5 rounded-full border-2 border-popover",
+                        switcherStates[String(server.id)] ? "bg-success" : "bg-muted-foreground/50",
+                      )}
+                      aria-hidden
+                    />
+                    <span className="sr-only">
+                      {switcherStates[String(server.id)] ? t('activeServer.statusRunning') : t('activeServer.statusStopped')}
+                    </span>
+                  </>
+                )}
               </div>
               <span className="truncate flex-1 font-medium">{server.name}</span>
               {server.isRemote && (

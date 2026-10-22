@@ -10,6 +10,7 @@ import { ApiError, backupApi, serversApi, type ServerInstance } from '@/lib/api'
 
 let mockCanManage = true
 let mockCanControl = true
+let mockCanRcon = true
 type Handler = () => void
 let mockSocket: { on: (event: string, handler: Handler) => void; off: (event: string, handler: Handler) => void } | null = null
 const mockToast = vi.fn()
@@ -17,7 +18,10 @@ const mockToast = vi.fn()
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({
     can: (capability: string) =>
-      capability === 'servers.manage' ? mockCanManage : capability === 'server.control' ? mockCanControl : true,
+      capability === 'servers.manage' ? mockCanManage
+        : capability === 'server.control' ? mockCanControl
+        : capability === 'rcon.execute' ? mockCanRcon
+        : true,
   }),
 }))
 
@@ -132,6 +136,7 @@ afterEach(() => {
   vi.clearAllMocks()
   mockCanManage = true
   mockCanControl = true
+  mockCanRcon = true
   mockSocket = null
 })
 
@@ -185,7 +190,7 @@ describe('ServersOverview', () => {
     expect(within(rows[0]).getByText('Server 7')).toBeInTheDocument()
     expect(within(rows[0]).getByText('Active')).toBeInTheDocument()
     // Bounded height and scrollable, by keyboard too.
-    expect(list).toHaveClass('max-h-[19rem]', 'overflow-y-auto')
+    expect(list).toHaveClass('sm:max-h-[24rem]', 'sm:overflow-y-auto')
     expect(list).toHaveAttribute('tabindex', '0')
   })
 
@@ -297,17 +302,35 @@ describe('ServersOverview', () => {
     expect(startServer).not.toHaveBeenCalled()
   })
 
-  it('refreshes when the server watch reports a server starting or stopping', async () => {
+  it('refreshes the states when the server watch reports a server starting or stopping, and the rest on an update check', async () => {
     const handlers: Record<string, Handler> = {}
     mockSocket = { on: (event, handler) => { handlers[event] = handler }, off: vi.fn() }
     prime([ALIVE, OUTBREAK])
     renderOverview()
 
     await screen.findByText('LNK-OUTBREAK')
-    const pollsBefore = getAll.mock.calls.length
+    const statusBefore = getStatus.mock.calls.length
+    const listBefore = getAll.mock.calls.length
     act(() => handlers['servers:status']())
+    await waitFor(() => expect(getStatus.mock.calls.length).toBeGreaterThan(statusBefore))
+    // The server list changes rarely: a state change doesn't reload it.
+    expect(getAll.mock.calls.length).toBe(listBefore)
 
-    await waitFor(() => expect(getAll.mock.calls.length).toBeGreaterThan(pollsBefore))
+    const updatesBefore = getUpdates.mock.calls.length
+    act(() => handlers['servers:updates']())
+    await waitFor(() => expect(getUpdates.mock.calls.length).toBeGreaterThan(updatesBefore))
+  })
+
+  it('asks for player counts only for the roles the RCON probe lets in', async () => {
+    mockCanManage = false
+    mockCanRcon = false
+    prime([ALIVE, OUTBREAK])
+    renderOverview()
+
+    await screen.findByText('LNK-OUTBREAK')
+    await waitFor(() => expect(getStatus).toHaveBeenCalled())
+    expect(getRconStatuses).not.toHaveBeenCalled()
+    expect(within(rowOf('LNKAlive')).getByText("Players: unknown (RCON isn't answering)")).toBeInTheDocument()
   })
 
   it('shows each running server\'s memory, and the servers\' total against the machine', async () => {

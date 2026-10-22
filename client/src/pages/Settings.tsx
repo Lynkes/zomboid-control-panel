@@ -2359,6 +2359,13 @@ export default function Settings() {
   const hostMemoryGb = hostMemoryBytes ? hostMemoryBytes / BYTES_PER_GB : null;
   const chosenAutoStartConflicts = portConflicts(chosenAutoStartServers);
   const severalAutoStartCandidates = autoStartCandidates.length > 1;
+  // With one local server the switch says it all, as before servers could be
+  // chosen -- unless a saved list leaves that server out, which the switch
+  // alone would hide.
+  const showAutoStartList =
+    autoStartCandidates.length !== 1 ||
+    (Array.isArray(storedAutoStartServerIds) &&
+      !chosenAutoStartServerIds.includes(String(autoStartCandidates[0].id)));
   useEffect(() => {
     if (!severalAutoStartCandidates) return;
     let cancelled = false;
@@ -4368,6 +4375,7 @@ export default function Settings() {
                     />
                   </DisabledReason>
                 </div>
+                {showAutoStartList && (
                 <div
                   className={cn(
                     "mt-4 space-y-2",
@@ -4497,6 +4505,7 @@ export default function Settings() {
                     </div>
                   )}
                 </div>
+                )}
             </SectionCard>
           </TabsContent>
 
