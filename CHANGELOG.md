@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduled backups of every server:** each server's row on the Dashboard shows its last backup and a Scheduled backup checkbox; the schedule backs up every server checked, one after another, each in its own folder. Until one is checked it backs up the active server alone, as before. Schedule History records each backup, and each restart, under its own server.
 - **Play time on every server:** sessions and play time are recorded for the servers other than the active one too, from who is on every minute, for the Players page once that server is the active one.
 - **The panel watches every server, not only the active one:** a server other than the active one that stops on its own is recorded in its server events, and the Dashboard's list updates at once when any server starts or stops.
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
 
 ## [1.5.2] - 2026-10-21
 
