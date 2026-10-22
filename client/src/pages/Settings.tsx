@@ -57,6 +57,7 @@ import OidcSettings from "@/pages/OidcSettings";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/NumberInput";
 import { Label } from "@/components/ui/label";
 import { HelpTip } from "@/components/HelpTip";
 import { AutoUpdateResultBanner } from "@/components/AutoUpdateResultBanner";

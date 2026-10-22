@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowRightLeft, Download, HardDrive, Loader2, MemoryStick, Package, Play, RotateCcw, Square, Users } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, Download, HardDrive, Loader2, MemoryStick, Package, Play, RotateCcw, Server as ServerIcon, Square, Users } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { SectionCard } from '@/components/ui/section-card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
@@ -267,15 +268,14 @@ export function ServersOverview({
   }
 
   return (
-    <section
-      aria-labelledby="servers-overview-heading"
-      className="mt-6 overflow-hidden rounded-lg border border-border/65 bg-card/50 shadow-sm"
-    >
-      <header className="flex items-center justify-between gap-3 border-b border-border/35 px-4 py-2">
-        <h2 id="servers-overview-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/75">
-          {t('serversOverview.heading')}
-        </h2>
-        <span className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+    <SectionCard
+      id="servers-overview"
+      title={t('serversOverview.heading')}
+      icon={ServerIcon}
+      density="compact"
+      flush
+      status={
+        <span className="flex items-center gap-3 text-xs tabular-nums text-muted-foreground">
           {hostGb !== null && memoryInUse > 0 && (
             <span title={t('serversOverview.memoryTotalTitle')}>
               {t('serversOverview.memoryTotal', { used: formatGb(memoryInUse), host: hostGb.toFixed(1) })}
@@ -288,9 +288,10 @@ export function ServersOverview({
           })}
           </span>
         </span>
-      </header>
+      }
+    >
       {(heapOver || conflicts.length > 0) && (
-        <div className="space-y-1 border-b border-border/35 bg-warning/[0.04] px-4 py-2 text-xs text-warning" role="note">
+        <div className="space-y-1 border-b border-border/60 bg-warning/[0.06] px-4 py-2 text-xs text-warning" role="note">
           {heapOver && (
             <p>{t('serversOverview.heapOver', { heap: heapTogetherGb, host: hostGb?.toFixed(1) })}</p>
           )}
@@ -313,8 +314,8 @@ export function ServersOverview({
       <ul
         data-testid="servers-overview-list"
         tabIndex={0}
-        aria-labelledby="servers-overview-heading"
-        className="max-h-[19rem] divide-y divide-border/30 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        aria-label={t('serversOverview.heading')}
+        className="max-h-[19rem] divide-y divide-border/60 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
         {ordered.map((server) => {
           const id = String(server.id)
@@ -516,6 +517,6 @@ export function ServersOverview({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </SectionCard>
   )
 }
