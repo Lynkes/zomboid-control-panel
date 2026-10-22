@@ -278,3 +278,32 @@ describe('ServerManager Windows scan on a slow PC', () => {
     },
   );
 });
+
+// Root cause of the 1.5.0 bundle's 2,057 failed scans: every caller started
+// its own PowerShell (up to 57 a minute), they piled up on a 4-core PC and all
+// timed out. Concurrent callers now share one run.
+describe('ServerManager Windows scan: one PowerShell at a time', () => {
+  beforeEach(() => execFileMock.mockReset());
+
+  it.runIf(process.platform === 'win32')(
+    'concurrent scans share one PowerShell run; a scan after it returns starts a fresh one',
+    async () => {
+      const callbacks = [];
+      execFileMock.mockImplementation((_file, _args, _opts, callback) => callbacks.push(callback));
+      const a = new ServerManager();
+      const b = new ServerManager();
+      const scans = [a._scanDedicatedServerProcesses(), b._scanDedicatedServerProcesses(), a.scanHostForServerProcesses()];
+      await new Promise((r) => setTimeout(r, 20));
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+      callbacks[0](null, '', '');
+      const results = await Promise.all(scans);
+      for (const result of results) expect(result.scanFailed).toBeFalsy();
+
+      const later = a._scanDedicatedServerProcesses();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      callbacks[1](null, '', '');
+      await later;
+    },
+  );
+});

@@ -106,10 +106,16 @@ describe('ServerManager._scanDedicatedServerProcesses: generation guard against 
       const manager = new ServerManager();
       manager.isRunning = true; // pretend a server was running before either scan
 
+      // 1.5.2: Windows scans are single-flight (a 1.5.0 bundle: one
+      // PowerShell per caller piled up and all timed out), so a scan started
+      // while the first hangs joins it, and both give up at the outer guard.
+      // That abandons the hung run: the next scan starts a fresh one.
       const firstScanPromise = manager._scanDedicatedServerProcesses();
-      // Start a second scan while the first is still "in flight" -- this
-      // alone bumps the generation counter past the first scan's stamp.
+      const joined = await manager._scanDedicatedServerProcesses();
+      expect(joined.scanFailed).toBe(true);
+      expect(callCount).toBe(1);
       const secondResult = await manager._scanDedicatedServerProcesses();
+      expect(callCount).toBe(2);
       expect(secondResult.scanFailed).toBeFalsy();
       expect(manager.isRunning).toBe(false); // newer scan's real, current answer
 

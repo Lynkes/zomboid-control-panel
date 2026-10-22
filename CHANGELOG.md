@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-10-21
+
+### Fixed
+
+- **Windows server detection, root cause:** the panel started one PowerShell check per caller (up to 57 a minute) and on a busy PC they starved each other until every check timed out; checks now share one run, so at most one runs at a time.
+
 ## [1.5.1] - 2026-10-21
 
 ### Fixed
