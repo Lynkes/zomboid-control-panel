@@ -1690,13 +1690,15 @@ export async function logScheduleExecution(
   success,
   message = null,
   duration = null,
-  { messageKey = null, messageParams = null } = {},
+  // serverId: the server a row with no task is about (another server's
+  // scheduled backup or restart); the active server otherwise.
+  { messageKey = null, messageParams = null, serverId: forServerId = null } = {},
 ) {
   const db = await getDb();
   if (!db.data.schedule_history) db.data.schedule_history = [];
 
-  let serverId = null;
-  if (taskId != null) {
+  let serverId = forServerId ?? null;
+  if (serverId == null && taskId != null) {
     const task = db.data.scheduled_tasks?.find((t) => t.id === taskId);
     serverId = task?.server_id ?? null;
   }
@@ -1755,10 +1757,19 @@ export async function clearScheduleHistory() {
  * newest-first (see appendCapped's doc comment above), so the first match
  * is the most recent.
  */
-export async function getLatestScheduleExecutionByCommand(command) {
+// `serverId`, when given, reads that server's rows only -- the scheduled
+// backup can run for several servers, and the Dashboard's "scheduled backup
+// failing" is about the server it shows.
+export async function getLatestScheduleExecutionByCommand(command, serverId = undefined) {
   const db = await getDb();
   const history = db.data.schedule_history || [];
-  return history.find((h) => h.command === command) || null;
+  return (
+    history.find(
+      (h) =>
+        h.command === command &&
+        (serverId === undefined || String(h.server_id ?? "") === String(serverId ?? "")),
+    ) || null
+  );
 }
 
 // ============================================
@@ -1811,7 +1822,7 @@ export async function getPlayerLogs(playerName = null, limit = 100, serverId = u
 // Server Events
 // ============================================
 
-export async function logServerEvent(eventType, message = null) {
+export async function logServerEvent(eventType, message = null, { serverId = null } = {}) {
   // Several callers fire this without awaiting; an unhandled rejection here
   // reaches process.on("unhandledRejection") and kills the panel.
   try {
@@ -1822,8 +1833,9 @@ export async function logServerEvent(eventType, message = null) {
       // global store): same fix as command_history/player_logs -- tagged
       // with getActiveServerId() at write time so GET /debug/activity can
       // scope this feed to the currently active server instead of showing
-      // every managed server's events mixed together.
-      server_id: await getActiveServerId(),
+      // every managed server's events mixed together. An event about
+      // another server (the server watch's) names that one instead.
+      server_id: serverId ?? (await getActiveServerId()),
       event_type: eventType,
       message,
       created_at: new Date().toISOString(),
@@ -2434,6 +2446,15 @@ export async function deleteServer(id) {
   // otherwise — nothing else ever removes it.
   deleteServerSecret(serverId);
 
+  // Nor would the boot auto-start's list of servers to start, or the
+  // server watch's list of servers to restart when they go down.
+  for (const key of ["autoStartServerIds", "restartOnCrashServerIds", "backupServerIds"]) {
+    const ids = db.data.settings?.[key];
+    if (Array.isArray(ids)) {
+      db.data.settings[key] = ids.filter((id) => String(id) !== serverId);
+    }
+  }
+
   scheduleWrite();
   return true;
 }
@@ -2802,7 +2823,15 @@ function evictPlayerStats(db, index, serverId) {
   playerStatIndex = null;
 }
 
-export async function recordPlayerSession(playerName, action, serverId = undefined) {
+// `keepOpenSession`: a connect that finds a session already open leaves it
+// running instead of starting it over -- the players watch's first look at a
+// server other than the active one, whose players may be mid-session already.
+export async function recordPlayerSession(
+  playerName,
+  action,
+  serverId = undefined,
+  { keepOpenSession = false } = {},
+) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
@@ -2836,7 +2865,9 @@ export async function recordPlayerSession(playerName, action, serverId = undefin
     index.length = db.data.player_stats.length;
   }
 
-  if (action === "connect") {
+  if (action === "connect" && keepOpenSession && playerStat.last_session_start) {
+    playerStat.last_seen = now;
+  } else if (action === "connect") {
     playerStat.last_session_start = now;
     playerStat.last_seen = now;
     playerStat.session_count++;

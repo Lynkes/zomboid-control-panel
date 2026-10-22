@@ -1,5 +1,5 @@
 import { createLogger } from "../utils/logger.js";
-import { getActiveServer, getSetting } from "../database/init.js";
+import { getActiveServer, getServers, getSetting } from "../database/init.js";
 import { getDiskFree } from "../utils/diskSpace.js";
 
 const log = createLogger("DiskMonitor");
@@ -88,14 +88,18 @@ export class DiskMonitor {
       intervalMs = CHECK_INTERVAL_MS,
       resolvePath = resolveSaveVolumePath,
       getStatus = getDiskStatusForPath,
+      listServers = () => getServers(),
     } = {},
   ) {
     this.io = io;
     this.intervalMs = intervalMs;
     this.resolvePath = resolvePath;
     this.getStatus = getStatus;
+    this.listServers = listServers;
     this.timer = null;
     this.status = null;
+    // Each local server's data folder, by server id -- see checkServers().
+    this.serverStatuses = {};
     this._wasWarning = false;
     this._wasCritical = false;
   }
@@ -105,7 +109,43 @@ export class DiskMonitor {
     const status = await this.getStatus(savePath);
     this.status = status;
     this._emitIfChanged(status);
+    await this.checkServers();
     return status;
+  }
+
+  // The data folder of every local server, not only the active one's: the
+  // Dashboard's list of servers marks a server whose disk is filling up
+  // (GET /api/servers/status reads these). No path in what it keeps -- that
+  // route answers every role. A folder two servers share is read once.
+  async checkServers() {
+    try {
+      const servers = await this.listServers();
+      const byPath = new Map();
+      const next = {};
+      for (const server of Array.isArray(servers) ? servers : []) {
+        if (!server || server.isRemote || !server.zomboidDataPath) continue;
+        let status = byPath.get(server.zomboidDataPath);
+        if (!status) {
+          status = await this.getStatus(server.zomboidDataPath);
+          byPath.set(server.zomboidDataPath, status);
+        }
+        if (!status?.ok) continue;
+        next[String(server.id)] = {
+          usedPercent: status.usedPercent,
+          freeBytes: status.freeBytes,
+          warning: status.warning,
+          critical: status.critical,
+        };
+      }
+      this.serverStatuses = next;
+    } catch (error) {
+      log.debug(`Per-server disk check failed: ${error.message}`);
+    }
+    return this.serverStatuses;
+  }
+
+  getServerDiskStatuses() {
+    return this.serverStatuses;
   }
 
   _emitIfChanged(status) {

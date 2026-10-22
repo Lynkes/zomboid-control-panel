@@ -38,7 +38,7 @@ vi.mock('@/lib/api', async () => {
     },
     serverApi: { ...actual.serverApi, getNetworkInterfaces: vi.fn() },
     panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn() },
-    serversApi: { ...actual.serversApi, getAll: vi.fn() },
+    serversApi: { ...actual.serversApi, getAll: vi.fn(), getStatus: vi.fn() },
   }
 })
 
@@ -49,6 +49,7 @@ const getNetworkInterfaces = vi.mocked(serverApi.getNetworkInterfaces)
 const getUpdateStatus = vi.mocked(panelUpdateApi.getStatus)
 const preflight = vi.mocked(panelUpdateApi.preflight)
 const getAllServers = vi.mocked(serversApi.getAll)
+const getServerStatuses = vi.mocked(serversApi.getStatus)
 
 function primeCommonMocks() {
   getAppSettings.mockResolvedValue({
@@ -72,6 +73,7 @@ function primeCommonMocks() {
     info: { isPackaged: true, platform: 'win32', updateMode: 'direct', restartAssessment: { gameServers: 'preserved', requiresConfirmation: false }, temporaryDirectory: 'C:/tmp', applyLogPath: 'C:/tmp/log.txt' },
   } as never)
   getAllServers.mockResolvedValue({ servers: [] } as never)
+  getServerStatuses.mockResolvedValue({ servers: [], detectedProcesses: 0, detectionError: null } as never)
   getCorsDiagnostics.mockResolvedValue({ diagnostics: null } as never)
   getNetworkInterfaces.mockResolvedValue({ interfaces: [] } as never)
 }
@@ -97,7 +99,7 @@ describe('Settings.tsx: Connection tab auto-start switch saves immediately', () 
     updateAppSettings.mockResolvedValueOnce({} as never)
     renderSettings()
 
-    const toggle = await screen.findByRole('switch', { name: /start the game server when the panel starts/i })
+    const toggle = await screen.findByRole('switch', { name: /start game servers when the panel starts/i })
     expect(toggle).not.toBeChecked()
 
     fireEvent.click(toggle)
@@ -111,12 +113,123 @@ describe('Settings.tsx: Connection tab auto-start switch saves immediately', () 
     updateAppSettings.mockRejectedValueOnce(new Error('network down'))
     renderSettings()
 
-    const toggle = await screen.findByRole('switch', { name: /start the game server when the panel starts/i })
+    const toggle = await screen.findByRole('switch', { name: /start game servers when the panel starts/i })
     expect(toggle).not.toBeChecked()
 
     fireEvent.click(toggle)
 
     await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true }))
     await waitFor(() => expect(toggle).not.toBeChecked())
+  })
+})
+
+// The switch used to start the active server alone; under it, a checkbox
+// per local server now says which ones it starts.
+describe('Settings.tsx: Connection tab lists the servers the switch starts', () => {
+  function server(id: string, name: string, extra: Record<string, unknown> = {}) {
+    return { id, name, serverName: name, isActive: false, isRemote: false, ...extra }
+  }
+
+  function primeServers(settings: Record<string, unknown>) {
+    primeCommonMocks()
+    getAppSettings.mockResolvedValue({
+      settings: { panelPort: 8080, httpsEnabled: false, httpsPort: 8443, corsAllowedOrigins: '', ...settings },
+    } as never)
+    getAllServers.mockResolvedValue({
+      servers: [
+        server('s1', 'Ashenwood', { isActive: true }),
+        server('s2', 'Riverside'),
+        server('s3', 'Hosted', { isRemote: true }),
+      ],
+    } as never)
+  }
+
+  it('shows the active server chosen for a setting saved before servers could be chosen, and adds another to the list', async () => {
+    primeServers({ autoStartServer: true })
+    updateAppSettings.mockResolvedValueOnce({} as never)
+    renderSettings()
+
+    const active = await screen.findByRole('checkbox', { name: /Ashenwood/ })
+    const other = screen.getByRole('checkbox', { name: /Riverside/ })
+    expect(active).toBeChecked()
+    expect(other).not.toBeChecked()
+    // A remote server is started by its host, so it isn't offered.
+    expect(screen.queryByRole('checkbox', { name: /Hosted/ })).not.toBeInTheDocument()
+
+    fireEvent.click(other)
+
+    await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServerIds: ['s1', 's2'] }))
+    await waitFor(() => expect(other).toBeChecked())
+  })
+
+  it('takes a server out of a saved list, and puts it back when the save fails', async () => {
+    primeServers({ autoStartServer: true, autoStartServerIds: ['s2', 's1'] })
+    updateAppSettings.mockRejectedValueOnce(new Error('network down'))
+    renderSettings()
+
+    const other = await screen.findByRole('checkbox', { name: /Riverside/ })
+    expect(other).toBeChecked()
+
+    fireEvent.click(other)
+
+    await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServerIds: ['s1'] }))
+    await waitFor(() => expect(other).toBeChecked())
+  })
+
+  it('keeps the list read-only while the switch is off, and says when nothing is chosen', async () => {
+    primeServers({ autoStartServer: false, autoStartServerIds: ['s2'] })
+    renderSettings()
+
+    const active = await screen.findByRole('checkbox', { name: /Ashenwood/ })
+    expect(active).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: /Riverside/ })).toBeChecked()
+
+    cleanup()
+    primeServers({ autoStartServer: true, autoStartServerIds: [] })
+    renderSettings()
+
+    expect(await screen.findByText('No server is checked, so none will start.')).toBeInTheDocument()
+  })
+})
+
+// What the chosen servers share while they run together, and the wait
+// between one launch and the next.
+describe('Settings.tsx: Connection tab weighs the chosen servers together', () => {
+  function server(id: string, name: string, extra: Record<string, unknown> = {}) {
+    return { id, name, serverName: name, isActive: false, isRemote: false, maxMemory: 12, serverPort: 16261, rconPort: 27015, ...extra }
+  }
+
+  function primeTogether(settings: Record<string, unknown>) {
+    primeCommonMocks()
+    getAppSettings.mockResolvedValue({
+      settings: { panelPort: 8080, httpsEnabled: false, httpsPort: 8443, corsAllowedOrigins: '', ...settings },
+    } as never)
+    getAllServers.mockResolvedValue({
+      servers: [
+        server('s1', 'Ashenwood', { isActive: true }),
+        server('s2', 'Riverside', { serverPort: 16262, rconPort: 27016 }),
+      ],
+    } as never)
+    getServerStatuses.mockResolvedValue({ servers: [], detectedProcesses: 0, detectionError: null, hostMemoryBytes: 16 * 1024 ** 3 } as never)
+  }
+
+  it('warns when their heap together is more than the machine has, and when their game ports overlap', async () => {
+    primeTogether({ autoStartServer: true, autoStartServerIds: ['s1', 's2'] })
+    renderSettings()
+
+    expect(await screen.findByText(/can use up to 24 GB of heap, more than the 16.0 GB/)).toBeInTheDocument()
+    expect(screen.getByText(/Ashenwood \(port 16261\) and Riverside \(port 16262\) use the same game ports/)).toBeInTheDocument()
+  })
+
+  it('saves the wait between servers on its own when the field is left', async () => {
+    primeTogether({ autoStartServer: true, autoStartServerIds: ['s1', 's2'], autoStartDelaySeconds: 0 })
+    updateAppSettings.mockResolvedValueOnce({} as never)
+    renderSettings()
+
+    const field = await screen.findByLabelText('Wait between servers')
+    fireEvent.change(field, { target: { value: '45' } })
+    fireEvent.blur(field)
+
+    await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartDelaySeconds: 45 }))
   })
 })

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
+- **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
+- **Start, stop and restart any server from the Dashboard's list:** the servers other than the active one get Start, or Stop and Restart, in their row, with the Dashboard's own rules: the world is saved before a stop, a stop that never finishes is forced after a minute, and a restart warns players 5 minutes ahead. The active server keeps its own controls.
+- **Restart if it goes down:** a checkbox per server (on the Dashboard's list, or beside auto-start with one server) has the panel start that server again when it stops without the panel asking, such as a crash or `/quit` in the game. It waits 15 seconds, and leaves a server down after 3 restarts in 30 minutes.
+- **Mods and game updates on every server:** the Dashboard's list of servers marks a server other than the active one whose Workshop mods are behind Steam (the ones its `.ini` lists) or whose game build is behind its branch. With the mod update restart on, a running server with mods behind is restarted to load them, once per set of updates, with the same warning to its players.
+- **Memory and disk per server:** each running server's RAM is on the Dashboard's list, with the total against what the machine (or its container) has, and a server whose data folder's disk is filling up is marked.
+- **Servers that start together:** Settings › Connection and the Dashboard warn when the servers chosen to start with the panel may use more heap together than the machine has, or share game or RCON ports, and a new wait between servers spaces their launches so the worlds don't all load at once.
+- **Scheduled backups of every server:** each server's row on the Dashboard shows its last backup and a Scheduled backup checkbox; the schedule backs up every server checked, one after another, each in its own folder. Until one is checked it backs up the active server alone, as before. Schedule History records each backup, and each restart, under its own server.
+- **Play time on every server:** sessions and play time are recorded for the servers other than the active one too, from who is on every minute, for the Players page once that server is the active one.
+- **The panel watches every server, not only the active one:** a server other than the active one that stops on its own is recorded in its server events, and the Dashboard's list updates at once when any server starts or stops.
+
 ## [1.5.2] - 2026-10-21
 
 ### Fixed

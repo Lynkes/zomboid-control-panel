@@ -71,6 +71,9 @@ vi.mock('@/lib/api', async () => {
       getComposedStatus: vi.fn(),
       getResolvedActive: vi.fn(),
       getStatus: vi.fn(),
+      // The servers overview's own fetches; one server unless a test says so.
+      getAll: vi.fn(async () => ({ servers: [] })),
+      getRconStatuses: vi.fn(async () => ({ servers: [] })),
     },
     playersApi: {
       ...actual.playersApi,
@@ -190,14 +193,143 @@ describe('Dashboard.tsx: Auto-start sends a boolean setting', () => {
     expect(checkbox).toBeInTheDocument()
     fireEvent.click(checkbox!)
 
+    // Checking turns the switch on and adds this server to the ones it
+    // starts; unchecking takes it back out and leaves the switch alone.
     await waitFor(() => {
-      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true })
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['1'] })
     }, { timeout: 500 })
 
     fireEvent.click(checkbox!)
 
     await waitFor(() => {
-      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServer: false })
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServerIds: [] })
+    }, { timeout: 500 })
+  })
+
+  it('adds and removes the active server only, keeping the other servers chosen in Settings', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true, autoStartServerIds: ['9'] } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = document.getElementById('autoStartServer')
+    // On, but for another server: not this one.
+    await waitFor(() => expect(checkbox).not.toBeChecked())
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['9', '1'] })
+    }, { timeout: 500 })
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox!)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ autoStartServerIds: ['9'] })
+    }, { timeout: 500 })
+  })
+
+  it('shows this server checked for a setting saved before servers could be chosen', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    await waitFor(() => expect(document.getElementById('autoStartServer')).toBeChecked())
+  })
+
+  it('with two servers, moves every auto-start checkbox to the servers overview', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { autoStartServer: true, autoStartServerIds: ['1'] } })
+    const active = makeServer()
+    const other = makeServer({ id: 2, name: 'Riverside', serverName: 'Riverside', isActive: false })
+    getResolvedActive.mockResolvedValue({ server: active })
+    vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [active, other] } as never)
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    const row = (await screen.findByText('Riverside')).closest('li') as HTMLElement
+    await waitFor(() => expect(document.getElementById('autoStartServer')).not.toBeInTheDocument())
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Start with the panel' }))
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ autoStartServer: true, autoStartServerIds: ['1', '2'] })
+    }, { timeout: 500 })
+  })
+})
+
+describe('Dashboard.tsx: Restart if it goes down', () => {
+  it('adds and removes the active server, keeping the others chosen', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: { restartOnCrashServerIds: ['9'] } })
+    getResolvedActive.mockResolvedValue({ server: makeServer() })
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    await screen.findAllByRole('button', { name: 'Start' })
+    const checkbox = await waitFor(() => {
+      const found = document.getElementById('restartOnCrash')
+      expect(found).toBeInTheDocument()
+      return found!
+    })
+    expect(checkbox).not.toBeChecked()
+    fireEvent.click(checkbox)
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ restartOnCrashServerIds: ['9', '1'] })
+    }, { timeout: 500 })
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenLastCalledWith({ restartOnCrashServerIds: ['9'] })
+    }, { timeout: 500 })
+  })
+
+  it('with two servers, is chosen per row of the servers overview', async () => {
+    await setUpCommon()
+    getAppSettings.mockResolvedValue({ settings: {} })
+    const active = makeServer()
+    const other = makeServer({ id: 2, name: 'Riverside', serverName: 'Riverside', isActive: false })
+    getResolvedActive.mockResolvedValue({ server: active })
+    vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [active, other] } as never)
+    getStatus.mockResolvedValue({
+      running: false, startTime: null, uptime: 0, serverPath: 'C:/servers/ashenwood',
+      serverPathConfigured: true, rcon: { host: '', port: 0, connected: false },
+    } as Awaited<ReturnType<typeof serverApi.getStatus>>)
+    updateAppSettings.mockResolvedValue({ success: true })
+
+    renderDashboard()
+
+    const row = (await screen.findByText('Riverside')).closest('li') as HTMLElement
+    await waitFor(() => expect(document.getElementById('restartOnCrash')).not.toBeInTheDocument())
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Restart if it goes down' }))
+
+    await waitFor(() => {
+      expect(updateAppSettings).toHaveBeenCalledWith({ restartOnCrashServerIds: ['2'] })
     }, { timeout: 500 })
   })
 })
@@ -223,6 +355,8 @@ async function closeMenu(menu: HTMLElement) {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  // clearAllMocks keeps a test's mockResolvedValue: back to one server.
+  vi.mocked(serversApi.getAll).mockResolvedValue({ servers: [] } as never)
   mockCanControl = true
   mockCanWipe = true
   mockCanPanelSettings = true
@@ -253,6 +387,10 @@ describe('Dashboard.tsx: Auto-start on launch is gated on panel.settings', () =>
     expect(checkbox).toBeDisabled()
 
     fireEvent.click(checkbox!)
+    // Restart if it goes down is the same kind of panel setting.
+    const restartBox = document.getElementById('restartOnCrash')
+    expect(restartBox).toBeDisabled()
+    fireEvent.click(restartBox!)
     await new Promise((r) => setTimeout(r, 0))
     expect(updateAppSettings).not.toHaveBeenCalled()
   })

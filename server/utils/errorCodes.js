@@ -585,6 +585,9 @@ export const ErrorCode = Object.freeze({
    * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
    * its own 2 delete routes). */
   BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
+  /** server/routes/backup.js -- POST /api/backup/settings, `serverIds` (the
+   * servers the schedule backs up) is not a list of up to {{max}} server ids. */
+  BACKUP_SERVER_IDS_INVALID: "BACKUP_SERVER_IDS_INVALID",
   /** server/routes/backup.js (sites: POST /settings, POST
    * /validate-schedule) -- isCronTooFrequent() rejects a backup schedule
    * firing more than once every 5 minutes. Its own code rather than
@@ -742,6 +745,24 @@ export const ErrorCode = Object.freeze({
   /** server/routes/server.js -- POST /api/server/stop, world saved but the
    * managed container failed to stop. */
   SERVER_STOP_CONTAINER_STOP_FAILED: "SERVER_STOP_CONTAINER_STOP_FAILED",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/start|stop|restart,
+   * the server named is the active one; {{name}}. */
+  SERVERS_ACTION_ACTIVE_SERVER: "SERVERS_ACTION_ACTIVE_SERVER",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/start|stop|restart,
+   * the server named is a remote one; {{name}}. */
+  SERVERS_ACTION_REMOTE_REFUSED: "SERVERS_ACTION_REMOTE_REFUSED",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/start|stop,
+   * the process scan could not say whether the server runs; {{name}}. */
+  SERVERS_ACTION_STATE_UNKNOWN: "SERVERS_ACTION_STATE_UNKNOWN",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/start, a
+   * never-started server with no admin password; {{name}}. */
+  SERVERS_START_ADMIN_PASSWORD_MISSING: "SERVERS_START_ADMIN_PASSWORD_MISSING",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/stop, RCON to
+   * that server does not answer, so nothing was saved or stopped; {{name}}. */
+  SERVERS_STOP_RCON_UNAVAILABLE: "SERVERS_STOP_RCON_UNAVAILABLE",
+  /** server/services/otherServerLifecycle.js -- POST /api/servers/:id/stop, the save
+   * before the stop failed and the server was left running; {{name}}, {{reason}}. */
+  SERVERS_STOP_SAVE_FAILED: "SERVERS_STOP_SAVE_FAILED",
   /** server/routes/server.js -- POST /api/server/message, no message body. */
   SERVER_MESSAGE_REQUIRED: "SERVER_MESSAGE_REQUIRED",
   /** server/routes/server.js -- POST /api/server/message, message isn't a
@@ -2310,6 +2331,14 @@ export const ErrorCode = Object.freeze({
   /** server/routes/config.js -- PUT /app-settings, a `chatPresets` entry
    * isn't a string or exceeds 500 characters. */
   CONFIG_CHAT_PRESETS_INVALID_ENTRY: "CONFIG_CHAT_PRESETS_INVALID_ENTRY",
+  /** server/routes/config.js -- PUT /app-settings, `autoStartServerIds` is
+   * not a list, has more than `max` entries, or holds something that isn't
+   * a server id. */
+  CONFIG_AUTO_START_SERVER_IDS_INVALID: "CONFIG_AUTO_START_SERVER_IDS_INVALID",
+  /** server/routes/config.js -- PUT /app-settings, `restartOnCrashServerIds`
+   * is not a list, has more than `max` entries, or holds something that
+   * isn't a server id. */
+  CONFIG_RESTART_ON_CRASH_SERVER_IDS_INVALID: "CONFIG_RESTART_ON_CRASH_SERVER_IDS_INVALID",
   /** server/routes/config.js (sites: GET /cors-debug, DELETE
    * /cors-debug/blocked) -- the CORS diagnostics hooks were never
    * registered on the app (req.app.get returns a non-function). Identical
