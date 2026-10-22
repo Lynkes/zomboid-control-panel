@@ -58,6 +58,7 @@ vi.mock('@/lib/api', async () => {
       delete: vi.fn(),
       steamVerify: vi.fn(),
       steamUpdate: vi.fn(),
+      start: vi.fn(),
     },
     serversDetectApi: {
       ...actual.serversDetectApi,
@@ -115,6 +116,7 @@ const update = vi.mocked(serversApi.update)
 const del = vi.mocked(serversApi.delete)
 const steamVerify = vi.mocked(serversApi.steamVerify)
 const steamUpdate = vi.mocked(serversApi.steamUpdate)
+const startOther = vi.mocked(serversApi.start)
 const detect = vi.mocked(serversDetectApi.detect)
 const autoScan = vi.mocked(serversDetectApi.autoScan)
 const deleteFiles = vi.mocked(serversDetectApi.deleteFiles)
@@ -476,7 +478,10 @@ describe('Servers.tsx: capability gating', () => {
     await waitFor(() => expect(activate).toHaveBeenCalledWith(SERVER_A.id))
   })
 
-  it('Start reaches serverApi.start, when the role holds servers.manage and server.control', async () => {
+  // server-a isn't the active server: it starts where it stands (POST
+  // /servers/:id/start) instead of being switched to first, which moved the
+  // rest of the panel off the server the operator was on.
+  it('Start reaches the server\'s own start, when the role holds servers.manage and server.control', async () => {
     mockCan = () => true
     await setUpFixtures()
     // Without a real per-server status entry, Start renders its OTHER
@@ -495,8 +500,11 @@ describe('Servers.tsx: capability gating', () => {
     const startButtons = screen.getAllByRole('button', { name: en.card.start })
     expect(startButtons).toHaveLength(1)
     expect(startButtons[0]).not.toBeDisabled()
+    startOther.mockResolvedValue({ success: true } as never)
     fireEvent.click(startButtons[0])
-    await waitFor(() => expect(start).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(startOther).toHaveBeenCalledWith(SERVER_A.id))
+    expect(activate).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
   })
 
   it('ruling 1: inline Start/Stop stays unreachable holding only servers.manage, without server.control (partial-execution risk)', async () => {

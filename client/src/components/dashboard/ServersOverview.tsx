@@ -35,6 +35,8 @@ import { cn } from '@/lib/utils'
 // when one of them starts or stops, and the list refreshes on it.
 
 const POLL_MS = 15_000
+// The server list, updates and backups change rarely.
+const DETAILS_POLL_MS = 5 * 60_000
 // The Dashboard's own Restart warns players this long first.
 const RESTART_WARNING_MINUTES = 5
 
@@ -94,54 +96,85 @@ export function ServersOverview({
   // One action at a time, like the panel's lifecycle lock.
   const [pending, setPending] = useState<{ id: string; action: ServerAction } | null>(null)
   const [toConfirm, setToConfirm] = useState<{ server: ServerInstance; action: 'stop' | 'restart' } | null>(null)
-  const requestSeq = useRef(0)
 
-  const refresh = useCallback(async () => {
-    const seq = ++requestSeq.current
-    const [list, status, rconStatus, updateList, backupSummary] = await Promise.allSettled([
-      serversApi.getAll(),
+  // Two cadences, so a Dashboard left open stays well inside the API's
+  // per-address budget (300 requests a minute, shared with the rest of the
+  // page and every other tab): what changes from one moment to the next --
+  // each server's state and players -- every 15 s; the server list, the
+  // other servers' updates and the backups on mount, on a push, and every 5
+  // minutes. The RCON count is asked only by the roles its route lets in.
+  const canCountPlayers = can('servers.manage') || can('rcon.execute')
+  const fastSeq = useRef(0)
+  const slowSeq = useRef(0)
+  // With one server the list isn't shown: nothing to poll beyond the server
+  // list itself (which tells when a second server appears).
+  const serverCount = useRef(0)
+
+  const refreshState = useCallback(async () => {
+    const seq = ++fastSeq.current
+    const [status, rconStatus] = await Promise.allSettled([
       serversApi.getStatus(),
-      serversApi.getRconStatuses({ players: true }),
-      serversApi.getUpdates(),
-      canSeeBackups ? backupApi.getSummary() : Promise.resolve(null),
+      canCountPlayers ? serversApi.getRconStatuses({ players: true }) : Promise.resolve(null),
     ])
     // An older poll answering after a newer one must not put its rows back.
-    if (seq !== requestSeq.current) return
-    if (list.status === 'fulfilled') setServers(list.value?.servers ?? [])
+    if (seq !== fastSeq.current) return
     if (status.status === 'fulfilled') {
       setStatuses(Object.fromEntries((status.value?.servers ?? []).map((row) => [String(row.id), row])))
       if (typeof status.value?.hostMemoryBytes === 'number') setHostMemoryBytes(status.value.hostMemoryBytes)
+    }
+    if (rconStatus.status === 'fulfilled' && rconStatus.value) {
+      setRcon(Object.fromEntries((rconStatus.value.servers ?? []).map((row) => [String(row.id), row])))
+    }
+  }, [canCountPlayers])
+
+  const refreshDetails = useCallback(async () => {
+    const seq = ++slowSeq.current
+    const [list, updateList, backupSummary] = await Promise.allSettled([
+      serversApi.getAll(),
+      serversApi.getUpdates(),
+      canSeeBackups ? backupApi.getSummary() : Promise.resolve(null),
+    ])
+    if (seq !== slowSeq.current) return
+    if (list.status === 'fulfilled') {
+      setServers(list.value?.servers ?? [])
+      serverCount.current = list.value?.servers?.length ?? 0
     }
     if (updateList.status === 'fulfilled') {
       setUpdates(Object.fromEntries((updateList.value?.servers ?? []).map((row) => [String(row.serverId), row])))
     }
     if (backupSummary.status === 'fulfilled') setBackups(backupSummary.value ?? null)
-    if (rconStatus.status === 'fulfilled') {
-      setRcon(Object.fromEntries((rconStatus.value?.servers ?? []).map((row) => [String(row.id), row])))
-    }
   }, [canSeeBackups])
+
+  const refresh = useCallback(async () => {
+    await refreshDetails()
+    if (serverCount.current > 1) await refreshState()
+  }, [refreshState, refreshDetails])
 
   useEffect(() => {
     void refresh()
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'hidden') return
-      void refresh()
-    }, POLL_MS)
-    return () => clearInterval(interval)
-  }, [refresh, activeServerId])
+    const visible = () => document.visibilityState !== 'hidden'
+    const fast = setInterval(() => { if (visible() && serverCount.current > 1) void refreshState() }, POLL_MS)
+    const slow = setInterval(() => { if (visible()) void refreshDetails() }, DETAILS_POLL_MS)
+    return () => {
+      clearInterval(fast)
+      clearInterval(slow)
+    }
+  }, [refresh, refreshState, refreshDetails, activeServerId])
 
   useEffect(() => {
     if (!socket) return
-    const onChange = () => { void refresh() }
-    socket.on('activeServerChanged', onChange)
-    socket.on('servers:status', onChange)
-    socket.on('servers:updates', onChange)
+    const onActiveChange = () => { void refresh() }
+    const onState = () => { if (serverCount.current > 1) void refreshState() }
+    const onUpdates = () => { void refreshDetails() }
+    socket.on('activeServerChanged', onActiveChange)
+    socket.on('servers:status', onState)
+    socket.on('servers:updates', onUpdates)
     return () => {
-      socket.off('activeServerChanged', onChange)
-      socket.off('servers:status', onChange)
-      socket.off('servers:updates', onChange)
+      socket.off('activeServerChanged', onActiveChange)
+      socket.off('servers:status', onState)
+      socket.off('servers:updates', onUpdates)
     }
-  }, [socket, refresh])
+  }, [socket, refresh, refreshState, refreshDetails])
 
   const shown = servers.length > 1
   useEffect(() => { onShownChange?.(shown) }, [shown, onShownChange])
@@ -315,7 +348,7 @@ export function ServersOverview({
         data-testid="servers-overview-list"
         tabIndex={0}
         aria-label={t('serversOverview.heading')}
-        className="max-h-[19rem] divide-y divide-border/60 overflow-y-auto overscroll-contain focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className="divide-y divide-border/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring sm:max-h-[24rem] sm:overflow-y-auto sm:overscroll-contain"
       >
         {ordered.map((server) => {
           const id = String(server.id)
@@ -337,7 +370,8 @@ export function ServersOverview({
             ? []
             : state === 'running' ? ['stop', 'restart'] : ['start']
           return (
-            <li key={id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+            <li key={id} className="space-y-2 px-4 py-2.5">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <div className="flex min-w-0 flex-1 basis-48 items-center gap-2.5">
                 <span
                   className={cn(
@@ -406,9 +440,35 @@ export function ServersOverview({
                   </span>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-3">
-                {!server.isRemote && (
-                  <>
+                {(actions.length > 0 || !isActive) && (
+                  <div className="ms-auto flex flex-wrap items-center gap-1.5">
+                {actions.length > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    {actions.map((action) => actionButton(server, action))}
+                  </div>
+                )}
+                {!isActive && (
+                  <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : null}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 px-2 text-xs"
+                      disabled={!canSwitch || switching !== null}
+                      onClick={() => handleSwitch(server)}
+                      aria-label={t('serversOverview.showAria', { name })}
+                    >
+                      {switching === id
+                        ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                        : <ArrowRightLeft className="h-3 w-3" aria-hidden="true" />}
+                      {t('serversOverview.show')}
+                    </Button>
+                  </DisabledReason>
+                )}
+                  </div>
+                )}
+              </div>
+              {!server.isRemote && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
                     <div className="flex items-center gap-1.5">
                       <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
                         <Checkbox
@@ -459,31 +519,8 @@ export function ServersOverview({
                         </span>
                       </div>
                     )}
-                  </>
-                )}
-                {actions.length > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    {actions.map((action) => actionButton(server, action))}
-                  </div>
-                )}
-                {!isActive && (
-                  <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : null}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 gap-1.5 px-2 text-xs"
-                      disabled={!canSwitch || switching !== null}
-                      onClick={() => handleSwitch(server)}
-                      aria-label={t('serversOverview.showAria', { name })}
-                    >
-                      {switching === id
-                        ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                        : <ArrowRightLeft className="h-3 w-3" aria-hidden="true" />}
-                      {t('serversOverview.show')}
-                    </Button>
-                  </DisabledReason>
-                )}
-              </div>
+                </div>
+              )}
             </li>
           )
         })}
