@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowRightLeft, Loader2, Play, RotateCcw, Square, Users } from 'lucide-react'
+import { AlertTriangle, ArrowRightLeft, Download, HardDrive, Loader2, MemoryStick, Package, Play, RotateCcw, Square, Users } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
@@ -13,10 +13,11 @@ import { ServerUptime } from '@/components/ServerUptime'
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { serversApi, type ServerInstance } from '@/lib/api'
+import { backupApi, serversApi, type OtherServerUpdate, type ServerInstance } from '@/lib/api'
 import {
-  autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, type AutoStartSettings,
+  autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, withAutoStartServer, type AutoStartSettings,
 } from '@/lib/autoStartServers'
+import { BYTES_PER_GB, formatGb, heapOfServers, portConflicts } from '@/lib/serversTogether'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { cn } from '@/lib/utils'
 
@@ -40,6 +41,16 @@ type StatusRow = Awaited<ReturnType<typeof serversApi.getStatus>>['servers'][num
 type RconRow = Awaited<ReturnType<typeof serversApi.getRconStatuses>>['servers'][number]
 type RowState = 'running' | 'stopped' | 'unknown'
 type ServerAction = 'start' | 'stop' | 'restart'
+type BackupSummary = Awaited<ReturnType<typeof backupApi.getSummary>>
+
+function ageOf(t: (key: string, options?: Record<string, unknown>) => string, iso: string): string {
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (minutes < 1) return t('age.justNow')
+  if (minutes < 60) return t('age.minutesAgo', { count: minutes })
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return t('age.hoursAgo', { count: hours })
+  return t('age.daysAgo', { count: Math.floor(hours / 24) })
+}
 
 interface ServersOverviewProps {
   activeServerId: string | null
@@ -68,7 +79,14 @@ export function ServersOverview({
   const { can } = useAuth()
   const canSwitch = can('servers.manage')
   const canControl = can('server.control')
+  // Backups: what every backup role reads (GET /backup/summary), and the
+  // schedule's list of servers, which backups.manage changes.
+  const canSeeBackups = can('backups.manage') || can('backups.download') || can('backups.restore')
+  const canManageBackups = can('backups.manage')
   const [servers, setServers] = useState<ServerInstance[]>([])
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | null>(null)
+  const [updates, setUpdates] = useState<Record<string, OtherServerUpdate>>({})
+  const [backups, setBackups] = useState<BackupSummary | null>(null)
   const [statuses, setStatuses] = useState<Record<string, StatusRow>>({})
   const [rcon, setRcon] = useState<Record<string, RconRow>>({})
   const [switching, setSwitching] = useState<string | null>(null)
@@ -79,21 +97,28 @@ export function ServersOverview({
 
   const refresh = useCallback(async () => {
     const seq = ++requestSeq.current
-    const [list, status, rconStatus] = await Promise.allSettled([
+    const [list, status, rconStatus, updateList, backupSummary] = await Promise.allSettled([
       serversApi.getAll(),
       serversApi.getStatus(),
       serversApi.getRconStatuses({ players: true }),
+      serversApi.getUpdates(),
+      canSeeBackups ? backupApi.getSummary() : Promise.resolve(null),
     ])
     // An older poll answering after a newer one must not put its rows back.
     if (seq !== requestSeq.current) return
     if (list.status === 'fulfilled') setServers(list.value?.servers ?? [])
     if (status.status === 'fulfilled') {
       setStatuses(Object.fromEntries((status.value?.servers ?? []).map((row) => [String(row.id), row])))
+      if (typeof status.value?.hostMemoryBytes === 'number') setHostMemoryBytes(status.value.hostMemoryBytes)
     }
+    if (updateList.status === 'fulfilled') {
+      setUpdates(Object.fromEntries((updateList.value?.servers ?? []).map((row) => [String(row.serverId), row])))
+    }
+    if (backupSummary.status === 'fulfilled') setBackups(backupSummary.value ?? null)
     if (rconStatus.status === 'fulfilled') {
       setRcon(Object.fromEntries((rconStatus.value?.servers ?? []).map((row) => [String(row.id), row])))
     }
-  }, [])
+  }, [canSeeBackups])
 
   useEffect(() => {
     void refresh()
@@ -109,9 +134,11 @@ export function ServersOverview({
     const onChange = () => { void refresh() }
     socket.on('activeServerChanged', onChange)
     socket.on('servers:status', onChange)
+    socket.on('servers:updates', onChange)
     return () => {
       socket.off('activeServerChanged', onChange)
       socket.off('servers:status', onChange)
+      socket.off('servers:updates', onChange)
     }
   }, [socket, refresh])
 
@@ -165,6 +192,29 @@ export function ServersOverview({
     }
   }
 
+  // The scheduled backup's servers: its list, or the active server alone
+  // while nobody chose (backupServerIds).
+  const scheduledBackupIds = (activeId: string | null) =>
+    Array.isArray(backups?.schedule.serverIds)
+      ? backups.schedule.serverIds.map(String)
+      : activeId !== null ? [activeId] : []
+  const handleScheduledBackupChange = async (server: ServerInstance, chosenNow: boolean) => {
+    if (!canManageBackups || !backups) return
+    const previous = backups
+    const next = withAutoStartServer(scheduledBackupIds(activeServerId), server.id, chosenNow)
+    setBackups({ ...previous, schedule: { ...previous.schedule, serverIds: next } })
+    try {
+      await backupApi.updateSettings({ serverIds: next })
+      toast({
+        title: t(chosenNow ? 'serversOverview.scheduledBackupOnTitle' : 'serversOverview.scheduledBackupOffTitle'),
+        description: t(chosenNow ? 'serversOverview.scheduledBackupOnDesc' : 'serversOverview.scheduledBackupOffDesc', { name: server.name || server.serverName }),
+      })
+    } catch (error) {
+      setBackups(previous)
+      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('serversOverview.scheduledBackupSaveFailed')), variant: 'destructive' })
+    }
+  }
+
   if (!shown) return null
 
   const autoStartOn = autoStartEnabled(autoStartSettings)
@@ -176,6 +226,17 @@ export function ServersOverview({
   // one the rest of the Dashboard shows stays in view -- then My Servers order.
   const ordered = [...servers.filter(isActiveServer), ...servers.filter((server) => !isActiveServer(server))]
   const confirmName = toConfirm ? toConfirm.server.name || toConfirm.server.serverName : ''
+  // What the servers that start together share: the machine's memory and
+  // its ports.
+  const startingTogether = autoStartOn ? servers.filter((server) => !server.isRemote && chosen.includes(String(server.id))) : []
+  const heapTogetherGb = heapOfServers(startingTogether)
+  const hostGb = hostMemoryBytes ? hostMemoryBytes / BYTES_PER_GB : null
+  const heapOver = hostGb !== null && startingTogether.length > 1 && heapTogetherGb > hostGb
+  const conflicts = portConflicts(startingTogether)
+  const memoryInUse = Object.values(statuses).reduce((sum, row) => sum + (row.running && row.memoryBytes ? row.memoryBytes : 0), 0)
+  const backupIds = scheduledBackupIds(activeServerId)
+  const lastBackupOf = (id: string) => backups?.servers.find((entry) => String(entry.serverId) === id)?.lastBackupAt ?? null
+  const nameOf = (server: ServerInstance) => server.name || server.serverName
 
   const actionButton = (server: ServerInstance, action: ServerAction) => {
     const id = String(server.id)
@@ -214,13 +275,39 @@ export function ServersOverview({
         <h2 id="servers-overview-heading" className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/75">
           {t('serversOverview.heading')}
         </h2>
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+        <span className="flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+          {hostGb !== null && memoryInUse > 0 && (
+            <span title={t('serversOverview.memoryTotalTitle')}>
+              {t('serversOverview.memoryTotal', { used: formatGb(memoryInUse), host: hostGb.toFixed(1) })}
+            </span>
+          )}
+          <span>
           {t('serversOverview.runningCount', {
             running: servers.filter((server) => rowState(server, statuses[String(server.id)], rcon[String(server.id)]) === 'running').length,
             total: servers.length,
           })}
+          </span>
         </span>
       </header>
+      {(heapOver || conflicts.length > 0) && (
+        <div className="space-y-1 border-b border-border/35 bg-warning/[0.04] px-4 py-2 text-xs text-warning" role="note">
+          {heapOver && (
+            <p>{t('serversOverview.heapOver', { heap: heapTogetherGb, host: hostGb?.toFixed(1) })}</p>
+          )}
+          {conflicts.map((conflict) => (
+            <p key={`${conflict.kind}-${conflict.first.id}-${conflict.second.id}`}>
+              {conflict.kind === 'game'
+                ? t('serversOverview.gamePortConflict', {
+                    first: nameOf(conflict.first), second: nameOf(conflict.second),
+                    firstPort: conflict.first.serverPort, secondPort: conflict.second.serverPort,
+                  })
+                : t('serversOverview.rconPortConflict', {
+                    first: nameOf(conflict.first), second: nameOf(conflict.second), port: conflict.first.rconPort,
+                  })}
+            </p>
+          ))}
+        </div>
+      )}
       {/* About six rows, then it scrolls (many installed or linked servers).
           Focusable so the keyboard can scroll it too. */}
       <ul
@@ -239,6 +326,10 @@ export function ServersOverview({
           const name = server.name || server.serverName
           const checkboxId = `servers-overview-autostart-${id}`
           const restartCheckboxId = `servers-overview-restart-${id}`
+          const backupCheckboxId = `servers-overview-backup-${id}`
+          const update = updates[id]
+          const lastBackupAt = lastBackupOf(id)
+          const backedUpOnSchedule = Boolean(backups?.schedule.enabled) && backupIds.includes(id)
           // The active server's Start/Stop/Restart are the Dashboard's own; a
           // remote one is run by its host; an unknown state offers neither.
           const actions: ServerAction[] = isActive || server.isRemote || state === 'unknown'
@@ -277,6 +368,42 @@ export function ServersOverview({
                   <span aria-hidden="true">{players ?? '–'}</span>
                 </span>
                 <span className="font-mono tabular-nums" title={t('serversOverview.gamePortTitle')}>:{server.serverPort}</span>
+                {state === 'running' && typeof status?.memoryBytes === 'number' && (
+                  <span className="inline-flex items-center gap-1 tabular-nums" title={t('serversOverview.memoryTitle', { max: server.maxMemory })}>
+                    <MemoryStick className="h-3 w-3" aria-hidden="true" />
+                    {t('serversOverview.memory', { gb: formatGb(status.memoryBytes) })}
+                  </span>
+                )}
+                {(update?.mods?.outdated?.length ?? 0) > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
+                    title={update!.mods!.outdated.map((mod) => mod.name).join(', ')}
+                  >
+                    <Package className="h-3 w-3" aria-hidden="true" />
+                    {t('serversOverview.modsOutdated', { mods: update!.mods!.outdated.length })}
+                  </span>
+                )}
+                {update?.game?.updateAvailable && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
+                    title={t('serversOverview.gameUpdateTitle', { installed: update.game.installedBuild, latest: update.game.latestBuild })}
+                  >
+                    <Download className="h-3 w-3" aria-hidden="true" />
+                    {t('serversOverview.gameUpdate')}
+                  </span>
+                )}
+                {status?.disk && (status.disk.warning || status.disk.critical) && (
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]',
+                      status.disk.critical ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-warning/30 bg-warning/10 text-warning',
+                    )}
+                    title={t('serversOverview.diskTitle', { free: formatGb(status.disk.freeBytes) })}
+                  >
+                    <HardDrive className="h-3 w-3" aria-hidden="true" />
+                    {t('serversOverview.disk', { percent: Math.round(status.disk.usedPercent) })}
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 {!server.isRemote && (
@@ -307,6 +434,30 @@ export function ServersOverview({
                         {t('serversOverview.restartOnCrashLabel')}
                       </Label>
                     </div>
+                    {backups && (
+                      <div className="flex items-center gap-1.5">
+                        <DisabledReason
+                          reason={!canManageBackups ? t('serversOverview.noPermissionBackups')
+                            : !backups.schedule.enabled ? t('serversOverview.scheduledBackupsOff')
+                            : null}
+                        >
+                          <Checkbox
+                            id={backupCheckboxId}
+                            checked={backupIds.includes(id)}
+                            disabled={!canManageBackups || !backups.schedule.enabled}
+                            onCheckedChange={(checked) => handleScheduledBackupChange(server, checked === true)}
+                          />
+                        </DisabledReason>
+                        <Label htmlFor={backupCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                          {t('serversOverview.scheduledBackupLabel')}
+                        </Label>
+                        <span className={cn('text-[11px]', backedUpOnSchedule || lastBackupAt ? 'text-muted-foreground/70' : 'text-warning')}>
+                          {lastBackupAt
+                            ? t('serversOverview.lastBackup', { age: ageOf(t as never, lastBackupAt) })
+                            : t('serversOverview.noBackup')}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
                 {actions.length > 0 && (

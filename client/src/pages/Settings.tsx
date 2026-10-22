@@ -124,6 +124,7 @@ import {
 } from "@/lib/restoreOutcome";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
 import { autoStartServerIds, withAutoStartServer } from "@/lib/autoStartServers";
+import { BYTES_PER_GB, heapOfServers, portConflicts } from "@/lib/serversTogether";
 import {
   getAllowOutOfRangeSandboxValues,
   setAllowOutOfRangeSandboxValues,
@@ -638,6 +639,14 @@ export default function Settings() {
   // list changed elsewhere since this page loaded (the Dashboard's checkbox).
   const [storedAutoStartServerIds, setStoredAutoStartServerIds] =
     useState<unknown>(undefined);
+  // The wait between two auto-started servers' launches, saved on its own
+  // like the list above (and kept out of `settings` for the same reason).
+  // `autoStartDelayDraft` is what the field shows while it is being typed.
+  const [storedAutoStartDelay, setStoredAutoStartDelay] = useState(0);
+  const [autoStartDelayDraft, setAutoStartDelayDraft] = useState(0);
+  // What this host can give the servers (GET /servers/status), to weigh the
+  // chosen servers' heap against.
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | null>(null);
   const [serversLoadError, setServersLoadError] = useState(false);
   const [selectedInstallServerId, setSelectedInstallServerId] =
     useState<string>("");
@@ -889,12 +898,18 @@ export default function Settings() {
         const {
           autoStartServerIds: loadedAutoStartServerIds,
           restartOnCrashServerIds: _restartOnCrashServerIds,
+          autoStartDelaySeconds: loadedAutoStartDelay,
           ...incoming
         } = data.settings as Partial<AppSettings> & {
           autoStartServerIds?: unknown;
           restartOnCrashServerIds?: unknown;
+          autoStartDelaySeconds?: unknown;
         };
         setStoredAutoStartServerIds(loadedAutoStartServerIds);
+        const delay = Number(loadedAutoStartDelay);
+        const savedDelay = Number.isInteger(delay) && delay >= 0 && delay <= 600 ? delay : 0;
+        setStoredAutoStartDelay(savedDelay);
+        setAutoStartDelayDraft(savedDelay);
         // Use functional update to get current state and merge with loaded settings
         setSettings((prevSettings) => {
           const loadedSettings: AppSettings = {
@@ -2698,6 +2713,54 @@ export default function Settings() {
     activeServerIdForAutoStart,
   );
   const autoStartCandidates = servers.filter((server) => !server.isRemote);
+  const chosenAutoStartServers = autoStartCandidates.filter((server) =>
+    chosenAutoStartServerIds.includes(String(server.id)),
+  );
+  const chosenAutoStartHeapGb = heapOfServers(chosenAutoStartServers);
+  const hostMemoryGb = hostMemoryBytes ? hostMemoryBytes / BYTES_PER_GB : null;
+  const chosenAutoStartConflicts = portConflicts(chosenAutoStartServers);
+  const severalAutoStartCandidates = autoStartCandidates.length > 1;
+  useEffect(() => {
+    if (!severalAutoStartCandidates) return;
+    let cancelled = false;
+    serversApi
+      .getStatus()
+      .then((data) => {
+        if (!cancelled && typeof data?.hostMemoryBytes === "number") {
+          setHostMemoryBytes(data.hostMemoryBytes);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [severalAutoStartCandidates]);
+  const handleAutoStartDelayCommit = async (value: number) => {
+    const seconds = Math.min(600, Math.max(0, Math.round(Number(value) || 0)));
+    setAutoStartDelayDraft(seconds);
+    if (!canSavePanelSettings || seconds === storedAutoStartDelay) return;
+    const previous = storedAutoStartDelay;
+    setStoredAutoStartDelay(seconds);
+    try {
+      await configApi.updateAppSettings({ autoStartDelaySeconds: seconds });
+      toast({
+        title: t("toasts.autoStartDelaySaved.title"),
+        description: t("toasts.autoStartDelaySaved.description", { seconds }),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setStoredAutoStartDelay(previous);
+      setAutoStartDelayDraft(previous);
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
+  };
   const handleAutoStartServerToggle = async (
     server: ServerInstance,
     chosen: boolean,
@@ -4738,6 +4801,75 @@ export default function Settings() {
                         {t("connection.autoStartNoneChosen")}
                       </p>
                     )}
+                  {/* What the chosen servers share while they run together:
+                      the machine's memory and its ports. */}
+                  {settings.autoStartServer &&
+                    chosenAutoStartServers.length > 1 &&
+                    hostMemoryGb !== null && (
+                      <p
+                        className={cn(
+                          "text-xs",
+                          chosenAutoStartHeapGb > hostMemoryGb
+                            ? "text-warning"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {t(
+                          chosenAutoStartHeapGb > hostMemoryGb
+                            ? "connection.autoStartHeapOver"
+                            : "connection.autoStartHeap",
+                          { heap: chosenAutoStartHeapGb, host: hostMemoryGb.toFixed(1) },
+                        )}
+                      </p>
+                    )}
+                  {settings.autoStartServer &&
+                    chosenAutoStartConflicts.map((conflict) => (
+                      <p
+                        key={`${conflict.kind}-${conflict.first.id}-${conflict.second.id}`}
+                        className="text-xs text-warning"
+                      >
+                        {conflict.kind === "game"
+                          ? t("connection.autoStartGamePortConflict", {
+                              first: conflict.first.name || conflict.first.serverName,
+                              second: conflict.second.name || conflict.second.serverName,
+                              firstPort: conflict.first.serverPort,
+                              secondPort: conflict.second.serverPort,
+                            })
+                          : t("connection.autoStartRconPortConflict", {
+                              first: conflict.first.name || conflict.first.serverName,
+                              second: conflict.second.name || conflict.second.serverName,
+                              port: conflict.first.rconPort,
+                            })}
+                      </p>
+                    ))}
+                  {severalAutoStartCandidates && (
+                    <div className="space-y-1 pt-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Label htmlFor="auto-start-delay" className="text-sm font-medium">
+                          {t("connection.autoStartDelayLabel")}
+                        </Label>
+                        <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                          <NumberInput
+                            id="auto-start-delay"
+                            className="h-8 w-24"
+                            value={autoStartDelayDraft}
+                            min={0}
+                            max={600}
+                            clamp={(value) => Math.min(600, Math.max(0, value))}
+                            onChange={setAutoStartDelayDraft}
+                            onBlur={() => handleAutoStartDelayCommit(autoStartDelayDraft)}
+                            disabled={!canSavePanelSettings || !settings.autoStartServer}
+                          />
+                        </DisabledReason>
+                        <span className="text-xs text-muted-foreground">
+                          {t("connection.autoStartDelayUnit")}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {t("connection.autoStartDelayDesc")}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

@@ -277,6 +277,8 @@ describe("performRestart() waiting for the old server to exit (GH #190)", () => 
       false,
       result.message,
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
     // A Restart's toast shows it translated.
     expect(codedActionResultFields(result)).toEqual({ code: "SERVER_RESTART_STOP_UNCONFIRMED" });

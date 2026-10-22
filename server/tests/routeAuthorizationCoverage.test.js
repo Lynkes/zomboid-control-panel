@@ -238,6 +238,7 @@ const UNGATED_BY_DESIGN = new Map([
   ["servers.js GET /", "sanitizeServerResponseList() masks RCON password and other sensitive fields"],
   ["servers.js GET /status", "per-server id/status detection result only, never the raw server record"],
   ["servers.js GET /rcon-status", "own comment in source: never returns credential material"],
+  ["servers.js GET /updates", "per-server mod names and game build numbers only, never the raw server record"],
   ["servers.js GET /active", "sanitizeServerResponse() masks sensitive fields"],
   ["servers.js GET /:id", "sanitizeServerResponse() masks sensitive fields"],
 

@@ -78,7 +78,7 @@ describe("testRconConnection({ countPlayers })", () => {
     const result = await testRconConnection({
       host: "127.0.0.1", port: fake.address().port, password: "pw", timeoutMs: 2000, countPlayers: true,
     });
-    expect(result).toMatchObject({ success: true, players: 2 });
+    expect(result).toMatchObject({ success: true, players: 2, playerNames: ["Ana", " Bob"] });
   });
 
   it("asks for nothing more without it", async () => {

@@ -372,7 +372,14 @@
     "autoStartServersDesc": "Les serveurs cochés démarrent l'un après l'autre au démarrage du panneau. Un serveur déjà en cours d'exécution n'est pas touché.",
     "autoStartActiveBadge": "Actif",
     "autoStartNoServers": "Aucun serveur sur cet ordinateur pour l'instant. Ajoutez-en un dans Mes serveurs.",
-    "autoStartNoneChosen": "Aucun serveur n'est coché, donc aucun ne démarrera."
+    "autoStartNoneChosen": "Aucun serveur n'est coché, donc aucun ne démarrera.",
+    "autoStartHeap": "Ensemble, les serveurs choisis peuvent utiliser jusqu'à {{heap}} Go de heap ; cette machine a {{host}} Go.",
+    "autoStartHeapOver": "Ensemble, les serveurs choisis peuvent utiliser jusqu'à {{heap}} Go de heap, plus que les {{host}} Go de cette machine : baissez leur mémoire maximale ou choisissez-en moins.",
+    "autoStartGamePortConflict": "{{first}} (port {{firstPort}}) et {{second}} (port {{secondPort}}) utilisent les mêmes ports de jeu : un seul des deux peut tourner.",
+    "autoStartRconPortConflict": "{{first}} et {{second}} utilisent le même port RCON {{port}} : un seul des deux peut tourner.",
+    "autoStartDelayLabel": "Attente entre les serveurs",
+    "autoStartDelayUnit": "secondes",
+    "autoStartDelayDesc": "Démarre les serveurs choisis avec cet écart, pour que leurs mondes ne se chargent pas tous en même temps. 0 les démarre l'un après l'autre."
   },
   "bridge": {
     "checksLabels": {
@@ -944,6 +951,7 @@
     "autoStartDisabled": { "title": "Démarrage automatique désactivé", "description": "Le serveur ne démarrera pas automatiquement" },
     "autoStartServerChosen": { "title": "Démarrage automatique mis à jour", "description": "{{name}} démarrera au démarrage du panneau" },
     "autoStartServerRemoved": { "title": "Démarrage automatique mis à jour", "description": "{{name}} ne démarrera plus avec le panneau" },
+    "autoStartDelaySaved": { "title": "Attente entre les serveurs enregistrée", "description": "{{seconds}} s entre le démarrage d'un serveur et celui du suivant" },
     "autoStartSaveFailed": { "title": "Échec de l'enregistrement du paramètre de démarrage automatique", "fallback": "Le panneau n'a pas pu enregistrer le paramètre de démarrage automatique. Réessayez." },
     "corsReloaded": {
       "title": "Règles CORS rechargées",

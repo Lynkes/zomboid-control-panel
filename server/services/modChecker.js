@@ -263,6 +263,125 @@ async function bridgeWorkshopIds() {
   return ids;
 }
 
+// Steam's latest time_updated (and title, file type, creator app, preview)
+// for each Workshop item, over ISteamRemoteStorage/GetPublishedFileDetails
+// (no API key), in batches of 100 with backoff. Keeps no state: `result`
+// maps id -> details for each item Steam answered for, `unavailable` id ->
+// { resultCode, reason } for each it answered with a non-1 result (reason
+// "removed" for 9, k_EResultFileNotFound, else "unknown"). ModChecker's
+// fetchSteamTimestamps() keeps the latter for the active server; the check
+// of the other servers' mods (services/otherServerUpdates.js) uses this
+// directly.
+export async function fetchWorkshopDetails(workshopIds) {
+  const result = new Map(); // workshopId -> { time_updated, title }
+  const unavailable = new Map();
+  if (!workshopIds.length) return { result, unavailable };
+
+  // Steam API accepts batches — process in chunks of 100
+  const BATCH = 100;
+  // Backoff between batches if Steam rate-limits us. Reset on success.
+  let backoffMs = 0;
+  const MAX_BACKOFF_MS = 60_000;
+  for (let i = 0; i < workshopIds.length; i += BATCH) {
+    const batch = workshopIds.slice(i, i + BATCH);
+    let timeout;
+    if (backoffMs > 0) {
+      log.warn(
+        `Steam API backoff: sleeping ${backoffMs}ms before next batch`,
+      );
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
+    try {
+      const params = new URLSearchParams();
+      params.set("itemcount", String(batch.length));
+      batch.forEach((id, idx) => params.set(`publishedfileids[${idx}]`, id));
+
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 15000);
+
+      const res = await fetch(
+        "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
+        { method: "POST", body: params, signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      timeout = null;
+
+      if (!res.ok) {
+        log.warn(
+          `Steam API returned ${res.status} for batch ${i / BATCH + 1}`,
+        );
+        // Honor Retry-After on 429/503; otherwise exponential backoff up to MAX_BACKOFF_MS.
+        if (res.status === 429 || res.status === 503) {
+          const retryAfter = parseInt(
+            res.headers.get("retry-after") || "",
+            10,
+          );
+          if (Number.isFinite(retryAfter) && retryAfter > 0) {
+            backoffMs = Math.min(retryAfter * 1000, MAX_BACKOFF_MS);
+          } else {
+            backoffMs = Math.min(
+              Math.max(backoffMs * 2, 2000),
+              MAX_BACKOFF_MS,
+            );
+          }
+        }
+        continue;
+      }
+
+      // Successful response — reset backoff.
+      backoffMs = 0;
+
+      const data = await res.json();
+      const items = data?.response?.publishedfiledetails || [];
+      for (const item of items) {
+        if (!item.publishedfileid) continue;
+        if (item.result === 1) {
+          result.set(item.publishedfileid, {
+            time_updated: item.time_updated || 0,
+            title: item.title || null,
+            file_type: item.file_type ?? 0,
+            creator_app_id: item.creator_app_id || 0,
+            preview_url:
+              typeof item.preview_url === "string" ? item.preview_url : null,
+          });
+        } else {
+          // Steam answered FOR this specific item -- this is not a batch-
+          // level failure (that path never reaches here at all; see !res.ok
+          // and the catch block below, neither of which touch `unavailable`).
+          // EResult 9 (k_EResultFileNotFound) is Steam's documented code
+          // for a deleted or made-private workshop item -- the one case
+          // this class currently distinguishes by name. Any other non-1
+          // code is still recorded (not silently dropped), tagged
+          // "unknown" with its raw code kept, rather than assumed to mean
+          // the same thing as 9.
+          unavailable.set(item.publishedfileid, {
+            resultCode: item.result,
+            reason: item.result === 9 ? "removed" : "unknown",
+          });
+        }
+      }
+    } catch (err) {
+      if (timeout) clearTimeout(timeout);
+      if (err.name === "AbortError") {
+        log.warn(`Steam API timeout for batch ${i / BATCH + 1}`);
+      } else {
+        log.warn(
+          `Steam API error for batch ${i / BATCH + 1}: ${err.message}`,
+        );
+      }
+    }
+  }
+
+  if (result.size > 0 && result.size < workshopIds.length) {
+    log.debug(
+      `Steam API returned data for ${result.size}/${workshopIds.length} mods (partial)`,
+    );
+  }
+
+
+  return { result, unavailable };
+}
+
 export class ModChecker extends EventEmitter {
   constructor() {
     super();
@@ -1625,118 +1744,12 @@ export class ModChecker extends EventEmitter {
   // Query Steam Web API for latest workshop item timestamps
   // Uses ISteamRemoteStorage/GetPublishedFileDetails (no API key required)
   async fetchSteamTimestamps(workshopIds) {
-    const result = new Map(); // workshopId -> { time_updated, title }
     // workshopId -> { resultCode, reason }, for every id Steam answered with
     // a non-1 result this call. See the field's own comment on the
     // constructor for what "reason" values mean and why this exists.
-    const unavailable = new Map();
-    if (!workshopIds.length) {
-      this.lastUnavailableWorkshopIds = unavailable;
-      return result;
-    }
-
-    // Steam API accepts batches — process in chunks of 100
-    const BATCH = 100;
-    // Backoff between batches if Steam rate-limits us. Reset on success.
-    let backoffMs = 0;
-    const MAX_BACKOFF_MS = 60_000;
-    for (let i = 0; i < workshopIds.length; i += BATCH) {
-      const batch = workshopIds.slice(i, i + BATCH);
-      let timeout;
-      if (backoffMs > 0) {
-        log.warn(
-          `Steam API backoff: sleeping ${backoffMs}ms before next batch`,
-        );
-        await new Promise((r) => setTimeout(r, backoffMs));
-      }
-      try {
-        const params = new URLSearchParams();
-        params.set("itemcount", String(batch.length));
-        batch.forEach((id, idx) => params.set(`publishedfileids[${idx}]`, id));
-
-        const controller = new AbortController();
-        timeout = setTimeout(() => controller.abort(), 15000);
-
-        const res = await fetch(
-          "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/",
-          { method: "POST", body: params, signal: controller.signal },
-        );
-        clearTimeout(timeout);
-        timeout = null;
-
-        if (!res.ok) {
-          log.warn(
-            `Steam API returned ${res.status} for batch ${i / BATCH + 1}`,
-          );
-          // Honor Retry-After on 429/503; otherwise exponential backoff up to MAX_BACKOFF_MS.
-          if (res.status === 429 || res.status === 503) {
-            const retryAfter = parseInt(
-              res.headers.get("retry-after") || "",
-              10,
-            );
-            if (Number.isFinite(retryAfter) && retryAfter > 0) {
-              backoffMs = Math.min(retryAfter * 1000, MAX_BACKOFF_MS);
-            } else {
-              backoffMs = Math.min(
-                Math.max(backoffMs * 2, 2000),
-                MAX_BACKOFF_MS,
-              );
-            }
-          }
-          continue;
-        }
-
-        // Successful response — reset backoff.
-        backoffMs = 0;
-
-        const data = await res.json();
-        const items = data?.response?.publishedfiledetails || [];
-        for (const item of items) {
-          if (!item.publishedfileid) continue;
-          if (item.result === 1) {
-            result.set(item.publishedfileid, {
-              time_updated: item.time_updated || 0,
-              title: item.title || null,
-              file_type: item.file_type ?? 0,
-              creator_app_id: item.creator_app_id || 0,
-              preview_url:
-                typeof item.preview_url === "string" ? item.preview_url : null,
-            });
-          } else {
-            // Steam answered FOR this specific item -- this is not a batch-
-            // level failure (that path never reaches here at all; see !res.ok
-            // and the catch block below, neither of which touch `unavailable`).
-            // EResult 9 (k_EResultFileNotFound) is Steam's documented code
-            // for a deleted or made-private workshop item -- the one case
-            // this class currently distinguishes by name. Any other non-1
-            // code is still recorded (not silently dropped), tagged
-            // "unknown" with its raw code kept, rather than assumed to mean
-            // the same thing as 9.
-            unavailable.set(item.publishedfileid, {
-              resultCode: item.result,
-              reason: item.result === 9 ? "removed" : "unknown",
-            });
-          }
-        }
-      } catch (err) {
-        if (timeout) clearTimeout(timeout);
-        if (err.name === "AbortError") {
-          log.warn(`Steam API timeout for batch ${i / BATCH + 1}`);
-        } else {
-          log.warn(
-            `Steam API error for batch ${i / BATCH + 1}: ${err.message}`,
-          );
-        }
-      }
-    }
-
-    if (result.size > 0 && result.size < workshopIds.length) {
-      log.debug(
-        `Steam API returned data for ${result.size}/${workshopIds.length} mods (partial)`,
-      );
-    }
-
+    const { result, unavailable } = await fetchWorkshopDetails(workshopIds);
     this.lastUnavailableWorkshopIds = unavailable;
+    if (!workshopIds.length) return result;
     const bridgeIds = unavailable.size > 0 ? await bridgeWorkshopIds() : new Set();
     const removedIds = [...unavailable.entries()]
       .filter(([id, info]) => info.reason === "removed" && !bridgeIds.has(String(id)))

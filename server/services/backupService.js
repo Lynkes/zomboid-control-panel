@@ -376,6 +376,8 @@ export function createRestoreStagingDir(savesParentPath, makeName = randomUUID) 
 // used to go to every connected socket, whatever its role, with raw error
 // text that can quote host paths.
 export const BACKUP_PROGRESS_ROOM = "backups";
+// A bound on the scheduled backup's list of servers, far above any real one.
+const BACKUP_SERVER_IDS_MAX = 100;
 
 // SECURITY (2026-10-05, PATHS-1): backups read the world save under a
 // server's Zomboid data folder and list, write, restore and delete in its
@@ -740,8 +742,12 @@ export class BackupService {
     const schedule = (await getSetting("backupSchedule")) ?? "0 */6 * * *"; // Every 6 hours
     const maxBackups = (await getSetting("backupMaxCount")) ?? 10;
     const includeDb = (await getSetting("backupIncludeDb")) ?? false;
+    // The servers the schedule backs up (the Dashboard's list of servers);
+    // null until someone chooses, which means the active server alone.
+    const storedServerIds = await getSetting("backupServerIds");
+    const serverIds = Array.isArray(storedServerIds) ? storedServerIds.map(String) : null;
 
-    return { enabled, schedule, maxBackups, includeDb };
+    return { enabled, schedule, maxBackups, includeDb, serverIds };
   }
 
   /**
@@ -788,6 +794,23 @@ export class BackupService {
     }
     if (settings.includeDb !== undefined) {
       await setSetting("backupIncludeDb", settings.includeDb);
+    }
+    if (settings.serverIds !== undefined) {
+      if (
+        !Array.isArray(settings.serverIds) ||
+        settings.serverIds.length > BACKUP_SERVER_IDS_MAX ||
+        !settings.serverIds.every(
+          (id) =>
+            (typeof id === "string" && id.trim() !== "" && id.length <= 100) ||
+            Number.isSafeInteger(id),
+        )
+      ) {
+        throw new Error(`serverIds must be a list of up to ${BACKUP_SERVER_IDS_MAX} server ids`);
+      }
+      await setSetting(
+        "backupServerIds",
+        [...new Set(settings.serverIds.map((id) => String(id).trim()))],
+      );
     }
 
     return this.getSettings();
@@ -888,7 +911,16 @@ export class BackupService {
     // as they are: restore holds the lifecycle lock for its whole
     // duration, and /servers/:id/activate takes that same lock, so the
     // active server provably cannot change under restore already.
-    const activeServer = await getActiveServer();
+    //
+    // `options.server`: a server other than the active one -- the scheduled
+    // backup of each chosen server (scheduler.js's _runScheduledBackup()).
+    // Everything below reads it the way it reads the active server, except
+    // that it leaves this.lastBackup (the active server's "Last backup") and
+    // the Discord notice, whose text names no server, alone.
+    const currentActive = await getActiveServer();
+    const activeServer = options.server ?? currentActive;
+    const backsUpActiveServer =
+      !options.server || String(options.server.id) === String(currentActive?.id);
     if (activeServer?.isRemote) {
       throw new Error(REMOTE_BACKUPS_MESSAGE);
     }
@@ -1061,16 +1093,17 @@ export class BackupService {
           );
         }
 
-        this.lastBackup = {
+        const created = {
           name: backupName,
           path: backupPath,
           size: sizeBytes,
           created: new Date().toISOString(),
         };
+        if (backsUpActiveServer) this.lastBackup = created;
 
         try {
           await addBackupRecord({
-            backup: this.lastBackup,
+            backup: created,
             server: activeServer,
             snapshot: serverSnapshot,
           });
@@ -1079,7 +1112,9 @@ export class BackupService {
         }
 
         try {
-          await logServerEvent("backup_created", `${backupName} (${sizeMB} MB)`);
+          await logServerEvent("backup_created", `${backupName} (${sizeMB} MB)`, {
+            serverId: activeServer?.id ?? null,
+          });
         } catch (error) {
           log.warn(
             `Backup event could not be logged for ${backupName}: ${error.message}`,
@@ -1127,7 +1162,7 @@ export class BackupService {
         );
 
         // Notify Discord of completed backup
-        if (this.discordBot) {
+        if (this.discordBot && backsUpActiveServer) {
           this.discordBot
             .sendEventNotification("backupComplete", {})
             .catch((err) =>
@@ -1147,7 +1182,7 @@ export class BackupService {
         // as a failure. That policy lives at those call sites, not here.
         resolve({
           success: true,
-          backup: this.lastBackup,
+          backup: created,
           duration: parseFloat(duration),
           skippedFiles,
         });
@@ -1552,8 +1587,12 @@ export class BackupService {
     // History, neither of which this status card surfaces. Only checked
     // when scheduling is actually enabled -- a stale failure from before the
     // operator turned it off isn't this card's business to report.
+    // This server's own runs: the schedule can back up several.
     const lastScheduledAttempt = settings.enabled
-      ? await getLatestScheduleExecutionByCommand("backup")
+      ? await getLatestScheduleExecutionByCommand(
+          "backup",
+          (await getActiveServer())?.id ?? undefined,
+        )
       : null;
 
     // A failed scheduled attempt stops being a live problem the moment ANY

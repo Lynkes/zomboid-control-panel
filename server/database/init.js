@@ -1641,13 +1641,15 @@ export async function logScheduleExecution(
   success,
   message = null,
   duration = null,
-  { messageKey = null, messageParams = null } = {},
+  // serverId: the server a row with no task is about (another server's
+  // scheduled backup or restart); the active server otherwise.
+  { messageKey = null, messageParams = null, serverId: forServerId = null } = {},
 ) {
   const db = await getDb();
   if (!db.data.schedule_history) db.data.schedule_history = [];
 
-  let serverId = null;
-  if (taskId != null) {
+  let serverId = forServerId ?? null;
+  if (serverId == null && taskId != null) {
     const task = db.data.scheduled_tasks?.find((t) => t.id === taskId);
     serverId = task?.server_id ?? null;
   }
@@ -1706,10 +1708,19 @@ export async function clearScheduleHistory() {
  * newest-first (see appendCapped's doc comment above), so the first match
  * is the most recent.
  */
-export async function getLatestScheduleExecutionByCommand(command) {
+// `serverId`, when given, reads that server's rows only -- the scheduled
+// backup can run for several servers, and the Dashboard's "scheduled backup
+// failing" is about the server it shows.
+export async function getLatestScheduleExecutionByCommand(command, serverId = undefined) {
   const db = await getDb();
   const history = db.data.schedule_history || [];
-  return history.find((h) => h.command === command) || null;
+  return (
+    history.find(
+      (h) =>
+        h.command === command &&
+        (serverId === undefined || String(h.server_id ?? "") === String(serverId ?? "")),
+    ) || null
+  );
 }
 
 // ============================================
@@ -2346,7 +2357,7 @@ export async function deleteServer(id) {
 
   // Nor would the boot auto-start's list of servers to start, or the
   // server watch's list of servers to restart when they go down.
-  for (const key of ["autoStartServerIds", "restartOnCrashServerIds"]) {
+  for (const key of ["autoStartServerIds", "restartOnCrashServerIds", "backupServerIds"]) {
     const ids = db.data.settings?.[key];
     if (Array.isArray(ids)) {
       db.data.settings[key] = ids.filter((id) => String(id) !== serverId);
@@ -2637,7 +2648,15 @@ export async function getPlayerStat(playerName, serverId = undefined) {
 // started for each (player, server) pair going forward; the untagged row
 // stays exactly as it was, still readable via getPlayerStat()/
 // getPlayerStats() as that player's figures until a tagged row exists.
-export async function recordPlayerSession(playerName, action, serverId = undefined) {
+// `keepOpenSession`: a connect that finds a session already open leaves it
+// running instead of starting it over -- the players watch's first look at a
+// server other than the active one, whose players may be mid-session already.
+export async function recordPlayerSession(
+  playerName,
+  action,
+  serverId = undefined,
+  { keepOpenSession = false } = {},
+) {
   const db = await getDb();
   if (!db.data.player_stats) db.data.player_stats = [];
 
@@ -2667,7 +2686,9 @@ export async function recordPlayerSession(playerName, action, serverId = undefin
     db.data.player_stats.push(playerStat);
   }
 
-  if (action === "connect") {
+  if (action === "connect" && keepOpenSession && playerStat.last_session_start) {
+    playerStat.last_seen = now;
+  } else if (action === "connect") {
     playerStat.last_session_start = now;
     playerStat.last_seen = now;
     playerStat.session_count++;
