@@ -46,6 +46,10 @@ const router = express.Router();
 // a filename, not for host layout. Gating on backups.manage alone would
 // break a download-only or restore-only custom role's ability to see what
 // to act on before calling /download/:name or /restore/:name.
+// A bound on the scheduled backup's list of servers (backupService.js has
+// the same one).
+const BACKUP_SERVER_IDS_MAX = 100;
+
 const requireAnyBackupCapability = requireAnyPermission(
   "backups.manage",
   "backups.download",
@@ -237,6 +241,38 @@ router.get("/status", requireAnyBackupCapability, async (req, res) => {
   }
 });
 
+// Each server's newest backup and how many it has, from the backup records,
+// with the schedule's on/off and its chosen servers (null: the active server
+// alone) -- the Dashboard's list of servers shows these per row. Read by the
+// same roles as /status.
+router.get("/summary", requireAnyBackupCapability, async (req, res) => {
+  try {
+    const backupService = req.app.get("backupService");
+    const [records, settings] = await Promise.all([
+      listBackupRecords(),
+      backupService.getSettings(),
+    ]);
+    const byServer = new Map();
+    for (const record of records) {
+      if (record?.serverId === null || record?.serverId === undefined) continue;
+      const id = String(record.serverId);
+      const entry = byServer.get(id) || { serverId: id, lastBackupAt: null, count: 0 };
+      entry.count += 1;
+      if (!entry.lastBackupAt || String(record.createdAt) > entry.lastBackupAt) {
+        entry.lastBackupAt = String(record.createdAt);
+      }
+      byServer.set(id, entry);
+    }
+    res.json({
+      servers: [...byServer.values()],
+      schedule: { enabled: Boolean(settings.enabled), serverIds: settings.serverIds },
+    });
+  } catch (error) {
+    log.error(`Failed to summarize backups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
 // Get info about what backups contain
 router.get("/info", async (req, res) => {
   try {
@@ -377,6 +413,30 @@ router.post("/settings", requirePermission("backups.manage"), async (req, res) =
         });
       }
       allowed.includeDb = includeDb;
+    }
+    // The servers the schedule backs up (the Dashboard's list of servers):
+    // ids, unique, up to BACKUP_SERVER_IDS_MAX. One deleted since the page
+    // loaded is kept rather than refused, as autoStartServerIds does; the
+    // schedule skips it and deleteServer() drops it.
+    if (req.body.serverIds !== undefined) {
+      const ids = req.body.serverIds;
+      if (
+        !Array.isArray(ids) ||
+        ids.length > BACKUP_SERVER_IDS_MAX ||
+        !ids.every(
+          (id) =>
+            (typeof id === "string" && id.trim() !== "" && id.length <= 100) ||
+            Number.isSafeInteger(id),
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error: `serverIds must be a list of up to ${BACKUP_SERVER_IDS_MAX} server ids`,
+          code: ErrorCode.BACKUP_SERVER_IDS_INVALID,
+          params: sanitizeErrorParams({ max: BACKUP_SERVER_IDS_MAX }),
+        });
+      }
+      allowed.serverIds = ids;
     }
 
     const settings = await backupService.updateSettings(allowed);

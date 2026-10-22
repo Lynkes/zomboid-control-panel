@@ -127,6 +127,7 @@
   "BACKUP_RESTORE_SERVER_RUNNING": "يجب إيقاف الخادم قبل استعادة نسخة احتياطية. يرجى إيقاف الخادم أولًا.",
   "BACKUP_INVALID_DAYS_PARAMETER": "معامل الأيام غير صالح. يجب أن يكون عددًا صحيحًا >= 1",
   "BACKUP_ACTIVE_SERVER_CHANGED": "تغيّر الخادم النشط منذ تحميل هذه الإعدادات. أعد تحميل إعدادات النسخ الاحتياطي قبل الحفظ.",
+  "BACKUP_SERVER_IDS_INVALID": "يجب أن تكون الخوادم المراد نسخها احتياطيًا قائمة من {{max}} خادم كحد أقصى",
   "BACKUP_SCHEDULE_TOO_FREQUENT": "لا يمكن أن تعمل النسخ الاحتياطية بوتيرة أعلى من كل 5 دقائق",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "رفع النسخ الاحتياطية غير متاح للخوادم البعيدة.",
   "BACKUP_UPLOAD_NO_FILE": "لم يُرفع أي ملف. أرسل محتوى الـ zip مع Content-Type: application/zip.",

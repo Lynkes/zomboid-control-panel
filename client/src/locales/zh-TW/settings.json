@@ -372,7 +372,14 @@
     "autoStartServersDesc": "面板啟動時，已勾選的伺服器會依序啟動。已在執行的伺服器不受影響。",
     "autoStartActiveBadge": "活動",
     "autoStartNoServers": "此電腦上還沒有伺服器。請在「我的伺服器」中新增。",
-    "autoStartNoneChosen": "未勾選任何伺服器，因此不會啟動任何伺服器。"
+    "autoStartNoneChosen": "未勾選任何伺服器，因此不會啟動任何伺服器。",
+    "autoStartHeap": "所選伺服器合計最多可使用 {{heap}} GB 堆積記憶體；本機有 {{host}} GB。",
+    "autoStartHeapOver": "所選伺服器合計最多可使用 {{heap}} GB 堆積記憶體，超過本機的 {{host}} GB：請降低它們的最大記憶體，或少選一些伺服器。",
+    "autoStartGamePortConflict": "{{first}}（連接埠 {{firstPort}}）和 {{second}}（連接埠 {{secondPort}}）使用相同的遊戲連接埠：只能執行其中一個。",
+    "autoStartRconPortConflict": "{{first}} 和 {{second}} 使用相同的 RCON 連接埠 {{port}}：只能執行其中一個。",
+    "autoStartDelayLabel": "伺服器之間的等待",
+    "autoStartDelayUnit": "秒",
+    "autoStartDelayDesc": "依此間隔啟動所選伺服器，避免它們的世界同時載入。0 表示一個接一個立即啟動。"
   },
   "bridge": {
     "checksLabels": {
@@ -942,6 +949,7 @@
     "autoStartDisabled": { "title": "已停用自動啟動", "description": "伺服器將不會自動啟動" },
     "autoStartServerChosen": { "title": "自動啟動已更新", "description": "{{name}} 將在面板啟動時啟動" },
     "autoStartServerRemoved": { "title": "自動啟動已更新", "description": "{{name}} 將不再隨面板啟動" },
+    "autoStartDelaySaved": { "title": "伺服器之間的等待已儲存", "description": "一個伺服器啟動與下一個之間間隔 {{seconds}} 秒" },
     "autoStartSaveFailed": { "title": "儲存自動啟動設定失敗", "fallback": "面板無法儲存自動啟動設定，請重試。" },
     "corsReloaded": {
       "title": "CORS 規則已重新載入",

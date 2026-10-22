@@ -42,6 +42,7 @@ import {
 } from "../utils/queryNumbers.js";
 import { normalizeMemoryGb, normalizeMinMemoryGb } from "../utils/memory.js";
 import { GAME_PORT_MAX, applyUpnpToIni } from "./server.js";
+import { hostMemoryLimitBytes, readProcessesMemory } from "../utils/processMemory.js";
 import {
   resolveOtherServer,
   restartOtherServer,
@@ -771,8 +772,9 @@ export function sharedStatusScan(owner, key, run) {
 // unknown when Windows also lists processes the panel can't read.
 // The rows behind GET /status, and the server watch's view of every server
 // (services/serverWatch.js reads them on its own timer, sharing the scan
-// with any page polling this route at the same moment).
-export async function readServerStatuses(serverManager) {
+// with any page polling this route at the same moment). `memory` adds each
+// running row's resident memory (memoryBytes), for the Dashboard's list.
+export async function readServerStatuses(serverManager, { memory = false } = {}) {
   const servers = await getServers();
   const activeServer = await getActiveServer();
   const activeId = activeServer?.id || null;
@@ -933,6 +935,15 @@ export async function readServerStatuses(serverManager) {
       startedAt: await startedAtFor(attributed || fallbackEntry, running && !stateUnknown),
     };
   }));
+  if (memory) {
+    const usage = await readProcessesMemory(
+      statuses.filter((row) => row.running && row.pid).map((row) => row.pid),
+    );
+    for (const row of statuses) {
+      const bytes = row.pid ? usage.get(Number(row.pid)) : undefined;
+      if (bytes !== undefined) row.memoryBytes = bytes;
+    }
+  }
   return { statuses, matched, detectionError };
 }
 
@@ -940,10 +951,16 @@ router.get("/status", async (req, res) => {
   try {
     const { statuses, matched, detectionError } = await readServerStatuses(
       req.app.get("serverManager"),
+      { memory: true },
     );
+    // Each server's data-folder disk, from the disk monitor's last check
+    // (percentages and free bytes only, no path).
+    const diskByServer = req.app.get("diskMonitor")?.getServerDiskStatuses?.() || {};
 
     res.json({
-      servers: statuses,
+      servers: statuses.map((row) =>
+        diskByServer[String(row.id)] ? { ...row, disk: diskByServer[String(row.id)] } : row,
+      ),
       detectedProcesses: matched.length,
       // Every role reads this route; a failed process scan's raw error can
       // quote the tool it ran or a host folder (SECURITY 2026-10-05, H4).
@@ -951,6 +968,9 @@ router.get("/status", async (req, res) => {
       // This host's clock as it answered, so the client can count the
       // rows' startedAt in its own clock -- see the client's hostClock.ts.
       serverTime: Date.now(),
+      // What this host (or container) can give the servers, against which
+      // the Dashboard weighs the heap of the servers that start together.
+      hostMemoryBytes: hostMemoryLimitBytes(),
     });
   } catch (error) {
     log.error(`Failed to get per-server status: ${error.message}`);
@@ -996,6 +1016,21 @@ router.get("/rcon-status", async (req, res) => {
     res.json({ servers: statuses });
   } catch (error) {
     log.error(`Failed to probe server RCON status: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Each server other than the active one: its mods behind Steam and its
+// game build against Steam's latest (services/otherServerUpdates.js), as of
+// the last check -- for the Dashboard's list of servers. Reads only: every
+// role reads this route, and a check asks Steam (and SteamCMD) on its own
+// timer, not on a caller's request.
+router.get("/updates", async (req, res) => {
+  try {
+    const updates = req.app.get("otherServerUpdates");
+    res.json({ servers: updates ? updates.getResults() : [] });
+  } catch (error) {
+    log.error(`Failed to read other servers' updates: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
