@@ -316,7 +316,14 @@
     "autoStartServersDesc": "The checked servers start one after another when the panel starts. A server that is already running is left alone.",
     "autoStartActiveBadge": "Active",
     "autoStartNoServers": "No server on this computer yet. Add one in My Servers.",
-    "autoStartNoneChosen": "No server is checked, so none will start."
+    "autoStartNoneChosen": "No server is checked, so none will start.",
+    "autoStartHeap": "Together, the chosen servers can use up to {{heap}} GB of heap; this machine has {{host}} GB.",
+    "autoStartHeapOver": "Together, the chosen servers can use up to {{heap}} GB of heap, more than the {{host}} GB this machine has: lower their maximum memory, or choose fewer.",
+    "autoStartGamePortConflict": "{{first}} (port {{firstPort}}) and {{second}} (port {{secondPort}}) use the same game ports: only one of them can run.",
+    "autoStartRconPortConflict": "{{first}} and {{second}} use the same RCON port {{port}}: only one of them can run.",
+    "autoStartDelayLabel": "Wait between servers",
+    "autoStartDelayUnit": "seconds",
+    "autoStartDelayDesc": "Starts the chosen servers this far apart, so their worlds don't all load at once. 0 starts them back to back."
   },
 
   "bridge": {
@@ -835,6 +842,7 @@
     "autoStartDisabled": { "title": "Auto-start disabled", "description": "Server will not start automatically" },
     "autoStartServerChosen": { "title": "Auto-start updated", "description": "{{name}} will start when the panel starts" },
     "autoStartServerRemoved": { "title": "Auto-start updated", "description": "{{name}} will no longer start with the panel" },
+    "autoStartDelaySaved": { "title": "Wait between servers saved", "description": "{{seconds}} s between one server's start and the next" },
     "autoStartSaveFailed": { "title": "Failed to save auto-start setting", "fallback": "The panel could not save the auto-start setting. Try again." },
     "corsReloaded": { "title": "CORS Rules Reloaded", "description": "The backend reloaded CORS settings from the database." },
     "corsReloadFailed": { "title": "Could Not Reload CORS Rules", "fallback": "Failed to reload CORS rules." },

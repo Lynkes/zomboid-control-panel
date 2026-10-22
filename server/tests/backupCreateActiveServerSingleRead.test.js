@@ -111,4 +111,24 @@ describe("backupService.js createBackup() reads the active server exactly once",
     expect(addBackupRecordMock).toHaveBeenCalledTimes(1);
     expect(addBackupRecordMock.mock.calls[0][0].server).toBe(serverA);
   });
+
+  // The scheduled backup of each chosen server backs up servers other than
+  // the active one: into that server's folder, under its record, leaving the
+  // active server's "Last backup" and the Discord notice (which names no
+  // server) alone.
+  it("backs up another server when given one, without touching the active server's last backup", async () => {
+    getActiveServerMock.mockResolvedValue(serverA);
+    const service = new BackupService();
+    const discordBot = { sendEventNotification: vi.fn(async () => {}) };
+    service.setDiscordBot(discordBot);
+
+    const result = await service.createBackup({ server: serverB });
+
+    expect(result.success).toBe(true);
+    expect(result.backup.name.startsWith("ServerB_")).toBe(true);
+    expect(result.backup.path).toContain(path.join(root, "B", "backups"));
+    expect(addBackupRecordMock.mock.calls[0][0].server).toBe(serverB);
+    expect(service.lastBackup).toBeNull();
+    expect(discordBot.sendEventNotification).not.toHaveBeenCalled();
+  });
 });

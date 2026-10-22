@@ -133,6 +133,7 @@
   "BACKUP_RESTORE_SERVER_RUNNING": "Le serveur doit être arrêté avant de restaurer une sauvegarde. Veuillez d'abord arrêter le serveur.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Paramètre de jours invalide. Doit être un nombre entier >= 1",
   "BACKUP_ACTIVE_SERVER_CHANGED": "Le serveur actif a changé depuis le chargement de ces paramètres. Rechargez les paramètres de sauvegarde avant d'enregistrer.",
+  "BACKUP_SERVER_IDS_INVALID": "Les serveurs à sauvegarder doivent être une liste d'au plus {{max}} serveurs",
   "BACKUP_SCHEDULE_TOO_FREQUENT": "Les sauvegardes ne peuvent pas s'exécuter plus d'une fois toutes les 5 minutes",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "L'import de sauvegarde n'est pas disponible pour les serveurs distants.",
   "BACKUP_UPLOAD_NO_FILE": "Aucun fichier envoyé. Envoyez le contenu du zip avec Content-Type: application/zip.",

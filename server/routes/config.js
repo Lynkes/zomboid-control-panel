@@ -114,6 +114,10 @@ const SERVER_AUTO_UPDATE_WARNING_MINUTES_MIN = 0;
 const SERVER_AUTO_UPDATE_WARNING_MINUTES_MAX = 60;
 // A bound on what one save can store, far above any real list of servers.
 const AUTO_START_SERVER_IDS_MAX = 100;
+// The wait between two boot auto-start launches (server/index.js's
+// parseAutoStartDelaySeconds(), which falls back to 0 outside it).
+const AUTO_START_DELAY_SECONDS_MIN = 0;
+const AUTO_START_DELAY_SECONDS_MAX = 600;
 // The settings that hold a list of server ids, and the code each one's
 // refusal carries.
 const SERVER_ID_LIST_SETTINGS = {
@@ -163,6 +167,8 @@ const VALID_SETTINGS_KEYS = [
   // The servers the server watch restarts when they stop without the panel
   // asking (services/serverWatch.js).
   "restartOnCrashServerIds",
+  // Seconds between one auto-started server's launch and the next.
+  "autoStartDelaySeconds",
   "panelPort",
   "httpsEnabled",
   "httpsPort",
@@ -345,6 +351,7 @@ const APP_SETTINGS_ANY_ROLE_KEYS = new Set([
   "autoStartServer",
   "autoStartServerIds",
   "restartOnCrashServerIds",
+  "autoStartDelaySeconds",
   "panelPort",
   "httpsEnabled",
   "httpsPort",
@@ -585,6 +592,18 @@ router.put("/app-settings", requirePermission("panel.settings"), async (req, res
         );
         if (!warningMinutesCheck.ok) {
           return res.status(400).json({ error: warningMinutesCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: warningMinutesCheck.message }) });
+        }
+      }
+
+      if (key === "autoStartDelaySeconds") {
+        const delayCheck = requireIntInRange(
+          value,
+          AUTO_START_DELAY_SECONDS_MIN,
+          AUTO_START_DELAY_SECONDS_MAX,
+          "Wait between auto-started servers (seconds)",
+        );
+        if (!delayCheck.ok) {
+          return res.status(400).json({ error: delayCheck.message, code: ErrorCode.CONFIG_INVALID_NUMERIC_FIELD, params: sanitizeErrorParams({ message: delayCheck.message }) });
         }
       }
 

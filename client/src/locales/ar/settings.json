@@ -384,7 +384,14 @@
     "autoStartServersDesc": "تبدأ الخوادم المحددة واحدًا تلو الآخر عند بدء اللوحة. ولا يُمسّ الخادم الذي يعمل بالفعل.",
     "autoStartActiveBadge": "نشط",
     "autoStartNoServers": "لا يوجد خادم على هذا الكمبيوتر بعد. أضف واحدًا من صفحة خوادمي.",
-    "autoStartNoneChosen": "لم يُحدَّد أي خادم، لذا لن يبدأ أي منها."
+    "autoStartNoneChosen": "لم يُحدَّد أي خادم، لذا لن يبدأ أي منها.",
+    "autoStartHeap": "يمكن للخوادم المختارة أن تستخدم معًا حتى {{heap}} غ.ب من الكومة؛ في هذا الجهاز {{host}} غ.ب.",
+    "autoStartHeapOver": "يمكن للخوادم المختارة أن تستخدم معًا حتى {{heap}} غ.ب من الكومة، أكثر من {{host}} غ.ب في هذا الجهاز: خفّض حدها الأقصى للذاكرة أو اختر خوادم أقل.",
+    "autoStartGamePortConflict": "يستخدم {{first}} (المنفذ {{firstPort}}) و{{second}} (المنفذ {{secondPort}}) منافذ اللعب نفسها: يمكن تشغيل واحد منهما فقط.",
+    "autoStartRconPortConflict": "يستخدم {{first}} و{{second}} منفذ RCON نفسه {{port}}: يمكن تشغيل واحد منهما فقط.",
+    "autoStartDelayLabel": "الانتظار بين الخوادم",
+    "autoStartDelayUnit": "ثانية",
+    "autoStartDelayDesc": "يشغّل الخوادم المختارة بهذا الفاصل حتى لا تُحمَّل عوالمها كلها في وقت واحد. القيمة 0 تشغّلها واحدًا تلو الآخر مباشرة."
   },
   "bridge": {
     "checksLabels": {
@@ -967,6 +974,7 @@
     "autoStartDisabled": { "title": "تم تعطيل التشغيل التلقائي", "description": "لن يبدأ الخادم تلقائيًا" },
     "autoStartServerChosen": { "title": "تم تحديث التشغيل التلقائي", "description": "سيبدأ {{name}} عند بدء اللوحة" },
     "autoStartServerRemoved": { "title": "تم تحديث التشغيل التلقائي", "description": "لن يبدأ {{name}} مع اللوحة بعد الآن" },
+    "autoStartDelaySaved": { "title": "حُفظ الانتظار بين الخوادم", "description": "{{seconds}} ث بين تشغيل خادم والخادم التالي" },
     "autoStartSaveFailed": { "title": "فشل حفظ إعداد التشغيل التلقائي", "fallback": "تعذّر على اللوحة حفظ إعداد التشغيل التلقائي. حاول من جديد." },
     "corsReloaded": {
       "title": "أُعيد تحميل قواعد CORS",

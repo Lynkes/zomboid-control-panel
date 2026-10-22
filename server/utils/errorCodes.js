@@ -585,6 +585,9 @@ export const ErrorCode = Object.freeze({
    * policy chunks.js's shared CHUNKS_STALE_SERVER_SCAN already follows for
    * its own 2 delete routes). */
   BACKUP_ACTIVE_SERVER_CHANGED: "BACKUP_ACTIVE_SERVER_CHANGED",
+  /** server/routes/backup.js -- POST /api/backup/settings, `serverIds` (the
+   * servers the schedule backs up) is not a list of up to {{max}} server ids. */
+  BACKUP_SERVER_IDS_INVALID: "BACKUP_SERVER_IDS_INVALID",
   /** server/routes/backup.js (sites: POST /settings, POST
    * /validate-schedule) -- isCronTooFrequent() rejects a backup schedule
    * firing more than once every 5 minutes. Its own code rather than

@@ -133,6 +133,7 @@
   "BACKUP_RESTORE_SERVER_RUNNING": "Der Server muss gestoppt werden, bevor ein Backup wiederhergestellt wird. Stoppe zuerst den Server.",
   "BACKUP_INVALID_DAYS_PARAMETER": "Ungültiger days-Parameter. Muss eine ganze Zahl ≥ 1 sein",
   "BACKUP_ACTIVE_SERVER_CHANGED": "Der aktive Server hat sich geändert, seit diese Einstellungen geladen wurden. Lade die Sicherungseinstellungen neu, bevor du speicherst.",
+  "BACKUP_SERVER_IDS_INVALID": "Die zu sichernden Server müssen eine Liste von höchstens {{max}} Servern sein",
   "BACKUP_SCHEDULE_TOO_FREQUENT": "Backups dürfen nicht öfter als alle 5 Minuten laufen",
   "BACKUP_UPLOAD_REMOTE_NOT_AVAILABLE": "Der Backup-Upload ist für externe Server nicht verfügbar.",
   "BACKUP_UPLOAD_NO_FILE": "Keine Datei hochgeladen. Sende den ZIP-Inhalt mit Content-Type: application/zip.",
