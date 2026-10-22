@@ -1,0 +1,64 @@
+name: Dependabot Auto-Merge
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  queue:
+    name: Queue passing Dependabot update
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # This workflow intentionally does not check out or execute pull-request code.
+      # GitHub still enforces required checks and reviews before the queued merge runs.
+      #
+      # Reads the update's ecosystem, semver level and group from Dependabot's
+      # signed commit metadata (it fails, and nothing merges, when the last
+      # commit isn't Dependabot's).
+      - name: Read Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # Only npm patch and minor updates from the general groups queue
+      # themselves. Build tooling (the *-build-tools groups), GitHub Actions,
+      # Docker base images, ungrouped and security-only updates wait for a
+      # person: those reach the release artifacts or the CI token directly.
+      - name: Enable squash auto-merge
+        if: >-
+          steps.meta.outputs.package-ecosystem == 'npm_and_yarn' &&
+          (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+           steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+          (steps.meta.outputs.dependency-group == 'root-non-breaking' ||
+           steps.meta.outputs.dependency-group == 'client-non-breaking')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh pr merge "$PR_NUMBER" \
+            --repo "$GITHUB_REPOSITORY" \
+            --auto \
+            --squash \
+            --delete-branch
+
+      - name: Explain a skipped auto-merge
+        if: >-
+          ${{ !(steps.meta.outputs.package-ecosystem == 'npm_and_yarn' &&
+            (steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+             steps.meta.outputs.update-type == 'version-update:semver-minor') &&
+            (steps.meta.outputs.dependency-group == 'root-non-breaking' ||
+             steps.meta.outputs.dependency-group == 'client-non-breaking')) }}
+        env:
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          GROUP: ${{ steps.meta.outputs.dependency-group }}
+        shell: bash
+        run: |
+          echo "::notice title=Needs review::Not auto-merged (ecosystem '$ECOSYSTEM', update '$UPDATE_TYPE', group '${GROUP:-none}'): only npm patch/minor updates in root-non-breaking or client-non-breaking merge on their own."
