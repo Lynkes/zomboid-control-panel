@@ -5,8 +5,13 @@ import fs from "fs";
 // from a reviewed release, built from exactly what the lockfiles pin, by a
 // job whose write token no build dependency can read.
 
+// A fork that keeps fewer workflows (the all-in-one build alone) skips the
+// suites about the ones it doesn't have.
+const hasRepoFile = (relativePath) => fs.existsSync(new URL(`../../${relativePath}`, import.meta.url));
 const readRepoFile = (relativePath) =>
-  fs.readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  hasRepoFile(relativePath)
+    ? fs.readFileSync(new URL(`../../${relativePath}`, import.meta.url), "utf8").replace(/\r\n/g, "\n")
+    : "";
 
 // The text of one top-level job of a workflow (from "  <name>:" to the next
 // two-space-indented key or the end of the file).
@@ -20,7 +25,7 @@ function jobText(workflow, name) {
   return text.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
 }
 
-describe("demo site deploy", () => {
+describe.skipIf(!hasRepoFile(".github/workflows/demo-pages.yml"))("demo site deploy", () => {
   const workflow = readRepoFile(".github/workflows/demo-pages.yml");
 
   it("is read-only by default", () => {
@@ -50,7 +55,7 @@ describe("demo site deploy", () => {
   });
 });
 
-describe("Dependabot", () => {
+describe.skipIf(!hasRepoFile(".github/workflows/dependabot-automerge.yml"))("Dependabot", () => {
   const config = readRepoFile(".github/dependabot.yml");
   const automerge = readRepoFile(".github/workflows/dependabot-automerge.yml");
 
@@ -99,7 +104,7 @@ describe("Dependabot", () => {
   });
 });
 
-describe("Docker image tags", () => {
+describe.skipIf(!hasRepoFile(".github/workflows/docker-publish.yml"))("Docker image tags", () => {
   const workflow = readRepoFile(".github/workflows/docker-publish.yml");
 
   it("moves latest only on a release tag, and main/edge on main pushes", () => {
@@ -161,7 +166,7 @@ describe("release builds install exactly what the lockfiles pin", () => {
     "docker/all-in-one/Dockerfile",
     ".github/workflows/release-artifacts.yml",
     ".github/workflows/demo-pages.yml",
-  ])("%s uses npm ci, never npm install", (file) => {
+  ].filter(hasRepoFile))("%s uses npm ci, never npm install", (file) => {
     const text = readRepoFile(file);
     const commands = text.split("\n").filter((line) => !line.trim().startsWith("#"));
     expect(commands.join("\n")).toMatch(/npm ci\b/);

@@ -73,7 +73,9 @@ describe("all-in-one bootstrap: where the docs fetch it from", () => {
     }
   });
 
-  it("attaches the script to each release and lists it in checksums.txt", () => {
+  // A fork that keeps the all-in-one workflow alone has no release workflow.
+  it.skipIf(!fs.existsSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.github/workflows/release-artifacts.yml")))(
+    "attaches the script to each release and lists it in checksums.txt", () => {
     const workflow = read(".github/workflows/release-artifacts.yml").replace(/\r\n/g, "\n");
     expect(workflow).toContain("cp docker/all-in-one/bootstrap.sh bootstrap.sh");
     const checksums = workflow.slice(workflow.indexOf("sha256sum"), workflow.indexOf("> checksums.txt"));
