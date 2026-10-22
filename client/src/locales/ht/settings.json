@@ -314,7 +314,14 @@
     "autoStartServersDesc": "Sèvè ki koche yo demare youn apre lòt lè panèl la demare. Yon sèvè ki deja ap fonksyone rete jan l ye a.",
     "autoStartActiveBadge": "Aktif",
     "autoStartNoServers": "Poko gen sèvè sou òdinatè sa a. Ajoute youn nan Sèvè m yo.",
-    "autoStartNoneChosen": "Pa gen okenn sèvè ki koche, kidonk okenn p ap demare."
+    "autoStartNoneChosen": "Pa gen okenn sèvè ki koche, kidonk okenn p ap demare.",
+    "autoStartHeap": "Ansanm, sèvè ou chwazi yo ka itilize jiska {{heap}} GB heap; machin sa a gen {{host}} GB.",
+    "autoStartHeapOver": "Ansanm, sèvè ou chwazi yo ka itilize jiska {{heap}} GB heap, plis pase {{host}} GB machin sa a genyen: bese memwa maksimòm yo, oswa chwazi mwens sèvè.",
+    "autoStartGamePortConflict": "{{first}} (pò {{firstPort}}) ak {{second}} (pò {{secondPort}}) itilize menm pò jwèt yo: se yon sèl ladan yo ki ka mache.",
+    "autoStartRconPortConflict": "{{first}} ak {{second}} itilize menm pò RCON {{port}}: se yon sèl ladan yo ki ka mache.",
+    "autoStartDelayLabel": "Tann ant sèvè yo",
+    "autoStartDelayUnit": "segonn",
+    "autoStartDelayDesc": "Demare sèvè ou chwazi yo ak espas sa a ant yo, pou mond yo pa chaje tout an menm tan. 0 demare yo youn apre lòt touswit."
   },
 
   "bridge": {
@@ -830,6 +837,7 @@
     "autoStartDisabled": { "title": "Demaraj otomatik dezaktive", "description": "Sèvè a pap demare otomatikman" },
     "autoStartServerChosen": { "title": "Demaraj otomatik mete ajou", "description": "{{name}} ap demare lè panèl la demare" },
     "autoStartServerRemoved": { "title": "Demaraj otomatik mete ajou", "description": "{{name}} p ap demare ak panèl la ankò" },
+    "autoStartDelaySaved": { "title": "Tan pou tann ant sèvè yo sove", "description": "{{seconds}} s ant demaraj yon sèvè ak pwochen an" },
     "autoStartSaveFailed": { "title": "Sove paramèt demaraj otomatik la echwe", "fallback": "Panèl la pa t kapab sove paramèt demaraj otomatik la. Eseye ankò." },
     "corsReloaded": { "title": "Règ CORS Rechaje", "description": "Backend la rechaje paramèt CORS nan baz done a." },
     "corsReloadFailed": { "title": "Pa t Kapab Rechaje Règ CORS", "fallback": "Echwe pou rechaje règ CORS." },

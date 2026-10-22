@@ -52,6 +52,7 @@ import {
   recordPerformanceSnapshot,
   logServerEvent,
   peekServerDisplayName,
+  recordPlayerSession,
 } from "./database/init.js";
 import { RconService } from "./services/rcon.js";
 import { findOtherRunningServers, ServerManager } from "./services/serverManager.js";
@@ -60,9 +61,15 @@ import {
   runManagedLifecycle,
   setDockerClient,
 } from "./services/managedContainer.js";
-import { ModChecker } from "./services/modChecker.js";
+import {
+  ModChecker,
+  fetchWorkshopDetails,
+  getWorkshopAcfCandidates,
+} from "./services/modChecker.js";
 import { Scheduler } from "./services/scheduler.js";
 import { ServerWatch } from "./services/serverWatch.js";
+import { ServerPlayersWatch } from "./services/serverPlayersWatch.js";
+import { OtherServerUpdates } from "./services/otherServerUpdates.js";
 import { DiscordBot } from "./services/discordBot.js";
 import { BackupService, BACKUP_PROGRESS_ROOM } from "./services/backupService.js";
 import { UpdateChecker } from "./services/updateChecker.js";
@@ -263,6 +270,8 @@ async function gracefulShutdown(signal) {
 
     // Stop the server watch
     serverWatch.stop();
+    serverPlayersWatch.stop();
+    otherServerUpdates.stop();
 
     // Stop the Server Files janitor and the character and leaderboard
     // samplers, and close the file manager's SFTP connections (not awaited: a
@@ -323,6 +332,7 @@ import serverRoutes, {
 } from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
 import serversRoutes, { readServerStatuses } from "./routes/servers.js";
+import { readProcessesMemory } from "./utils/processMemory.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
 import serverFilesRoutes from "./routes/serverFiles.js";
 import playerRoutes from "./routes/players.js";
@@ -3384,54 +3394,26 @@ async function getSwapSnapshot() {
   return lastSwapSample.value;
 }
 
-async function getPzProcessMemory() {
-  // Get PZ server Java process memory from OS
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(null), 5000);
-
-    if (process.platform === "win32") {
-      // Windows: Get working set of java.exe processes, find the PZ one
-      exec(
-        'powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'java.exe\'\\" | Select-Object ProcessId, WorkingSetSize, CommandLine | Format-List"',
-        { timeout: 8000 },
-        (err, stdout) => {
-          clearTimeout(timeout);
-          if (err || !stdout) return resolve(null);
-
-          // Parse output — look for PZ server process
-          const blocks = stdout
-            .split(/ProcessId/)
-            .filter((b) =>
-              b.toLowerCase().includes("zombie.network.gameserver"),
-            );
-          if (blocks.length === 0) return resolve(null);
-
-          const wsMatch = blocks[0].match(/WorkingSetSize\s*:\s*(\d+)/i);
-          if (!wsMatch) return resolve(null);
-
-          resolve(parseInt(wsMatch[1], 10)); // bytes
-        },
-      );
-    } else {
-      // Linux: Use ps to find PZ server RSS
-      exec(
-        'ps aux --no-headers | grep -i "zombie.network.[Gg]ame[Ss]erver" | grep -v grep',
-        { timeout: 5000 },
-        (err, stdout) => {
-          clearTimeout(timeout);
-          if (err || !stdout || !stdout.trim()) return resolve(null);
-
-          // RSS is the 6th column in ps aux (in KB)
-          const parts = stdout.trim().split(/\s+/);
-          if (parts.length >= 6) {
-            const rssKB = parseInt(parts[5], 10);
-            if (!isNaN(rssKB)) return resolve(rssKB * 1024); // convert to bytes
-          }
-          resolve(null);
-        },
-      );
-    }
-  });
+// The ACTIVE server's resident memory, for the performance charts. It was
+// the first PZ server process the OS listed (`ps | grep`, or the first
+// java.exe on Windows): with two servers running, the chart could follow the
+// other one. Now it is the process the active server's own detection
+// attributes to it (its pidfile, or the scored scan); null without one.
+export async function getPzProcessMemory({
+  manager = serverManager,
+  readMemory = readProcessesMemory,
+} = {}) {
+  try {
+    const details = await manager.getServerProcessDetails();
+    if (!details?.running || details.scanFailed) return null;
+    const pid = details.owned?.[0]?.pid ?? details.matched?.[0]?.pid ?? details.mainPid ?? null;
+    if (!pid) return null;
+    const usage = await readMemory([pid]);
+    return usage.get(Number(pid)) ?? null;
+  } catch (error) {
+    log.debug(`PZ process memory read failed: ${error.message}`);
+    return null;
+  }
 }
 
 async function startPerfPolling() {
@@ -3876,6 +3858,66 @@ const serverWatch = new ServerWatch({
   emit: (payload) => io.emit("servers:status", payload),
 });
 
+// Mods behind Steam and game builds on the servers other than the active
+// one (services/otherServerUpdates.js). A restart for mod updates goes the
+// way the crash restart of another server does, with the mod checker's
+// warning to its players.
+async function restartOtherServerForModUpdates(server, warningMinutes) {
+  const tempRcon = new RconService();
+  const tempManager = new ServerManager();
+  await tempRcon.loadConfig(server.id);
+  await tempManager.loadConfig(server.id);
+  try {
+    return await scheduler.performRestart(warningMinutes, {
+      rconService: tempRcon,
+      serverManager: tempManager,
+      label: "Mod update restart",
+    });
+  } finally {
+    if (tempRcon.connected) await tempRcon.disconnect().catch(() => {});
+  }
+}
+
+const otherServerUpdates = new OtherServerUpdates({
+  getServers: () => getServers(),
+  getActiveServer: () => getActiveServer(),
+  readServerConfig: async (server) => {
+    const manager = new ServerManager();
+    await manager.loadConfig(server.id);
+    return manager.getServerConfig();
+  },
+  acfCandidates: (installPath) => getWorkshopAcfCandidates(installPath),
+  parseAcf: (content) => modChecker.parseAcfFile(content),
+  fetchWorkshop: (ids) => fetchWorkshopDetails(ids),
+  installedBuild: (installPath) => updateChecker.getInstalledBuildInfo(installPath),
+  latestBuild: async (branch, installPath) => {
+    const steamcmdPath = await getSetting("steamcmdPath");
+    return steamcmdPath
+      ? updateChecker.getLatestBuildInfo(steamcmdPath, branch, installPath)
+      : null;
+  },
+  readStatuses: async () => (await readServerStatuses(serverManager)).statuses,
+  modRestartSettings: () => ({
+    autoRestart: Boolean(modChecker.autoRestartEnabled),
+    warningMinutes: modChecker.restartWarningMinutes,
+  }),
+  restartServer: (server, warningMinutes) =>
+    restartOtherServerForModUpdates(server, warningMinutes),
+  logEvent: (type, message, serverId) => logServerEvent(type, message, { serverId }),
+  // The Dashboard's list of servers refreshes on it.
+  emit: (payload) => io.emit("servers:updates", payload),
+});
+app.set("otherServerUpdates", otherServerUpdates);
+
+// Sessions and play time on the servers other than the active one, which
+// PanelBridge doesn't reach (services/serverPlayersWatch.js).
+const serverPlayersWatch = new ServerPlayersWatch({
+  getServers: () => getServers(),
+  getActiveServer: () => getActiveServer(),
+  recordSession: (name, action, serverId, options) =>
+    recordPlayerSession(name, action, serverId, options),
+});
+
 // Process detection can fail with wrappers (WinGSM) or restricted permissions.
 // When that happens on startup, probe the RCON port directly as a fallback so we
 // don't wait 60s for auto-reconnect. This only makes sense for a server the
@@ -4027,6 +4069,23 @@ export function selectAutoStartServers({
   };
 }
 
+// autoStartDelaySeconds: how long the boot auto-start waits between one
+// server's launch and the next, so several worlds don't load -- the heaviest
+// minute of a server's life, CPU and disk -- at the same moment. 0 (the
+// default, and anything not a whole number of seconds up to 10 minutes)
+// launches them back to back, as before. Exported for testing.
+export const AUTO_START_DELAY_SECONDS_MAX = 600;
+export function parseAutoStartDelaySeconds(value) {
+  const seconds = Number(value);
+  return Number.isInteger(seconds) && seconds >= 0 && seconds <= AUTO_START_DELAY_SECONDS_MAX
+    ? seconds
+    : 0;
+}
+
+function sleepMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function loadServerManagerFor(serverId) {
   const manager = new ServerManager();
   await manager.loadConfig(serverId);
@@ -4041,17 +4100,21 @@ async function loadServerManagerFor(serverId) {
 // running, or one the process scan can't answer for, is left alone, the same
 // as the active server, and a remote one is started by its own host.
 // Resolves to one { serverId, outcome } per server, outcome being started,
-// alreadyRunning, remote, unknown, busy or failed. Exported for testing,
-// with its collaborators injectable.
+// alreadyRunning, remote, unknown, busy or failed. `delayMs` spaces the
+// launches out (autoStartDelaySeconds). Exported for testing, with its
+// collaborators injectable.
 export async function autoStartOtherServers(
   servers,
   {
     createManager = loadServerManagerFor,
     start = startServerForAutoStart,
     acquireLock = acquireLifecycleLock,
+    delayMs = 0,
+    sleep = sleepMs,
   } = {},
 ) {
   const results = [];
+  let launched = 0;
   for (const server of servers) {
     const name = server.name || server.serverName || String(server.id);
     const record = (outcome) => results.push({ serverId: server.id, outcome });
@@ -4076,6 +4139,10 @@ export async function autoStartOtherServers(
         record("alreadyRunning");
         continue;
       }
+      if (launched > 0 && delayMs > 0) {
+        log.info(`Auto-start: waiting ${Math.round(delayMs / 1000)}s before starting ${name}`);
+        await sleep(delayMs);
+      }
       lock = acquireLock("startup-auto-start", server.id);
       if (!lock) {
         log.warn(`Auto-start: ${name} skipped because another lifecycle operation is in progress`);
@@ -4084,6 +4151,7 @@ export async function autoStartOtherServers(
       }
       log.info(`Auto-start: starting ${name}...`);
       const startResult = await start(server, { serverManagerInstance: manager });
+      if (startResult?.success && !startResult.alreadyRunning) launched += 1;
       if (startResult?.success) {
         log.info(
           startResult.alreadyRunning
@@ -4526,8 +4594,14 @@ async function start() {
         });
         // The other chosen servers go first: the active server's auto-start
         // below holds the lifecycle lock until RCON answers, up to 5 minutes.
+        const autoStartDelayMs =
+          parseAutoStartDelaySeconds(await getSetting("autoStartDelaySeconds")) * 1000;
+        let othersLaunched = 0;
         if (autoStart.others.length > 0) {
-          await autoStartOtherServers(autoStart.others);
+          const outcomes = await autoStartOtherServers(autoStart.others, {
+            delayMs: autoStartDelayMs,
+          });
+          othersLaunched = outcomes.filter((entry) => entry.outcome === "started").length;
         }
         const processState = await Promise.race([
           activeServer?.isRemote
@@ -4611,6 +4685,13 @@ async function start() {
               );
               rconService.setServerStarting(false);
             } else {
+              // The same spacing after the other servers' launches.
+              if (othersLaunched > 0 && autoStartDelayMs > 0) {
+                log.info(
+                  `Auto-start: waiting ${autoStartDelayMs / 1000}s before starting the active server`,
+                );
+                await sleepMs(autoStartDelayMs);
+              }
               const lifecycleLock = acquireLifecycleLock(
                 "startup-auto-start",
                 activeServer?.id ?? null,
@@ -4734,6 +4815,8 @@ async function start() {
 
     // And the watch over the other servers (see serverWatch above)
     serverWatch.start();
+    serverPlayersWatch.start();
+    otherServerUpdates.start();
 
     // Start update checker for server updates
     updateChecker.start();

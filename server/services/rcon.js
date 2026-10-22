@@ -218,7 +218,9 @@ export function parsePlayersResponse(response) {
 // can validate host/port/password before saving them. `countPlayers` also
 // asks the server who is on, for a server the panel holds no connection to
 // (the Dashboard's overview of every server): `players` is the count, or
-// null when the server answered the login but not the command.
+// null when the server answered the login but not the command, and
+// `playerNames` who they are (the sessions the server watch keeps for the
+// servers other than the active one).
 export async function testRconConnection({
   host,
   port,
@@ -240,14 +242,22 @@ export async function testRconConnection({
     await client.authenticate(password || "");
     if (!countPlayers) return { success: true, detail: "Connected" };
     let players = null;
+    let playerNames = null;
     try {
-      players = parsePlayersResponse(
+      const list = parsePlayersResponse(
         await client.execute("players", { timeoutMs }),
-      ).length;
+      );
+      players = list.length;
+      playerNames = list.map((entry) => entry.name);
     } catch {
       players = null;
     }
-    return { success: true, detail: "Connected", players };
+    return {
+      success: true,
+      detail: "Connected",
+      players,
+      ...(playerNames ? { playerNames } : {}),
+    };
   } catch {
     return {
       success: false,

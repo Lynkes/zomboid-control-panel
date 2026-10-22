@@ -30,6 +30,7 @@ import {
   logScheduleExecution,
   getActiveServer,
   getServer,
+  getServers,
   getSetting,
   setSetting,
 } from "../database/init.js";
@@ -101,6 +102,19 @@ const SCHEDULABLE_BRIDGE_ACTIONS = new Set([
 // Existing tasks keep working and need the same server.control as before;
 // on a world that already has a map_sand.bin they also have the bridge
 // rewrite it afterwards, as their save did (executeTask).
+// The servers the scheduled backup backs up when backupServerIds names them:
+// the local ones among them (a remote server's world isn't on this machine),
+// the active server first, then My Servers order. Exported for testing.
+export function selectScheduledBackupServers({ serverIds, servers = [], activeServer = null }) {
+  const chosen = new Set((serverIds || []).map((id) => String(id)));
+  const local = servers.filter((server) => server && !server.isRemote && chosen.has(String(server.id)));
+  const activeId = activeServer?.id !== null && activeServer?.id !== undefined ? String(activeServer.id) : null;
+  return [
+    ...local.filter((server) => String(server.id) === activeId),
+    ...local.filter((server) => String(server.id) !== activeId),
+  ];
+}
+
 export function classifyScheduledCommand(command) {
   const commandLower = String(command ?? "").toLowerCase();
   if (commandLower === "restart") return "restart";
@@ -1437,9 +1451,42 @@ export class Scheduler {
       const waitedMinutes = Math.round((startTime - deferredAt) / 60000);
       lateNote = ` -- held back until a server restart that was running at its scheduled time finished (${waitedMinutes < 1 ? "under a minute" : `${waitedMinutes} min`} later)`;
     }
+    // The servers chosen for the schedule (backupServerIds), one after the
+    // other; with no choice made, the active server alone, as before.
+    if (!Array.isArray(settings.serverIds)) {
+      await this._runScheduledBackupOf(null, settings, lateNote);
+      return;
+    }
+    let targets = [];
+    try {
+      targets = selectScheduledBackupServers({
+        serverIds: settings.serverIds,
+        servers: await getServers(),
+        activeServer: await getActiveServer(),
+      });
+    } catch (error) {
+      log.error(`Scheduled backup: could not read the servers to back up: ${error.message}`);
+      return;
+    }
+    if (targets.length === 0) {
+      log.info("Scheduled backup: no server is chosen for it");
+      return;
+    }
+    for (const target of targets) {
+      await this._runScheduledBackupOf(target, settings, lateNote);
+    }
+  }
+
+  // One server's scheduled backup, written to Schedule History under that
+  // server. `target` null: whichever server is active.
+  async _runScheduledBackupOf(target, settings, lateNote) {
+    const startTime = Date.now();
+    // A legacy run (no target) writes its rows exactly as before.
+    const history = target ? [{ serverId: target.id }] : [];
     try {
       const result = await this.backupService.createBackup({
         includeDb: settings.includeDb,
+        ...(target ? { server: target } : {}),
       });
       const duration = Date.now() - startTime;
       if (result.success) {
@@ -1468,6 +1515,7 @@ export class Scheduler {
           true,
           `Created: ${result.backup.name}${skipNote}${lateNote}`,
           duration,
+          ...history,
         );
         log.info(`Scheduled backup completed: ${result.backup.name}${skipNote}${lateNote}`);
       } else {
@@ -1478,6 +1526,7 @@ export class Scheduler {
           false,
           `${result.message}${lateNote}`,
           duration,
+          ...history,
         );
         log.error(`Scheduled backup failed: ${result.message}${lateNote}`);
       }
@@ -1490,6 +1539,7 @@ export class Scheduler {
         false,
         `${error.message}${lateNote}`,
         duration,
+        ...history,
       );
       log.error(`Scheduled backup error: ${error.message}${lateNote}`);
     }
@@ -1875,8 +1925,9 @@ export class Scheduler {
             false,
             errorMsg,
             restartDuration,
+            { serverId: pinnedServerId },
           );
-          logServerEvent("auto_restart_error", errorMsg);
+          logServerEvent("auto_restart_error", errorMsg, { serverId: pinnedServerId });
           return { success: false, wasRunning: false, message: errorMsg, logged: true };
         }
 
@@ -1925,10 +1976,12 @@ export class Scheduler {
             true,
             "Server was offline - started successfully",
             restartDuration,
+            { serverId: pinnedServerId },
           );
           logServerEvent(
             "auto_restart",
             "Server was offline - started successfully",
+            { serverId: pinnedServerId },
           );
           log.info("Server started successfully (was not running)");
         } else {
@@ -1939,10 +1992,12 @@ export class Scheduler {
             false,
             "Server was offline - failed to start",
             restartDuration,
+            { serverId: pinnedServerId },
           );
           logServerEvent(
             "auto_restart_error",
             "Server was offline - failed to start",
+            { serverId: pinnedServerId },
           );
           log.error("Failed to start server");
         }
@@ -1976,8 +2031,9 @@ export class Scheduler {
           false,
           errorMsg,
           restartDuration,
+          { serverId: pinnedServerId },
         );
-        logServerEvent("auto_restart_error", errorMsg);
+        logServerEvent("auto_restart_error", errorMsg, { serverId: pinnedServerId });
         // A server whose game thread died (42.21's UnsatisfiedLinkError
         // during a save, 2026-10-01) fails HERE, not at the save below: the
         // game runs every RCON command on that same main thread
@@ -2145,8 +2201,9 @@ export class Scheduler {
           false,
           errorMsg,
           restartDuration,
+          { serverId: pinnedServerId },
         );
-        await logServerEvent("auto_restart_error", errorMsg);
+        await logServerEvent("auto_restart_error", errorMsg, { serverId: pinnedServerId });
         // Coded so a failed Restart's toast can say what to do next (a
         // stuck server only goes down through Force stop) in the
         // operator's language -- see routes/scheduler.js's
@@ -2180,8 +2237,9 @@ export class Scheduler {
           false,
           errorMsg,
           restartDuration,
+          { serverId: pinnedServerId },
         );
-        logServerEvent("auto_restart_error", errorMsg);
+        logServerEvent("auto_restart_error", errorMsg, { serverId: pinnedServerId });
         return { success: false, wasRunning: true, message: errorMsg, logged: true };
       }
 
@@ -2218,8 +2276,9 @@ export class Scheduler {
             false,
             errorMsg,
             restartDuration,
+            { serverId: pinnedServerId },
           );
-          logServerEvent("auto_restart_error", errorMsg);
+          logServerEvent("auto_restart_error", errorMsg, { serverId: pinnedServerId });
           return {
             success: false,
             wasRunning: true,
@@ -2255,10 +2314,12 @@ export class Scheduler {
               false,
               `Could not confirm the old server stopped: ${stopError}`,
               restartDuration,
+              { serverId: pinnedServerId },
             );
             logServerEvent(
               "auto_restart_error",
               `Could not confirm the old server stopped: ${stopError}`,
+              { serverId: pinnedServerId },
             );
             return {
               success: false,
@@ -2360,10 +2421,12 @@ export class Scheduler {
           false,
           "Server stopped but failed to start",
           restartDuration,
+          { serverId: pinnedServerId },
         );
         logServerEvent(
           "auto_restart_error",
           "Server stopped but failed to start",
+          { serverId: pinnedServerId },
         );
         log.error("Auto-restart: Server stopped but failed to start");
         return { success: false, wasRunning: true, logged: true };
@@ -2513,10 +2576,12 @@ export class Scheduler {
           true,
           "Server restarted successfully" + rconStatus + warningNote,
           restartDuration,
+          { serverId: pinnedServerId },
         );
         logServerEvent(
           "auto_restart",
           "Server restarted successfully" + rconStatus + warningNote,
+          { serverId: pinnedServerId },
         );
         log.info(
           `Auto-restart completed successfully (took ${Math.round(restartDuration / 1000)}s)${rconStatus}${warningNote}`,
@@ -2529,10 +2594,12 @@ export class Scheduler {
           false,
           "Server stopped but failed to start",
           restartDuration,
+          { serverId: pinnedServerId },
         );
         logServerEvent(
           "auto_restart_error",
           "Server stopped but failed to start",
+          { serverId: pinnedServerId },
         );
         log.error("Auto-restart: Server stopped but failed to start");
       }
@@ -2548,8 +2615,9 @@ export class Scheduler {
         false,
         error.message,
         restartDuration,
+        { serverId: pinnedServerId },
       );
-      logServerEvent("auto_restart_error", error.message);
+      logServerEvent("auto_restart_error", error.message, { serverId: pinnedServerId });
       // Clear serverStarting flag on error so auto-reconnect can resume
       if (rconService.setServerStarting) {
         rconService.setServerStarting(false);
