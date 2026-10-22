@@ -239,3 +239,71 @@ describe('ServerManager Windows scan: ambiguous JVM-shaped candidates', () => {
     },
   );
 });
+
+// 2026-10-21, a 1.5.0 support bundle: every Windows scan on a slow PC failed
+// with only "Command failed: <script>" (2,057 times), so the server state was
+// always unknown and an auto-restart quit the server and never started it.
+describe('ServerManager Windows scan on a slow PC', () => {
+  beforeEach(async () => {
+    execFileMock.mockReset();
+    const { _resetWin32ScanTimeoutForTests } = await import('../services/serverManager.js');
+    _resetWin32ScanTimeoutForTests();
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'asks WMI for the candidate processes only, instead of filtering every process in PowerShell',
+    async () => {
+      execFileMock.mockImplementation((_file, _args, _opts, callback) => callback(null, '', ''));
+      await new ServerManager()._scanDedicatedServerProcesses();
+      const script = execFileMock.mock.calls[0][1].at(-1);
+      expect(script).toMatch(/Get-CimInstance Win32_Process -Filter \$f/);
+      expect(script).not.toMatch(/Where-Object/);
+      expect(script).not.toContain('"');
+    },
+  );
+
+  it.runIf(process.platform === 'win32')(
+    'after a timed-out scan, waits 15 s from then on and logs the cause',
+    async () => {
+      const timedOut = Object.assign(new Error('Command failed: powershell.exe ... ConvertTo-Csv -NoTypeInformation'), { killed: true, signal: 'SIGTERM' });
+      execFileMock.mockImplementationOnce((_file, _args, _opts, callback) => callback(timedOut, '', ''));
+      execFileMock.mockImplementation((_file, _args, _opts, callback) => callback(null, '', ''));
+      const manager = new ServerManager();
+      const first = await manager._scanDedicatedServerProcesses();
+      expect(first.scanFailed).toBe(true);
+      const second = await manager._scanDedicatedServerProcesses();
+      expect(second.scanFailed).toBeFalsy();
+      expect(execFileMock.mock.calls[0][2]).toEqual({ timeout: 8000 });
+      expect(execFileMock.mock.calls[1][2]).toEqual({ timeout: 15000 });
+    },
+  );
+});
+
+// Root cause of the 1.5.0 bundle's 2,057 failed scans: every caller started
+// its own PowerShell (up to 57 a minute), they piled up on a 4-core PC and all
+// timed out. Concurrent callers now share one run.
+describe('ServerManager Windows scan: one PowerShell at a time', () => {
+  beforeEach(() => execFileMock.mockReset());
+
+  it.runIf(process.platform === 'win32')(
+    'concurrent scans share one PowerShell run; a scan after it returns starts a fresh one',
+    async () => {
+      const callbacks = [];
+      execFileMock.mockImplementation((_file, _args, _opts, callback) => callbacks.push(callback));
+      const a = new ServerManager();
+      const b = new ServerManager();
+      const scans = [a._scanDedicatedServerProcesses(), b._scanDedicatedServerProcesses(), a.scanHostForServerProcesses()];
+      await new Promise((r) => setTimeout(r, 20));
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+      callbacks[0](null, '', '');
+      const results = await Promise.all(scans);
+      for (const result of results) expect(result.scanFailed).toBeFalsy();
+
+      const later = a._scanDedicatedServerProcesses();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(execFileMock).toHaveBeenCalledTimes(2);
+      callbacks[1](null, '', '');
+      await later;
+    },
+  );
+});

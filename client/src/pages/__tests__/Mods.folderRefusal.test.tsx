@@ -95,7 +95,7 @@ describe('Mods page: folder refusal', () => {
     await waitFor(() => expect(modsApi.getCurrentConfig).toHaveBeenCalled())
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(enMods.nav.active.label, 'i') }))
     const shown = await screen.findByText(enErrors.ZOMBOID_DATA_FOLDER_REFUSED)
-    expect(shown.textContent).toContain('My Servers page')
+    expect(shown.textContent).toContain('the Servers page')
     expect(shown.textContent).toContain('a world save in its Saves folder')
     expect(screen.queryByText('raw server text')).not.toBeInTheDocument()
     expect(screen.queryByText(enMods.serverConfigTab.notConfiguredHint)).not.toBeInTheDocument()

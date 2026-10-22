@@ -1,5 +1,4 @@
 {
-  "loading": "Verbindung wird hergestellt…",
   "autoUpdateResult": {
     "scheduledTitle": "Automatisches Update geplant",
     "scheduledDescription_one": "Der Server wird in {{count}} Minute neu gestartet.",
@@ -37,10 +36,18 @@
   },
   "header": {
     "ariaLabel": "Serverstatus",
-    "everythingNominal": "Alles normal",
     "mapTooltip": "Karte (von PanelBridge)",
     "remoteBadge": "Remote",
-    "noActiveServer": "Kein aktiver Server"
+    "noActiveServer": "Kein aktiver Server",
+    "state": {
+      "running": "Läuft",
+      "stopped": "Gestoppt",
+      "unknown": "Status unbekannt",
+      "starting": "Startet…",
+      "stopping": "Stoppt…",
+      "none": "Kein Server",
+      "rconOffline": "RCON offline"
+    }
   },
   "addresses": {
     "lan": {
@@ -86,20 +93,19 @@
   },
   "actions": {
     "start": "Starten",
+    "addServer": "Server hinzufügen",
     "stop": "Stoppen",
     "forceStop": "Sofort stoppen",
+    "forceStopTooltip": "Versucht eine kurze Speicherung, stoppt dann in jedem Fall sofort",
     "restart": "Neu starten",
     "restartNow": "Jetzt neu starten",
-    "save": "Speichern",
+    "saveWorld": "Welt speichern",
     "refreshStatus": "Status aktualisieren",
     "createBackup": "Backup erstellen",
-    "bridgeSettings": "Brücken-Einstellungen",
     "connectRcon": "RCON verbinden",
     "wipeServer": "Server unwiderruflich löschen",
-    "moreActionsAria": "Weitere Serveraktionen",
     "addServerFirst": "Zuerst einen Server hinzufügen oder auswählen",
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
-    "forceStopTooltip": "Versucht eine kurze Speicherung, stoppt dann in jedem Fall sofort",
     "connectRconNeedsHostRunning": "Zuerst den Server starten",
     "noPermissionControl": "Ihre Rolle hat keine Berechtigung, den Server zu steuern.",
     "noPermissionWipe": "Ihre Rolle hat keine Berechtigung, die Welt zu löschen.",
@@ -110,6 +116,10 @@
   },
   "confirm": {
     "cancel": "Abbrechen",
+    "startUnknownState": {
+      "title": "Trotzdem starten",
+      "description": "Das Panel kann nicht feststellen, ob der Server auf diesem PC läuft — die Prozesserkennung schlägt immer wieder fehl. Trotzdem starten? Zwei Kopien desselben Servers können seine Welt beschädigen."
+    },
     "stopServer": {
       "title": "Server stoppen",
       "description": "Möchtest du den Server wirklich stoppen? Alle verbundenen Spieler werden getrennt."
@@ -150,7 +160,7 @@
   },
   "verdict": {
     "noServerConfigured": "Kein Server konfiguriert",
-    "openSetup": "Einrichtung öffnen",
+    "editServer": "Server bearbeiten",
     "panelCannotReach": "Panel kann den Server nicht erreichen",
     "retry": "Erneut versuchen",
     "serverStatusUnknown": "Serverstatus unbekannt",
@@ -181,45 +191,25 @@
     "lastApplyFailedDesc": "Letzter Anwendungsversuch fehlgeschlagen — Diagnose in den Einstellungen.",
     "stagedDesc": "Heruntergeladen und bereit. Starte das Panel neu, um es anzuwenden.",
     "newVersionDesc": "Eine neue Panel-Version ist verfügbar.",
-    "dismissAria": "Update-Benachrichtigung ausblenden",
-    "dismissTooltip": "Bis zur nächsten Version ausblenden",
     "applyUpdate": "Update anwenden",
     "viewUpdate": "Update anzeigen"
   },
   "updateCheckError": {
-    "label": "Panel-Updates können nicht geprüft werden",
-    "dismissAria": "Update-Prüfungshinweis ausblenden",
-    "dismissTooltip": "Ausblenden, bis sich das ändert"
+    "label": "Panel-Updates können nicht geprüft werden"
   },
   "connectionError": {
     "label": "Verbindungsfehler",
     "suffix": ". Einige Funktionen sind möglicherweise nicht verfügbar.",
     "retry": "Erneut versuchen"
   },
-  "notConfigured": {
-    "label": "Nicht konfiguriert",
-    "description": "Öffne die Server-Einrichtung, um einen Server hinzuzufügen oder zu konfigurieren.",
-    "openSetup": "Einrichtung öffnen →"
-  },
   "quickStart": {
     "dismissAria": "Schnellstart-Anleitung ausblenden",
-    "eyebrow": "Erster Server",
-    "heading": "Bring einen Server zum Laufen, richte RCON ein, dann folgt der Rest.",
-    "step1Title": "Server hinzufügen",
-    "step1Desc": "Füge eine bestehende Installation hinzu, verbinde Remote-RCON oder erstelle einen neuen Server.",
-    "step2Title": "Verbindung prüfen",
-    "step2Desc": "Bestätige Pfade, RCON-Zugangsdaten und aktiven Server.",
-    "step3Title": "Live-Steuerung erreichen",
-    "step3Desc": "Sobald Status, Spieler und Chat aktualisiert werden, ist die Live-Steuerung bereit.",
-    "installNewServer": "Neuen Server installieren",
-    "addExistingServer": "Bestehenden Server hinzufügen",
-    "addRemoteServer": "Remote-Server hinzufügen",
-    "foundHeading": "We found an existing Project Zomboid server",
-    "foundDesc": "ready to add with its RCON settings already read from its own config.",
-    "reviewAndConnect": "Review & Connect",
-    "setUpDifferently": "Set up differently instead",
-    "needNewServerLabel": "I don't have a server yet",
-    "haveExistingServerLabel": "I already have server files"
+    "title": "Server hinzufügen",
+    "description": "Wähle, wie dieses Panel seinen ersten Server bekommt.",
+    "foundHeading": "Ein vorhandener Project-Zomboid-Server wurde gefunden",
+    "foundDesc": "bereit zum Hinzufügen, die RCON-Einstellungen sind schon aus seiner eigenen Konfiguration gelesen.",
+    "reviewAndConnect": "Prüfen und verbinden",
+    "setUpDifferently": "Lieber anders einrichten"
   },
   "liveActivity": {
     "heading": "Live-Aktivität",
@@ -325,12 +315,9 @@
   },
   "maintenance": {
     "heading": "Wartung",
-    "refreshStatus": "Status aktualisieren",
     "createBackup": "Backup erstellen",
-    "wipeServer": "Server unwiderruflich löschen",
-    "wipeTooltipOnline": "Stoppe den Server vor dem Löschen",
-    "wipeTooltipOffline": "Karte / Spieler / Weltzustand löschen",
-    "autoStartLabel": "Autostart beim Start"
+    "autoStartLabel": "Autostart beim Start",
+    "autoStartDesc": "Startet den Server, wenn das Panel startet."
   },
   "bridgeOfflineNotice": {
     "title": "Brücke offline",
@@ -338,14 +325,9 @@
     "configureLink": "Brücke konfigurieren"
   },
   "workItems": {
-    "players": "Spieler",
     "zombies": "Zombies",
-    "console": "Konsole",
-    "mods": "Mods",
-    "schedule": "Zeitplan",
+    "heading": "Auf einen Blick",
     "errors": "Fehler",
-    "backups": "Backups",
-    "config": "Config",
     "rconReady": "RCON bereit",
     "rconOffline": "RCON offline",
     "modsToUpdate_one": "{{count}} zu aktualisieren",

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Trans, useTranslation } from 'react-i18next'
 import { getCurrentLanguage, isRTL } from '@/i18n'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -8,7 +8,6 @@ import { useAuth } from '@/contexts/AuthContext'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import {
-  Map as MapIcon,
   Crosshair,
   Users,
   ZoomIn,
@@ -45,12 +44,12 @@ import {
   BellRing,
   Megaphone,
   Save,
-  AlertTriangle,
   ArrowUpRight,
   Search,
   MapPin,
 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { BridgeStatusBadge } from '@/components/BridgeStatusBadge'
 import { VehiclePicker } from '@/components/VehiclePicker'
 import { ItemPicker } from '@/components/ItemPicker'
@@ -79,6 +78,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { panelBridgeApi, updateApi, serversApi, mapApi, playersApi, BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS } from '@/lib/api'
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useToast } from '@/components/ui/use-toast'
 import { cn, copyText } from '@/lib/utils'
@@ -379,6 +379,9 @@ const MIN_SCALE = 0.0003        // canvas px per DZI px (zoomed way out)
 const MAX_SCALE = 1.0           // canvas px per DZI px (zoomed way in)
 const POLL_INTERVAL = 3000
 const MARKER_HIT_RADIUS = 14
+// A touch held this long without moving opens the action menu.
+const LONG_PRESS_MS = 500
+const LONG_PRESS_SLOP_PX = 8
 // How many coarser levels drawTileWithFallback will walk up looking for a
 // cached tile to degrade to. See GH#109 / conv-gh109-worldmap-black.
 const MAX_FALLBACK_LEVELS = 8
@@ -684,6 +687,9 @@ export default function WorldMap() {
   const canRunBridgeCommand = can('bridge.command')
   const canWorldEvents = can('server.world_events')
   const canGmTools = can('players.gm_tools')
+  // GET /map/vehicles (vehicles parked in the save) is players.view's.
+  const canViewPlayers = can('players.view')
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapWrapperRef = useRef<HTMLDivElement>(null)
@@ -725,6 +731,23 @@ export default function WorldMap() {
 
   const [players, setPlayers] = useState<MapPlayer[]>([])
   const [rosterCollapsed, setRosterCollapsed] = useState(false)
+  // Below md the roster and the place search would cover most of a phone's
+  // map, so each collapses to a button: the roster opens as a bottom sheet,
+  // the search expands in place. From md up both stay open as panels.
+  const [rosterSheetOpen, setRosterSheetOpen] = useState(false)
+  const [poiOpen, setPoiOpen] = useState(false)
+  // Deep links: /world-map?player=<name> lands on that player (Players →
+  // "Show on map"), /world-map?x=&y=&z= on a square.
+  const [searchParams] = useSearchParams()
+  const deepLinkPlayer = searchParams.get('player')?.trim() || null
+  const deepLinkSquare = useMemo(() => {
+    const x = Number(searchParams.get('x'))
+    const y = Number(searchParams.get('y'))
+    if (searchParams.get('x') === null || searchParams.get('y') === null || !Number.isFinite(x) || !Number.isFinite(y)) return null
+    const zRaw = searchParams.get('z')
+    const z = zRaw !== null && Number.isFinite(Number(zRaw)) ? Math.trunc(Number(zRaw)) : null
+    return { x, y, z }
+  }, [searchParams])
   const [mapCfg, setMapCfg] = useState<MapConfig>(MAP_B42)
   const mapCfgRef = useRef<MapConfig>(MAP_B42)
   const mapDetectionRunRef = useRef(0)
@@ -748,7 +771,20 @@ export default function WorldMap() {
       canvasRef.current?.focus()
     }
   }, [contextMenu])
-  const [selectedPlayer, setSelectedPlayer] = useState<MapPlayer | null>(null)
+  // A click only says WHO is selected: the dossier reads that player live
+  // from `players` (refreshed every poll) as selectedPlayer below, so HP,
+  // position and stats follow the game and a player who logs off reads as
+  // offline. Keeping the clicked object froze all of it at click time (after
+  // Heal the bar kept the old HP). The snapshot only names an offline player.
+  const [selectedPlayerSnapshot, setSelectedPlayer] = useState<MapPlayer | null>(null)
+  const selectedPlayer = useMemo(
+    () => (selectedPlayerSnapshot
+      ? players.find((p) => p.username === selectedPlayerSnapshot.username) ?? null
+      : null),
+    [players, selectedPlayerSnapshot],
+  )
+  const dossierPlayer = selectedPlayer ?? selectedPlayerSnapshot
+  const dossierOffline = selectedPlayerSnapshot !== null && selectedPlayer === null
   const [bridgeConnected, setBridgeConnected] = useState(false)
   // Inits true (bridge-tri-state sweep, 2026-09-10): checkBridgeStatus sets
   // this true itself once it runs, but that's a mount-effect tick after the
@@ -764,7 +800,14 @@ export default function WorldMap() {
   const bridgeVersionRef = useRef<string | null>(null)
   useEffect(() => { bridgeVersionRef.current = bridgeVersion }, [bridgeVersion])
   const [hasActiveServer, setHasActiveServer] = useState(false)
+  // Only a fulfilled lookup says "no server": before it lands (or when it
+  // fails) the page must not claim there is none.
+  const [activeServerKnown, setActiveServerKnown] = useState(false)
   const [loading, setLoading] = useState(true)
+  // A roster has arrived for the active server. `loading` goes false before
+  // that (no-server effect, the in-flight gate), so the ?player= deep link's
+  // "isn't on the map" alert waits for this instead.
+  const [playersFetched, setPlayersFetched] = useState(false)
   const [hoveredPlayer, setHoveredPlayer] = useState<string | null>(null)
   const [hoveredPoi, setHoveredPoi] = useState<string | null>(null)
   const [poiQuery, setPoiQuery] = useState('')
@@ -925,6 +968,7 @@ export default function WorldMap() {
       let isB41 = false
       if (serverRes.status === 'fulfilled') {
         setHasActiveServer(!!serverRes.value.server)
+        setActiveServerKnown(true)
       }
       // unknown-window-instances-outside-the-bridge, 2026-09-10: a REJECTED
       // fetch (network blip, momentary API hiccup) is not "confirmed no
@@ -1017,6 +1061,7 @@ export default function WorldMap() {
     if (!socket) return
     const handleActiveServerChanged = () => {
       setPlayers([])
+      setPlayersFetched(false)
       setVehicles([])
       setSafehouses([])
       setSelectedPlayer(null)
@@ -1025,6 +1070,14 @@ export default function WorldMap() {
       setPoiCategories([])
       setMapVersionStatus('loading')
       setContextMenu(null)
+      // Dialogs opened for the previous server: their targets (a vehicle id,
+      // map coordinates) mean nothing on the new one, and confirming "Remove
+      // vehicle" would delete whatever has that id there. Airdrop markers
+      // were dropped on the old server's map too.
+      setRemoveVehicleTarget(null)
+      setSpawnDialog(null)
+      setDropDialog(null)
+      setAirdropMarkers([])
       hasFittedRef.current = false
       void detectServerVersion()
       // continuous-bug-hunt round 26: re-fetch immediately (bumps each
@@ -1518,6 +1571,7 @@ export default function WorldMap() {
         : null
       if (rawPlayers) {
         setBridgeConnected(true)
+        setPlayersFetched(true)
         // isAlive/isInfected/accessLevel only exist on the wire from bridge
         // v1.7.39 onward -- an older bridge simply omits the keys. Gate on
         // the bridge's own reported version rather than defaulting/passing
@@ -1566,10 +1620,12 @@ export default function WorldMap() {
     const requestId = bridgeStatusGuard.next()
     setBridgeLoading(true)
     try {
-      const res = await panelBridgeApi.getStatus()
+      // A Moderator can't read GET /panel-bridge/status; readBridgeLiveness()
+      // then asks the status every role may read (no mod version in it).
+      const live = await readBridgeLiveness(canReadBridgeStatus)
       if (bridgeStatusGuard.isStale(requestId)) return
-      setBridgeConnected(res.modConnected === true)
-      setBridgeVersion(res.modStatus?.version || null)
+      setBridgeConnected(live.modConnected)
+      setBridgeVersion(live.full?.modStatus?.version || null)
     } catch {
       if (!bridgeStatusGuard.isStale(requestId)) {
         setBridgeConnected(false)
@@ -1578,7 +1634,7 @@ export default function WorldMap() {
     } finally {
       setBridgeLoading(false)
     }
-  }, [hasActiveServer, bridgeStatusGuard])
+  }, [hasActiveServer, bridgeStatusGuard, canReadBridgeStatus])
   useEffect(() => { checkBridgeStatusRef.current = checkBridgeStatus }, [checkBridgeStatus])
 
   // Fetch vehicles + safehouses from PanelBridge
@@ -1597,7 +1653,7 @@ export default function WorldMap() {
         // BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS's own comment for the
         // client/server timeout race this sizing avoids losing.
         showVehicles ? panelBridgeApi.sendCommand('getVehiclesDetailed', {}, { timeout: BRIDGE_SLOW_ENUMERATION_TIMEOUT_MS }) : Promise.resolve(null),
-        showVehicles ? mapApi.vehicles() : Promise.resolve(null),
+        showVehicles && canViewPlayers ? mapApi.vehicles() : Promise.resolve(null),
         panelBridgeApi.sendCommand('getSafehouses'),
       ])
       if (!mountedRef.current || overlaysGuard.isStale(requestId)) return
@@ -1630,7 +1686,7 @@ export default function WorldMap() {
     } finally {
       overlayFetchGateRef.current.leave()
     }
-  }, [hasActiveServer, showVehicles, overlaysGuard])
+  }, [hasActiveServer, showVehicles, canViewPlayers, overlaysGuard])
   useEffect(() => { fetchOverlaysRef.current = fetchOverlays }, [fetchOverlays])
 
   // ─── Polling ────────────────────────────────────────────
@@ -2556,14 +2612,33 @@ export default function WorldMap() {
     [playerAtScreenPoint, poiAtScreenPoint]
   )
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
+  // ─── Touch state (declared before the context menu, which reads it) ──
+  const touchRef = useRef<{
+    startX: number; startY: number; lastX: number; lastY: number
+    offX: number; offY: number; pinchDist: number | null
+    moved: boolean; hadPinch: boolean; active: boolean
+  }>({
+    startX: 0, startY: 0, lastX: 0, lastY: 0, offX: 0, offY: 0, pinchDist: null, moved: false, hadPinch: false, active: false,
+  })
+  // Long-press opens the map's action menu on touch screens: iOS never sends
+  // a contextmenu event, so without this every map action needed a mouse.
+  const longPressTimerRef = useRef<number | null>(null)
+  const longPressFiredRef = useRef(false)
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }, [])
+  useEffect(() => cancelLongPress, [cancelLongPress])
+
+  const openContextMenuAt = useCallback(
+    (clientX: number, clientY: number) => {
       const canvas = canvasRef.current
       if (!canvas) return
       const rect = canvas.getBoundingClientRect()
-      const mx = e.clientX - rect.left
-      const my = e.clientY - rect.top
+      const mx = clientX - rect.left
+      const my = clientY - rect.top
       const wp = screenToTile(mx, my)
 
       let clickedPlayer: MapPlayer | undefined
@@ -2626,6 +2701,21 @@ export default function WorldMap() {
     [screenToTile, playerRenderPosition, playerToScreen, showVehicles]
   )
 
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      // Android sends its own contextmenu on a long press: let it win, and
+      // stop the pending long-press timer from opening the menu a second time.
+      if (touchRef.current.active) {
+        cancelLongPress()
+        longPressFiredRef.current = true
+        setIsDragging(false)
+      }
+      openContextMenuAt(e.clientX, e.clientY)
+    },
+    [cancelLongPress, openContextMenuAt]
+  )
+
   const handleMouseLeave = useCallback(() => {
     pointerDownRef.current = null
     setIsDragging(false)
@@ -2636,10 +2726,6 @@ export default function WorldMap() {
   }, [])
 
   // ─── Touch support ─────────────────────────────────────
-  const touchRef = useRef<{ startX: number; startY: number; offX: number; offY: number; pinchDist: number | null; moved: boolean; hadPinch: boolean }>({
-    startX: 0, startY: 0, offX: 0, offY: 0, pinchDist: null, moved: false, hadPinch: false,
-  })
-
   const getTouchDist = (touches: React.TouchList) => {
     const dx = touches[0].clientX - touches[1].clientX
     const dy = touches[0].clientY - touches[1].clientY
@@ -2649,17 +2735,33 @@ export default function WorldMap() {
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     if (e.touches.length === 1) {
       const t = e.touches[0]
-      touchRef.current = { startX: t.clientX, startY: t.clientY, offX: offsetRef.current.x, offY: offsetRef.current.y, pinchDist: null, moved: false, hadPinch: false }
+      touchRef.current = {
+        startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastY: t.clientY,
+        offX: offsetRef.current.x, offY: offsetRef.current.y, pinchDist: null, moved: false, hadPinch: false, active: true,
+      }
       setIsDragging(true)
+      cancelLongPress()
+      longPressFiredRef.current = false
+      longPressTimerRef.current = window.setTimeout(() => {
+        longPressTimerRef.current = null
+        longPressFiredRef.current = true
+        setIsDragging(false)
+        // Where the finger is now (it may have drifted a few pixels).
+        openContextMenuAt(touchRef.current.lastX, touchRef.current.lastY)
+      }, LONG_PRESS_MS)
     } else if (e.touches.length === 2) {
+      cancelLongPress()
       touchRef.current.pinchDist = getTouchDist(e.touches)
       touchRef.current.moved = true
       touchRef.current.hadPinch = true
     }
-  }, [])
+  }, [cancelLongPress, openContextMenuAt])
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     e.preventDefault()
+    // The menu is open where the finger was: dragging now would move the
+    // map out from under it.
+    if (longPressFiredRef.current) return
     if (e.touches.length === 2 && touchRef.current.pinchDist !== null) {
       const newDist = getTouchDist(e.touches)
       const factor = newDist / touchRef.current.pinchDist
@@ -2680,13 +2782,34 @@ export default function WorldMap() {
     } else if (e.touches.length === 1) {
       const t = e.touches[0]
       const tr = touchRef.current
-      if (Math.hypot(t.clientX - tr.startX, t.clientY - tr.startY) >= 3) tr.moved = true
+      tr.lastX = t.clientX
+      tr.lastY = t.clientY
+      const distance = Math.hypot(t.clientX - tr.startX, t.clientY - tr.startY)
+      if (distance >= 3) tr.moved = true
+      if (distance > LONG_PRESS_SLOP_PX) cancelLongPress()
       setOffset({ x: tr.offX + (t.clientX - tr.startX), y: tr.offY + (t.clientY - tr.startY) })
     }
-  }, [])
+  }, [cancelLongPress])
+
+  const handleTouchCancel = useCallback(() => {
+    cancelLongPress()
+    touchRef.current.active = false
+    touchRef.current.pinchDist = null
+    setIsDragging(false)
+  }, [cancelLongPress])
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    cancelLongPress()
     const tr = touchRef.current
+    tr.active = false
+    if (longPressFiredRef.current) {
+      // The press opened the menu: this lift is not a tap, and the browser's
+      // follow-up mouse events would land outside the menu and close it.
+      e.preventDefault()
+      setIsDragging(false)
+      tr.pinchDist = null
+      return
+    }
     const touch = e.changedTouches[0]
     if (!tr.moved && !tr.hadPinch && touch) {
       const canvas = canvasRef.current
@@ -2699,7 +2822,7 @@ export default function WorldMap() {
     }
     setIsDragging(false)
     touchRef.current.pinchDist = null
-  }, [playerAtScreenPoint, poiAtScreenPoint])
+  }, [cancelLongPress, playerAtScreenPoint, poiAtScreenPoint])
 
   // ─── Zoom controls ─────────────────────────────────────
   const zoomIn = useCallback(() => {
@@ -2774,6 +2897,7 @@ export default function WorldMap() {
       if (e.key === 'Escape') {
         setContextMenu(null)
         setSelectedPlayer(null)
+        setRosterSheetOpen(false)
       }
     }
     document.addEventListener('keydown', onKeyDown)
@@ -3064,6 +3188,7 @@ export default function WorldMap() {
     setScale(viewScale)
     setOffset({ x: W / 2 - dzi.x * viewScale, y: H / 2 - dzi.y * viewScale })
     setSelectedPlayer(p)
+    setRosterSheetOpen(false)
   }, [canvasSize, scale])
 
   const panToPoi = useCallback((location: WorldMapLocation) => {
@@ -3078,50 +3203,258 @@ export default function WorldMap() {
     setScale(viewScale)
     setOffset(newOffset)
     setSelectedPoi(location)
+    setPoiOpen(false)
   }, [canvasSize])
 
+  // ─── Deep links ─────────────────────────────────────────
+  // ?player=<name>: select and centre that player the first time the roster
+  // has them (names match case-insensitively, like the Players page). Runs
+  // after the first-data auto-fit above, so it wins over it.
+  const deepLinkPlayerDoneRef = useRef<string | null>(null)
+  const deepLinkTarget = deepLinkPlayer
+    ? players.find((p) => p.username === deepLinkPlayer)
+      ?? players.find((p) => p.username.toLowerCase() === deepLinkPlayer.toLowerCase())
+      ?? null
+    : null
+  useEffect(() => {
+    if (!deepLinkPlayer || !deepLinkTarget || canvasSize.width === 0) return
+    if (deepLinkPlayerDoneRef.current === deepLinkPlayer) return
+    // Like the square link below: wait for the map build, whose detection
+    // re-centres on its own default and would undo the pan.
+    if (mapVersionStatus === 'loading') return
+    deepLinkPlayerDoneRef.current = deepLinkPlayer
+    hasFittedRef.current = true
+    panToPlayer(deepLinkTarget)
+  }, [deepLinkPlayer, deepLinkTarget, canvasSize.width, panToPlayer, mapVersionStatus])
+
+  // ?x=&y=(&z=): centre on a square once the map build (B41/B42 geometry)
+  // is known; detection re-centres on its own default otherwise.
+  const deepLinkSquareDoneRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!deepLinkSquare || deepLinkPlayer) return
+    const key = `${deepLinkSquare.x},${deepLinkSquare.y},${deepLinkSquare.z ?? ''}`
+    if (deepLinkSquareDoneRef.current === key) return
+    if (mapVersionStatus !== 'ready' || canvasSize.width === 0 || canvasSize.height === 0) return
+    deepLinkSquareDoneRef.current = key
+    hasFittedRef.current = true
+    if (deepLinkSquare.z !== null && mapCfgRef.current.label === 'B42') changeFloor(deepLinkSquare.z)
+    const dzi = gameTileToDzi(deepLinkSquare.x, deepLinkSquare.y, mapCfgRef.current)
+    const viewScale = Math.max(scaleRef.current, mapCfgRef.current.defaultScale * 10)
+    const newOffset = { x: canvasSize.width / 2 - dzi.x * viewScale, y: canvasSize.height / 2 - dzi.y * viewScale }
+    scaleRef.current = viewScale
+    offsetRef.current = newOffset
+    setScale(viewScale)
+    setOffset(newOffset)
+  }, [deepLinkSquare, deepLinkPlayer, mapVersionStatus, canvasSize, changeFloor])
+
+  // ─── Page alerts ────────────────────────────────────────
+  const pageAlerts: PageAlert[] = []
+  if (tileLoadFailing) {
+    // Bytes already in hand were classified directly instead of guessed at:
+    // a recognised signature earns a specific statement, an unrecognised one
+    // says so with the raw bytes (see tileFailureCopyKeys).
+    const keys = tileByteDiagnosis ? tileFailureCopyKeys(tileByteDiagnosis) : null
+    const coverage = tileFailureKind === 'coverage'
+    const host = <span className="font-mono text-foreground" />
+    pageAlerts.push({
+      id: 'tile-failure',
+      tone: 'warning',
+      title: keys ? t(keys.titleKey) : coverage ? t('tileFailure.coverageTitle') : t('tileFailure.networkTitle'),
+      description: (
+        <>
+          {keys ? (
+            t(keys.descKey, keys.descParams)
+          ) : coverage ? (
+            <Trans i18nKey="tileFailure.coverageDesc" t={t} components={{ 1: host }} />
+          ) : (
+            <Trans i18nKey="tileFailure.networkDesc" t={t} components={{ 1: host }} />
+          )}
+          {/* The raw X-Tile-Cache code (hit-mem/miss/http-<status>/unreachable)
+              for network failures, untranslated so a screenshot carries the
+              same fact the browser's Network tab would. The byte diagnosis
+              above already says it more precisely when it exists. */}
+          {tileFailureDetail && !keys && (
+            <span className="mt-1 block font-mono text-xs">{t('tileFailure.diagnostic', { detail: tileFailureDetail })}</span>
+          )}
+        </>
+      ),
+    })
+  }
+  if (activeServerKnown && !hasActiveServer) {
+    pageAlerts.push({
+      id: 'no-server',
+      tone: 'info',
+      title: t('alerts.noServerTitle'),
+      description: t('alerts.noServerDesc'),
+      action: { label: t('alerts.noServerAction'), to: '/servers' },
+    })
+  } else if (hasActiveServer && !bridgeLoading && !bridgeConnected) {
+    pageAlerts.push({
+      id: 'bridge-offline',
+      tone: 'warning',
+      title: t('alerts.bridgeOfflineTitle'),
+      description: t('alerts.bridgeOfflineDesc'),
+      action: { label: t('alerts.bridgeOfflineAction'), to: '/settings?tab=bridge' },
+    })
+  }
+  if (deepLinkPlayer && !deepLinkTarget && deepLinkPlayerDoneRef.current !== deepLinkPlayer && bridgeConnected && playersFetched) {
+    pageAlerts.push({
+      id: 'player-not-online',
+      tone: 'info',
+      title: t('alerts.playerNotOnlineTitle', { name: deepLinkPlayer }),
+      description: t('alerts.playerNotOnlineDesc'),
+      action: { label: t('alerts.openInPlayers'), to: `/players?player=${encodeURIComponent(deepLinkPlayer)}` },
+    })
+  }
+
+  const rosterLiveState = (
+    <span className={cn('flex items-center gap-1', bridgeConnected ? 'text-success' : 'text-muted-foreground')}>
+      <span
+        className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-success motion-safe:animate-pulse' : 'bg-muted-foreground/40')}
+        aria-hidden="true"
+      />
+      {bridgeLoading ? t('roster.loading') : bridgeConnected ? t('roster.live') : t('roster.offline')}
+    </span>
+  )
+
+  // The roster rows, shared by the md+ panel and the phone bottom sheet
+  // (never both mounted: the sheet only exists while it's open).
+  const renderRosterList = (scrollClass: string, rowClass: string) => players.length > 0 ? (
+    <div className={cn('overflow-y-auto overscroll-contain', scrollClass)}>
+      {players.map((p) => {
+        const selected = selectedPlayer?.username === p.username
+        return (
+          <button
+            key={p.username}
+            type="button"
+            onClick={() => panToPlayer(p)}
+            aria-current={selected ? 'true' : undefined}
+            aria-label={
+              p.health !== undefined
+                ? t('roster.panToAriaWithHealth', { name: p.displayName || p.username, health: Math.round(p.health) })
+                : t('roster.panToAria', { name: p.displayName || p.username })
+            }
+            className={cn(
+              'relative flex w-full items-center gap-2 px-2.5 text-start transition-colors hover:bg-muted/50',
+              rowClass,
+              selected && 'bg-primary/10',
+            )}
+          >
+            {selected && <span className="absolute start-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-full bg-primary" aria-hidden="true" />}
+            <span
+              className="h-2 w-2 flex-none rounded-full ring-1 ring-black/30"
+              style={{ backgroundColor: getPlayerColor(p, 0.9) }}
+              aria-hidden="true"
+            />
+            <span className="flex-1 truncate">{p.displayName || p.username}</span>
+            {p.health !== undefined && (
+              <span className={cn(
+                'font-mono text-xs tabular-nums',
+                p.health > 50 ? 'text-success' : p.health > 25 ? 'text-warning' : 'text-destructive',
+              )}>
+                {Math.round(p.health)}%
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  ) : (
+    <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
+      <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-muted-foreground/40' : 'bg-destructive/70')} aria-hidden="true" />
+      <span>{loading ? t('roster.loading') : bridgeConnected ? t('roster.noPlayersOnline') : t('roster.bridgeOffline')}</span>
+    </div>
+  )
+
   // ─── Render ─────────────────────────────────────────────
+  // Fills the viewport under the shell: 6rem below lg (the 4rem top bar plus
+  // the container's p-4), 4rem from lg (its p-8). A banner above the page
+  // just scrolls it a little; min-h keeps the map usable on short windows.
+  // Below lg the page may grow past the screen instead: on a phone the
+  // header and an alert would otherwise leave the map shorter than its own
+  // control column.
   return (
-    <div className="space-y-4 page-transition">
+    <div className="page-transition flex min-h-[calc(100dvh-6rem)] flex-col gap-4 lg:h-[calc(100dvh-4rem)] lg:min-h-[34rem]">
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        icon={<MapIcon className="w-5 h-5" />}
+        status={<BridgeStatusBadge connected={bridgeConnected} loading={bridgeLoading} />}
         actions={
-          <div className="flex items-center gap-2">
-            <BridgeStatusBadge connected={bridgeConnected} loading={bridgeLoading} />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setMapVersionStatus('loading')
-                void detectServerVersion()
-                void fetchPlayerPositions()
-              }}
-              className="gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              {t('refresh')}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="iconDense"
+            aria-label={t('refresh')}
+            title={t('refresh')}
+            onClick={() => {
+              setMapVersionStatus('loading')
+              void detectServerVersion()
+              void fetchPlayerPositions()
+            }}
+          >
+            <RefreshCw aria-hidden="true" />
+          </Button>
         }
       />
 
-      <div ref={mapWrapperRef} className="relative overflow-hidden rounded-md border border-border/60 bg-background shadow-[inset_0_0_0_1px_rgba(0,0,0,0.35)]">
-        {/* POI search rail */}
-        <div className="absolute top-3 start-16 z-20 w-[min(24rem,calc(100%-5rem))]">
-          <div className="overflow-hidden rounded-md border border-border/55 bg-card shadow-lg">
-            <div className="flex items-center gap-2 border-b border-border/40 bg-muted/35 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
-              <Search className="h-3.5 w-3.5 text-primary" />
+      <PageAlerts alerts={pageAlerts} />
+
+      {/* The map takes whatever height the header and alerts leave. */}
+      <div ref={mapWrapperRef} className="relative min-h-[30rem] flex-1 overflow-hidden rounded-xl border border-border/60 bg-background lg:min-h-[22rem]">
+        {/* Below md: one button each for place search and the roster, top end. */}
+        <div className="absolute top-3 end-3 z-20 flex items-center gap-2 md:hidden">
+          <Button
+            type="button"
+            variant="outline"
+            size="iconDense"
+            aria-label={t('poi.searchAria')}
+            aria-expanded={poiOpen}
+            aria-controls="world-map-place-search"
+            onClick={() => setPoiOpen((open) => !open)}
+            className={cn('relative bg-card shadow-lg', poiOpen && 'border-primary/50 text-primary')}
+          >
+            <Search aria-hidden="true" />
+            {(poiQuery.trim() || poiCategories.length > 0) && !poiOpen && (
+              <span className="absolute end-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={t('roster.toggleAria', { count: players.length })}
+            aria-expanded={rosterSheetOpen}
+            onClick={() => setRosterSheetOpen((open) => !open)}
+            className="bg-card shadow-lg"
+          >
+            <Users aria-hidden="true" />
+            <span className="tabular-nums">{players.length}</span>
+            <span
+              className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-success' : 'bg-muted-foreground/40')}
+              aria-hidden="true"
+            />
+          </Button>
+        </div>
+
+        {/* Place search: always open from md up, behind the button above on phones. */}
+        <div
+          id="world-map-place-search"
+          className={cn(
+            'absolute z-20 top-16 start-16 end-3 md:block md:top-3 md:end-auto md:w-[min(24rem,calc(100%-20rem))]',
+            poiOpen ? 'block' : 'hidden',
+          )}
+        >
+          <div className="overflow-hidden rounded-lg border border-border/60 bg-card shadow-lg">
+            <div className="flex items-center gap-2 border-b border-border/40 bg-muted/30 px-2.5 py-1.5 text-xs font-medium text-muted-foreground">
+              <Search className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
               <span>{t('poi.label')}</span>
               {selectedPoi ? (
-                <span className="ms-auto max-w-40 truncate font-sans text-[10px] font-medium normal-case tracking-normal text-foreground">
+                <span className="ms-auto max-w-40 truncate text-xs font-medium text-foreground">
                   {selectedPoi.name}
                 </span>
               ) : poiCategories.length > 0 ? (
                 <span
                   aria-label={t('poi.showingOnMap', { count: poiMarkerLocations.length })}
-                  className="ms-auto inline-flex items-center gap-1 font-sans text-[10px] font-medium normal-case tracking-normal text-muted-foreground"
+                  className="ms-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground"
                 >
                   <MapPin className="h-3 w-3" />
                   {poiMarkerLocations.length}
@@ -3230,12 +3563,12 @@ export default function WorldMap() {
                         selectedPoi?.id === poi.id && 'bg-primary/10',
                       )}
                     >
-                      <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
                       <span className="min-w-0 flex-1 truncate text-xs text-foreground">
                         <span className="block truncate">{poi.name}</span>
-                        <span className="block truncate text-[10px] text-muted-foreground/70">{poi.town}</span>
+                        <span className="block truncate text-xs text-muted-foreground">{poi.town}</span>
                       </span>
-                      <span className="shrink-0 font-mono text-[9px] uppercase tracking-[0.12em] text-muted-foreground/70">
+                      <span className="shrink-0 text-xs text-muted-foreground">
                         {t(`poi.categories.${poi.category}`, { defaultValue: WORLD_MAP_CATEGORY_LABELS[poi.category] })}
                       </span>
                     </button>
@@ -3243,7 +3576,7 @@ export default function WorldMap() {
                     <div className="px-3 py-3 text-xs text-muted-foreground">{t('poi.noResults')}</div>
                   )}
                 {poiMarkerLocations.length > poiResults.length && (
-                  <div className="border-t border-border/40 px-3 py-2 text-[10px] text-muted-foreground">
+                  <div className="border-t border-border/40 px-3 py-2 text-xs text-muted-foreground">
                     {t('poi.showingOnMap', { count: poiMarkerLocations.length })}
                   </div>
                 )}
@@ -3284,10 +3617,8 @@ export default function WorldMap() {
           {/* Floor selector — B42 only (B41 has no multi-level tiles) */}
           {mapCfg.label === 'B42' && (
             <>
-              <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-y border-border/40 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] text-muted-foreground/70">
-                <span>{t('controlRail.floorHeader')}</span>
-              </div>
-              <div className="flex flex-col items-center p-1 gap-px">
+              {/* A divider, not a caption: the rail is too narrow for a translated word. */}
+              <div role="group" aria-label={t('controlRail.floorHeader')} className="flex flex-col items-center gap-px border-t border-border/40 p-1">
                 <button
                   onClick={() => changeFloor(floor + 1)}
                   // continuous-bug-hunt round 26 (god's own catch): was the
@@ -3310,7 +3641,7 @@ export default function WorldMap() {
                   onClick={() => changeFloor(0)}
                   aria-label={t('controlRail.currentFloorAria', { floor: floorLabel(floor) })}
                   className={cn(
-                    'h-7 w-9 rounded-sm border flex items-center justify-center transition-colors text-[10px] font-mono font-semibold tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+                    'h-7 w-9 rounded-sm border flex items-center justify-center transition-colors text-xs font-mono font-semibold tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
                     floor !== 0
                       ? 'bg-accent/20 border-accent/40 text-accent shadow-[inset_0_0_0_1px_rgba(0,0,0,0.2)]'
                       : 'bg-muted/30 border-border/40 text-muted-foreground hover:bg-muted/60 hover:text-foreground'
@@ -3333,10 +3664,7 @@ export default function WorldMap() {
             </>
           )}
 
-          <div className="flex items-center justify-center gap-1 px-1.5 py-1 border-y border-border/40 bg-muted/30 font-mono text-[9px] uppercase tracking-[0.24em] text-muted-foreground/70">
-            <span>{t('controlRail.layersHeader')}</span>
-          </div>
-          <div className="flex flex-col gap-px p-1">
+          <div role="group" aria-label={t('controlRail.layersHeader')} className="flex flex-col gap-px border-t border-border/40 p-1">
             <button
               onClick={() => setShowVehicles((v) => !v)}
               aria-label={t(showVehicles ? 'controlRail.vehiclesHideAria' : 'controlRail.vehiclesShowAria', { count: vehicles.length })}
@@ -3368,249 +3696,150 @@ export default function WorldMap() {
           </div>
         </div>
 
-        {/* Tile-load failure banner — appears when many *distinct* tiles fail
-            with a real error (network outage, firewall blocking
-            pzmap.org, upstream tile server down). A genuine
-            HTTP 404 (sparse/edge tile, out of map bounds) does NOT count
-            toward this — see loadDziTile's 'empty' handling. Without this
-            banner the user just sees an indefinite empty map. See issue #6. */}
-        {tileLoadFailing && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 max-w-md w-[min(28rem,calc(100%-7rem))]" role="alert">
-            <div className="rounded-md border border-warning/60 bg-warning/15 backdrop-blur-md shadow-lg overflow-hidden">
-              <div className="flex items-center justify-between gap-2 px-3 py-1 border-b border-warning/30 bg-warning/20 font-mono text-[10px] uppercase tracking-[0.24em] text-warning">
-                <span className="flex items-center gap-1.5">
-                  <AlertTriangle className="w-3 h-3" />
-                  <span>{t('tileFailure.signalLost')}</span>
-                </span>
-                <span className="text-warning/70">{t('tileFailure.tilesOffline')}</span>
-              </div>
-              <div className="px-3 py-2 text-xs leading-snug">
-                {tileByteDiagnosis ? (
-                  // Bytes already in hand were classified directly instead
-                  // of guessed at -- a recognised signature earns a
-                  // specific, paste-able statement; an unrecognised one
-                  // says so plainly with the raw bytes rather than being
-                  // forced into a guess. See tileFailureCopyKeys.
-                  (() => {
-                    const keys = tileFailureCopyKeys(tileByteDiagnosis)
-                    return (
-                      <>
-                        <div className="font-semibold text-foreground">{t(keys.titleKey)}</div>
-                        <div className="text-muted-foreground mt-0.5">{t(keys.descKey, keys.descParams)}</div>
-                      </>
-                    )
-                  })()
-                ) : tileFailureKind === 'coverage' ? (
-                  <>
-                    <div className="font-semibold text-foreground">{t('tileFailure.coverageTitle')}</div>
-                    <div className="text-muted-foreground mt-0.5">
-                      <Trans
-                        i18nKey="tileFailure.coverageDesc"
-                        t={t}
-                        components={{ 1: <span className="font-mono text-warning/90" /> }}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="font-semibold text-foreground">{t('tileFailure.networkTitle')}</div>
-                    <div className="text-muted-foreground mt-0.5">
-                      <Trans
-                        i18nKey="tileFailure.networkDesc"
-                        t={t}
-                        components={{ 1: <span className="font-mono text-warning/90" /> }}
-                      />
-                    </div>
-                  </>
-                )}
-                {tileFailureDetail && !tileByteDiagnosis && (
-                  // The raw X-Tile-Cache diagnostic code (hit-mem/hit-disk/
-                  // miss/http-<status>/unreachable) for network-classified
-                  // failures, which never go through the byte-level
-                  // classification above (no blob to inspect for those --
-                  // see loadViaProxy's .catch() branch). Shown as-is (not
-                  // translated) so a screenshot carries the same fact a
-                  // devtools Network tab would have shown. Suppressed
-                  // whenever the byte diagnosis above is already showing a
-                  // more specific, translated statement of the same idea.
-                  <div className="mt-1 pt-1 border-t border-warning/20 font-mono text-[10px] text-muted-foreground/70">
-                    {t('tileFailure.diagnostic', { detail: tileFailureDetail })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Roster panel — top-right */}
-        <div className={cn('absolute top-3 end-3 z-10', rosterCollapsed ? 'w-auto' : 'w-56')}>
-          <div className="rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
+        {/* Roster: a panel at the top end from md up. On phones the button
+            above opens the same list as a bottom sheet instead. */}
+        <div className={cn('absolute top-3 end-3 z-10 hidden md:block', rosterCollapsed ? 'w-auto' : 'w-56')}>
+          <div className="overflow-hidden rounded-lg border border-border/60 bg-card/95 shadow-lg backdrop-blur-md">
             <button
               type="button"
               onClick={() => setRosterCollapsed((c) => !c)}
               aria-expanded={!rosterCollapsed}
               aria-label={rosterCollapsed ? t('roster.expandAria') : t('roster.collapseAria')}
-              className="flex w-full items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70 hover:bg-muted/60 transition-colors"
+              className="flex w-full items-center justify-between gap-2 border-b border-border/40 bg-muted/30 px-2.5 py-1.5 text-xs transition-colors hover:bg-muted/60"
             >
-              <span className="flex items-center gap-1.5">
-                <span className="text-primary/60">//</span>
-                <span>{t('roster.label')}</span>
-                <span className="text-muted-foreground/50">·</span>
-                <span className={cn('flex items-center gap-1', bridgeConnected ? 'text-emerald-400/90' : 'text-muted-foreground/60')}>
-                  <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40')} />
-                  {bridgeLoading ? t('roster.loading') : bridgeConnected ? t('roster.live') : t('roster.offline')}
-                </span>
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="font-medium text-foreground">{t('roster.label')}</span>
+                {rosterLiveState}
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="text-foreground tabular-nums font-semibold">{players.length}</span>
-                {rosterCollapsed ? <ChevronDown className="h-3 w-3 shrink-0" /> : <ChevronUp className="h-3 w-3 shrink-0" />}
+                <span className="font-semibold tabular-nums text-foreground">{players.length}</span>
+                {rosterCollapsed ? <ChevronDown className="h-3 w-3 shrink-0" aria-hidden="true" /> : <ChevronUp className="h-3 w-3 shrink-0" aria-hidden="true" />}
               </span>
             </button>
-            {!rosterCollapsed && (players.length > 0 ? (
-              <div className="max-h-60 overflow-y-auto">
-                {players.map((p) => (
-                  <button
-                    key={p.username}
-                    onClick={() => panToPlayer(p)}
-                    aria-label={
-                      p.health !== undefined
-                        ? t('roster.panToAriaWithHealth', { name: p.displayName || p.username, health: Math.round(p.health) })
-                        : t('roster.panToAria', { name: p.displayName || p.username })
-                    }
-                    className={cn(
-                      'w-full px-2.5 py-1.5 flex items-center gap-2 text-start text-xs transition-colors border-s-2 border-transparent hover:bg-muted/50',
-                      selectedPlayer?.username === p.username && 'bg-muted/50 border-primary/60'
-                    )}
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full flex-none ring-1 ring-black/30"
-                      style={{ backgroundColor: getPlayerColor(p, 0.9) }}
-                    />
-                    <span className="truncate flex-1">{p.displayName || p.username}</span>
-                    {p.health !== undefined && (
-                      <span className={cn(
-                        'text-[10px] font-mono tabular-nums',
-                        p.health > 50 ? 'text-emerald-400' : p.health > 25 ? 'text-amber-400' : 'text-destructive'
-                      )}>
-                        {Math.round(p.health)}%
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="px-3 py-3 flex items-center gap-2 text-[11px] font-mono text-muted-foreground/70">
-                <span className={cn('h-1.5 w-1.5 rounded-full', bridgeConnected ? 'bg-muted-foreground/40' : 'bg-destructive/70')} />
-                <span>
-                  {loading ? t('roster.loading') : bridgeConnected ? t('roster.noPlayersOnline') : t('roster.bridgeOffline')}
-                </span>
-              </div>
-            ))}
+            {!rosterCollapsed && renderRosterList('max-h-60', 'py-1.5 text-xs')}
           </div>
         </div>
 
-        {/* HUD coordinate bar — bottom-left */}
+        {rosterSheetOpen && (
+          <section
+            aria-label={t('roster.label')}
+            className="absolute inset-x-0 bottom-0 z-30 flex max-h-[60%] flex-col rounded-t-xl border-t border-border/60 bg-card shadow-[0_-12px_30px_-12px_hsl(0_0%_0%/0.6)] md:hidden"
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-border/40 py-1 pe-1 ps-4">
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                <span className="font-medium text-foreground">{t('roster.label')}</span>
+                {rosterLiveState}
+              </span>
+              <Button variant="ghost" size="iconDense" aria-label={t('roster.closeSheet')} onClick={() => setRosterSheetOpen(false)}>
+                <X aria-hidden="true" />
+              </Button>
+            </div>
+            {renderRosterList('min-h-0 flex-1', 'py-2.5 text-sm')}
+          </section>
+        )}
+
+        {/* Coordinate HUD, bottom start. Whole squares, floored like every map
+            action targets them (cursorWorldPos itself stays fractional). */}
         <div className="absolute bottom-3 start-3 z-10">
-          <div className="flex items-stretch rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg font-mono text-[11px] tabular-nums overflow-hidden">
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-e border-border/40">
-              <Crosshair className={cn('w-3 h-3', cursorWorldPos ? 'text-primary/80' : 'text-muted-foreground/40')} />
+          <div className="flex items-stretch overflow-hidden rounded-lg border border-border/60 bg-card/95 text-xs tabular-nums shadow-lg backdrop-blur-md">
+            <div className="flex items-center gap-1.5 border-e border-border/40 px-2.5 py-1.5">
+              <Crosshair className={cn('h-3 w-3', cursorWorldPos ? 'text-primary' : 'text-muted-foreground/40')} aria-hidden="true" />
               {cursorWorldPos ? (
-                <span className="text-foreground">
-                  <span className="text-muted-foreground/60">x</span>{cursorWorldPos.x.toString().padStart(5, ' ')}<span className="mx-1 text-muted-foreground/40">·</span><span className="text-muted-foreground/60">y</span>{cursorWorldPos.y.toString().padStart(5, ' ')}
+                <span className="font-mono text-foreground">
+                  <span className="text-muted-foreground">x</span>{Math.floor(cursorWorldPos.x).toString().padStart(5, ' ')}<span className="mx-1 text-muted-foreground/40">·</span><span className="text-muted-foreground">y</span>{Math.floor(cursorWorldPos.y).toString().padStart(5, ' ')}
                 </span>
               ) : (
-                <span className="text-muted-foreground/50">{t('hud.hoverForCoords')}</span>
+                <>
+                  <span className="hidden text-muted-foreground md:inline">{t('hud.hoverForCoords')}</span>
+                  <span className="text-muted-foreground md:hidden" aria-hidden="true">—</span>
+                </>
               )}
             </div>
-            <div className="flex items-center gap-1 px-2.5 py-1.5 border-e border-border/40">
-              <span className="text-muted-foreground/50 text-[9px] uppercase tracking-[0.22em]">z</span>
-              <span className={cn(floor !== 0 ? 'text-accent' : 'text-muted-foreground/70')}>{floorLabel(floor)}</span>
+            <div className="flex items-center gap-1 border-e border-border/40 px-2.5 py-1.5" title={t('controlRail.currentFloorAria', { floor: floorLabel(floor) })}>
+              <Layers className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+              <span className={cn(floor !== 0 ? 'text-accent' : 'text-muted-foreground')}>{floorLabel(floor)}</span>
             </div>
-            <div className="flex items-center gap-1 px-2.5 py-1.5">
-              <span className="text-muted-foreground/50 text-[9px] uppercase tracking-[0.22em]">zm</span>
-              <span className="text-muted-foreground/80">{(scale / mapCfg.defaultScale * 100).toFixed(0)}%</span>
+            <div className="flex items-center gap-1 px-2.5 py-1.5" title={t('hud.zoomTitle')}>
+              <ZoomIn className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+              <span className="font-mono text-muted-foreground">{(scale / mapCfg.defaultScale * 100).toFixed(0)}%</span>
             </div>
           </div>
         </div>
 
-        {/* Dossier — bottom-right (selected player). Raised above the HUD
-            coordinate bar on narrow viewports so the two fixed-position
-            overlays stack instead of colliding; side-by-side once there's
-            room (>= sm). */}
-        {selectedPlayer && (
-          <div className="absolute end-3 z-10 w-60 bottom-14 sm:bottom-3">
-            <div className="relative rounded-md border border-border/55 bg-card/90 backdrop-blur-md shadow-lg overflow-hidden">
-              <span aria-hidden className="pointer-events-none absolute top-0 start-0 h-2 w-2 border-s-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute top-0 end-0 h-2 w-2 border-e-2 border-t-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 start-0 h-2 w-2 border-s-2 border-b-2 border-primary/50" />
-              <span aria-hidden className="pointer-events-none absolute bottom-0 end-0 h-2 w-2 border-e-2 border-b-2 border-primary/50" />
-              <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/40 bg-muted/40 font-mono text-[10px] uppercase tracking-[0.22em] text-primary/70">
-                <span className="flex items-center gap-1.5">
-                  <span className="text-primary/60">//</span>
-                  <span>{t('dossier.label')}</span>
-                  <span className="text-muted-foreground/50">·</span>
-                  <span className="text-emerald-400/90">{t('dossier.targetAcquired')}</span>
+        {/* The selected player, bottom end. Raised above the HUD on narrow
+            maps so the two overlays stack instead of colliding; side by side
+            from sm. One action here (Heal) plus the way to every other
+            control on the Players page: powers live there, once. */}
+        {dossierPlayer && (
+          <div className="absolute bottom-14 end-3 z-10 w-60 sm:bottom-3">
+            <div className="relative overflow-hidden rounded-lg border border-border/60 bg-card/95 shadow-lg backdrop-blur-md">
+              <div className="flex items-center gap-2 border-b border-border/40 py-1.5 pe-1.5 ps-3">
+                <span
+                  className="h-2.5 w-2.5 flex-none rounded-full ring-1 ring-black/30"
+                  style={{ backgroundColor: getPlayerColor(dossierPlayer, 0.9) }}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+                  {dossierPlayer.displayName || dossierPlayer.username}
+                </span>
+                <span className={cn('shrink-0 text-xs', dossierOffline ? 'text-muted-foreground' : 'text-success')}>
+                  {dossierOffline ? t('dossier.offline') : t('dossier.targetAcquired')}
                 </span>
                 <button
+                  type="button"
                   onClick={() => setSelectedPlayer(null)}
-                  className="p-0.5 -m-0.5 rounded text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
+                  className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   aria-label={t('dossier.closeAria')}
                 >
-                  <X className="w-3 h-3" />
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
               </div>
-              <div className="px-3 pt-2.5 pb-2 border-b border-border/30">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full ring-1 ring-black/30 flex-none"
-                    style={{ backgroundColor: getPlayerColor(selectedPlayer, 0.9) }}
-                  />
-                  <span className="text-sm font-semibold truncate">
-                    {selectedPlayer.displayName || selectedPlayer.username}
-                  </span>
+              {dossierOffline ? (
+                // Gone from the server: the last position and vitals are no
+                // longer true, so none are shown.
+                <p className="px-3 py-2 text-xs text-muted-foreground">{t('dossier.offlineReason')}</p>
+              ) : (
+              <dl className="space-y-1.5 px-3 py-2 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-muted-foreground">{t('dossier.pos')}</dt>
+                  <dd className="font-mono tabular-nums">{Math.round(dossierPlayer.x)}, {Math.round(dossierPlayer.y)}</dd>
                 </div>
-              </div>
-              <div className="px-3 py-2 text-xs space-y-1.5">
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.pos')}</span>
-                  <span className="font-mono tabular-nums">{Math.round(selectedPlayer.x)}, {Math.round(selectedPlayer.y)}</span>
+                <div className="flex items-baseline justify-between gap-2">
+                  <dt className="text-muted-foreground">{t('dossier.floor')}</dt>
+                  <dd className="font-mono tabular-nums">{dossierPlayer.z}</dd>
                 </div>
-                <div className="flex justify-between items-baseline">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.floor')}</span>
-                  <span className="font-mono tabular-nums">{selectedPlayer.z}</span>
-                </div>
-                {selectedPlayer.health !== undefined && (
-                  <div className="flex justify-between items-center">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.hp')}</span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-16 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
+                {dossierPlayer.health !== undefined && (
+                  <div className="flex items-center justify-between gap-2">
+                    <dt className="text-muted-foreground">{t('dossier.hp')}</dt>
+                    <dd className="flex items-center gap-1.5">
+                      <div className="h-1.5 w-16 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20" aria-hidden="true">
                         <div
                           className="h-full transition-all"
                           style={{
-                            width: `${Math.max(0, Math.min(100, selectedPlayer.health))}%`,
+                            width: `${Math.max(0, Math.min(100, dossierPlayer.health))}%`,
                             backgroundColor:
-                              selectedPlayer.health > 50 ? 'hsl(var(--success))'
-                              : selectedPlayer.health > 25 ? 'hsl(var(--warning))'
+                              dossierPlayer.health > 50 ? 'hsl(var(--success))'
+                              : dossierPlayer.health > 25 ? 'hsl(var(--warning))'
                               : 'hsl(var(--destructive))',
                           }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(selectedPlayer.health)}%</span>
-                    </div>
+                      <span className="w-8 text-end font-mono tabular-nums">{Math.round(dossierPlayer.health)}%</span>
+                    </dd>
                   </div>
                 )}
                 {([
-                  { key: 'hunger', value: selectedPlayer.hunger, label: t('dossier.hunger') },
-                  { key: 'thirst', value: selectedPlayer.thirst, label: t('dossier.thirst') },
-                  { key: 'fatigue', value: selectedPlayer.fatigue, label: t('dossier.fatigue') },
+                  { key: 'hunger', value: dossierPlayer.hunger, label: t('dossier.hunger') },
+                  { key: 'thirst', value: dossierPlayer.thirst, label: t('dossier.thirst') },
+                  { key: 'fatigue', value: dossierPlayer.fatigue, label: t('dossier.fatigue') },
                 ] as const).map(({ key, value, label }) => value === undefined ? null : (
                   // PZ's stats scale is 0 (fine) to 1 (critical) -- the
                   // inverse of the health bar above, so severity color
                   // thresholds are flipped: full/green only near 0.
-                  <div key={key} className="flex justify-between items-center">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{label}</span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-16 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
+                  <div key={key} className="flex items-center justify-between gap-2">
+                    <dt className="text-muted-foreground">{label}</dt>
+                    <dd className="flex items-center gap-1.5">
+                      <div className="h-1.5 w-16 overflow-hidden rounded-sm bg-muted/60 ring-1 ring-black/20" aria-hidden="true">
                         <div
                           className="h-full transition-all"
                           style={{
@@ -3622,81 +3851,54 @@ export default function WorldMap() {
                           }}
                         />
                       </div>
-                      <span className="font-mono tabular-nums w-8 text-end">{Math.round(value * 100)}%</span>
-                    </div>
+                      <span className="w-8 text-end font-mono tabular-nums">{Math.round(value * 100)}%</span>
+                    </dd>
                   </div>
                 ))}
-                {selectedPlayer.accessLevel && selectedPlayer.accessLevel !== 'none' && selectedPlayer.accessLevel !== 'user' && selectedPlayer.accessLevel !== '' && (
-                  <div className="flex justify-between items-baseline">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.role')}</span>
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-amber-400">{selectedPlayer.accessLevel}</span>
+                {dossierPlayer.accessLevel && dossierPlayer.accessLevel !== 'none' && dossierPlayer.accessLevel !== 'user' && dossierPlayer.accessLevel !== '' && (
+                  <div className="flex items-baseline justify-between gap-2">
+                    <dt className="text-muted-foreground">{t('dossier.role')}</dt>
+                    <dd className="font-mono text-warning">{dossierPlayer.accessLevel}</dd>
                   </div>
                 )}
-                {selectedPlayer.isInfected && (
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[9px] uppercase tracking-[0.22em] text-muted-foreground/70">{t('dossier.status')}</span>
-                    <span className="flex items-center gap-1 text-destructive font-mono text-[10px] uppercase tracking-[0.18em]">
-                      <Skull className="w-3 h-3" />
+                {dossierPlayer.isInfected && (
+                  <div className="flex items-center justify-between gap-2">
+                    <dt className="text-muted-foreground">{t('dossier.status')}</dt>
+                    <dd className="flex items-center gap-1 font-medium text-destructive">
+                      <Skull className="h-3 w-3" aria-hidden="true" />
                       <span>{t('dossier.infected')}</span>
-                    </span>
+                    </dd>
                   </div>
                 )}
-              </div>
-              <div className="space-y-1 border-t border-border/40 bg-muted/20 px-2 py-1.5">
-                <div className="grid grid-cols-2 gap-1">
-                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null}>
+              </dl>
+              )}
+              <div className="flex items-center gap-1 border-t border-border/40 bg-muted/20 p-1.5">
+                <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : dossierOffline ? t('dossier.offlineReason') : null}>
                   <Button
-                    size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
-                    disabled={actionLoading !== null || !canGmTools}
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 shrink-0 gap-1 px-2 text-xs"
+                    disabled={actionLoading !== null || !canGmTools || dossierOffline}
                     onClick={() => {
-                      if (!canGmTools) return
+                      if (!canGmTools || dossierOffline) return
                       setActionLoading('heal-card')
-                      panelBridgeApi.sendCommand('healPlayer', { username: selectedPlayer.username })
-                        .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: selectedPlayer.username }) }); fetchPlayerPositions() })
+                      panelBridgeApi.sendCommand('healPlayer', { username: dossierPlayer.username })
+                        .then(() => { toast({ title: t('dossier.healedTitle'), description: t('dossier.healedDesc', { username: dossierPlayer.username }) }); fetchPlayerPositions() })
                         .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
                         .finally(() => setActionLoading(null))
                     }}
                   >
-                    <Heart className="w-3 h-3" /> {t('dossier.heal')}
+                    {actionLoading === 'heal-card' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Heart aria-hidden="true" />} {t('dossier.heal')}
                   </Button>
                 </DisabledReason>
-                <div className="flex min-w-0 items-center gap-1">
-                  <DisabledReason reason={!canGmTools ? t('permissions.noGmToolsBridgeAction') : null} className="min-w-0 flex-1">
-                    <Button
-                      size="sm" variant="ghost" className="h-7 min-w-0 w-full px-1.5 text-xs gap-1"
-                      disabled={actionLoading !== null || !canGmTools}
-                      onClick={() => {
-                        if (!canGmTools) return
-                        setActionLoading('god-card')
-                        panelBridgeApi.sendCommand('setGodMode', { username: selectedPlayer.username, enabled: true })
-                          .then((response) => {
-                            const state = getBridgeVerifiedState('setGodMode', response?.data)
-                            if (state === 'unverifiable') {
-                              toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeUnverifiedDesc', { action: t('dossier.god') }), variant: 'default' })
-                            } else if (state === 'old-bridge') {
-                              toast({ title: t('dossier.godModeEnabled'), description: t('toasts.bridgeOldBridgeDesc', { action: t('dossier.god') }), variant: 'default' })
-                            } else {
-                              toast({ title: t('dossier.godModeEnabled') })
-                            }
-                          })
-                          .catch((err) => toast({ title: t('errorTitle'), description: getUserErrorMessage(err, t('toasts.unknownError')), variant: 'destructive' }))
-                          .finally(() => setActionLoading(null))
-                      }}
-                    >
-                      <Shield className="w-3 h-3" /> {t('dossier.god')}
-                    </Button>
-                  </DisabledReason>
-                  <HelpTip label={t('dossier.god')} className="shrink-0">{t('dossier.godTip')}</HelpTip>
-                </div>
-                </div>
                 <Link
-                  to={`/players?player=${encodeURIComponent(selectedPlayer.username)}`}
+                  to={`/players?player=${encodeURIComponent(dossierPlayer.username)}`}
                   onClick={() => setSelectedPlayer(null)}
-                  className="flex min-h-7 items-center justify-center gap-1.5 rounded-sm border border-border/50 px-2 text-[10px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+                  className="flex min-h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-border/50 px-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
                 >
-                  <Users className="h-3 w-3" />
-                  <span>{t('dossier.openPlayerControls')}</span>
-                  <ArrowUpRight className="h-3 w-3" />
+                  <Users className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t('dossier.openPlayerControls')}</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0 rtl:-scale-x-100" aria-hidden="true" />
                 </Link>
               </div>
             </div>
@@ -3748,36 +3950,31 @@ export default function WorldMap() {
             }}
           >
             {/* Context header — coordinates + quick copy */}
-            <div className="flex items-center justify-between gap-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-[0.2em] text-primary/70 border-b border-border/40 select-none bg-muted/30">
-              <span className="flex items-center gap-1.5">
-                <span className="text-primary/60">//</span>
-                <span>{t('contextMenu.actionsLabel')}</span>
-                <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                <span className="text-foreground tabular-nums normal-case tracking-normal">{Math.round(contextMenu.worldX)}, {Math.round(contextMenu.worldY)}</span>
-                <span className="text-muted-foreground/40 normal-case tracking-normal">·</span>
-                <span className="text-muted-foreground/60 normal-case tracking-normal">{floorLabel(floor)}</span>
+            <div className="flex select-none items-center justify-between gap-2 border-b border-border/40 bg-muted/30 py-1.5 pe-1.5 ps-2.5 text-xs">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="label-micro">{t('contextMenu.actionsLabel')}</span>
+                <span className="font-mono tabular-nums text-foreground">{Math.round(contextMenu.worldX)}, {Math.round(contextMenu.worldY)}</span>
+                <span className="text-muted-foreground/40" aria-hidden="true">·</span>
+                <span className="truncate text-muted-foreground">{floorLabel(floor)}</span>
               </span>
               <button
                 type="button"
                 title={t('contextMenu.copyCoordsTitle')}
                 aria-label={t('contextMenu.copyCoordsTitle')}
-                className="p-1 -m-1 rounded hover:bg-muted/60 text-muted-foreground/60 hover:text-foreground transition-colors"
+                className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
                 onClick={(ev) => {
                   ev.stopPropagation()
                   copyCoords(contextMenu.worldX, contextMenu.worldY)
                 }}
               >
-                <Copy className="w-3 h-3" />
+                <Copy className="h-3.5 w-3.5" aria-hidden="true" />
               </button>
             </div>
 
             {contextMenu.player && (
               <>
-                <div className="px-2.5 pt-2 pb-1.5 border-b border-border/30 select-none">
-                  <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.24em] text-primary/60 mb-1">
-                    <span>›</span>
-                    <span>{t('contextMenu.targetLabel')}</span>
-                  </div>
+                <div className="select-none border-b border-border/30 px-2.5 pb-1.5 pt-2">
+                  <div className="label-micro mb-1">{t('contextMenu.targetLabel')}</div>
                   <div className="flex items-center gap-2">
                     <span
                       className="w-2 h-2 rounded-full ring-1 ring-black/30 flex-none"
@@ -3787,7 +3984,7 @@ export default function WorldMap() {
                   </div>
                 </div>
                 <ContextMenuItem
-                  icon={<Heart className="w-3.5 h-3.5 text-emerald-400" />}
+                  icon={<Heart className="w-3.5 h-3.5 text-success" />}
                   label={t('contextMenu.healPlayer')}
                   description={!canGmTools ? t('permissions.noGmToolsBridgeAction') : undefined}
                   tone="success"
@@ -3805,10 +4002,9 @@ export default function WorldMap() {
 
             {contextMenu.vehicle && (
               <>
-                <div className="px-2.5 pt-2 pb-2 border-b border-border/30 select-none">
-                  <div className="flex items-center gap-1.5 font-mono text-[9px] uppercase tracking-[0.24em] text-info/70 mb-1.5">
-                    <span>›</span>
-                    <Car className="w-2.5 h-2.5" />
+                <div className="select-none border-b border-border/30 px-2.5 pb-2 pt-2">
+                  <div className="label-micro mb-1.5 flex items-center gap-1.5">
+                    <Car className="h-3 w-3 text-info" aria-hidden="true" />
                     <span>{t('contextMenu.vehicleLabel')}</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-xs">
@@ -3817,35 +4013,35 @@ export default function WorldMap() {
                   <div className="mt-1.5 space-y-1">
                     {contextMenu.vehicle.fuelPct != null && (
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">{t('contextMenu.fuel')}</span>
-                        <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
+                        <span className="min-w-10 shrink-0 text-xs text-muted-foreground">{t('contextMenu.fuel')}</span>
+                        <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20" aria-hidden="true">
                           <div
-                            className={cn("h-full transition-all", contextMenu.vehicle.fuelPct > 30 ? "bg-info/80" : contextMenu.vehicle.fuelPct > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
+                            className={cn("h-full transition-all", contextMenu.vehicle.fuelPct > 30 ? "bg-info/80" : contextMenu.vehicle.fuelPct > 10 ? "bg-warning/80" : "bg-destructive/80")}
                             style={{ width: `${Math.round(contextMenu.vehicle.fuelPct)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{Math.round(contextMenu.vehicle.fuelPct)}%</span>
+                        <span className="w-9 text-end font-mono text-xs tabular-nums text-muted-foreground">{Math.round(contextMenu.vehicle.fuelPct)}%</span>
                       </div>
                     )}
                     {contextMenu.vehicle.batteryCharge != null && (
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[9px] uppercase tracking-[0.2em] text-muted-foreground/70 w-9">{t('contextMenu.batt')}</span>
-                        <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20">
+                        <span className="min-w-10 shrink-0 text-xs text-muted-foreground">{t('contextMenu.batt')}</span>
+                        <div className="flex-1 h-1.5 rounded-sm bg-muted/60 overflow-hidden ring-1 ring-black/20" aria-hidden="true">
                           <div
-                            className={cn("h-full transition-all", batteryPercent(contextMenu.vehicle.batteryCharge) > 30 ? "bg-info/80" : batteryPercent(contextMenu.vehicle.batteryCharge) > 10 ? "bg-amber-400/80" : "bg-destructive/80")}
+                            className={cn("h-full transition-all", batteryPercent(contextMenu.vehicle.batteryCharge) > 30 ? "bg-info/80" : batteryPercent(contextMenu.vehicle.batteryCharge) > 10 ? "bg-warning/80" : "bg-destructive/80")}
                             style={{ width: `${batteryPercent(contextMenu.vehicle.batteryCharge)}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground/80 w-8 text-end">{batteryPercent(contextMenu.vehicle.batteryCharge)}%</span>
+                        <span className="w-9 text-end font-mono text-xs tabular-nums text-muted-foreground">{batteryPercent(contextMenu.vehicle.batteryCharge)}%</span>
                       </div>
                     )}
                     {contextMenu.vehicle.fuelPct == null && contextMenu.vehicle.batteryCharge == null && (
-                      <div className="font-mono text-[10px] text-muted-foreground/50 italic">{t('contextMenu.noTelemetry')}</div>
+                      <div className="text-xs italic text-muted-foreground">{t('contextMenu.noTelemetry')}</div>
                     )}
                   </div>
                 </div>
                 {contextMenu.vehicle.persisted ? (
-                  <div className="px-2.5 py-2 text-[11px] text-muted-foreground/70 border-t border-border/30">
+                  <div className="border-t border-border/30 px-2.5 py-2 text-xs text-muted-foreground">
                     {t('contextMenu.loadAreaFirst')}
                   </div>
                 ) : (
@@ -3942,7 +4138,7 @@ export default function WorldMap() {
                       }}
                     />
                     <ContextMenuItem
-                  icon={<Zap className="w-3.5 h-3.5 text-amber-400" />}
+                  icon={<Zap className="w-3.5 h-3.5 text-warning" />}
                   label={t('contextMenu.hotwire')}
                   description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : undefined}
                   tone="warning"
@@ -3972,7 +4168,7 @@ export default function WorldMap() {
                   const pColor = pl.isInfected
                     ? 'text-destructive'
                     : pl.accessLevel && pl.accessLevel !== '' && pl.accessLevel !== 'none' && pl.accessLevel !== 'user'
-                      ? 'text-amber-400'
+                      ? 'text-warning'
                       : 'text-info'
                   return (
                     <ContextMenuItem
@@ -3996,7 +4192,7 @@ export default function WorldMap() {
                   )
                 })}
                 {playersRef.current.length > 6 && (
-                  <div className="px-2.5 py-1 font-mono text-[10px] text-muted-foreground/50 italic select-none">
+                  <div className="select-none px-2.5 py-1 text-xs italic text-muted-foreground">
                     {t('contextMenu.moreOnline', { count: playersRef.current.length - 6 })}
                   </div>
                 )}
@@ -4016,7 +4212,7 @@ export default function WorldMap() {
                 onClick={() => triggerLightningAt(contextMenu.worldX, contextMenu.worldY)}
               />
               <ContextMenuItem
-                icon={<Volume2 className="w-3.5 h-3.5 text-amber-400" />}
+                icon={<Volume2 className="w-3.5 h-3.5 text-warning" />}
                 label={t('contextMenu.createNoise')}
                 description={!canWorldEvents ? t('permissions.noWorldEvents') : t('contextMenu.createNoiseDesc')}
                 tone="warning"
@@ -4041,7 +4237,7 @@ export default function WorldMap() {
             <div className="border-t border-border/30">
               <ContextMenuSection label={t('contextMenu.dropsLabel')} icon={<Package className="w-2.5 h-2.5" />} tone="warning" />
               <ContextMenuItem
-                icon={<Package className="w-3.5 h-3.5 text-amber-400" />}
+                icon={<Package className="w-3.5 h-3.5 text-warning" />}
                 label={t('contextMenu.customDrop')}
                 description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : t('contextMenu.customDropDesc')}
                 tone="warning"
@@ -4065,7 +4261,7 @@ export default function WorldMap() {
               />
               {lastDrop && (
                 <ContextMenuItem
-                  icon={<RefreshCw className="w-3.5 h-3.5 text-amber-400/80" />}
+                  icon={<RefreshCw className="w-3.5 h-3.5 text-warning/80" />}
                   label={t('contextMenu.repeatLastDrop')}
                   description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : lastDrop.label}
                   tone="warning"
@@ -4091,7 +4287,7 @@ export default function WorldMap() {
                   {dropTemplates.slice(0, 8).map((tpl) => (
                     <ContextMenuItem
                       key={tpl.id}
-                      icon={<Package className="w-3.5 h-3.5 text-amber-400/70" />}
+                      icon={<Package className="w-3.5 h-3.5 text-warning/70" />}
                       label={tpl.name}
                       description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : t('dropDialog.templateItemCount', { count: tpl.items.length })}
                       tone="warning"
@@ -4117,7 +4313,7 @@ export default function WorldMap() {
               {AIRDROP_PRESETS.map((preset) => (
                 <ContextMenuItem
                   key={preset.id}
-                  icon={<preset.icon className="w-3.5 h-3.5 text-amber-400/80" />}
+                  icon={<preset.icon className="w-3.5 h-3.5 text-warning/80" />}
                   label={presetLabel(preset.id)}
                   description={!canRunBridgeCommand ? t('permissions.noBridgeCommand') : presetDesc(preset.id)}
                   tone="warning"
@@ -4127,8 +4323,8 @@ export default function WorldMap() {
                 />
               ))}
               {!bridgeConnected && (
-                <div className="mt-1 mx-2 mb-1.5 px-2 py-1.5 rounded-sm border border-destructive/30 bg-destructive/10 flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.2em] text-destructive/85">
-                  <span className="w-1.5 h-1.5 rounded-full bg-destructive animate-pulse" />
+                <div className="mx-2 mb-1.5 mt-1 flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-xs text-foreground">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
                   <span>{t('contextMenu.bridgeOfflineDrops')}</span>
                 </div>
               )}
@@ -4136,12 +4332,10 @@ export default function WorldMap() {
           </div>
         )}
 
-        {/* Canvas */}
-        <div
-          ref={containerRef}
-          className="w-full"
-          style={{ height: 'calc(100vh - 180px)', minHeight: '500px' }}
-        >
+        {/* Canvas: fills the frame; the overlays above sit on top of it.
+            touch-none hands panning and pinching to the handlers instead of
+            the page scroll; no callout or text selection on a long press. */}
+        <div ref={containerRef} className="absolute inset-0">
           <canvas
             ref={canvasRef}
             tabIndex={0}
@@ -4154,9 +4348,10 @@ export default function WorldMap() {
             onTouchStart={handleTouchStart}
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
+            onTouchCancel={handleTouchCancel}
             onContextMenu={handleContextMenu}
             onKeyDown={handleKeyDown}
-            className={cn('block w-full h-full outline-none focus-visible:ring-2 focus-visible:ring-primary/50', isDragging ? 'cursor-grabbing' : (hoveredPlayer || hoveredVehicle) ? 'cursor-pointer' : 'cursor-grab')}
+            className={cn('block h-full w-full touch-none select-none outline-none [-webkit-touch-callout:none] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/50', isDragging ? 'cursor-grabbing' : (hoveredPlayer || hoveredVehicle) ? 'cursor-pointer' : 'cursor-grab')}
           />
         </div>
       </div>
@@ -4305,7 +4500,7 @@ export default function WorldMap() {
                   )}
                 </>
               ) : (
-                <span className="text-[11px] text-muted-foreground/60 italic">{t('dropDialog.noPackagesYet')}</span>
+                <span className="text-xs italic text-muted-foreground">{t('dropDialog.noPackagesYet')}</span>
               )}
             </div>
 
@@ -4323,7 +4518,7 @@ export default function WorldMap() {
                 <div key={idx} className="flex items-end gap-2 px-2 py-2">
                   <div className="flex-1 min-w-0">
                     {idx === 0 && (
-                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">{t('dropDialog.itemLabel')}</Label>
+                      <Label className="mb-1 block text-xs text-muted-foreground">{t('dropDialog.itemLabel')}</Label>
                     )}
                     <ItemPicker
                       value={item.itemType}
@@ -4336,7 +4531,7 @@ export default function WorldMap() {
                   </div>
                   <div className="w-16 shrink-0">
                     {idx === 0 && (
-                      <Label className="text-[10px] text-muted-foreground/70 mb-1 block">{t('dropDialog.qtyLabel')}</Label>
+                      <Label className="mb-1 block text-xs text-muted-foreground">{t('dropDialog.qtyLabel')}</Label>
                     )}
                     <NumberInput
                       value={item.count}
@@ -4382,7 +4577,7 @@ export default function WorldMap() {
                 <Plus className="w-3.5 h-3.5 me-1" />
                 {t('dropDialog.addItem')}
               </Button>
-              <div className="text-[11px] text-muted-foreground/70 tabular-nums">
+              <div className="text-xs tabular-nums text-muted-foreground">
                 {t('dropDialog.validCount', { valid: dropItems.filter((it) => it.itemType.trim()).length, total: dropItems.length })}
               </div>
             </div>
@@ -4465,7 +4660,7 @@ export default function WorldMap() {
                   <Megaphone className="w-4 h-4 text-muted-foreground/70 mt-0.5 flex-none" />
                   <div className="min-w-0">
                     <div className="text-sm font-medium">{t('dropDialog.announceToPlayers')}</div>
-                    <div className="text-[11px] text-muted-foreground/70">{t('dropDialog.announceDesc')}</div>
+                    <div className="text-xs text-muted-foreground">{t('dropDialog.announceDesc')}</div>
                   </div>
                 </div>
                 <Switch checked={dropAnnounce} onCheckedChange={setDropAnnounce} />
@@ -4475,7 +4670,7 @@ export default function WorldMap() {
                   <BellRing className="w-4 h-4 text-muted-foreground/70 mt-0.5 flex-none" />
                   <div className="min-w-0">
                     <div className="text-sm font-medium">{t('dropDialog.attractZombies')}</div>
-                    <div className="text-[11px] text-muted-foreground/70">{t('dropDialog.attractZombiesDesc')}</div>
+                    <div className="text-xs text-muted-foreground">{t('dropDialog.attractZombiesDesc')}</div>
                   </div>
                 </div>
                 <Switch checked={dropAttractZombies} onCheckedChange={setDropAttractZombies} />
@@ -4495,7 +4690,7 @@ export default function WorldMap() {
                     onChange={(e) => setDropSoundRadius(parseInt(e.target.value))}
                     className="h-1.5 accent-warning"
                   />
-                  <div className="flex justify-between text-[9px] text-muted-foreground/50 mt-1">
+                  <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                     <span>{t('dropDialog.whisper')}</span>
                     <span>{t('dropDialog.gunshot')}</span>
                     <span>{t('dropDialog.explosion')}</span>
@@ -4647,10 +4842,10 @@ function ContextMenuItem({ icon, label, onClick, loading, description, disabled,
   const toneAccent: Record<ContextMenuTone, string> = {
     default: 'group-hover:border-s-primary/60 group-focus-visible:border-s-primary/60',
     primary: 'group-hover:border-s-primary/70 group-focus-visible:border-s-primary/70',
-    warning: 'group-hover:border-s-amber-400/80 group-focus-visible:border-s-amber-400/80',
+    warning: 'group-hover:border-s-warning/80 group-focus-visible:border-s-warning/80',
     danger: 'group-hover:border-s-destructive/80 group-focus-visible:border-s-destructive/80',
     info: 'group-hover:border-s-info/80 group-focus-visible:border-s-info/80',
-    success: 'group-hover:border-s-emerald-400/80 group-focus-visible:border-s-emerald-400/80',
+    success: 'group-hover:border-s-success/80 group-focus-visible:border-s-success/80',
   }
   return (
     <button
@@ -4675,7 +4870,7 @@ function ContextMenuItem({ icon, label, onClick, loading, description, disabled,
       </span>
       <span className="flex flex-col min-w-0 text-start flex-1">
         <span className="truncate text-foreground">{label}</span>
-        {description && <span className="text-[10px] text-muted-foreground/60 truncate leading-tight">{description}</span>}
+        {description && <span className="truncate text-xs leading-tight text-muted-foreground">{description}</span>}
       </span>
     </button>
   )
@@ -4686,19 +4881,21 @@ function ContextMenuSection({ label, icon, tone = 'muted' }: {
   icon?: React.ReactNode
   tone?: 'muted' | 'primary' | 'warning' | 'info' | 'success' | 'danger'
 }) {
+  // The icon carries the section's colour; the label stays a plain
+  // micro-label so it reads at a glance.
   const toneColor: Record<NonNullable<typeof tone>, string> = {
-    muted: 'text-muted-foreground/70',
-    primary: 'text-primary/75',
-    warning: 'text-amber-400/85',
-    info: 'text-info/80',
-    success: 'text-emerald-400/85',
-    danger: 'text-destructive/85',
+    muted: 'text-muted-foreground',
+    primary: 'text-primary',
+    warning: 'text-warning',
+    info: 'text-info',
+    success: 'text-success',
+    danger: 'text-destructive',
   }
   return (
-    <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 font-mono text-[9px] uppercase tracking-[0.24em] select-none">
-      {icon && <span className={cn('flex items-center justify-center', toneColor[tone])}>{icon}</span>}
-      <span className={toneColor[tone]}>{label}</span>
-      <span className="flex-1 h-px bg-border/40" />
+    <div className="flex select-none items-center gap-1.5 px-2.5 pb-1 pt-2">
+      {icon && <span className={cn('flex items-center justify-center', toneColor[tone])} aria-hidden="true">{icon}</span>}
+      <span className="label-micro">{label}</span>
+      <span className="h-px flex-1 bg-border/40" aria-hidden="true" />
     </div>
   )
 }

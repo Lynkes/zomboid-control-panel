@@ -5,9 +5,10 @@ import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { usePageShortcut } from '../hooks/useKeyboardShortcuts'
 import {
-  Play, Square, RotateCcw, Save, Server, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle,
+  Play, Square, RotateCcw, Save, Wifi, Loader2, AlertTriangle, RefreshCw, AlertCircle, Check,
   LogIn, LogOut, Activity, Archive, Skull, Sword, ShieldAlert, Copy, Gamepad2, Globe, FolderOpen,
-  X, MoreHorizontal, Zap, Trash2, Download, Sparkles, CalendarClock, Monitor, ScrollText, CloudOff,
+  X, Zap, Trash2, CalendarClock, Monitor, ScrollText, FileCog, Plus, Cpu, ListChecks, Wrench, HeartPulse,
+  Map as MapIcon,
 } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
@@ -16,19 +17,21 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogBody, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { SectionCard } from '@/components/ui/section-card'
+import type { StatusPillProps } from '@/components/ui/status-pill'
+import { ServerHeader, type ServerHeaderMenuItem } from '@/components/ServerHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { RoutePageSkeleton } from '@/components/PageSkeleton'
+import { AddServerChoices } from '@/components/AddServerChoices'
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
+  ApiError, serverApi, rconApi, playersApi, panelBridgeApi, backupApi, configApi, serversApi, debugApi,
   panelUpdateApi, modsApi, schedulerApi, ServerInstance, PanelUpdateStatus, ComposedServerStatus,
   MountDiscoveryCandidate, ScheduledBackupAttempt,
 } from '@/lib/api'
 import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
-import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
-import { resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { isStatusEventForServer, resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
 import { autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
 import { ServersOverview } from '@/components/dashboard/ServersOverview'
 import { ServerUptime } from '@/components/ServerUptime'
@@ -88,11 +91,13 @@ interface ServerStatus {
   publicIp?: string
   localIp?: string
   port?: number
-  rcon: { host: string; port: number; connected: boolean }
+  // host/port are left out for a role holding none of servers.manage,
+  // rcon.execute and server.configure (server/utils/rconTargetView.js).
+  rcon: { host?: string; port?: number; connected: boolean }
 }
 interface Player { name: string; online: boolean }
 interface PerformancePoint {
-  time: string; timestamp?: string; playerCount: number; memoryMB: number
+  time: string; timestamp?: string; playerCount: number; maxPlayers?: number; memoryMB: number
   pzMemMB?: number; cpuPercent?: number; hostMemUsedGB?: number; hostMemTotalGB?: number
   hostDiskUsedGB?: number; hostDiskTotalGB?: number
   hostSwapUsedGB?: number; hostSwapTotalGB?: number
@@ -101,15 +106,6 @@ interface PerformancePoint {
 const DashboardPerformanceCharts = lazy(() => import('@/components/DashboardPerformanceCharts'))
 const DASHBOARD_ONBOARDING_DISMISSED_KEY = 'pz-dashboard-onboarding-dismissed-v1'
 
-// docker-unraid-add-server-experience (2026-09-09): new Quick-Start copy
-// below ships via this fallback rather than new locale JSON keys -- same
-// call as the sandbox range-override toggle and tonight's other new copy
-// (a key registered in NO locale always resolves to English for everyone,
-// so localeParity.test.ts's 9-locale key-SET parity has nothing to be out
-// of parity about).
-function dashboardFallback(key: string, fallback: string): string {
-  return resolveRegisteredTranslation('dashboard', key, undefined) ?? fallback
-}
 // Stores the exact lastError STRING that was dismissed, not a boolean --
 // so dismissing "cannot reach GitHub" (the common air-gapped-install case)
 // does not also silence a completely different failure that shows up later
@@ -232,28 +228,28 @@ function eventStyle(t: TFunction<'dashboard'>, action: string) {
 }
 
 /**
- * Connection LED row.
+ * Connection LED row. `mono` when the value is data (host:port, a version),
+ * not a state word.
  */
 function ConnLine({
-  label, state, value, hint,
-}: { label: string; state: 'on' | 'off' | 'wait'; value?: string; hint?: string }) {
+  label, state, value, mono,
+}: { label: string; state: 'on' | 'off' | 'wait'; value?: string; mono?: boolean }) {
   const { t } = useTranslation('dashboard')
   const dot =
     state === 'on'   ? 'bg-success'
   : state === 'wait' ? 'bg-warning'
                      : 'bg-destructive/70'
   const valueTone =
-    state === 'on'   ? 'text-success/75'
-  : state === 'wait' ? 'text-warning/80'
-                     : 'text-destructive/80'
+    state === 'on'   ? 'text-success/80'
+  : state === 'wait' ? 'text-warning'
+                     : 'text-muted-foreground'
   return (
     <div className="flex min-w-0 items-center gap-2.5 py-1.5">
       <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', dot)} aria-hidden="true" />
-      <span className="shrink-0 font-mono text-[11px] font-medium text-foreground/70">{label}</span>
-      <span className={cn('min-w-0 flex-1 truncate text-end font-mono text-[11px] tabular-nums', valueTone)}>
+      <span className="shrink-0 text-xs font-medium text-foreground">{label}</span>
+      <span className={cn('min-w-0 flex-1 truncate text-end text-xs tabular-nums', mono && 'font-mono', valueTone)}>
         {value ?? (state === 'on' ? t('connLine.connected') : state === 'wait' ? t('connLine.pending') : t('connLine.offline'))}
       </span>
-      {hint && <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">{hint}</span>}
     </div>
   )
 }
@@ -264,6 +260,7 @@ function ConnLine({
 
 export default function Dashboard() {
   const { t, i18n } = useTranslation('dashboard')
+  const { t: tHealth } = useTranslation('modHealth')
   const runtimeInfo = useRuntimeInfo()
   /* ---------------------------- state ------------------------------------- */
   // docker-unraid-add-server-experience, Q1 routing fix (2026-09-09, god):
@@ -294,6 +291,9 @@ export default function Dashboard() {
   const [playerActivity, setPlayerActivity] = useState<PlayerActivity[]>([])
   const [performanceHistory, setPerformanceHistory] = useState<PerformancePoint[]>([])
   const [loading, setLoading] = useState<string | null>(null)
+  // The header's Refresh: spins while the status is re-read (at least long
+  // enough to see), then shows a check for a moment.
+  const [refreshState, setRefreshState] = useState<'idle' | 'busy' | 'done'>('idle')
   const [initialLoading, setInitialLoading] = useState(true)
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -304,6 +304,9 @@ export default function Dashboard() {
   const [serversOverviewShown, setServersOverviewShown] = useState(false)
   const [panelInfo, setPanelInfo] = useState<{ localIp: string; port: number; url: string } | null>(null)
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
+  // Critical problems in the active server's mod list (GET /mods/health),
+  // for one Work list row; null until known or when it could not be read.
+  const [modHealthCritical, setModHealthCritical] = useState<number | null>(null)
   const [showPerformanceCharts, setShowPerformanceCharts] = useState(false)
   const [showQuickStart, setShowQuickStart] = useState<boolean>(() => {
     try { return localStorage.getItem(DASHBOARD_ONBOARDING_DISMISSED_KEY) !== 'true' } catch { return true }
@@ -407,6 +410,8 @@ export default function Dashboard() {
   // the Wipe control. can() fails open on unknown/null capabilities, same
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
+  // POST /rcon/connect needs rcon.execute: without it Connect RCON is not offered.
+  const canExecuteRcon = can('rcon.execute')
   const canWipeServer = can('server.wipe')
   // pz-bughunt round 19 (client-vs-server permission gate sweep): PUT
   // /config/app-settings (handleAutoStartChange below) is gated
@@ -586,14 +591,21 @@ export default function Dashboard() {
     try { const d = await playersApi.getActivityLogs(undefined, 15); if (d.logs) setPlayerActivity(d.logs.slice(0, 12)) }
     catch { setPlayerActivity([]) }
   }, [])
+  // The history is the ACTIVE server's: a fetch still in flight when the
+  // operator switches servers must not put the old server's samples back
+  // after onActiveServer has cleared them.
+  const perfHistoryGuard = useRequestGuard()
   const fetchPerformanceHistory = useCallback(async () => {
+    const requestId = perfHistoryGuard.next()
     try {
       const data = await debugApi.getPerformanceHistory(60)
+      if (perfHistoryGuard.isStale(requestId)) return
       if (data.history) {
         setPerformanceHistory(data.history.map((h: Record<string, unknown>) => ({
           time: formatTime(h.timestamp as string, { language: i18n.language }),
           timestamp: h.timestamp as string,
           playerCount: (h.playerCount as number) || 0,
+          maxPlayers: (h.maxPlayers as number) || undefined,
           memoryMB: Math.round(((h.memoryUsed as number) || 0) / (1024 * 1024)),
           pzMemMB: h.pzMemUsed ? Math.round((h.pzMemUsed as number) / (1024 * 1024)) : undefined,
           cpuPercent: h.cpuUsage != null ? Math.round(h.cpuUsage as number) : undefined,
@@ -612,7 +624,7 @@ export default function Dashboard() {
     } catch {
       // Ignore missing telemetry history so the rest of the dashboard can render.
     }
-  }, [i18n.language])
+  }, [i18n.language, perfHistoryGuard])
   const fetchAutoStartSetting = useCallback(async () => {
     try {
       const r = await configApi.getAppSettings()
@@ -774,9 +786,44 @@ export default function Dashboard() {
   }, [fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchPlayerActivity,
       fetchAutoStartSetting, fetchActiveServer, fetchMaintenance, t])
 
+  // The mod health check (mods.manage, like the route): read when the active
+  // server is known or changes, then every 5 minutes while visible. A failure
+  // only hides the row; a reply for a server no longer active is dropped.
+  const canManageMods = can('mods.manage')
+  // activeServerId: the active server's id as a string, declared with the
+  // auto-start checkbox above.
+  const modHealthGuard = useRequestGuard()
+  useEffect(() => {
+    if (activeServerId === null || !canManageMods) {
+      modHealthGuard.next()
+      setModHealthCritical(null)
+      return
+    }
+    const load = async () => {
+      const requestId = modHealthGuard.next()
+      try {
+        const health = await modsApi.getModHealth()
+        if (!modHealthGuard.isStale(requestId)) setModHealthCritical(health?.counts?.critical ?? 0)
+      } catch {
+        if (!modHealthGuard.isStale(requestId)) setModHealthCritical(null)
+      }
+    }
+    void load()
+    const interval = setInterval(() => {
+      if (document.visibilityState !== 'hidden') void load()
+    }, 5 * 60_000)
+    return () => {
+      clearInterval(interval)
+      modHealthGuard.next()
+    }
+  }, [activeServerId, canManageMods, modHealthGuard])
+
   useEffect(() => {
     if (!socket) return
-    const onStatus = (data: Partial<ServerStatus>) => {
+    const onStatus = (data: Partial<ServerStatus> & { serverId?: string | number | null }) => {
+      // A restart of a server other than the active one (scheduler.js names
+      // it in serverId) says nothing about the one shown here.
+      if (!isStatusEventForServer(data, activeServer?.id)) return
       setStatus(prev => {
         if (prev) return { ...prev, ...data }
         // Every real server:status emit (server/index.js, routes/server.js,
@@ -809,6 +856,13 @@ export default function Dashboard() {
     const onActiveServer = (d?: { server?: ServerInstance | null }) => {
       if (d?.server !== undefined) setActiveServer(d.server); else fetchActiveServer()
       fetchStatus(); fetchComposedStatus(); fetchPlayers(); fetchBridgeStatus()
+      // The telemetry rows read the LAST sample, which is the previous
+      // server's for up to a minute (the next tick) unless it is dropped and
+      // the new server's history fetched. The guard bump also discards a
+      // fetch still in flight for the old server when the charts are hidden.
+      perfHistoryGuard.next()
+      setPerformanceHistory([])
+      if (showPerformanceCharts) void fetchPerformanceHistory()
       // See wipeServerChangedSinceOpen's own comment above.
       if (wipeDialog) setWipeServerChangedSinceOpen(true)
     }
@@ -835,7 +889,7 @@ export default function Dashboard() {
       socket.off('activeServerChanged', onActiveServer)
       socket.off('panelBridge:modStatus', onBridgeMod)
     }
-  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, wipeDialog])
+  }, [socket, fetchStatus, fetchComposedStatus, fetchPlayers, fetchBridgeStatus, fetchActiveServer, fetchPerformanceHistory, perfHistoryGuard, showPerformanceCharts, wipeDialog, activeServer?.id])
 
   // Zombie count changes continuously while the server runs -- unlike
   // bridgeStatus (pushed live over the socket), nothing pushes this, so it
@@ -908,6 +962,7 @@ export default function Dashboard() {
         time: formatTime(new Date(), { language: i18n.language }),
         timestamp: new Date().toISOString(),
         playerCount: (snap.playerCount as number) || 0,
+        maxPlayers: (snap.maxPlayers as number) || undefined,
         memoryMB: Math.round(((snap.memoryUsed as number) || 0) / (1024 * 1024)),
         pzMemMB: snap.pzMemUsed ? Math.round((snap.pzMemUsed as number) / (1024 * 1024)) : undefined,
         cpuPercent: snap.cpuUsage != null ? Math.round(snap.cpuUsage as number) : undefined,
@@ -953,7 +1008,11 @@ export default function Dashboard() {
   const handleAction = async (
     action: string,
     fn: () => Promise<unknown>,
-    options?: { errorAction?: (error: unknown) => ReactElement | undefined },
+    options?: {
+      errorAction?: (error: unknown) => ReactElement | undefined
+      // true when it dealt with the error itself (no error toast)
+      handleError?: (error: unknown) => boolean
+    },
   ) => {
     setLoading(action)
     try {
@@ -1103,6 +1162,7 @@ export default function Dashboard() {
       // Every other action refreshes after its toast, as it always has.
       if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
+      if (options?.handleError?.(error)) return
       toast({
         title: t('toasts.errorTitle'),
         description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
@@ -1125,9 +1185,24 @@ export default function Dashboard() {
   // here, inside the function, not just on the buttons that call it. Same
   // lesson as Console.tsx's Enter-key path: a disabled attribute is an
   // affordance, the function guard is the actual gate.
+  // Process detection can't tell whether the server is running and nothing
+  // else proved it stopped (SERVER_START_STATE_UNKNOWN): the operator may
+  // start it anyway, after a confirm, instead of a Start that never works.
   const startServer = () => {
     if (!canControlServer) return
-    void handleAction('Start server', serverApi.start)
+    void handleAction('Start server', () => serverApi.start(), {
+      handleError: (error) => {
+        if (!(error instanceof ApiError) || error.code !== 'SERVER_START_STATE_UNKNOWN') return false
+        setConfirmAction({
+          actionId: 'Start server',
+          title: t('confirm.startUnknownState.title'),
+          description: t('confirm.startUnknownState.description'),
+          action: () => serverApi.start({ ignoreUnknownState: true }),
+          variant: 'warning',
+        })
+        return true
+      },
+    })
   }
   const saveWorld = () => {
     if (!canControlServer) return
@@ -1155,15 +1230,11 @@ export default function Dashboard() {
   }
 
   /* ---------------------------- loading ----------------------------------- */
+  // The header comes first in every state: until the first status lands,
+  // the route's own skeleton mirrors it (registry title, icon, description)
+  // instead of a spinner in the middle of an empty page.
   if (initialLoading) {
-    return (
-      <div className="page-transition">
-        <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4">
-          <RefreshCw className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
-          <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">{t('loading')}</p>
-        </div>
-      </div>
-    )
+    return <RoutePageSkeleton pathname="/" />
   }
 
   /* ---------------------------- derived ----------------------------------- */
@@ -1176,6 +1247,7 @@ export default function Dashboard() {
   // owns actually rendering and disambiguating the full candidate list.
   const readyCandidates = discoveryCandidates.filter((c) => c.status === 'ready')
   const isContainerized = runtimeInfo?.serviceManager === 'container'
+  const quickStartVisible = !hasServer && showQuickStart
   // GH#114: status.running is a local process scan -- it can only ever see a
   // process in *this* container/host. That's a valid, freshest signal for a
   // native server, but for docker-local/docker-managed the mapped process
@@ -1193,6 +1265,9 @@ export default function Dashboard() {
     status,
     composedStatus,
   })
+  // Unknown only because this PC's process scan failed: Start stays usable
+  // (the server checks other signs, then startServer() offers a confirm).
+  const scanUnknown = hostUnknown && provider === 'native' && composedStatus?.host.status === 'unknown'
   const modsPending = maintenance.modUpdatesAvailable > 0
   const staleLink = !lastUpdated || Date.now() - lastUpdated.getTime() > 60_000
 
@@ -1232,7 +1307,7 @@ export default function Dashboard() {
     label: t('actions.createBackup'),
     onClick: () => {
       if (!canManageBackups) return
-      void handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
+      void handleAction('Create backup', () => backupApi.createBackup().then(() => fetchMaintenance()))
     },
     busy: loading === 'Create backup',
     disabled: loading !== null || !canManageBackups,
@@ -1257,7 +1332,14 @@ export default function Dashboard() {
       return {
         level: 'warning',
         headline: t('verdict.noServerConfigured'),
-        action: { label: t('verdict.openSetup'), to: '/server-setup' },
+        // The fix differs: with no server at all it is adding one (and the
+        // "Add a server" block right below already offers that, so the band
+        // doesn't repeat it); a server without a launch folder is fixed by
+        // editing it on Servers. This replaces the separate "Not configured"
+        // banner, which only ever said the same thing a second time.
+        action: !hasServer
+          ? (quickStartVisible ? undefined : { label: t('actions.addServer'), to: '/server-setup' })
+          : { label: t('verdict.editServer'), to: '/servers' },
       }
     }
     if (fetchError) {
@@ -1289,7 +1371,7 @@ export default function Dashboard() {
         // treatment isRemote/hostUnknown already get here. The header Start
         // button (which DOES carry a DisabledReason) remains the explained
         // affordance for why this operator can't start the server.
-        action: hostUnknown || activeServer?.isRemote || !canControlServer
+        action: (hostUnknown && !scanUnknown) || activeServer?.isRemote || !canControlServer
           ? undefined
           : {
               label: t('actions.start'),
@@ -1308,12 +1390,12 @@ export default function Dashboard() {
             {t('verdict.rconHelpTip')}
           </HelpTip>
         ),
-        action: {
+        action: canExecuteRcon ? {
           label: t('actions.connectRcon'),
           onClick: () => { void handleConnect() },
           busy: loading === 'Connect RCON',
           disabled: loading !== null,
-        },
+        } : undefined,
       }
     }
     if (hostMemoryRatio != null && hostMemoryRatio >= 0.9) {
@@ -1345,7 +1427,7 @@ export default function Dashboard() {
       return {
         level: 'warning',
         headline: t('verdict.bridgeOffline'),
-        action: { label: t('verdict.bridgeSettingsLink'), to: '/settings' },
+        action: { label: t('verdict.bridgeSettingsLink'), to: '/settings?tab=bridge' },
       }
     }
     if (modsPending) {
@@ -1436,10 +1518,13 @@ export default function Dashboard() {
 
   const errorCount = maintenance.errorCount
 
+  // A row that names a page uses that page's sidebar label (one name per
+  // page everywhere); Zombies and Errors name a fact, not a page.
+  const pageLabel = (key: string) => t(`nav.items.${key}`, { ns: 'shell' })
   const workItems: WorkItem[] = [
     {
       id: 'players',
-      to: '/players', icon: Activity, label: t('workItems.players'),
+      to: '/players', icon: Activity, label: pageLabel('onlinePlayers'),
       state: online ? String(players.length) : t('liveActivity.offline'),
       tone: !online ? 'bad' : players.length > 0 ? 'good' : 'default',
     },
@@ -1450,36 +1535,45 @@ export default function Dashboard() {
       tone: !bridgeStatus?.modConnected ? 'default' : zombieCount !== null ? 'good' : 'default',
     },
     {
+      // RCON state: straight to the Console's RCON tab.
       id: 'console',
-      to: '/console', icon: Wifi, label: t('workItems.console'),
+      to: '/console?tab=rcon', icon: Wifi, label: pageLabel('serverConsole'),
       state: status?.rcon?.connected ? t('workItems.rconReady') : t('workItems.rconOffline'),
       tone: status?.rcon?.connected ? 'good' : 'warning',
     },
     {
       id: 'mods',
-      to: '/mods', icon: Gamepad2, label: t('workItems.mods'),
+      to: '/mods', icon: Gamepad2, label: pageLabel('modManager'),
       state: modsPending ? t('workItems.modsToUpdate', { count: maintenance.modUpdatesAvailable }) : t('workItems.modsTracked', { count: maintenance.modsTracked }),
       tone: modsPending ? 'warning' : 'default',
     },
+    // Only while the health check finds problems that stop mods from loading.
+    ...(modHealthCritical ? [{
+      id: 'mod-health',
+      to: '/mods?view=health', icon: HeartPulse, label: tHealth('dashboard.label'),
+      state: tHealth('dashboard.critical', { count: modHealthCritical }),
+      tone: 'bad',
+    } as WorkItem] : []),
     {
       id: 'schedule',
-      to: '/scheduler', icon: CalendarClock, label: t('workItems.schedule'),
+      to: '/scheduler', icon: CalendarClock, label: pageLabel('scheduledTasks'),
       state: scheduleState,
       tone: nextRunEta ? 'good' : maintenance.scheduledTasksCount > 0 ? 'good' : 'default',
     },
     ...(errorCount != null ? [{
+      // Logged errors live in the server log: the Console's log tab.
       id: 'errors',
-      to: '/console', icon: ScrollText, label: t('workItems.errors'),
+      to: '/console?tab=log', icon: ScrollText, label: t('workItems.errors'),
       state: errorCount === 0 ? t('workItems.errorsNone') : t('workItems.errorsLogged', { count: errorCount }),
       tone: errorCount === 0 ? 'good' : errorCount >= 50 ? 'warning' : 'default',
     } as WorkItem] : []),
     {
       id: 'backups',
-      to: '/backups', icon: Archive, label: t('workItems.backups'),
+      to: '/backups', icon: Archive, label: pageLabel('worldBackups'),
       state: backupState,
       tone: backupAttemptFailed ? 'bad' : backupHealth === 'skippedForRestart' || maintenance.backupCount === 0 ? 'warning' : 'good',
     },
-    { id: 'config', to: '/server-config', icon: Server, label: t('workItems.config') },
+    { id: 'config', to: '/server-config', icon: FileCog, label: pageLabel('serverConfiguration') },
   ]
 
   // WORK_STATE_TONE (DashboardVerdict.tsx) already colors each row by
@@ -1507,614 +1601,395 @@ export default function Dashboard() {
     (a, b) => WORK_ITEM_SEVERITY[a.tone ?? 'default'] - WORK_ITEM_SEVERITY[b.tone ?? 'default'],
   )
 
+  /* ---------------------------- header ------------------------------------ */
+  const isRemote = !!activeServer?.isRemote
+  const refreshNow = async () => {
+    if (refreshState === 'busy') return
+    setRefreshState('busy')
+    const startedAt = Date.now()
+    await Promise.allSettled([fetchStatus(), fetchComposedStatus()])
+    window.setTimeout(() => {
+      setRefreshState('done')
+      window.setTimeout(() => setRefreshState('idle'), 1500)
+    }, Math.max(0, 600 - (Date.now() - startedAt)))
+  }
+  const openWipeDialog = () => {
+    // The disabled flag is the affordance; this guard is the gate (a
+    // disabled Radix menu item never selects, but the dialog it opens is
+    // the single most destructive control in the product).
+    if (!canWipeServer || !hasServer || online || isRemote) return
+    setWipePreview(null)
+    setWipeServerChangedSinceOpen(false)
+    setWipeDialog(true)
+  }
+  const createBackupNow = () => {
+    if (!canManageBackups) return
+    void handleAction('Create backup', () => backupApi.createBackup().then(() => fetchMaintenance()))
+  }
+
+  // The server's own state, next to its name. Problems (crash reason,
+  // RCON help, disk) are the verdict band's job just below.
+  const statusPill: StatusPillProps = !hasServer
+    ? { tone: 'idle', label: t('header.state.none') }
+    : loading === 'Start server'
+      ? { tone: 'busy', label: t('header.state.starting') }
+      : loading === 'Stop server' || loading === 'Force stop server'
+        ? { tone: 'busy', label: t('header.state.stopping') }
+        : online
+          ? rconConnected
+            ? { tone: 'ok', label: t('header.state.running') }
+            : { tone: 'warn', label: t('header.state.running'), detail: t('header.state.rconOffline') }
+          : hostUnknown
+            ? { tone: 'warn', label: t('header.state.unknown') }
+            : { tone: 'error', label: t('header.state.stopped') }
+
+  const addressChip = (key: 'lan' | 'wan' | 'panel', Icon: typeof Wifi, address: string, copyValue: string) => (
+    <button
+      type="button"
+      onClick={() => copyToClipboard(copyValue, t(`addresses.${key}.copyLabel`))}
+      className="group inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+      aria-label={t(`addresses.${key}.copyAria`, { address: copyValue })}
+      title={t(`addresses.${key}.tooltip`)}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span className="font-medium">{t(`addresses.${key}.label`)}</span>
+      <span className="font-mono tabular-nums text-foreground">{address}</span>
+      <Copy className="h-3 w-3 shrink-0 opacity-50 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+    </button>
+  )
+  const gamePort = status?.port ? `:${status.port}` : ''
+
+  const headerMeta = (
+    <>
+      {/* Uptime, counted live from the start time, with "started at" on
+          hover, and an explicit "uptime unknown" when the server is up but
+          the panel can't tell since when -- except for a remote SFTP
+          server, which can never have a start time and whose remote badge
+          already says why. In the meta row, so it never squeezes the name. */}
+      {online && <ServerUptime startedAt={startedAt} showUnknown={provider !== 'remote-sftp'} />}
+      {/* Map name, from PanelBridge: unknown (hidden) rather than guessed. */}
+      {worldMap && (
+        <span className="inline-flex items-center gap-1" title={t('header.mapTooltip')}>
+          <MapIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {worldMap}
+        </span>
+      )}
+      {isRemote && (
+        <span className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          {t('header.remoteBadge')}
+        </span>
+      )}
+      {status?.localIp && addressChip('lan', Wifi, `${status.localIp}${gamePort}`, `${status.localIp}${gamePort}`)}
+      {status?.publicIp && addressChip('wan', Globe, `${status.publicIp}${gamePort}`, `${status.publicIp}${gamePort}`)}
+      {panelInfo && addressChip('panel', Monitor, `${panelInfo.localIp}:${panelInfo.port}`, panelInfo.url)}
+      {status?.publicIp && status?.port && (
+        <a
+          href={`steam://connect/${status.publicIp}:${status.port}`}
+          className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+          aria-label={t('addresses.join.aria', { address: `${status.publicIp}:${status.port}` })}
+          title={t('addresses.join.tooltip')}
+        >
+          <Gamepad2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="font-medium">{t('addresses.join.label')}</span>
+        </a>
+      )}
+    </>
+  )
+
+  // Contextual command: Start when stopped, Restart when running. With no
+  // server at all it is "Add a server" -- unless the Add a server block is
+  // already on screen, which is that same action spelled out.
+  const headerPrimary = !hasServer ? (
+    quickStartVisible ? undefined : (
+      <Link to="/server-setup" className={buttonVariants({ variant: 'command', size: 'sm' })}>
+        <Plus aria-hidden="true" /> {t('actions.addServer')}
+      </Link>
+    )
+  ) : !online ? (
+    <DisabledReason reason={
+      isRemote ? t('actions.notAvailableRemote')
+      : !canControlServer ? t('actions.noPermissionControl')
+      : null
+    }>
+      <Button
+        onClick={startServer}
+        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer}
+        variant="command"
+        size="sm"
+      >
+        {loading === 'Start server' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}
+        {t('actions.start')}
+      </Button>
+    </DisabledReason>
+  ) : (
+    <DisabledReason reason={isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
+      <Button
+        onClick={() => setConfirmAction({
+          actionId: 'Restart server',
+          title: t('confirm.restartServer.title'),
+          description: t('confirm.restartServer.description'),
+          action: () => serverApi.restart(5),
+          variant: 'warning',
+        })}
+        disabled={loading !== null || !online || isRemote || !canControlServer}
+        variant="command"
+        size="sm"
+      >
+        <RotateCcw aria-hidden="true" /> {t('actions.restart')}
+      </Button>
+    </DisabledReason>
+  )
+
+  // Refresh (icon, also the R key), then Stop as the one outline action.
+  const headerSecondary = (
+    <>
+      <Button
+        variant="ghost"
+        size="iconDense"
+        onClick={() => { void refreshNow() }}
+        disabled={loading !== null}
+        aria-label={t('actions.refreshStatus')}
+        aria-keyshortcuts="R"
+        aria-busy={refreshState === 'busy'}
+        title={t('actions.refreshStatus')}
+        data-refresh-state={refreshState}
+      >
+        {refreshState === 'done'
+          ? <Check className="text-success" aria-hidden="true" />
+          : <RefreshCw className={refreshState === 'busy' ? 'animate-spin' : undefined} aria-hidden="true" />}
+      </Button>
+      {online && (
+        <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+          <Button
+            onClick={() => setConfirmAction({
+              actionId: 'Stop server',
+              title: t('confirm.stopServer.title'),
+              description: t('confirm.stopServer.description'),
+              action: serverApi.stop,
+              // Same severity class as Restart (reversible, comes back with
+              // a click): warning, not destructive-red.
+              variant: 'warning',
+            })}
+            disabled={loading !== null || !online || !canControlServer}
+            variant="outline"
+            size="sm"
+          >
+            {loading === 'Stop server' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Square aria-hidden="true" />}
+            {t('actions.stop')}
+          </Button>
+        </DisabledReason>
+      )}
+    </>
+  )
+
+  // Everything else, in the "…" menu: a disabled item shows its reason
+  // under its label. Each onSelect re-checks its gate (the disabled flag is
+  // the affordance, the guard is the gate).
+  const headerMenu: ServerHeaderMenuItem[] = []
+  if (online) {
+    headerMenu.push(
+      {
+        label: t('actions.forceStop'),
+        icon: Skull,
+        onSelect: () => {
+          if (!canControlServer || isRemote) return
+          setConfirmAction({
+            actionId: 'Force stop server',
+            title: t('confirm.forceStopServer.title'),
+            description: t('confirm.forceStopServer.description') + (players.length > 0 ? t('confirm.forceStopServer.descriptionPlayers', { count: players.length }) : ''),
+            action: serverApi.forceStop,
+            variant: 'destructive',
+          })
+        },
+        disabled: loading !== null || isRemote || !canControlServer,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        hint: t('actions.forceStopTooltip'),
+      },
+      {
+        label: t('actions.saveWorld'),
+        icon: Save,
+        onSelect: saveWorld,
+        // Save goes over RCON (serverApi.save): say so instead of a grey item.
+        disabled: loading !== null || !rconConnected || !canControlServer,
+        reason: !canControlServer ? t('actions.noPermissionControl') : !rconConnected ? t('actions.saveNeedsRcon') : undefined,
+      },
+      {
+        label: t('actions.restartNow'),
+        icon: Zap,
+        onSelect: () => {
+          if (!canControlServer || isRemote) return
+          setConfirmAction({
+            actionId: 'Restart server now',
+            title: t('confirm.restartServerNow.title'),
+            description: t('confirm.restartServerNow.description') + (players.length > 0 ? t('confirm.restartServerNow.descriptionPlayers', { count: players.length }) : ''),
+            action: () => serverApi.restart(0),
+            variant: 'destructive',
+          })
+        },
+        disabled: loading !== null || isRemote || !canControlServer,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+      },
+    )
+  }
+  if (!rconConnected && canExecuteRcon) {
+    headerMenu.push({
+      label: t('actions.connectRcon'),
+      icon: Wifi,
+      onSelect: () => { void handleConnect() },
+      disabled: !hasServer || loading !== null || (!isRemote && !hostRunning),
+      reason: !hasServer ? t('actions.addServerFirst') : !isRemote && !hostRunning ? t('actions.connectRconNeedsHostRunning') : undefined,
+    })
+  }
+  headerMenu.push(
+    {
+      label: t('actions.createBackup'),
+      icon: Archive,
+      onSelect: createBackupNow,
+      disabled: !hasServer || loading !== null || isRemote || !canManageBackups,
+      reason: !hasServer ? t('actions.addServerFirst')
+        : isRemote ? t('actions.notAvailableRemote')
+        : !canManageBackups ? t('actions.noPermissionCreateBackup')
+        : undefined,
+    },
+    {
+      label: t('verdict.bridgeSettingsLink'),
+      icon: Wrench,
+      onSelect: () => navigate('/settings?tab=bridge'),
+    },
+    {
+      label: t('actions.wipeServer'),
+      icon: Trash2,
+      destructive: true,
+      onSelect: openWipeDialog,
+      disabled: !hasServer || online || loading !== null || isRemote || !canWipeServer,
+      // Capability before the transient "server is running" reason: a role
+      // that will never hold server.wipe is told that, not sent to wait.
+      reason: !hasServer ? t('actions.addServerFirst')
+        : isRemote ? t('actions.notAvailableRemote')
+        : !canWipeServer ? t('actions.noPermissionWipe')
+        : online ? t('actions.wipeMustStopFirst')
+        : undefined,
+    },
+  )
+
+  /* ---------------------------- alerts ------------------------------------ */
+  // One stack under the header, errors first; the verdict band below keeps
+  // the server's own state. A connection error the verdict already states
+  // ("Panel cannot reach the server", with Retry) is not repeated here.
+  const alerts: PageAlert[] = []
+  if (fetchError && verdict.headline !== t('verdict.panelCannotReach')) {
+    alerts.push({
+      id: 'connection',
+      tone: 'error',
+      title: t('connectionError.label'),
+      description: `${fetchError}${t('connectionError.suffix')}`,
+      action: { label: t('connectionError.retry'), onClick: () => { void fetchStatus() } },
+    })
+  }
+  if (panelUpdate?.updateAvailable) {
+    const latest = panelUpdate.latestVersion
+    const sameVersion = !!latest && latest === panelUpdate.currentVersion
+    const dismissed = !!latest && panelUpdateDismissedVersion === latest
+    if (!sameVersion && !dismissed) {
+      const isStaged = !!panelUpdate.stagedUpdate && (!latest || panelUpdate.stagedUpdate.version === latest)
+      const lastFailed = panelUpdate.lastApplyResult?.status === 'failed'
+        && (!latest || panelUpdate.lastApplyResult.pendingVersion === latest)
+      alerts.push({
+        id: 'panel-update',
+        tone: lastFailed ? 'error' : 'info',
+        title: lastFailed ? t('panelUpdateBanner.applyFailed') : isStaged ? t('panelUpdateBanner.updateStaged') : t('panelUpdateBanner.panelUpdate'),
+        description: (
+          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <span>
+              {lastFailed
+                ? t('panelUpdateBanner.lastApplyFailedDesc')
+                : isStaged
+                  ? t('panelUpdateBanner.stagedDesc')
+                  : t('panelUpdateBanner.newVersionDesc')}
+            </span>
+            {latest && (
+              <span className="font-mono text-xs tabular-nums text-foreground">
+                v{panelUpdate.currentVersion} → v{latest}
+              </span>
+            )}
+            {/* updateAvailable stays true across later failed checks, so the
+                result carries its age instead of reading as fresh. */}
+            {panelUpdate.lastCheck && (
+              <span className="text-xs">{t('panelUpdateBanner.checkedAgo', { age: formatAge(t, panelUpdate.lastCheck) })}</span>
+            )}
+          </span>
+        ),
+        action: { label: isStaged ? t('panelUpdateBanner.applyUpdate') : t('panelUpdateBanner.viewUpdate'), to: '/settings?tab=updates' },
+        onDismiss: latest
+          ? () => {
+              try { sessionStorage.setItem('panel-update-banner-dismissed', latest) } catch { /* ignore storage failures */ }
+              setPanelUpdateDismissedVersion(latest)
+            }
+          : undefined,
+      })
+    }
+  }
+  // Quiet on purpose: the panel works, it just can't tell whether a newer
+  // version exists (an air-gapped install). Dismissed per error text, so a
+  // different failure later shows again.
+  if (panelUpdate && !panelUpdate.updateAvailable && panelUpdate.lastError && panelUpdateErrorDismissed !== panelUpdate.lastError) {
+    const lastError = panelUpdate.lastError
+    alerts.push({
+      id: 'update-check',
+      tone: 'info',
+      title: t('updateCheckError.label'),
+      description: <span className="line-clamp-2 break-words" title={lastError}>{lastError}</span>,
+      action: { label: t('nav.items.panelSettings', { ns: 'shell' }), to: '/settings?tab=updates' },
+      onDismiss: () => {
+        try { localStorage.setItem(PANEL_UPDATE_ERROR_DISMISSED_KEY, lastError) } catch { /* ignore storage failures */ }
+        setPanelUpdateErrorDismissed(lastError)
+      },
+    })
+  }
+
+  /* ---------------------------- telemetry label --------------------------- */
+  // The history comes from the server's own persisted log, independent of
+  // the online check -- recent samples can survive while that check can't
+  // confirm the server, and calling those "live" contradicted the verdict.
+  const telemetryLabel = (() => {
+    if (performanceHistory.length === 0) return online ? t('telemetry.sampling') : t('telemetry.standby')
+    const first = performanceHistory[0].timestamp
+    const last = performanceHistory[performanceHistory.length - 1].timestamp
+    const spanSec = performanceHistory.length >= 2 && first && last
+      ? (new Date(last).getTime() - new Date(first).getTime()) / 1000
+      : null
+    if (!online) {
+      if (spanSec === null) return t('telemetry.unconfirmed')
+      return spanSec < 120
+        ? t('telemetry.lastSecondsUnconfirmed', { seconds: Math.round(spanSec) })
+        : t('telemetry.lastMinutesUnconfirmed', { minutes: Math.round(spanSec / 60) })
+    }
+    if (spanSec === null) return t('telemetry.live')
+    return spanSec < 120
+      ? t('telemetry.lastSecondsLive', { seconds: Math.round(spanSec) })
+      : t('telemetry.lastMinutesLive', { minutes: Math.round(spanSec / 60) })
+  })()
+
   /* ====================================================================== */
   /*  RENDER                                                                  */
   /* ====================================================================== */
   return (
-    <div className="page-transition pb-12">
-      <AutoUpdateResultBanner />
-      {/* ─── TOP STATUS BAR ───────────────────────────────────────── */}
-      <header
-        aria-label={t('header.ariaLabel')}
-        className="overflow-hidden rounded-lg border border-border/55 bg-card/45 shadow-sm"
-      >
-        {/* Main row */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3">
-          {/* Identity cluster: status + name + uptime. Wraps rather than
-              squeezes: the name is the page's h1 and says which server the
-              Stop/Restart buttons act on, so on a phone the uptime, map
-              and remote badge drop to a second line instead of truncating
-              it to a few characters (or to nothing -- "uptime unknown" is
-              long in es/fr/uk). */}
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            {/* The status light and the name travel together, as one item
-                that never wraps apart and is the one that shrinks (the h1
-                truncates) only when the name alone is wider than the row. */}
-            <div className="flex min-w-0 items-center gap-3">
-              {/* One light for the whole page: green calm, amber attention, red broken. */}
-              <span
-                className="relative flex h-2.5 w-2.5 shrink-0 items-center justify-center"
-                title={verdict.headline ?? t('header.everythingNominal')}
-              >
-                <span
-                  className={cn(
-                    'absolute inline-flex h-2.5 w-2.5 rounded-full opacity-25',
-                    verdict.level === 'critical' ? 'bg-destructive'
-                      : verdict.level === 'warning' ? 'bg-warning'
-                      : 'bg-success',
-                  )}
-                />
-                <span
-                  className={cn(
-                    'relative inline-flex h-1.5 w-1.5 rounded-full',
-                    verdict.level === 'critical' ? 'bg-destructive'
-                      : verdict.level === 'warning' ? 'bg-warning'
-                      : 'bg-success',
-                  )}
-                />
-                <span className="sr-only">{verdict.headline ?? t('header.everythingNominal')}</span>
-              </span>
-
-              <h1 className="min-w-0 truncate font-mono text-base font-semibold text-foreground" title={activeServer?.serverName ?? t('header.noActiveServer')}>
-                {activeServer?.serverName ?? t('header.noActiveServer')}
-              </h1>
-            </div>
-
-            {/* Uptime. Was a faint (muted/60), desktop-only duration shown
-                only when the server's snapshot said uptime > 0 -- easy to
-                miss, and silently absent whenever the start time was
-                unknown, which read as "the panel doesn't show uptime"
-                (Discord request). Now visible at every width, counted live
-                from the start time, with "started at" on hover, and an
-                explicit "uptime unknown" when the server is up but the
-                panel can't tell since when -- except for a remote SFTP
-                server, which can never have a start time and whose REMOTE
-                badge already says why: there it would be permanent noise. */}
-            {online && (
-              <ServerUptime
-                startedAt={startedAt}
-                showUnknown={provider !== 'remote-sftp'}
-                className="font-mono text-[11px] text-muted-foreground"
-              />
-            )}
-            {/* Map name -- from getWorldStats, the only field it reports that
-                getZombieCount doesn't already cover. Bridge-sourced, so it's
-                unknown (hidden) rather than guessed until the bridge poll
-                actually reports one. */}
-            {worldMap && (
-              <span className="hidden font-mono text-[11px] text-muted-foreground/60 sm:inline" title={t('header.mapTooltip')}>
-                {worldMap}
-              </span>
-            )}
-            {activeServer?.isRemote && (
-              <span className="rounded-sm bg-muted/50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('header.remoteBadge')}</span>
-            )}
-          </div>
-
-          {/* Address cluster — grouped, distinct background */}
-          <div className="order-3 -mx-4 -mb-3 flex w-[calc(100%+2rem)] flex-wrap items-center gap-1 border-t border-border/30 bg-background/20 px-3 py-1.5">
-            {status?.localIp && (
-              <button
-                onClick={() => copyToClipboard(`${status.localIp}${status.port ? `:${status.port}` : ''}`, t('addresses.lan.copyLabel'))}
-                className="group inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                aria-label={t('addresses.lan.copyAria', { address: `${status.localIp}${status.port ? `:${status.port}` : ''}` })}
-                title={t('addresses.lan.tooltip')}
-              >
-                <Wifi className="h-3 w-3 text-emerald-500/70" />
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-foreground/45">{t('addresses.lan.label')}</span>
-                <span className="font-mono text-[11px] tabular-nums">{status.localIp}{status.port ? `:${status.port}` : ''}</span>
-                <Copy className="h-2.5 w-2.5 shrink-0 opacity-35 transition-opacity group-hover:opacity-70" />
-              </button>
-            )}
-            {status?.publicIp && (
-              <button
-                onClick={() => copyToClipboard(`${status.publicIp}${status.port ? `:${status.port}` : ''}`, t('addresses.wan.copyLabel'))}
-                className="group inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                aria-label={t('addresses.wan.copyAria', { address: `${status.publicIp}${status.port ? `:${status.port}` : ''}` })}
-                title={t('addresses.wan.tooltip')}
-              >
-                <Globe className="h-3 w-3 text-amber-500/70" />
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-foreground/45">{t('addresses.wan.label')}</span>
-                <span className="font-mono text-[11px] tabular-nums">{status.publicIp}{status.port ? `:${status.port}` : ''}</span>
-                <Copy className="h-2.5 w-2.5 shrink-0 opacity-35 transition-opacity group-hover:opacity-70" />
-              </button>
-            )}
-            {panelInfo && (
-              <button
-                onClick={() => copyToClipboard(panelInfo.url, t('addresses.panel.copyLabel'))}
-                className="group inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-                aria-label={t('addresses.panel.copyAria', { address: panelInfo.url })}
-                title={t('addresses.panel.tooltip')}
-              >
-                <Monitor className="h-3 w-3 text-primary/70" />
-                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-foreground/45">{t('addresses.panel.label')}</span>
-                <span className="font-mono text-[11px] tabular-nums">{panelInfo.localIp}:{panelInfo.port}</span>
-                <Copy className="h-2.5 w-2.5 shrink-0 opacity-35 transition-opacity group-hover:opacity-70" />
-              </button>
-            )}
-            {status?.publicIp && status?.port && (
-              <a
-                href={`steam://connect/${status.publicIp}:${status.port}`}
-                className="inline-flex items-center gap-1.5 rounded-sm px-2 py-1 text-muted-foreground transition-colors hover:bg-background/60 hover:text-foreground"
-                aria-label={t('addresses.join.aria', { address: `${status.publicIp}:${status.port}` })}
-                title={t('addresses.join.tooltip')}
-              >
-                <Gamepad2 className="h-3 w-3 text-blue-400/70" />
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em]">{t('addresses.join.label')}</span>
-              </a>
-            )}
-          </div>
-
-          {/* primary controls — right-aligned */}
-          <div className="order-2 ms-auto flex flex-wrap justify-end gap-1">
-          {!online ? (
-            <DisabledReason reason={
-              !hasServer ? t('actions.addServerFirst')
-              : activeServer?.isRemote ? t('actions.notAvailableRemote')
-              : !canControlServer ? t('actions.noPermissionControl')
-              : null
-            }>
-              <Button
-                onClick={startServer}
-                disabled={!hasServer || hostUnknown || loading !== null || activeServer?.isRemote || !canControlServer}
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 rounded-md border border-emerald-500/30 px-2.5 text-xs text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 disabled:border-border/50 disabled:text-muted-foreground"
-              >
-                {loading === 'Start server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-                {t('actions.start')}
-              </Button>
-            </DisabledReason>
-          ) : (
-            <>
-              <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
-                <Button
-                  onClick={() => setConfirmAction({
-                    actionId: 'Stop server',
-                    title: t('confirm.stopServer.title'),
-                    description: t('confirm.stopServer.description'),
-                    action: serverApi.stop,
-                    // Same severity class as the adjacent graceful Restart
-                    // button (reversible, comes back with a click) -- was
-                    // styled destructive-red while Restart uses warning-amber
-                    // for the same "disconnects players, nothing is lost"
-                    // outcome. Matches Restart's precedent instead of
-                    // inventing a third tier.
-                    variant: 'warning',
-                  })}
-                  disabled={loading !== null || !online || !canControlServer}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
-                >
-                  {loading === 'Stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
-                  {t('actions.stop')}
-                </Button>
-              </DisabledReason>
-              <DisabledReason reason={activeServer?.isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
-                <Button
-                  onClick={() => setConfirmAction({
-                    actionId: 'Force stop server',
-                    title: t('confirm.forceStopServer.title'),
-                    description: t('confirm.forceStopServer.description') + (players.length > 0 ? t('confirm.forceStopServer.descriptionPlayers', { count: players.length }) : ''),
-                    action: serverApi.forceStop,
-                    variant: 'destructive',
-                  })}
-                  disabled={loading !== null || !online || activeServer?.isRemote || !canControlServer}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 rounded-md border border-red-500/30 px-2.5 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 disabled:border-border/50 disabled:text-muted-foreground"
-                  title={activeServer?.isRemote ? undefined : t('actions.forceStopTooltip')}
-                >
-                  {loading === 'Force stop server' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Skull className="h-3.5 w-3.5" />}
-                  {t('actions.forceStop')}
-                </Button>
-              </DisabledReason>
-              <DisabledReason reason={activeServer?.isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
-                <Button
-                  onClick={() => setConfirmAction({
-                    actionId: 'Restart server',
-                    title: t('confirm.restartServer.title'),
-                    description: t('confirm.restartServer.description'),
-                    action: () => serverApi.restart(5),
-                    variant: 'warning',
-                  })}
-                  disabled={loading !== null || !online || activeServer?.isRemote || !canControlServer}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 rounded-md border border-amber-500/30 px-2.5 text-xs text-amber-400 hover:bg-amber-500/10 hover:text-amber-300 disabled:border-border/50 disabled:text-muted-foreground"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" /> {t('actions.restart')}
-                </Button>
-              </DisabledReason>
-              <DisabledReason reason={
-                !canControlServer ? t('actions.noPermissionControl')
-                // Save sends its command over RCON (serverApi.save) -- the
-                // button's disabled= already accounted for !rconConnected,
-                // but until now nothing explained it, unlike every other
-                // disabled control on this page (see DisabledReason's own
-                // contract). An operator watching the RCON connection line
-                // above go red had no way to connect that to this button
-                // going grey without already knowing the internals.
-                : !rconConnected ? t('actions.saveNeedsRcon')
-                : null
-              }>
-                <Button
-                  onClick={saveWorld}
-                  disabled={loading !== null || !rconConnected || !canControlServer}
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 gap-1.5 rounded-md border border-sky-500/30 px-2.5 text-xs text-sky-400 hover:bg-sky-500/10 hover:text-sky-300 disabled:border-border/50 disabled:text-muted-foreground"
-                >
-                  <Save className="h-3.5 w-3.5" /> {t('actions.save')}
-                </Button>
-              </DisabledReason>
-            </>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="h-8 w-8 border-border/60 text-muted-foreground hover:text-foreground" aria-label={t('actions.moreActionsAria')}>
-                <MoreHorizontal className="h-3.5 w-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DisabledReason
-                className="w-full"
-                reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
-              >
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Same Radix quirk as Restart Now/Wipe Server above:
-                    // this onClick fires before the disabled prop is
-                    // consulted, so the real gate lives here too.
-                    if (!canManageBackups) return
-                    handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
-                  }}
-                  disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
-                >
-                  <Archive className="me-2 h-4 w-4" /> {t('actions.createBackup')}
-                </DropdownMenuItem>
-              </DisabledReason>
-              <DropdownMenuItem onClick={fetchStatus}>
-                <RefreshCw className="me-2 h-4 w-4" /> {t('actions.refreshStatus')}
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link to="/settings" className="flex items-center"><Server className="me-2 h-4 w-4" /> {t('actions.bridgeSettings')}</Link>
-              </DropdownMenuItem>
-              {!rconConnected && (
-                <DisabledReason
-                  className="w-full"
-                  reason={
-                    !hasServer
-                      ? t('actions.addServerFirst')
-                      : !activeServer?.isRemote && !hostRunning
-                        ? t('actions.connectRconNeedsHostRunning')
-                        : null
-                  }
-                >
-                  <DropdownMenuItem onClick={handleConnect} disabled={!hasServer || loading !== null || (!activeServer?.isRemote && !hostRunning)}>
-                    <Wifi className="me-2 h-4 w-4" /> {t('actions.connectRcon')}
-                  </DropdownMenuItem>
-                </DisabledReason>
-              )}
-              <DropdownMenuSeparator />
-              <DisabledReason
-                className="w-full"
-                reason={
-                  activeServer?.isRemote ? t('actions.notAvailableRemote')
-                  : !canControlServer ? t('actions.noPermissionControl')
-                  : null
-                }
-              >
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Radix's MenuItem composes this onClick to fire BEFORE
-                    // its own disabled check (which only guards its internal
-                    // select/close behavior, not an arbitrary onClick prop) --
-                    // the disabled attribute below is an affordance, this
-                    // guard is the actual gate, same lesson as Console.tsx's
-                    // Enter-key path.
-                    if (!canControlServer) return
-                    setConfirmAction({
-                      actionId: 'Restart server now',
-                      title: t('confirm.restartServerNow.title'),
-                      description: t('confirm.restartServerNow.description') + (players.length > 0 ? t('confirm.restartServerNow.descriptionPlayers', { count: players.length }) : ''),
-                      action: () => serverApi.restart(0),
-                      variant: 'destructive',
-                    })
-                  }}
-                  disabled={!hasServer || !online || loading !== null || activeServer?.isRemote || !canControlServer}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Zap className="me-2 h-4 w-4" /> {t('actions.restartNow')}
-                </DropdownMenuItem>
-              </DisabledReason>
-              <DisabledReason
-                className="w-full"
-                reason={
-                  !hasServer ? t('actions.addServerFirst')
-                  : activeServer?.isRemote ? t('actions.notAvailableRemote')
-                  // Capability before the transient "server is running" reason
-                  // -- an operator who will never hold server.wipe gets told
-                  // that, not sent to wait for a restart that wouldn't help them.
-                  : !canWipeServer ? t('actions.noPermissionWipe')
-                  : online ? t('actions.wipeMustStopFirst')
-                  : null
-                }
-              >
-                <DropdownMenuItem
-                  onClick={() => {
-                    // Same Radix quirk as Restart Now above: this onClick
-                    // fires before the disabled prop is ever consulted, so
-                    // the real gate on the single most destructive control
-                    // in the product has to live here, not in the attribute.
-                    if (!canWipeServer) return
-                    setWipePreview(null)
-                    setWipeServerChangedSinceOpen(false)
-                    setWipeDialog(true)
-                  }}
-                  disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <Trash2 className="me-2 h-4 w-4" /> {t('actions.wipeServer')}
-                </DropdownMenuItem>
-              </DisabledReason>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        </div>
+    <div className="page-transition space-y-6 pb-12">
+      {/* The header names the server and owns its controls. <header> with
+          the "Server status" name, so the controls are findable as one group. */}
+      <header aria-label={t('header.ariaLabel')}>
+        <ServerHeader
+          name={activeServer?.serverName ?? t('header.noActiveServer')}
+          status={statusPill}
+          meta={headerMeta}
+          secondary={headerSecondary}
+          primary={headerPrimary}
+          menu={headerMenu}
+        />
       </header>
 
-      {/* ─── Panel update banner ─────────────────────────────────────────── */}
-      {(() => {
-        if (!panelUpdate?.updateAvailable) return null
-        const latest = panelUpdate.latestVersion
-        if (latest && latest === panelUpdate.currentVersion) return null
-        if (latest && panelUpdateDismissedVersion === latest) return null
-        const isStaged = !!panelUpdate.stagedUpdate && (!latest || panelUpdate.stagedUpdate.version === latest)
-        const lastFailed = panelUpdate.lastApplyResult?.status === 'failed'
-          && (!latest || panelUpdate.lastApplyResult.pendingVersion === latest)
-        const ctaLabel = isStaged ? t('panelUpdateBanner.applyUpdate') : t('panelUpdateBanner.viewUpdate')
-        void lastFailed
-        const dismiss = () => {
-          if (!latest) return
-          try { sessionStorage.setItem('panel-update-banner-dismissed', latest) } catch { /* ignore storage failures */ }
-          setPanelUpdateDismissedVersion(latest)
-        }
-        const accent = lastFailed ? 'destructive' : 'primary'
-        return (
-          <div
-            role="status"
-            className={cn(
-              'mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border py-2 ps-3 pe-2',
-              lastFailed
-                ? 'border-destructive/35 bg-destructive/[0.05] shadow-[inset_2px_0_0_hsl(var(--destructive))]'
-                : 'border-primary/35 bg-primary/[0.04] shadow-[inset_2px_0_0_hsl(var(--primary))]',
-            )}
-          >
-            <Sparkles className={cn('h-3.5 w-3.5 shrink-0', `text-${accent}`)} />
-            <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-              <span className={cn('font-mono text-[10px] font-semibold uppercase tracking-[0.18em]', `text-${accent}`)}>
-                {lastFailed ? t('panelUpdateBanner.applyFailed') : isStaged ? t('panelUpdateBanner.updateStaged') : t('panelUpdateBanner.panelUpdate')}
-              </span>
-              <span className="min-w-0 text-xs text-muted-foreground">
-                {lastFailed
-                  ? t('panelUpdateBanner.lastApplyFailedDesc')
-                  : isStaged
-                    ? t('panelUpdateBanner.stagedDesc')
-                    : t('panelUpdateBanner.newVersionDesc')}
-              </span>
-              {latest && (
-                <span className="font-mono text-[11px] tabular-nums text-foreground/85">
-                  v{panelUpdate.currentVersion} <span className="text-muted-foreground/60">→</span> v{latest}
-                </span>
-              )}
-              {panelUpdate.lastCheck && (
-                // bug-hunt-2026-09-18 (round 23, operator design call:
-                // stale-last-known-good-update-result-needs-a-qualifier):
-                // this banner is driven purely by updateAvailable, a
-                // boolean that stays true across however many later checks
-                // have failed since -- with no qualifier it reads as a
-                // fresh result even after days of a broken check. Reuses
-                // this file's own formatAge() (already used for player
-                // join times etc.) rather than inventing a second
-                // "N days ago" formatter.
-                <span className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                  {t('panelUpdateBanner.checkedAgo', { age: formatAge(t, panelUpdate.lastCheck) })}
-                </span>
-              )}
-            </div>
-            <div className="ms-auto flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 w-7 px-0 text-muted-foreground hover:text-foreground"
-                aria-label={t('panelUpdateBanner.dismissAria')}
-                onClick={dismiss}
-                disabled={!latest}
-                title={t('panelUpdateBanner.dismissTooltip')}
-              >
-                <X className="h-3.5 w-3.5" />
-              </Button>
-              <Link to="/settings?tab=updates">
-                <Button
-                  size="sm"
-                  variant={lastFailed ? 'destructive' : 'default'}
-                  className="h-7 gap-1.5 px-2.5 text-xs font-semibold"
-                >
-                  <Download className="h-3 w-3" /> {ctaLabel}
-                </Button>
-              </Link>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* ─── Update check failing (quiet) ───────────────────────────────────
-          Deliberately NOT the accented-banner treatment used above and below:
-          the panel is working fine, it just cannot tell whether a newer
-          version exists. That is information, not an alarm, so no border,
-          no fill, no accent bar -- just muted icon + text + a dismiss X. */}
-      {(() => {
-        if (!panelUpdate || panelUpdate.updateAvailable) return null
-        if (!panelUpdate.lastError) return null
-        if (panelUpdateErrorDismissed === panelUpdate.lastError) return null
-        const dismiss = () => {
-          const err = panelUpdate.lastError
-          if (!err) return
-          try { localStorage.setItem(PANEL_UPDATE_ERROR_DISMISSED_KEY, err) } catch { /* ignore storage failures */ }
-          setPanelUpdateErrorDismissed(err)
-        }
-        return (
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-xs text-muted-foreground">
-            <CloudOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
-            <Link to="/settings?tab=updates" className="min-w-0 truncate underline-offset-2 hover:text-foreground hover:underline" title={panelUpdate.lastError}>
-              {t('updateCheckError.label')}
-            </Link>
-            <button
-              type="button"
-              onClick={dismiss}
-              aria-label={t('updateCheckError.dismissAria')}
-              title={t('updateCheckError.dismissTooltip')}
-              className="ms-auto shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )
-      })()}
-
-      {/* ─── Error banner ────────────────────────────────────────────────── */}
-      {fetchError && (
-        <div
-          role="alert"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-destructive/40 bg-destructive/[0.05] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--destructive))]"
-        >
-          <AlertCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
-          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-destructive">
-              {t('connectionError.label')}
-            </span>
-            <span className="min-w-0 truncate text-xs text-muted-foreground" title={fetchError}>
-              {fetchError}{t('connectionError.suffix')}
-            </span>
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchStatus} className="ms-auto h-7 gap-1.5 px-2.5 text-xs">
-            <RefreshCw className="h-3 w-3" /> {t('connectionError.retry')}
-          </Button>
-        </div>
-      )}
-
-      {/* ─── Not configured ──────────────────────────────────────────────── */}
-      {/* !activeServer?.isRemote: see the verdict's own comment above -- a
-          remote server's serverPathConfigured is always false by
-          construction (no local launch path), not a real "unconfigured"
-          signal. */}
-      {status && !status.serverPathConfigured && !activeServer?.isRemote && (
-        <Link
-          to="/server-setup"
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/40 bg-warning/[0.04] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))] transition-colors hover:bg-warning/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-        >
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-warning" />
-          <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-warning">
-              {t('notConfigured.label')}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {t('notConfigured.description')}
-            </span>
-          </div>
-          <span className="ms-auto text-xs font-medium text-warning/85">{t('notConfigured.openSetup')}</span>
-        </Link>
-      )}
-
-      {/* ─── Quick-start onboarding ──────────────────────────────────────── */}
-      {!hasServer && showQuickStart && (
-        <section className="relative mt-3 overflow-hidden rounded-lg border border-primary/30 bg-card/50 px-4 py-4">
-          <button
-            onClick={dismissQuickStart}
-            aria-label={t('quickStart.dismissAria')}
-            className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/85">{t('quickStart.eyebrow')}</p>
-          {readyCandidates.length === 1 ? (
-            // Exactly one confident match: rule 3, don't make them choose --
-            // and rule 1, don't ask a question ("which setup path?") they
-            // have no way to answer when we already know. Replaces the
-            // generic 3-step/3-button layout entirely (rule 6, one decision
-            // per screen) with a single, specific next action.
-            <>
-              <h2 className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                {dashboardFallback('quickStart.foundHeading', 'We found an existing Project Zomboid server')}
-              </h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                <code className="font-mono text-xs">{readyCandidates[0].installPath}</code>
-                {' — '}
-                {dashboardFallback('quickStart.foundDesc', 'ready to add with its RCON settings already read from its own config.')}
-              </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link to="/servers" className={cn(buttonVariants({ variant: 'default', size: 'sm' }), 'h-8 gap-1.5 text-xs')}>
-                  <FolderOpen className="h-3.5 w-3.5" /> {dashboardFallback('quickStart.reviewAndConnect', 'Review & Connect')}
-                </Link>
-                <Link to="/server-setup" className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'h-8 gap-1.5 text-xs')}>
-                  {dashboardFallback('quickStart.setUpDifferently', 'Set up differently instead')}
-                </Link>
-              </div>
-            </>
-          ) : (
-            <>
-              <h2 className="mt-1 text-lg font-semibold leading-tight text-foreground">
-                {t('quickStart.heading')}
-              </h2>
-              <ol className="mt-4 grid gap-2 list-none p-0 md:grid-cols-3">
-                {[
-                  ['1', t('quickStart.step1Title'), t('quickStart.step1Desc')],
-                  ['2', t('quickStart.step2Title'), t('quickStart.step2Desc')],
-                  ['3', t('quickStart.step3Title'), t('quickStart.step3Desc')],
-                ].map(([n, title, body]) => (
-                  <li key={n} className="rounded-md border border-border/50 bg-background/40 p-3">
-                    <p className="text-sm font-semibold text-foreground">
-                      <span className="me-1.5 inline-flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold bg-primary/15 text-primary" aria-hidden="true">{n}</span>
-                      {title}
-                    </p>
-                    <p className="mt-1 ps-[1.4rem] text-xs leading-5 text-muted-foreground">{body}</p>
-                  </li>
-                ))}
-              </ol>
-              {/* Q1 routing fix (2026-09-09, god), with god's sharpening
-                  after reviewing the plan: don't just re-balance which
-                  button is visually primary -- RE-LABEL by what the user
-                  HAS, not what the panel DOES (rule 5, "ask their
-                  situation, not our operation"). "Install New Server" and
-                  "Add Existing Server" describe our internals; someone who
-                  doesn't know our vocabulary can't tell which applies to
-                  them. New copy below ships via the translatedOrFallback
-                  pattern (dashboardFallback), same as this file's other new
-                  strings tonight -- the OLD quickStart.installNewServer/
-                  addExistingServer locale keys are now unused here (left in
-                  place, not deleted, since removing translated locale
-                  content is out of scope for this fix).
-                  Also still true from the original fix: a containerized
-                  deployment overwhelmingly means existing files bind-mounted
-                  in, not "download PZ via SteamCMD inside this container",
-                  so that situation's button stays visually primary. */}
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Link to="/server-setup" className={cn(buttonVariants({ variant: isContainerized ? 'outline' : 'default', size: 'sm' }), 'h-8 gap-1.5 text-xs')}>
-                  <Server className="h-3.5 w-3.5" /> {dashboardFallback('quickStart.needNewServerLabel', "I don't have a server yet")}
-                </Link>
-                <Link to="/servers" className={cn(buttonVariants({ variant: isContainerized ? 'default' : 'outline', size: 'sm' }), 'h-8 gap-1.5 text-xs')}>
-                  <FolderOpen className="h-3.5 w-3.5" /> {dashboardFallback('quickStart.haveExistingServerLabel', 'I already have server files')}
-                </Link>
-                <Link to="/servers" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'h-8 gap-1.5 text-xs')}>
-                  <Globe className="h-3.5 w-3.5" /> {t('quickStart.addRemoteServer')}
-                </Link>
-              </div>
-            </>
-          )}
-        </section>
-      )}
+      <AutoUpdateResultBanner />
+      <PageAlerts alerts={alerts} />
 
       {/* ─── VERDICT ────────────────────────────────────────────────────── */}
       <VerdictBand
@@ -2125,6 +2000,43 @@ export default function Dashboard() {
         stale={staleLink}
       />
 
+      {/* ─── Add a server (first run) ──────────────────────────────────────
+          Exactly one confident discovery match: one specific next action,
+          not a picker (rule 3). Otherwise the same three choices as the
+          Servers page and the Add a Server page, with the one that fits
+          this install marked: a container overwhelmingly means existing
+          files mounted in, not a SteamCMD download inside it. */}
+      {quickStartVisible && (
+        <SectionCard
+          title={readyCandidates.length === 1 ? t('quickStart.foundHeading') : t('quickStart.title')}
+          icon={readyCandidates.length === 1 ? FolderOpen : Plus}
+          description={readyCandidates.length === 1 ? (
+            <>
+              <code className="font-mono text-xs text-foreground">{readyCandidates[0].installPath}</code>
+              {' — '}
+              {t('quickStart.foundDesc')}
+            </>
+          ) : t('quickStart.description')}
+          actions={
+            <Button variant="ghost" size="iconDense" onClick={dismissQuickStart} aria-label={t('quickStart.dismissAria')}>
+              <X aria-hidden="true" />
+            </Button>
+          }
+        >
+          {readyCandidates.length === 1 ? (
+            <div className="flex flex-wrap gap-2">
+              <Link to="/servers" className={buttonVariants({ variant: 'command', size: 'sm' })}>
+                <FolderOpen aria-hidden="true" /> {t('quickStart.reviewAndConnect')}
+              </Link>
+              <Link to="/server-setup" className={buttonVariants({ variant: 'ghost', size: 'sm' })}>
+                {t('quickStart.setUpDifferently')}
+              </Link>
+            </div>
+          ) : (
+            <AddServerChoices recommended={isContainerized ? 'existing' : 'fresh'} className="max-w-2xl" />
+          )}
+        </SectionCard>
+      )}
       {/* ─── EVERY SERVER (two or more) ───────────────────────────────────── */}
       <ServersOverview
         activeServerId={activeServerId}
@@ -2136,106 +2048,23 @@ export default function Dashboard() {
       />
 
       {/* ─── EVIDENCE AND WORK ──────────────────────────────────────────── */}
-      <div className="mt-6 grid content-start gap-6 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
+      <div className="grid content-start gap-6 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
 
         {/* ════ CENTER ════ */}
-        <main className="grid min-w-0 content-start gap-4 2xl:grid-cols-2 2xl:items-start">
-
-          {/* LIVE ACTIVITY */}
-          <section className={cn(
-            'order-2 flex flex-col overflow-hidden rounded-lg border border-border/45 bg-card/25',
-            playerActivity.length > 0 && 'max-h-[15rem]',
-          )}>
-            <header className="flex items-center justify-between border-b border-border/30 px-3 py-1.5">
-              <h3 className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/75">{t('liveActivity.heading')}</h3>
-              {/* No status dot. Whether the server is up is answered by the verdict band, not repeated here. */}
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/70">
-                {playerActivity.length > 0 ? t('liveActivity.eventsCount', { count: playerActivity.length }) : online ? t('liveActivity.idle') : t('liveActivity.offline')}
-              </span>
-            </header>
-            {playerActivity.length === 0 ? (
-              <div className="flex items-center px-3 py-3">
-                <p className="text-xs text-muted-foreground/75">
-                  {/* Third consumer of the same status.serverPathConfigured
-                      signal gated at :869/:1477 -- same !activeServer?.isRemote
-                      fix, or an offline remote server with no recent
-                      activity would still read "not configured" here after
-                      the verdict and banner above it were already
-                      corrected (2026-08-31, caught in review: a fix that
-                      covers only the consumers a screenshot showed leaves
-                      the others disagreeing with the ones that got fixed,
-                      which reads worse than being uniformly wrong). */}
-                  {online
-                    ? t('liveActivity.emptyOnline')
-                    : status?.serverPathConfigured || activeServer?.isRemote
-                      ? t('liveActivity.emptyConfiguredNotRunning')
-                      : t('liveActivity.emptyNotConfigured')}
-                </p>
-              </div>
-            ) : (
-              <ol className="min-h-0 divide-y divide-border/15 overflow-y-auto">
-                {playerActivity.map(a => {
-                  const s = eventStyle(t, a.action)
-                  return (
-                    <li key={a.id} className="group grid grid-cols-[3.25rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-3 py-[3px] transition-colors hover:bg-muted/20">
-                      <time className="font-mono text-[10px] tabular-nums text-muted-foreground/50">
-                        {formatTime(a.logged_at, { pad: true })}
-                      </time>
-                      <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
-                      <span className="truncate text-[11px] font-medium text-foreground/85" dir="auto" title={a.player_name}>
-                        {a.player_name}
-                      </span>
-                      <span className="truncate text-[11px] text-muted-foreground/55">
-                        {s.verb}
-                      </span>
-                    </li>
-                  )
-                })}
-              </ol>
-            )}
-          </section>
+        <div className="grid min-w-0 content-start gap-6 2xl:grid-cols-2 2xl:items-start">
 
           {/* TELEMETRY */}
-          <section className="order-1 overflow-hidden rounded-lg border border-border/65 bg-card/50 shadow-sm">
-            <header className="flex items-center justify-between gap-3 border-b border-border/35 px-4 py-2">
-              <h2 className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/75">{t('telemetry.heading')}</h2>
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-                {(() => {
-                  if (performanceHistory.length === 0) return online ? t('telemetry.sampling') : t('telemetry.standby')
-                  // This history comes from the server's own persisted log
-                  // (debugApi.getPerformanceHistory), independent of the
-                  // verdict's own online/hostUnknown check above -- recent
-                  // samples can survive even while that check can't confirm
-                  // the server right now. Calling a stale-relative-to-that-
-                  // check reading "live" said the opposite of the verdict
-                  // headline sitting right above it on the same page.
-                  if (!online) {
-                    if (performanceHistory.length < 2) return t('telemetry.unconfirmed')
-                    const first = performanceHistory[0].timestamp
-                    const last = performanceHistory[performanceHistory.length - 1].timestamp
-                    if (first && last) {
-                      const spanSec = (new Date(last).getTime() - new Date(first).getTime()) / 1000
-                      if (spanSec < 120) return t('telemetry.lastSecondsUnconfirmed', { seconds: Math.round(spanSec) })
-                      return t('telemetry.lastMinutesUnconfirmed', { minutes: Math.round(spanSec / 60) })
-                    }
-                    return t('telemetry.unconfirmed')
-                  }
-                  if (performanceHistory.length < 2) return t('telemetry.live')
-                  const first = performanceHistory[0].timestamp
-                  const last = performanceHistory[performanceHistory.length - 1].timestamp
-                  if (first && last) {
-                    const spanSec = (new Date(last).getTime() - new Date(first).getTime()) / 1000
-                    if (spanSec < 120) return t('telemetry.lastSecondsLive', { seconds: Math.round(spanSec) })
-                    return t('telemetry.lastMinutesLive', { minutes: Math.round(spanSec / 60) })
-                  }
-                  return t('telemetry.live')
-                })()}
-              </span>
-            </header>
+          <SectionCard
+            title={t('telemetry.heading')}
+            icon={Cpu}
+            status={<span className="text-xs text-muted-foreground">{telemetryLabel}</span>}
+            density="compact"
+            flush
+          >
             {performanceHistory.length > 0 ? (
               <Suspense
                 fallback={
-                  <div className="space-y-2 p-3">
+                  <div className="space-y-2 p-4">
                     {[0, 1, 2, 3].map(i => (
                       <div key={i} className="flex items-center gap-2 py-1">
                         <div className="h-2.5 w-16 rounded bg-muted/40" />
@@ -2255,26 +2084,72 @@ export default function Dashboard() {
                 ) : null}
               </Suspense>
             ) : (
-              <p className="px-3 py-3 text-xs text-muted-foreground/80">
-                {online
-                  ? t('telemetry.placeholderOnline')
-                  : t('telemetry.placeholderOffline')}
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                {online ? t('telemetry.placeholderOnline') : t('telemetry.placeholderOffline')}
               </p>
             )}
-          </section>
-        </main>
+          </SectionCard>
+
+          {/* LIVE ACTIVITY */}
+          <SectionCard
+            title={t('liveActivity.heading')}
+            icon={Activity}
+            // No status dot: whether the server is up is the header's answer.
+            status={
+              <span className="text-xs text-muted-foreground">
+                {playerActivity.length > 0 ? t('liveActivity.eventsCount', { count: playerActivity.length }) : online ? t('liveActivity.idle') : t('liveActivity.offline')}
+              </span>
+            }
+            density="compact"
+            flush
+          >
+            {playerActivity.length === 0 ? (
+              <p className="px-4 py-3 text-sm text-muted-foreground">
+                {/* Same !isRemote rule as the verdict: a remote server never
+                    has a local launch folder, so it is "not running", not
+                    "not configured". */}
+                {online
+                  ? t('liveActivity.emptyOnline')
+                  : status?.serverPathConfigured || isRemote
+                    ? t('liveActivity.emptyConfiguredNotRunning')
+                    : t('liveActivity.emptyNotConfigured')}
+              </p>
+            ) : (
+              <ol className="max-h-[15rem] min-h-0 divide-y divide-border/30 overflow-y-auto">
+                {playerActivity.map(a => {
+                  const s = eventStyle(t, a.action)
+                  return (
+                    <li key={a.id} className="grid grid-cols-[3.5rem_1rem_minmax(0,8rem)_minmax(0,1fr)] items-center gap-2 px-4 py-1.5 transition-colors hover:bg-accent/20">
+                      <time className="font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatTime(a.logged_at, { pad: true })}
+                      </time>
+                      <span className={cn('flex justify-center', s.tone)} aria-hidden="true">{s.icon}</span>
+                      <span className="truncate text-xs font-medium text-foreground" dir="auto" title={a.player_name}>
+                        {a.player_name}
+                      </span>
+                      <span className="truncate text-xs text-muted-foreground">
+                        {s.verb}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
+          </SectionCard>
+        </div>
 
         {/* ════ WORK ════ */}
         <aside className="grid content-start gap-6">
 
           {/* DESTINATIONS — each one carries its own live state */}
-          <section>
+          <SectionCard title={t('workItems.heading')} icon={ListChecks} density="compact" flush>
             <WorkList items={sortedWorkItems} />
-            <div className="mt-2 border-t border-border/25 px-1 pt-1">
+            <div className="border-t border-border/40 px-4 py-1.5">
               <ConnLine
                 label={t('connLine.rcon')}
                 state={status?.rcon?.connected ? 'on' : 'off'}
-                value={status?.rcon ? `${status.rcon.host}:${status.rcon.port}` : undefined}
+                value={status?.rcon?.host && status.rcon.port ? `${status.rcon.host}:${status.rcon.port}` : undefined}
+                mono={!!(status?.rcon?.host && status.rcon.port)}
               />
               <ConnLine
                 label={t('connLine.bridge')}
@@ -2284,120 +2159,78 @@ export default function Dashboard() {
                     ? `v${bridgeStatus.modStatus.version.replace(/^v/, '')}`
                     : bridgeStatus?.isRunning ? t('connLine.pending') : t('connLine.offline')
                 }
+                mono={!!(bridgeStatus?.modConnected && bridgeStatus.modStatus?.version)}
               />
             </div>
-          </section>
+          </SectionCard>
 
-          {/* MAINTENANCE */}
-          {!activeServer?.isRemote && (
-            <section>
-              <h3 className="px-1 pb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary/75">{t('maintenance.heading')}</h3>
-              <div className="space-y-1.5">
+          {/* MAINTENANCE: refresh is the header's icon (and R), Wipe is in
+              the header's menu; what stays here is the routine pair. */}
+          {!isRemote && (
+            <SectionCard title={t('maintenance.heading')} icon={Wrench} density="compact">
+              <DisabledReason
+                className="w-full"
+                reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
+              >
                 <Button
                   size="sm"
                   variant="outline"
-                  className="h-7 w-full justify-start gap-2 text-xs"
-                  onClick={fetchStatus}
-                  disabled={loading !== null}
+                  className="w-full justify-start"
+                  disabled={!hasServer || loading !== null || isRemote || !canManageBackups}
+                  onClick={createBackupNow}
                 >
-                  <RefreshCw className={cn('h-3 w-3', loading ? 'animate-spin' : '')} />
-                  {t('maintenance.refreshStatus')}
-                  <span className="ms-auto font-mono text-[10px] text-muted-foreground/65">
-                    {lastUpdated ? formatTime(lastUpdated) : '—'}
-                  </span>
+                  {loading === 'Create backup' ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Archive aria-hidden="true" />}
+                  {t('maintenance.createBackup')}
                 </Button>
-                <DisabledReason
-                  className="w-full"
-                  reason={!canManageBackups ? t('actions.noPermissionCreateBackup') : null}
-                >
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-full justify-start gap-2 text-xs"
-                    disabled={!hasServer || loading !== null || activeServer?.isRemote || !canManageBackups}
-                    onClick={() => {
-                      if (!canManageBackups) return
-                      handleAction('Create backup', () => backupApi.createBackup({ includeDb: true }).then(() => fetchMaintenance()))
-                    }}
-                  >
-                    {loading === 'Create backup' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Archive className="h-3 w-3" />}
-                    {t('maintenance.createBackup')}
-                  </Button>
+              </DisabledReason>
+              {/* With the servers overview on screen, each row has its own. */}
+              {!serversOverviewShown && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                <div className="min-w-0">
+                  <Label htmlFor="autoStartServer" className="text-sm font-medium">
+                    {t('maintenance.autoStartLabel')}
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('maintenance.autoStartDesc')}</p>
+                </div>
+                <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                  <Switch
+                    id="autoStartServer"
+                    checked={autoStartThisServer}
+                    disabled={!canChangePanelSettings}
+                    onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
+                  />
                 </DisabledReason>
-                <DisabledReason
-                  className="w-full"
-                  reason={
-                    // Same priority order and same Radix onClick-before-disabled
-                    // guard as the "..." dropdown's Wipe item -- this sidebar
-                    // button opens the identical destructive dialog and was
-                    // missing both, which let a role without server.wipe
-                    // open the wipe dialog only to strand on unexplained
-                    // disabled Preview/Wipe Now buttons inside it.
-                    !canWipeServer ? t('actions.noPermissionWipe')
-                    : online ? t('maintenance.wipeTooltipOnline')
-                    : null
-                  }
-                >
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 w-full justify-start gap-2 text-xs text-destructive hover:text-destructive"
-                    disabled={!hasServer || online || loading !== null || activeServer?.isRemote || !canWipeServer}
-                    onClick={() => {
-                      if (!canWipeServer) return
-                      setWipePreview(null)
-                      setWipeServerChangedSinceOpen(false)
-                      setWipeDialog(true)
-                    }}
-                    title={online ? undefined : t('maintenance.wipeTooltipOffline')}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    {t('maintenance.wipeServer')}
-                  </Button>
-                </DisabledReason>
-                {!serversOverviewShown && (
-                  <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-border/30 px-1 pt-2">
-                    <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
-                      <Checkbox
-                        id="autoStartServer"
-                        checked={autoStartThisServer}
-                        disabled={!canChangePanelSettings}
-                        onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
-                      />
-                    </DisabledReason>
-                    <Label htmlFor="autoStartServer" className="cursor-pointer text-[11px] text-muted-foreground">
-                      {t('maintenance.autoStartLabel')}
-                    </Label>
-                  </label>
-                )}
-                {/* With the servers overview on screen, each row has its own. */}
-                {!serversOverviewShown && activeServer && !activeServer.isRemote && (
-                  <label className="flex cursor-pointer items-center gap-2 px-1" title={t('serversOverview.restartOnCrashHint')}>
-                    <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
-                      <Checkbox
-                        id="restartOnCrash"
-                        checked={restartOnCrashThisServer}
-                        disabled={!canChangePanelSettings}
-                        onCheckedChange={(checked) => handleRestartOnCrashChange(checked === true)}
-                      />
-                    </DisabledReason>
-                    <Label htmlFor="restartOnCrash" className="cursor-pointer text-[11px] text-muted-foreground">
-                      {t('serversOverview.restartOnCrashLabel')}
-                    </Label>
-                  </label>
-                )}
               </div>
-            </section>
+              )}
+              {!serversOverviewShown && activeServer && !activeServer.isRemote && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                <div className="min-w-0">
+                  <Label htmlFor="restartOnCrash" className="text-sm font-medium">
+                    {t('serversOverview.restartOnCrashLabel')}
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('serversOverview.restartOnCrashHint')}</p>
+                </div>
+                <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                  <Switch
+                    id="restartOnCrash"
+                    checked={restartOnCrashThisServer}
+                    disabled={!canChangePanelSettings}
+                    onCheckedChange={(checked) => handleRestartOnCrashChange(checked === true)}
+                  />
+                </DisabledReason>
+              </div>
+              )}
+            </SectionCard>
           )}
 
           {bridgeStatus && !bridgeStatus.configured && (
-            <section className="rounded-md border border-warning/25 bg-warning/[0.04] p-3">
-              <p className="text-xs font-medium text-warning/85">{t('bridgeOfflineNotice.title')}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
+            <div className="rounded-lg border border-border/60 bg-muted/40 p-3 text-sm">
+              <p className="font-medium text-foreground">{t('bridgeOfflineNotice.title')}</p>
+              <p className="mt-1 text-muted-foreground">
                 {t('bridgeOfflineNotice.description')}{' '}
-                <Link to="/settings" className="text-primary hover:underline">{t('bridgeOfflineNotice.configureLink')}</Link>.
+                <Link to="/settings?tab=bridge" className="text-primary underline-offset-2 hover:underline">{t('bridgeOfflineNotice.configureLink')}</Link>.
               </p>
-            </section>
+            </div>
           )}
         </aside>
       </div>
@@ -2470,7 +2303,7 @@ export default function Dashboard() {
           {wipeServerChangedSinceOpen && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-              <span>{dashboardFallback('wipeDialog.serverChangedSinceOpen', 'The active server changed while this dialog was open. Cancel and reopen Wipe Server to act on the server that is active now.')}</span>
+              <span>{t('wipeDialog.serverChangedSinceOpen')}</span>
             </div>
           )}
 
@@ -2499,7 +2332,7 @@ export default function Dashboard() {
             </div>
 
             {!wipeCreateBackup && (
-              <div className="rounded-lg border border-destructive/25 bg-destructive/8 p-3 text-sm">
+              <div className="rounded-lg border border-destructive/25 bg-destructive/10 p-3 text-sm">
                 <p className="font-medium text-destructive">{t('wipeDialog.noBackupTitle')}</p>
                 <p className="text-muted-foreground">{t('wipeDialog.noBackupDesc')}</p>
               </div>

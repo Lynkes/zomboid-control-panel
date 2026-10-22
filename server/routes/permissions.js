@@ -1,7 +1,9 @@
 import express from "express";
 import { createLogger } from "../utils/logger.js";
 import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
+import { requireLoginsOn } from "../middleware/requireLoginsOn.js";
 import {
+  requireAnyPermission,
   requirePermission,
   listCapabilitiesGrouped,
   listRolesWithMemberCounts,
@@ -12,10 +14,6 @@ import {
 
 const log = createLogger("API:Permissions");
 const router = express.Router();
-
-// Every route here needs roles.manage: this is the matrix itself, not a
-// tool that reads/writes anything the matrix grants access to.
-router.use(requirePermission("roles.manage"));
 
 function respondWithServiceError(res, error, fallbackMessage) {
   if (error && error.status) {
@@ -28,11 +26,15 @@ function respondWithServiceError(res, error, fallbackMessage) {
   return res.status(500).json({ error: sanitizeError(error.message) });
 }
 
-router.get("/capabilities", (req, res) => {
-  res.json({ groups: listCapabilitiesGrouped() });
-});
-
-router.get("/roles", async (req, res) => {
+// The role list is read by two pages: the matrix (roles.manage) and Panel
+// Users (users.manage), whose role picker and lockout warnings need each
+// role's id, name, built-in flag and capabilities. Reading it changes
+// nothing, so either capability may; every route after the router.use()
+// below -- the capability catalogue and every role write -- stays
+// roles.manage's alone. (A users.manage-only role used to get a 403 here and
+// an empty Users page: 2026-10-20 access-control audit.) Registered before
+// that router.use() on purpose.
+router.get("/roles", requireAnyPermission("roles.manage", "users.manage"), async (req, res) => {
   try {
     const roles = await listRolesWithMemberCounts();
     res.json({ roles });
@@ -41,7 +43,16 @@ router.get("/roles", async (req, res) => {
   }
 });
 
-router.post("/roles", async (req, res) => {
+// Every other route here needs roles.manage: this is the matrix itself, not
+// a tool that reads/writes anything the matrix grants access to. Role
+// writes also wait for panel logins (requireLoginsOn).
+router.use(requirePermission("roles.manage"));
+
+router.get("/capabilities", (req, res) => {
+  res.json({ groups: listCapabilitiesGrouped() });
+});
+
+router.post("/roles", requireLoginsOn, async (req, res) => {
   try {
     const { name, capabilities } = req.body || {};
     const role = await createRole({ name, capabilities }, { actingUser: req.user });
@@ -51,7 +62,7 @@ router.post("/roles", async (req, res) => {
   }
 });
 
-router.put("/roles/:id", async (req, res) => {
+router.put("/roles/:id", requireLoginsOn, async (req, res) => {
   try {
     const { name, capabilities, confirmSelfCapabilityLoss } = req.body || {};
     const role = await updateRole(
@@ -65,7 +76,7 @@ router.put("/roles/:id", async (req, res) => {
   }
 });
 
-router.delete("/roles/:id", async (req, res) => {
+router.delete("/roles/:id", requireLoginsOn, async (req, res) => {
   try {
     const reassignTo =
       typeof req.query.reassignTo === "string" ? req.query.reassignTo : undefined;

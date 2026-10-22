@@ -10,6 +10,7 @@ import { mockGetRoleByName } from "./helpers/mockPermissionsDb.js";
 
 const setDataPaths = vi.fn();
 const getServers = vi.fn();
+const getAllSettings = vi.fn();
 
 vi.mock("../utils/paths.js", async () => {
   const actual = await vi.importActual("../utils/paths.js");
@@ -18,7 +19,7 @@ vi.mock("../utils/paths.js", async () => {
 
 vi.mock("../database/init.js", async () => {
   const actual = await vi.importActual("../database/init.js");
-  return { ...actual, getRoleByName: mockGetRoleByName, getServers };
+  return { ...actual, getRoleByName: mockGetRoleByName, getServers, getAllSettings };
 });
 
 const { default: router } = await import("../routes/debug.js");
@@ -69,6 +70,7 @@ beforeEach(() => {
     filesMoved: { data: false, logs: false },
   });
   getServers.mockReset().mockResolvedValue([]);
+  getAllSettings.mockReset().mockResolvedValue({});
 });
 
 describe("POST /debug/paths: moveFiles default", () => {
@@ -121,13 +123,24 @@ describe("POST /debug/paths: extraBlockedPaths wiring", () => {
     expect(setDataPaths).toHaveBeenCalledWith(
       expect.any(Object),
       false,
-      { extraBlockedPaths: ["/srv/pz1", "/data/zomboid1", "/srv/pz2"] },
+      { extraBlockedPaths: ["/srv/pz1", "/data/zomboid1", "/srv/pz2"], secretPaths: [] },
     );
   });
 
   it("passes an empty extraBlockedPaths array when no servers are configured", async () => {
     getServers.mockResolvedValue([]);
     await postPaths({ dataDir: "/new/data" });
-    expect(setDataPaths).toHaveBeenCalledWith(expect.any(Object), false, { extraBlockedPaths: [] });
+    expect(setDataPaths).toHaveBeenCalledWith(expect.any(Object), false, { extraBlockedPaths: [], secretPaths: [] });
+  });
+
+  // Security audit 2026-10-20: the logs folder is served file by file, so it
+  // must not hold the HTTPS key or certificate (setDataPaths() refuses it).
+  it("passes the HTTPS key and certificate paths as secret paths", async () => {
+    getAllSettings.mockResolvedValue({ httpsKeyPath: "/certs/key.pem", httpsCertPath: "/certs/cert.pem", httpsEnabled: true });
+    await postPaths({ logsDir: "/new/logs" });
+    expect(setDataPaths).toHaveBeenCalledWith(expect.any(Object), false, {
+      extraBlockedPaths: [],
+      secretPaths: ["/certs/key.pem", "/certs/cert.pem"],
+    });
   });
 });

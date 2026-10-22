@@ -12,18 +12,20 @@
     "creating": "建立中…",
     "uploadZip": "上傳 .zip",
     "uploading": "上傳中 {{percent}}%",
-    "settings": "設定",
+    "deletingOlder": "正在刪除舊備份…",
+    "settings": "排程與保留",
+    "moreAria": "更多備份操作",
     "refreshAria": "重新整理備份狀態",
     "refreshTitle": "重新整理備份狀態",
     "remoteDisabledTitle": "遠端伺服器不支援備份",
-    "uploadTitleRemote": "遠端伺服器不支援備份",
-    "uploadTitleLocal": "從其他機器上傳現有的 world_backup_*.zip 檔案"
+    "uploadTitleRemote": "遠端伺服器不支援備份"
   },
   "alerts": {
     "loadErrorTitle": "備份資料無法使用",
     "retry": "重試",
     "remoteTitle": "遠端伺服器已停用備份",
-    "remoteDesc": "當前活動伺服器設定為遠端伺服器，面板無法訪問其檔案系統。切換到本地伺服器前，建立、上傳和恢復功能均無法使用。"
+    "remoteDesc": "當前活動伺服器設定為遠端伺服器，面板無法訪問其檔案系統。切換到本地伺服器前，建立、上傳和恢復功能均無法使用。",
+    "remoteAction": "開啟伺服器列表"
   },
   "history": {
     "label": "歷史記錄",
@@ -68,13 +70,18 @@
     "none": "無計劃"
   },
   "settingsPanel": {
-    "title": "備份設定",
-    "description": "設定計劃備份設定。",
+    "title": "排程與保留",
+    "description": "此世界何時自動備份，以及保留多少個備份。",
+    "enabledLabel": "自動備份",
+    "enabledHelp": "依下方排程執行；超出上限時會刪除最舊的備份。",
     "frequencyLabel": "備份頻率",
     "frequencyPlaceholder": "選擇頻率",
     "frequencyHelp": "自動建立備份的頻率",
     "maxBackupsLabel": "最大保留備份數",
     "maxBackupsHelp": "達到數量上限後，最舊的備份將被自動刪除",
+    "includeDbLabel": "包含面板資料庫（不含密碼）",
+    "includeDbHelp": "在每個備份中加入面板資料庫的副本（伺服器、設定、排程、帳號），不含密碼、工作階段和其他機密。還原備份時不會套用它。",
+    "maxBackupsInvalid": "請輸入要保留的備份數量（1 到 100）。",
     "customLabel": "cron 表示式",
     "customHint": "格式：分鐘 小時 日 月 星期。「{{example}}」表示每天 3:30 執行。最多每 5 分鐘一次。",
     "customValid": "排程有效",
@@ -106,9 +113,10 @@
     "savesNotFound": "未找到存檔資料夾",
     "noSavesFolderTitle": "未找到存檔資料夾",
     "noSavesFolderDesc": "面板未能為當前活動伺服器找到 Saves/Multiplayer 資料夾。如果尚未設定伺服器，請先設定；如果已設定，請至少啟動一次——該資料夾會在首次啟動時建立。",
-    "noSavesFolderAction": "開啟伺服器設定",
+    "noSavesFolderAction": "新增伺服器",
     "deleteSelected": "刪除（{{count}}）",
-    "deleteOlder": "刪除較舊備份",
+    "deleteOlder": "刪除較舊備份…",
+    "moreAria": "更多清單操作",
     "emptyTitle": "沒有安全保障",
     "emptyDesc": "現在建立一個備份，或在上方開啟排程備份，再更改存檔、模組或伺服器設定——一次錯誤的更新就可能導致進度遺失。",
     "emptyDescScheduled": "排程備份已開啟——第一個備份執行後會顯示在這裡。若不想等待，現在就建立一個，再更改存檔、模組或伺服器設定。",
@@ -120,13 +128,11 @@
     "partialSelectedLabel": "已選擇 {{selected}} / {{total}} 個",
     "selectBackupAria": "選擇備份 {{name}}",
     "latestBadge": "最新",
-    "viewSnapshotAria": "檢視 {{name}} 的快照",
     "viewSnapshotTitle": "檢視伺服器快照",
     "restoreAria": "恢復 {{name}}",
-    "restoreTitle": "恢復此備份",
-    "downloadAria": "下載 {{name}}",
+    "restore": "恢復",
+    "actionsAria": "{{name}} 的更多操作",
     "downloadTitle": "下載備份",
-    "deleteAria": "刪除 {{name}}",
     "deleteTitle": "刪除備份"
   },
   "snapshotDialog": {
@@ -175,6 +181,8 @@
     "backupCreatedDesc": "已在 {{seconds}} 秒內儲存 {{name}}",
     "backupFailedTitle": "備份失敗",
     "createBackupFailedFallback": "建立備份失敗",
+    "downloadFailedTitle": "下載失敗",
+    "downloadFailedFallback": "無法下載此備份。",
     "backupFailedMessage": "備份失敗",
     "notAvailableRemoteTitle": "遠端伺服器不支援此功能",
     "notAvailableRemoteDesc": "備份上傳需寫入本地檔案系統，遠端伺服器不支援此操作。",
@@ -232,7 +240,8 @@
     "notStartedProxy": "面板前方的代理伺服器或通道拒絕了此請求（HTTP {{status}}）。面板沒有這次恢復的紀錄，因此恢復並未開始。",
     "failedNextStep": "除非上面的原因另有說明，目前的世界維持原樣。請先解決問題，然後再試一次。",
     "unknownTitle": "無法確認恢復的結果",
-    "unknownDetail": "頁面無法從面板取得這次恢復的結果（連線中斷太久，或面板已重新啟動），因此恢復可能未完成，甚至可能未開始。啟動伺服器之前，請開啟「除錯日誌 › 活動」並搜尋「restore」。如果開始恢復之後有這個備份的 backup_restored 紀錄，表示恢復已完成；如果之後有 restore_failed 紀錄，其中會寫明失敗原因。如果兩者都沒有，請重新恢復。如果無法開啟除錯日誌，請聯絡管理員。",
+    "unknownDetail": "頁面無法從面板取得這次恢復的結果（連線中斷太久，或面板已重新啟動），因此恢復可能未完成，甚至可能未開始。啟動伺服器之前，請開啟「診斷 › 活動」並搜尋「restore」。如果開始恢復之後有這個備份的 backup_restored 紀錄，表示恢復已完成；如果之後有 restore_failed 紀錄，其中會寫明失敗原因。如果兩者都沒有，請重新恢復。如果無法開啟診斷，請聯絡管理員。",
+    "openActivity": "開啟「診斷 › 活動」",
     "dismiss": "關閉",
     "dismissAria": "關閉恢復結果"
   }

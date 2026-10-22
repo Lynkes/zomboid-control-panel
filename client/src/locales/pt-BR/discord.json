@@ -5,6 +5,7 @@
     "errorTitle": "Erro",
     "noPermission": "Você não tem permissão para gerenciar a integração com o Discord.",
     "successTitle": "Sucesso",
+    "warningTitle": "Aviso",
     "unknownError": "erro desconhecido"
   },
   "events": {
@@ -181,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Bot do Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Gerencie o bot do Discord, os comandos de barra e as notificações de eventos",
     "statusRunning": "Em execução",
     "statusStopped": "Parado",
     "refreshAria": "Recarregar status",
+    "setupGuide": "Guia de configuração",
+    "closeGuide": "Voltar às configurações do bot",
     "botStatus": {
       "title": "Status do bot",
       "runtimeLabel": "Execução",
@@ -230,6 +233,7 @@
       "commands": {
         "status": { "desc": "Ver o status do servidor" },
         "players": { "desc": "Listar jogadores online" },
+        "leaderboard": { "desc": "Mostrar o ranking de estatísticas" },
         "save": { "desc": "Salvar o mundo" },
         "broadcast": { "desc": "Enviar transmissão do servidor" },
         "kick": { "desc": "Expulsar um jogador" },
@@ -241,6 +245,7 @@
       "save": "Salvar permissões",
       "saving": "Salvando...",
       "savedMessage": "Permissões de comandos salvas. Comandos de barra registrados novamente.",
+      "savedNotRegistered": "Permissões de comandos salvas, mas não foi possível atualizar os comandos de barra no Discord. Eles serão atualizados na próxima vez que o bot iniciar ou que você salvar novamente.",
       "saveFailedFallback": "Falha ao salvar as permissões"
     },
     "configuration": {
@@ -314,6 +319,7 @@
     "invalidAdminRoleIdFormat": "Formato de ID do cargo de admin inválido (deve ser um número de 17 a 19 dígitos)",
     "invalidModRoleIdFormat": "Formato de ID do cargo de moderador inválido (deve ser um número de 17 a 19 dígitos)",
     "configSavedBotStartFailed": "Configuração salva, mas o bot não conseguiu iniciar: {{reason}}",
+    "configSavedBotReconnectFailed": "Configuração salva, mas o bot não conseguiu se reconectar com ela: {{reason}}",
     "configSavedAndStarted": "Configuração salva e bot iniciado!",
     "configSaved": "Configuração do Discord salva com sucesso",
     "saveConfigFailedFallback": "Falha ao salvar a configuração",

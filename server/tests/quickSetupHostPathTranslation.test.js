@@ -185,4 +185,58 @@ describe("POST /quick-setup: host-vs-container path translation", () => {
     expect(setSetting).toHaveBeenCalledWith("rconHost", "projectzomboid");
     vi.unstubAllEnvs();
   });
+
+  // The wizard creates the server profile from this response and used to
+  // hardcode 127.0.0.1 there, whatever RCON_HOST said.
+  it("returns the resolved rconHost so the wizard's profile uses it", async () => {
+    vi.stubEnv("RCON_HOST", "projectzomboid");
+    try {
+      const response = createResponse();
+      await handler(fakeReq(baseBody({ rconPassword: "brand-new-secret" })), response);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true, rconHost: "projectzomboid" }),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+// Quick Setup's UPnP switch used to reach only the unused global useUpnp
+// setting: the INI was pre-created only with an RCON password and never got
+// a UPnP= line (POST /install was fixed the same way earlier).
+describe("POST /quick-setup: the UPnP switch reaches the server's INI", () => {
+  async function runQuickSetup(overrides) {
+    const response = createResponse();
+    await handler(fakeReq(baseBody(overrides)), response);
+    const body = response.json.mock.calls[0][0];
+    expect(body.success).toBe(true);
+    return path.join(body.serverConfigPath, "TestServer.ini");
+  }
+
+  it("writes UPnP=false without an RCON password", async () => {
+    const iniPath = await runQuickSetup({ useUpnp: false });
+    const ini = fs.readFileSync(iniPath, "utf-8");
+    expect(ini).toMatch(/^UPnP=false$/m);
+    expect(ini).not.toMatch(/RCONPassword=/);
+  });
+
+  it("writes UPnP=true next to the RCON settings", async () => {
+    const iniPath = await runQuickSetup({ useUpnp: true, rconPassword: "brand-new-secret", rconPort: 27016 });
+    const ini = fs.readFileSync(iniPath, "utf-8");
+    expect(ini).toMatch(/^UPnP=true$/m);
+    expect(ini).toMatch(/^RCONPort=27016$/m);
+    expect(ini).toMatch(/^RCONPassword=brand-new-secret$/m);
+  });
+
+  it("leaves an existing INI alone", async () => {
+    const configDir = path.join(`${realInstallDir}_Data`, "Server");
+    fs.mkdirSync(configDir, { recursive: true });
+    const existing = "PVP=true\nUPnP=true\n";
+    fs.writeFileSync(path.join(configDir, "TestServer.ini"), existing);
+
+    const iniPath = await runQuickSetup({ useUpnp: false });
+    expect(iniPath).toBe(path.join(configDir, "TestServer.ini"));
+    expect(fs.readFileSync(iniPath, "utf-8")).toBe(existing);
+  });
 });

@@ -13,6 +13,7 @@ import {
 } from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
 import { resolveServerPhase } from "../utils/serverStatus.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import { candidateIniPaths } from "../routes/server.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { serverConfigDirOf, serverConfigDirRefusalReason } from "../utils/serverConfigPath.js";
@@ -52,7 +53,9 @@ import {
   formatRestartWarning,
   getRestartWarningNotice,
   getRestartWarningPresetTemplates,
+  MAX_RESTART_WARNING_MINUTES,
   normalizeRestartWarningSettings,
+  parseDefaultRestartWarningMinutes,
   RESTART_WARNING_SETTING_KEY,
   validateRestartWarningSettings,
 } from "../utils/restartWarning.js";
@@ -271,16 +274,33 @@ const RESTART_SEQUENCE_BUDGET_MS = 20 * 60 * 1000;
 // 60-minute one would otherwise spend half the budget above before its
 // stop/start sequence even began.
 const COUNTDOWN_MINUTE_OVERRUN_MS = 30 * 1000;
-// POST /scheduler/restart-now's own cap on the countdown. Only used if the
-// wait can't see the running restart's real countdown (defensive: both are
-// set together in performRestart()).
-const MAX_RESTART_WARNING_MINUTES = 60;
+// MAX_RESTART_WARNING_MINUTES (utils/restartWarning.js) is POST
+// /scheduler/restart-now's own cap on the countdown, and what the deferred
+// backup's wait uses if it can't see the running restart's real countdown
+// (defensive: both are set together in performRestart()).
 
 // performRestart()'s countdown when its caller passes none -- every
 // scheduled task restart and AUTO_RESTART_CRON. One function so the
 // restart-overlap warning predicts the countdown performRestart() uses.
-function defaultRestartWarningMinutes() {
-  return parseInt(process.env.RESTART_WARNING_MINUTES, 10) || 5;
+// RESTART_WARNING_MINUTES=0 is honoured (an immediate restart) and a value
+// above the cap is held to it; what was changed is logged once per value,
+// not on every restart.
+let lastReportedRestartWarningEnv;
+export function defaultRestartWarningMinutes() {
+  const raw = process.env.RESTART_WARNING_MINUTES;
+  const { minutes, note } = parseDefaultRestartWarningMinutes(raw);
+  if (note && raw !== lastReportedRestartWarningEnv) {
+    lastReportedRestartWarningEnv = raw;
+    log.warn(note);
+  }
+  return minutes;
+}
+
+// Whether the server process the panel itself spawned is still running:
+// what confirms a start while the process scan can't answer.
+function launchedProcessRunning(serverManager) {
+  const child = serverManager?.serverProcess;
+  return Boolean(child && child.exitCode === null && child.signalCode === null);
 }
 
 export class Scheduler {
@@ -305,6 +325,10 @@ export class Scheduler {
     // is waiting for (or running after) that restart -- see
     // _deferScheduledBackupUntilRestartEnds().
     this.deferredBackup = null;
+    // The scheduled backup tick in flight (settling, waiting out a restart or
+    // running), so a tick arriving meanwhile folds into it instead of racing
+    // it -- see _onScheduledBackupTick().
+    this.scheduledBackupTick = null;
     this.runningTasks = new Set(); // Track tasks currently executing to prevent duplicates
     // The install-wide timezone every cron.schedule() call in this class
     // uses, resolved (and migrated, if needed) once by resolveTimezone()
@@ -356,9 +380,22 @@ export class Scheduler {
   // -- see that function's own comment for why "the new instance is up" and
   // "RCON is ready" are different claims (2026-09-07 STARTING-state fix).
   // Display-only, same as everywhere else this phase is threaded through.
-  _emitVerifiedTransition(running, phase = running ? "running" : "stopped") {
+  //
+  // `serverId` is the server the restart is pinned to. Every other
+  // server:status push describes the ACTIVE server, but a scheduled task can
+  // restart a different one (and the active server can be switched mid-
+  // restart), so this payload says which server it is about: clients apply a
+  // push that names another server to nothing (the sidebar dot used to flip
+  // to "stopped" for the whole restart of a server it wasn't showing). Left
+  // out when the restart's target couldn't be pinned, which reads as "the
+  // active server", as every unlabelled push does.
+  _emitVerifiedTransition(running, phase = running ? "running" : "stopped", serverId = null) {
     if (typeof this.io?.emit === "function") {
-      this.io.emit("server:status", { running, phase });
+      this.io.emit("server:status", {
+        running,
+        phase,
+        ...(serverId != null ? { serverId } : {}),
+      });
     }
   }
 
@@ -856,6 +893,22 @@ export class Scheduler {
     }
   }
 
+  // serverManager.checkStoppedEvidence(), for a restart whose process scan
+  // can't answer; "not stopped" when the manager has no such check.
+  async _readStoppedEvidence(serverManager, options) {
+    if (typeof serverManager?.checkStoppedEvidence !== "function") {
+      return { stopped: false, reason: "no other check is available" };
+    }
+    try {
+      const evidence = await serverManager.checkStoppedEvidence(options);
+      return evidence && typeof evidence === "object"
+        ? { stopped: evidence.stopped === true, reason: String(evidence.reason || "no reason given") }
+        : { stopped: false, reason: "no answer" };
+    } catch (error) {
+      return { stopped: false, reason: `the check failed (${error.message})` };
+    }
+  }
+
   // Re-point a ServerManager at the server a restart began on, in case the
   // active server was switched while the countdown was running.
   async _ensureRestartTarget(serverManager, pinnedServerId) {
@@ -1117,6 +1170,7 @@ export class Scheduler {
   cancelRestart() {
     if (this.restartInProgress) {
       this.restartCancelled = true;
+      this._wakeRestartWaits();
       log.info("Restart cancellation requested");
       return { success: true, message: "Restart cancellation requested" };
     }
@@ -1260,28 +1314,44 @@ export class Scheduler {
   // is the one overlap left: its countdown usually outlasts the zip, and
   // closing it fully would mean performRestart() waiting on a backup, the
   // reverse of the one-directional rule above.
+  //
+  // One tick at a time: the tick that is settling, waiting out a restart or
+  // zipping is `this.scheduledBackupTick` until it ends, and a tick that
+  // arrives meanwhile folds into it. A backup that outlasts its schedule
+  // interval (a big world on an every-15-minutes schedule) used to get its
+  // next tick through as a second createBackup(), refused with "Backup
+  // already in progress" and written to Schedule History as a failure -- and
+  // the Dashboard's "Scheduled backup failing" warning -- for a backup that
+  // was running fine.
   async _onScheduledBackupTick(settings) {
-    if (this._foldIntoDeferredBackup()) return;
-    if (!this.restartInProgress) {
-      await this.sleep(SAME_SECOND_RESTART_SETTLE_MS);
-      if (this._foldIntoDeferredBackup()) return;
+    if (this._foldIntoBackupInFlight()) return;
+    const tick = { since: Date.now() };
+    this.scheduledBackupTick = tick;
+    try {
+      if (!this.restartInProgress) {
+        await this.sleep(SAME_SECOND_RESTART_SETTLE_MS);
+      }
+      if (this.restartInProgress) {
+        await this._deferScheduledBackupUntilRestartEnds();
+        return;
+      }
+      log.info("Executing scheduled backup");
+      await this._runScheduledBackup(settings);
+    } finally {
+      if (this.scheduledBackupTick === tick) this.scheduledBackupTick = null;
     }
-    if (this.restartInProgress) {
-      await this._deferScheduledBackupUntilRestartEnds();
-      return;
-    }
-    log.info("Executing scheduled backup");
-    await this._runScheduledBackup(settings);
   }
 
-  // A tick landing while an earlier one is still waiting out (or running
-  // after) a restart folds into it: a second queued copy would only race the
-  // first into createBackup()'s "Backup already in progress" refusal and log
-  // a failure for a backup that IS happening.
-  _foldIntoDeferredBackup() {
-    if (!this.deferredBackup) return false;
+  // A tick landing while an earlier one is still in flight -- waiting out (or
+  // running after) a restart, or running -- folds into it: a second copy
+  // would only race the first into createBackup()'s "Backup already in
+  // progress" refusal and log a failure for a backup that IS happening.
+  _foldIntoBackupInFlight() {
+    if (!this.scheduledBackupTick) return false;
     log.info(
-      "Scheduled backup tick folded into the one already held back by a server restart",
+      this.deferredBackup
+        ? "Scheduled backup tick folded into the one already held back by a server restart"
+        : "Scheduled backup tick folded into the scheduled backup that is still running",
     );
     return true;
   }
@@ -1442,6 +1512,20 @@ export class Scheduler {
   }
 
   async _runScheduledBackup(settings, { deferredAt = null } = {}) {
+    // A backup already running -- a manual "Create Backup Now", or the end of
+    // a long scheduled one -- archives the same world, so this slot is
+    // covered. createBackup() would refuse with "Backup already in progress",
+    // which landed in Schedule History as a failure (and as the Dashboard's
+    // "Scheduled backup failing") although nothing went wrong. Nothing is
+    // awaited between this check and createBackup()'s own claim of the flag,
+    // so the flag cannot flip in between; a real failure of a backup this
+    // does start is still logged below.
+    if (this.backupService.backupInProgress) {
+      log.info(
+        "Scheduled backup skipped: another backup is already in progress, which covers this slot",
+      );
+      return;
+    }
     const startTime = Date.now();
     // Schedule History is the only place an unattended backup's story is
     // told -- a held-back run says so, instead of looking like it simply
@@ -1759,6 +1843,11 @@ export class Scheduler {
   // it isn't. Best-effort — a cancellation must never fail because of Discord.
   async _notifyRestartCancelled() {
     if (!this.discordBot) return;
+    // The announcement it follows is the "Scheduled restart" event, which the
+    // operator can switch off on the Discord page. With that off nothing was
+    // announced, and a cancellation notice would be about a restart Discord
+    // never heard of.
+    if (!this.discordBot.webhookEvents?.scheduledRestart?.enabled) return;
     try {
       await this.discordBot.sendNotification(
         "✅ **Scheduled restart cancelled** — the server is staying up.",
@@ -1817,12 +1906,42 @@ export class Scheduler {
     // the 409 message it drives) can finally carry a real server id instead
     // of always falling back to serverManager?.serverName.
     let pinnedServerId = serverManager._serverId ?? null;
+    let targetServer = null;
     if (pinnedServerId == null) {
       try {
-        pinnedServerId = (await getActiveServer())?.id ?? null;
+        targetServer = await getActiveServer();
+        pinnedServerId = targetServer?.id ?? null;
       } catch (error) {
         log.debug(`Could not pin restart target: ${error.message}`);
       }
+    } else {
+      try {
+        targetServer = await getServer(pinnedServerId);
+      } catch (error) {
+        log.debug(`Could not read restart target: ${error.message}`);
+      }
+    }
+
+    // A remote server's process is not this panel's to stop or start. Every
+    // entry point that reaches here unattended (the AUTO_RESTART_CRON job, a
+    // scheduled `restart` task, the mod-update restart) had no such check
+    // -- only POST /restart-now and POST /server/restart refuse a remote
+    // server -- so the sequence below ran its whole warning countdown, sent
+    // the RCON save and quit, and only then found startServer() had nothing
+    // to launch ("Server path not configured"): the remote game was left
+    // down. Refused up front, before the lifecycle lock, the restart flag
+    // and any RCON traffic, so nothing is announced, saved or stopped. (A
+    // server with a Docker container mapped to it is restarted through
+    // Docker below, remote flag or not, and is not refused here.)
+    if (isUnmanagedRemoteServer(targetServer)) {
+      const message =
+        "Cannot restart a remote server. The process is not managed by this panel.";
+      log.warn(`Restart refused: ${message}`);
+      return {
+        success: false,
+        message,
+        code: ErrorCode.SCHEDULER_RESTART_REMOTE_NOT_SUPPORTED,
+      };
     }
 
     // Prevent concurrent restarts -- ATOMIC with the acquire+set immediately
@@ -1914,7 +2033,15 @@ export class Scheduler {
       }
 
       if (!wasRunning) {
-        if (processScanFailed) {
+        const evidence = processScanFailed
+          ? await this._readStoppedEvidence(serverManager, { serverId: pinnedServerId })
+          : null;
+        if (evidence?.stopped) {
+          log.info(
+            `Auto-restart: process detection failed, but ${evidence.reason}, so the server counts as stopped`,
+          );
+        } else if (processScanFailed) {
+          if (evidence) log.warn(`Auto-restart: process detection failed and ${evidence.reason}`);
           const restartDuration = Date.now() - restartStartTime;
           const errorMsg =
             "Could not confirm whether the server is stopped because process detection failed";
@@ -1961,11 +2088,18 @@ export class Scheduler {
         }
 
         // Wait a bit and verify it started
-        await this.sleep(10000);
+        await this._restartSleep(10000);
         const postStartDetails = await readProcessDetails();
         const isNowRunning =
           rconService.connected ||
-          Boolean(postStartDetails && !postStartDetails.scanFailed && postStartDetails.running);
+          Boolean(postStartDetails && !postStartDetails.scanFailed && postStartDetails.running) ||
+          // A scan that can't answer: the process the panel launched.
+          Boolean(
+            (!postStartDetails || postStartDetails.scanFailed) &&
+              started?.success &&
+              !managedStart.handled &&
+              launchedProcessRunning(serverManager),
+          );
 
         const restartDuration = Date.now() - restartStartTime;
         if (isNowRunning) {
@@ -2091,6 +2225,22 @@ export class Scheduler {
       // verified" fix in this file.
       let failedWarningBroadcasts = 0;
 
+      // Stop and Force stop cancel a restart at any point (an operator must be
+      // able to turn the server off while it restarts), not only during the
+      // countdown: every wait below ends the moment the restart is cancelled
+      // and the next step is not taken. Nothing is started again.
+      const stopCancelledRestart = async (stage) => {
+        log.info(`Auto-restart: cancelled (${stage})`);
+        if (serverManager.stopIntent === "restart") serverManager.stopIntent = null;
+        if (rconService.setServerStarting) {
+          rconService.setServerStarting(false);
+        } else {
+          rconService.serverStarting = false;
+        }
+        await this._notifyRestartCancelled();
+        return { success: false, message: "Restart cancelled" };
+      };
+
       // Notify Discord at the start of the restart sequence
       if (this.discordBot) {
         this.discordBot
@@ -2126,7 +2276,7 @@ export class Scheduler {
           if (!delivered) failedWarningBroadcasts++;
 
           if (i > 1) {
-            await this.sleep(60000); // Wait 1 minute
+            await this._restartSleep(60000); // Wait 1 minute
           }
         }
 
@@ -2145,7 +2295,7 @@ export class Scheduler {
           { wait: 1000, count: 1 },
         ];
         for (const tick of finalTicks) {
-          await this.sleep(tick.wait);
+          await this._restartSleep(tick.wait);
           if (this.restartCancelled) {
             log.info("Auto-restart: Cancelled during final countdown");
             await this._broadcastRestartMessage(
@@ -2163,7 +2313,7 @@ export class Scheduler {
         }
 
         // One last second, then go.
-        await this.sleep(1000);
+        await this._restartSleep(1000);
         if (
           !(await this._broadcastRestartMessage(
             getRestartWarningNotice(restartWarning, "restarting"),
@@ -2172,7 +2322,7 @@ export class Scheduler {
         ) {
           failedWarningBroadcasts++;
         }
-        await this.sleep(2000);
+        await this._restartSleep(2000);
       } else {
         // Immediate restart - just a brief message
         if (
@@ -2183,8 +2333,10 @@ export class Scheduler {
         ) {
           failedWarningBroadcasts++;
         }
-        await this.sleep(2000);
+        await this._restartSleep(2000);
       }
+
+      if (this.restartCancelled) return stopCancelledRestart("before the save");
 
       // Save world - skip logging for automated save
       log.info("Auto-restart: Saving world...");
@@ -2217,7 +2369,8 @@ export class Scheduler {
           params: { reason },
         };
       }
-      await this.sleep(3000);
+      await this._restartSleep(3000);
+      if (this.restartCancelled) return stopCancelledRestart("after the save");
 
       // A container-managed server restarts through Docker. RCON quit only
       // kills PID 1: the container exits, its restart policy races the panel to
@@ -2252,7 +2405,7 @@ export class Scheduler {
             `Auto-restart: quit command failed (${quit?.error || "unknown error"}), falling back to a forced stop`,
           );
         }
-        await this.sleep(10000);
+        await this._restartSleep(10000);
 
         // Wait for server to stop: 60 looks a second apart, as before, now
         // also capped at 2 minutes so scans that keep running into their
@@ -2287,7 +2440,7 @@ export class Scheduler {
             code: ErrorCode.SERVER_RESTART_STOP_UNCONFIRMED,
           };
         };
-        const processDetails = await waitForProcessExit(readProcessDetails, {
+        let processDetails = await waitForProcessExit(readProcessDetails, {
           polls: 60,
           intervalMs: 1000,
           maxElapsedMs: 2 * 60 * 1000,
@@ -2295,7 +2448,22 @@ export class Scheduler {
           context: "Auto-restart",
           ownProcesses: initialProcessDetails?.owned,
         });
-        if (processDetails.scanFailed) return stopUnconfirmed();
+        if (processDetails.scanFailed) {
+          // Still unknown: the RCON port refusing connections plus the
+          // console log's shutdown lines settle it
+          // (serverManager.checkStoppedEvidence()).
+          const evidence = await this._readStoppedEvidence(serverManager, {
+            serverId: pinnedServerId,
+          });
+          if (!evidence.stopped) {
+            log.warn(`Auto-restart: process detection never answered and ${evidence.reason}`);
+            return stopUnconfirmed();
+          }
+          log.info(
+            `Auto-restart: process detection never answered, but ${evidence.reason}, so the old server counts as stopped`,
+          );
+          processDetails = { ...processDetails, running: false, scanFailed: false };
+        }
 
         // Force stop if needed
         if (processDetails.running) {
@@ -2328,7 +2496,7 @@ export class Scheduler {
               logged: true,
             };
           }
-          await this.sleep(5000);
+          await this._restartSleep(5000);
         }
 
         // The old process is now confirmed stopped (either the while loop
@@ -2339,11 +2507,11 @@ export class Scheduler {
         // of RCON waiting below). The heartbeat goes first, for the same
         // reason the watchdog orders it before its own push.
         await this._expireBridgeHeartbeatAfterVerifiedStop(pinnedServerId);
-        this._emitVerifiedTransition(false);
+        this._emitVerifiedTransition(false, "stopped", pinnedServerId);
 
         // Extra delay after stop — give OS time to fully reap the process
         // (zombie processes on Linux, WMI cache on Windows)
-        await this.sleep(3000);
+        await this._restartSleep(3000);
       }
 
       // See _backupConfigBeforeRestart()'s own comment: config files are
@@ -2351,6 +2519,7 @@ export class Scheduler {
       // started yet), on both the managed-container and directly-spawned
       // paths below, so this runs unconditionally regardless of which one
       // this restart takes.
+      if (this.restartCancelled) return stopCancelledRestart("before the start");
       await this._backupConfigBeforeRestart(pinnedServerId);
 
       // No launch-target refresh here: serverManager.startServer() below
@@ -2392,7 +2561,8 @@ export class Scheduler {
 
         // Wait for server process to be running (up to 60 seconds)
         for (let i = 0; i < 60; i++) {
-          await this.sleep(1000);
+          await this._restartSleep(1000);
+          if (this.restartCancelled) return stopCancelledRestart("while the server starts");
           const processDetails = await readProcessDetails();
           if (
             rconService.connected ||
@@ -2402,6 +2572,19 @@ export class Scheduler {
           ) {
             serverStarted = true;
             log.info("Auto-restart: Server process detected as running");
+            break;
+          }
+          // A scan that can't answer can't confirm the start either; the
+          // process the panel just launched still running does.
+          if (
+            (!processDetails || processDetails.scanFailed) &&
+            restarted?.success &&
+            launchedProcessRunning(serverManager)
+          ) {
+            serverStarted = true;
+            log.info(
+              "Auto-restart: process detection can't answer, but the server process the panel launched is running",
+            );
             break;
           }
         }
@@ -2452,6 +2635,7 @@ export class Scheduler {
           serverStarting: rconService.serverStarting,
           rconConnected: rconService.connected,
         }),
+        pinnedServerId,
       );
 
       // Wait for RCON to be ready (PZ server takes 60-180s to fully initialize)
@@ -2465,7 +2649,8 @@ export class Scheduler {
         log.info(
           `Auto-restart: RCON waiting ${delaySeconds}s before attempt ${i + 1}/${rconDelays.length}...`,
         );
-        await this.sleep(rconDelays[i]);
+        await this._restartSleep(rconDelays[i]);
+        if (this.restartCancelled) return stopCancelledRestart("waiting for RCON");
 
         // If RCON connected during the wait (via auto-reconnect), we're done
         if (rconService.connected) {
@@ -2557,6 +2742,7 @@ export class Scheduler {
       this._emitVerifiedTransition(
         true,
         resolveServerPhase({ running: true, serverStarting: false, rconConnected }),
+        pinnedServerId,
       );
 
       const restartDuration = Date.now() - restartStartTime;
@@ -2754,6 +2940,31 @@ export class Scheduler {
 
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // The waits inside performRestart: this.sleep(), but over the moment the
+  // restart is cancelled (cancelRestart), and none at all once it was. Kept
+  // apart from sleep() on purpose: other loops (a backup waiting out a
+  // restart) call sleep() while restartCancelled is set and must still wait.
+  async _restartSleep(ms) {
+    if (this.restartCancelled) return;
+    if (!this._restartWaiters) this._restartWaiters = new Set();
+    let wake;
+    const cancelled = new Promise((resolve) => {
+      wake = resolve;
+      this._restartWaiters.add(resolve);
+    });
+    try {
+      await Promise.race([this.sleep(ms), cancelled]);
+    } finally {
+      this._restartWaiters.delete(wake);
+    }
+  }
+
+  _wakeRestartWaits() {
+    if (!this._restartWaiters) return;
+    for (const wake of [...this._restartWaiters]) wake();
+    this._restartWaiters.clear();
   }
 
   shutdown() {

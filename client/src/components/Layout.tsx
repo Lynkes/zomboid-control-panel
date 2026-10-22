@@ -1,48 +1,38 @@
-import { NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useCallback, useEffect, useRef, useState, useContext } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import {
-  LayoutDashboard,
-  Gauge,
-  Users,
-  Trophy,
-  Terminal,
-  Clock,
-  Package,
-  Settings,
   Server,
-  Download,
-  Bug,
-  Map,
-  Eraser,
-  MessageSquare,
   Layers,
   ChevronDown,
-  FileCog,
-  FolderTree,
-  LayoutTemplate,
   Menu,
   X,
   Search,
-  Zap,
-  MessagesSquare,
-  Archive,
   AlertCircle,
   RefreshCw,
   Github,
   PanelLeftClose,
   PanelLeft,
   LogOut,
-  UserCog,
-  ShieldCheck,
-  KeyRound
+  Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  NAV_SECTIONS,
+  getActiveSidebarRoute,
+  getRouteMeta,
+  routeAvailability,
+  type NavSection,
+  type RouteMeta,
+} from '@/lib/navigation'
+import { useConfirmLeave, useGuardedNavigate } from '@/contexts/UnsavedChangesContext'
+import { CommandPalette } from './CommandPalette'
 import { ConnectionStatus, ConnectionAnnouncer } from './ConnectionStatus'
 import { SystemHealthBanner } from './SystemHealthBanner'
 import { serversApi, ServerInstance, updateApi, UpdateStatus, serverApi, modsApi, panelUpdateApi } from '@/lib/api'
-import { resolveClientProvider } from '@/lib/serverStatus'
+import { isStatusEventForServer, resolveClientProvider } from '@/lib/serverStatus'
 import { getResultErrorMessage } from '@/lib/errorMessage'
+import { readStored, writeStored } from '@/lib/safeStorage'
 import { SocketContext } from '@/contexts/SocketContext'
 
 import { useAuth } from '@/contexts/AuthContext'
@@ -57,172 +47,44 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
+import { modKeyLabel, useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 import { KeyboardShortcutsHelp } from './KeyboardShortcutsHelp'
 import { preloadRouteModule } from '@/lib/routePreload'
 import { LanguageSwitcher } from './LanguageSwitcher'
 import { KofiCup } from './KofiCup'
 import { KOFI_URL } from '@/lib/supportLinks'
 
-// Standalone top-level nav item (not collapsible). `labelKey` resolves
-// against the `shell` namespace; kept separate from `label` (English,
-// used for tooltip fallbacks/aria where a plain string is simpler to thread
-// through) so translation is additive rather than replacing the data shape.
-const dashboardItem = { to: '/', icon: Gauge, label: 'Dashboard', labelKey: 'nav.dashboard' }
+// The sidebar's structure, labels, icons and gates all come from the route
+// registry (lib/navigation.ts): SERVER (the server in the strip above),
+// PLAYERS, WORLD and PANEL. Each section keeps one accent colour.
+const ACCENT_STYLES = {
+  primary: {
+    rowActive: 'border-primary/45 bg-primary/10',
+    bar: 'bg-primary',
+    iconActive: 'text-primary',
+    label: 'text-primary',
+  },
+  success: {
+    rowActive: 'border-success/45 bg-success/10',
+    bar: 'bg-success',
+    iconActive: 'text-success',
+    label: 'text-success',
+  },
+  warning: {
+    rowActive: 'border-warning/45 bg-warning/10',
+    bar: 'bg-warning',
+    iconActive: 'text-warning',
+    label: 'text-warning',
+  },
+  muted: {
+    rowActive: 'border-border/80 bg-muted/60',
+    bar: 'bg-muted-foreground',
+    iconActive: 'text-foreground',
+    label: 'text-muted-foreground',
+  },
+} as const satisfies Record<NavSection['accent'], Record<string, string>>
 
-interface NavItem {
-  to: string
-  icon: typeof LayoutDashboard
-  label: string
-  labelKey: string
-  requiresLocal?: boolean
-  // Still reachable on a remote server once its Server folder is mirrored over SFTP.
-  allowRemoteConfigMirror?: boolean
-  disabled?: boolean
-  badge?: string
-  // Item-level (not section-level, see below): needs a configured server to
-  // mean anything (live status, config, scheduled maintenance, ...). A
-  // section can freely mix requiresServer and non-requiresServer items now
-  // that grouping is by OBJECT (Server/World/Users/Panel) rather than by
-  // "does this need a server" -- e.g. SERVER holds both My Servers (works
-  // at zero servers, it's how you get one) and Server Console (needs one).
-  requiresServer?: boolean
-  // Hides the item entirely (not just disables it) unless can(capability)
-  // is true -- mirrors how Settings.tsx already hides its own users/roles/
-  // sso tabs for a role lacking the matching capability (can() fails OPEN
-  // while capabilities are still loading, same as there).
-  capability?: string
-}
-
-interface NavSection {
-  id: string
-  label: string
-  labelKey: string
-  icon: typeof LayoutDashboard
-  color: string
-  items: NavItem[]
-}
-
-// Navigation sections with collapsible groups. Restructured 2026-09-18 per
-// the operator's navigation contract (2026-08-19): group by OBJECT --
-// SERVER / WORLD / USERS / PANEL -- Project Zomboid vocabulary, dense by
-// default. Previously grouped by "how fresh is this" (Live/Config/Maintain)
-// which split same-object items (e.g. Server Console and Server
-// Configuration) across different sections.
-const navSections: NavSection[] = [
-  {
-    id: 'server',
-    label: 'Server',
-    labelKey: 'nav.sections.server',
-    icon: Server,
-    color: 'cyan',
-    items: [
-      { to: '/servers', icon: Layers, label: 'My Servers', labelKey: 'nav.items.myServers' },
-      { to: '/console', icon: Terminal, label: 'Server Console', labelKey: 'nav.items.serverConsole', requiresServer: true },
-      { to: '/server-config', icon: FileCog, label: 'Server Configuration', labelKey: 'nav.items.serverConfiguration', requiresServer: true, requiresLocal: true, allowRemoteConfigMirror: true },
-      // Remote servers too: their folders are browsed over the PanelBridge SFTP login.
-      { to: '/files', icon: FolderTree, label: 'Server Files', labelKey: 'nav.items.serverFiles', requiresServer: true, capability: 'files.manage' },
-      { to: '/mods', icon: Package, label: 'Mod Manager', labelKey: 'nav.items.modManager', requiresServer: true, requiresLocal: true },
-      { to: '/scheduler', icon: Clock, label: 'Scheduled Tasks', labelKey: 'nav.items.scheduledTasks', requiresServer: true },
-      { to: '/server-setup', icon: Download, label: 'Server Setup', labelKey: 'nav.items.serverSetup' },
-      { to: '/server-finder', icon: Search, label: 'Browse Public Servers', labelKey: 'nav.items.browsePublic' },
-    ]
-  },
-  {
-    id: 'world',
-    label: 'World',
-    labelKey: 'nav.sections.world',
-    icon: Map,
-    color: 'amber',
-    items: [
-      { to: '/world-map', icon: Map, label: 'World Map', labelKey: 'nav.items.worldMap', requiresServer: true },
-      { to: '/events', icon: Zap, label: 'Events & Weather', labelKey: 'nav.items.eventsWeather', requiresServer: true },
-      { to: '/backups', icon: Archive, label: 'World Backups', labelKey: 'nav.items.worldBackups', requiresServer: true, requiresLocal: true },
-      { to: '/chunks', icon: Eraser, label: 'Map Cleanup', labelKey: 'nav.items.mapCleanup', requiresServer: true, requiresLocal: true },
-      { to: '/templates', icon: LayoutTemplate, label: 'Templates', labelKey: 'nav.items.templates', requiresServer: true, requiresLocal: true, allowRemoteConfigMirror: true },
-    ]
-  },
-  {
-    id: 'users',
-    label: 'Users',
-    labelKey: 'nav.sections.users',
-    icon: Users,
-    color: 'emerald',
-    items: [
-      { to: '/players', icon: Users, label: 'Online Players', labelKey: 'nav.items.onlinePlayers', requiresServer: true },
-      { to: '/leaderboard', icon: Trophy, label: 'Leaderboard', labelKey: 'nav.items.leaderboard', requiresServer: true },
-      { to: '/chat', icon: MessagesSquare, label: 'In-Game Chat', labelKey: 'nav.items.inGameChat', requiresServer: true },
-      // Panel Users/Roles & Permissions/Single Sign-On: no dedicated route
-      // (route paths must stay stable) -- these point straight at the same
-      // Settings tabs /users, /roles and /sso already redirect to
-      // (App.tsx), and are gated on the exact capability that hides the
-      // matching Settings tab (Settings.tsx's settingsSections filter).
-      { to: '/settings?tab=users', icon: UserCog, label: 'Panel Users', labelKey: 'nav.items.panelUsers', capability: 'users.manage' },
-      { to: '/settings?tab=roles', icon: ShieldCheck, label: 'Roles & Permissions', labelKey: 'nav.items.rolesPermissions', capability: 'roles.manage' },
-      { to: '/settings?tab=sso', icon: KeyRound, label: 'Single Sign-On', labelKey: 'nav.items.singleSignOn', capability: 'panel.settings' },
-    ]
-  },
-  {
-    id: 'panel',
-    label: 'Panel',
-    labelKey: 'nav.sections.panel',
-    icon: Settings,
-    color: 'slate',
-    items: [
-      { to: '/settings', icon: Settings, label: 'Panel Settings', labelKey: 'nav.items.panelSettings' },
-      { to: '/discord', icon: MessageSquare, label: 'Discord', labelKey: 'nav.items.discord' },
-      { to: '/debug', icon: Bug, label: 'Debug Logs', labelKey: 'nav.items.debugLogs' },
-    ]
-  },
-]
-
-const sectionToneStyles = {
-  emerald: {
-    triggerActive: 'bg-success/12 border-success/35',
-    iconActive: 'border-success/45 bg-success/14 text-success',
-    iconIdle: 'text-foreground/86 group-hover:text-success',
-    labelActive: 'text-success',
-    childActive: 'border-success/45 bg-success/10',
-    childDot: 'bg-success',
-    childBorder: 'border-success/35',
-  },
-  amber: {
-    triggerActive: 'bg-warning/12 border-warning/35',
-    iconActive: 'border-warning/45 bg-warning/14 text-warning',
-    iconIdle: 'text-foreground/86 group-hover:text-warning',
-    labelActive: 'text-warning',
-    childActive: 'border-warning/45 bg-warning/10',
-    childDot: 'bg-warning',
-    childBorder: 'border-warning/35',
-  },
-  cyan: {
-    triggerActive: 'bg-primary/14 border-primary/35',
-    iconActive: 'border-primary/45 bg-primary/16 text-primary',
-    iconIdle: 'text-foreground/86 group-hover:text-primary',
-    labelActive: 'text-primary',
-    childActive: 'border-primary/45 bg-primary/10',
-    childDot: 'bg-primary',
-    childBorder: 'border-primary/35',
-  },
-  slate: {
-    triggerActive: 'bg-muted/45 border-border/70',
-    iconActive: 'border-border/80 bg-muted text-foreground',
-    iconIdle: 'text-foreground/86 group-hover:text-foreground',
-    labelActive: 'text-foreground',
-    childActive: 'border-border/80 bg-muted/60',
-    childDot: 'bg-muted-foreground',
-    childBorder: 'border-border/70',
-  },
-  destructive: {
-    triggerActive: 'bg-destructive/12 border-destructive/35',
-    iconActive: 'border-destructive/45 bg-destructive/14 text-destructive',
-    iconIdle: 'text-foreground/86 group-hover:text-destructive',
-    labelActive: 'text-destructive',
-    childActive: 'border-destructive/45 bg-destructive/10',
-    childDot: 'bg-destructive',
-    childBorder: 'border-destructive/35',
-  },
-} as const
+const DASHBOARD_ROUTE = getRouteMeta('/') as RouteMeta
 
 // Auth footer — shows logged-in user and logout button
 // One size for every icon control in the sidebar footer, so the account row
@@ -231,9 +93,9 @@ const sectionToneStyles = {
 const FOOTER_ICON_BUTTON =
   'grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
 
-function AuthFooter() {
+function AuthFooter({ onSignOut }: { onSignOut: () => void }) {
   const { t } = useTranslation('shell')
-  const { user, authEnabled, logout } = useAuth()
+  const { user, authEnabled } = useAuth()
 
   if (!authEnabled || !user) return null
 
@@ -253,7 +115,7 @@ function AuthFooter() {
       </span>
       <button
         type="button"
-        onClick={logout}
+        onClick={onSignOut}
         className={FOOTER_ICON_BUTTON}
         aria-label={t('footer.signOut')}
         title={t('footer.signOut')}
@@ -290,43 +152,6 @@ function DisabledNavTooltip({ side = 'right', reason, children }: {
   )
 }
 
-function PanelBrand({ compact = false }: { compact?: boolean }) {
-  const { t } = useTranslation('shell')
-  return (
-    <div className={cn("flex items-center", compact ? "gap-2" : "gap-2.5")}>
-      <img
-        src={`${import.meta.env.BASE_URL}spiffo.png`}
-        alt="Spiffo"
-        loading="lazy"
-        width={compact ? 28 : 34}
-        height={compact ? 28 : 34}
-        className={cn(
-          compact ? "h-7 w-7" : "h-[34px] w-[34px]",
-          "object-contain drop-shadow-sm saturate-90"
-        )}
-      />
-      <div className="min-w-0">
-        <p
-          className={cn(
-            "shell-brand-title truncate uppercase leading-tight",
-            compact ? "text-[13px] tracking-[0.12em]" : "text-sm tracking-[0.14em]"
-          )}
-        >
-          {t('brand.title')}
-        </p>
-        <p
-          className={cn(
-            "shell-brand-subtitle truncate text-muted-foreground leading-tight",
-            "text-[11px] mt-0.5"
-          )}
-        >
-          // {t('brand.subtitle')}
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // Tailwind's lg breakpoint: where the sidebar is a fixed column that can
 // collapse to an icon rail. jsdom has no matchMedia; that counts as lg.
 const LG_QUERY = '(min-width: 1024px)'
@@ -354,10 +179,6 @@ export default function Layout({ children }: LayoutProps) {
   const { t: tMods } = useTranslation('mods')
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
 
-  const isBlockedByRemote = (item: NavItem) =>
-    !!item.requiresLocal &&
-    !!activeServer?.isRemote &&
-    !(item.allowRemoteConfigMirror && activeServer.remoteConfigConfigured)
   const provider = resolveClientProvider(activeServer)
   // null = we don't yet know (still loading, or the last fetch failed) — distinct
   // from [] (fetch succeeded and confirmed there really are zero servers). Collapsing
@@ -365,18 +186,21 @@ export default function Layout({ children }: LayoutProps) {
   // yet" claim as a genuinely empty roster, on every load and permanently on failure.
   const [servers, setServers] = useState<ServerInstance[] | null>(null)
   const serversConfirmedEmpty = servers !== null && servers.length === 0
-  const isBlockedByNoServer = (item: NavItem) => !!item.requiresServer && serversConfirmedEmpty
-  const { can } = useAuth()
+  const { can, user, authEnabled, logout } = useAuth()
+  // Same rule as the command palette: hidden without the capability,
+  // disabled (with the reason) without a server or a local one.
+  const availabilityOf = (route: RouteMeta) => routeAvailability(route, { can, serversConfirmedEmpty, activeServer })
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   // Not a Radix primitive, so it gets none of Radix's automatic focus
   // trap/restore -- handled manually below.
   const mobileMenuButtonRef = useRef<HTMLButtonElement>(null)
   const mobileMenuAsideRef = useRef<HTMLElement>(null)
-  const [sidebarCollapsedPref, setSidebarCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === 'true')
+  const [sidebarCollapsedPref, setSidebarCollapsed] = useState(() => readStored('sidebarCollapsed') === 'true')
   // The icon rail is a desktop layout. Below lg the sidebar is the slide-out
   // drawer, which has no expand button, so a rail saved on desktop must not
   // follow the window down to a tablet or phone.
-  const sidebarCollapsed = useIsLg() && sidebarCollapsedPref
+  const isLg = useIsLg()
+  const sidebarCollapsed = isLg && sidebarCollapsedPref
   const [updateInfo, setUpdateInfo] = useState<UpdateStatus | null>(null)
   // Persist dismissal across reloads, but key it by build IDs so a NEW update
   // re-shows the banner. Was sessionStorage which got cleared on browser restart.
@@ -390,7 +214,18 @@ export default function Layout({ children }: LayoutProps) {
   const displayVersion = panelVersion || (typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '')
   const socket = useContext(SocketContext)
   const { toast } = useToast()
-  const { helpOpen, setHelpOpen, shortcuts } = useKeyboardShortcuts()
+  const { helpOpen, setHelpOpen, paletteOpen, setPaletteOpen, shortcuts } = useKeyboardShortcuts()
+  const guardedNavigate = useGuardedNavigate()
+  const confirmLeave = useConfirmLeave()
+  const navRef = useRef<HTMLElement>(null)
+
+  // Signing out drops the page as surely as leaving it (the sign-in screen
+  // replaces the app without a reload, so no beforeunload either): ask
+  // first when a page holds unsaved edits, like a sidebar link does.
+  const handleSignOut = useCallback(async () => {
+    if (!(await confirmLeave())) return
+    await logout()
+  }, [confirmLeave, logout])
 
   // Fetch panel version
   useEffect(() => {
@@ -479,37 +314,46 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [socket, tMods, toast])
 
-  const navigate = useNavigate()
   const location = useLocation()
-  const playerCountLabel = playerCount > 99 ? '99+' : String(playerCount)
+  const currentRoute = getRouteMeta(location.pathname)
+  // The row lit for this page: its own, or the one that lists it in
+  // activeFor (Servers on Add a Server). Settings stays lit on every tab.
+  const activeRoutePath = getActiveSidebarRoute(location.pathname)?.path
+  const currentTitle = currentRoute ? t(currentRoute.titleKey) : null
+  // The roster only moves on players:update, which stops when the server does,
+  // so a stopped (or not yet confirmed) server kept its last count on the
+  // Players badge. The count is shown only while the server is running, as the
+  // sidebar's active-server strip already did.
+  const shownPlayerCount = serverRunState === 'running' ? playerCount : 0
+  const playerCountLabel = shownPlayerCount > 99 ? '99+' : String(shownPlayerCount)
 
-  // Panel Users/Roles & Permissions/Single Sign-On (USERS section) link
-  // straight into Settings' own tabs via ?tab=, so a plain pathname-only
-  // active match (react-router's NavLink default) would light up every
-  // /settings-linked row -- including the plain Panel Settings entry --
-  // together whenever any one of them is open. Resolve the real tab from
-  // location.search and match on that for any item whose `to` carries one;
-  // the plain /settings entry is active only when the open tab isn't one of
-  // those three (otherwise it'd stay lit alongside them).
-  const settingsSubTabIds = ['users', 'roles', 'sso']
-  const currentSettingsTab = location.pathname === '/settings'
-    ? new URLSearchParams(location.search).get('tab')
-    : null
-  const isItemActive = (item: NavItem) => {
-    const [itemPath, itemQuery] = item.to.split('?')
-    if (location.pathname !== itemPath) return false
-    if (!itemQuery) {
-      return itemPath !== '/settings' || !currentSettingsTab || !settingsSubTabIds.includes(currentSettingsTab)
+  // "Title · Server · Zomboid Control Panel": the tab says which page of
+  // which server, so two panel tabs stay apart.
+  useEffect(() => {
+    document.title = [currentTitle, activeServer?.name, t('brand.documentTitle')].filter(Boolean).join(' · ')
+  }, [currentTitle, activeServer?.name, t])
+
+  // Keep the lit row on screen: the sidebar scrolls at 900px tall, and a
+  // shortcut or the palette can land on a row below the fold.
+  // Again after the next frame and after the rail/drawer transition (300ms),
+  // which change the nav's height and rows under it.
+  useEffect(() => {
+    const scrollActiveRow = () =>
+      navRef.current?.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView?.({ block: 'nearest' })
+    scrollActiveRow()
+    const frame = requestAnimationFrame(scrollActiveRow)
+    const afterTransition = window.setTimeout(scrollActiveRow, 350)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(afterTransition)
     }
-    const itemTab = new URLSearchParams(itemQuery).get('tab')
-    return itemTab != null && itemTab === currentSettingsTab
-  }
+  }, [activeRoutePath, sidebarCollapsed, mobileMenuOpen])
 
   // Toggle sidebar collapse
   const toggleSidebar = () => {
     setSidebarCollapsed(prev => {
       const next = !prev
-      localStorage.setItem('sidebarCollapsed', String(next))
+      writeStored('sidebarCollapsed', String(next))
       return next
     })
   }
@@ -577,7 +421,11 @@ export default function Layout({ children }: LayoutProps) {
       running?: boolean
       isRunning?: boolean
       phase?: 'starting' | 'running' | 'stopped' | 'unresponsive' | 'unknown'
+      // Set by a scheduled restart of one particular server (scheduler.js),
+      // which need not be the active one this dot shows.
+      serverId?: string | number | null
     }) => {
+      if (!isStatusEventForServer(data, activeServer?.id)) return
       // Fast path: for a native server, a pushed boolean is as trustworthy
       // as a fresh fetch and avoids a round trip. Everything else needs the
       // composed status to know what the push actually means.
@@ -597,7 +445,7 @@ export default function Layout({ children }: LayoutProps) {
     }
     socket.on('server:status', onStatus)
     return () => { socket.off('server:status', onStatus) }
-  }, [socket, provider, refreshServerRunState])
+  }, [socket, provider, refreshServerRunState, activeServer?.id])
 
   // Track mod updates available count for Mod Manager nav badge
   useEffect(() => {
@@ -710,6 +558,8 @@ export default function Layout({ children }: LayoutProps) {
     if (!socket) return
 
     const handleActiveServerChanged = async () => {
+      // The count is the previous server's until its roster arrives.
+      setPlayerCount(0)
       try {
         const data = await serversApi.getAll()
         setServers(data.servers || [])
@@ -740,7 +590,7 @@ export default function Layout({ children }: LayoutProps) {
       const dismissedKey = data?.installed && data?.latest
         ? `updateBannerDismissed:${data.installed.buildId}->${data.latest.buildId}`
         : null
-      setUpdateDismissed(!!dismissedKey && localStorage.getItem(dismissedKey) === 'true')
+      setUpdateDismissed(!!dismissedKey && readStored(dismissedKey) === 'true')
     }
 
     const handleUpdateCheck = (data: UpdateStatus) => {
@@ -767,8 +617,14 @@ export default function Layout({ children }: LayoutProps) {
     }
   }, [socket])
 
-  const handleSwitchServer = async (server: ServerInstance) => {
-    if (server.isActive) return
+  // POST /servers/:id/activate needs servers.manage: without it the strip
+  // and the palette show the other servers but can't switch to them (a
+  // click used to end in a bare "Switch failed").
+  const canSwitchServer = can('servers.manage')
+  const switchDeniedReason = canSwitchServer ? undefined : t('servers:card.noPermissionManage')
+
+  const handleSwitchServer = useCallback(async (server: ServerInstance) => {
+    if (server.isActive || !canSwitchServer) return
     try {
       await serversApi.activate(server.id)
       // Socket event will refresh the list
@@ -779,25 +635,342 @@ export default function Layout({ children }: LayoutProps) {
         variant: 'destructive',
       })
     }
+  }, [canSwitchServer, t, toast])
+
+  const openPalette = useCallback(() => {
+    setMobileMenuOpen(false)
+    setPaletteOpen(true)
+  }, [setPaletteOpen])
+  const showShortcuts = useCallback(() => setHelpOpen(true), [setHelpOpen])
+  const modKey = modKeyLabel()
+
+  const serverStateLabel = {
+    running: t('activeServer.statusRunning'),
+    stopped: t('activeServer.statusStopped'),
+    transitioning: t('activeServer.statusTransitioning'),
+    unresponsive: t('activeServer.statusUnresponsive'),
+    unknown: t('activeServer.statusUnknown'),
+  }[serverRunState]
+
+  // The count or dot a row carries: players online, mod updates, a panel update.
+  const rowBadge = (route: RouteMeta, active: boolean) => {
+    if (route.path === '/players' && shownPlayerCount > 0) {
+      return (
+        <Badge
+          variant={active ? 'secondary' : 'success'}
+          className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+        >
+          {playerCountLabel}
+        </Badge>
+      )
+    }
+    if (route.path === '/mods' && modUpdatesAvailable > 0) {
+      return (
+        <Badge
+          variant="warning"
+          className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
+          title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
+        >
+          {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
+        </Badge>
+      )
+    }
+    if (route.path === '/settings' && panelUpdateAvailable) {
+      return (
+        <span
+          className="ms-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
+          title={panelUpdateAvailable.version
+            ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
+            : t('panelUpdateBadge.titleNoVersion')}
+          aria-hidden
+        />
+      )
+    }
+    return null
   }
+
+  const preload = (route: RouteMeta) => () => preloadRouteModule(route.path)
+
+  // One sidebar row. Expanded: icon and short label. Rail: the icon, named
+  // and tooltipped with the page's full title. A row that needs a server (or
+  // a local one) stays visible but inert, with the reason.
+  const renderRow = (route: RouteMeta, accent: NavSection['accent']) => {
+    const availability = availabilityOf(route)
+    if (availability.state === 'hidden') return null
+    const tone = ACCENT_STYLES[accent]
+    const Icon = route.icon
+    const label = t(route.labelKey)
+    const fullTitle = t(route.titleKey)
+
+    if (availability.state === 'disabled') {
+      const reason = t(availability.reasonKey)
+      const remote = availability.reasonKey === 'shell:nav.notAvailableRemote'
+      if (sidebarCollapsed) {
+        return (
+          <DisabledNavTooltip key={route.path} reason={reason}>
+            <div
+              className="flex min-h-9 cursor-not-allowed items-center justify-center rounded-md px-2 py-2 opacity-45"
+              aria-disabled="true"
+              aria-label={`${fullTitle} — ${reason}`}
+            >
+              <Icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+            </div>
+          </DisabledNavTooltip>
+        )
+      }
+      return (
+        <DisabledNavTooltip key={route.path} reason={reason}>
+          <div
+            className={cn('flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px]', remote ? 'opacity-55' : 'cursor-not-allowed opacity-50')}
+            aria-label={`${label} — ${reason}`}
+            aria-disabled="true"
+          >
+            <Icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
+            <span className={cn('truncate text-muted-foreground/70', remote && 'line-through decoration-muted-foreground/30')}>{label}</span>
+            {remote && (
+              <Badge variant="outline" className="ms-auto px-1 py-0 text-[10px] uppercase tracking-wider">
+                {t('nav.localBadge')}
+              </Badge>
+            )}
+          </div>
+        </DisabledNavTooltip>
+      )
+    }
+
+    const active = activeRoutePath === route.path
+    if (sidebarCollapsed) {
+      return (
+        <Tooltip key={route.path}>
+          <TooltipTrigger asChild>
+            <Link
+              to={route.path}
+              aria-current={active ? 'page' : undefined}
+              aria-label={fullTitle}
+              onPointerEnter={preload(route)}
+              onFocus={preload(route)}
+              onClick={() => setMobileMenuOpen(false)}
+              className={cn(
+                'group relative flex min-h-9 items-center justify-center rounded-md border border-transparent px-2 py-2 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+                active ? cn('font-medium', tone.rowActive) : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
+              )}
+            >
+              {active && <span className={cn('absolute start-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-s-full', tone.bar)} aria-hidden />}
+              <Icon className={cn('h-[15px] w-[15px] shrink-0', active ? tone.iconActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent side="right">{fullTitle}</TooltipContent>
+        </Tooltip>
+      )
+    }
+
+    return (
+      <Link
+        key={route.path}
+        to={route.path}
+        aria-current={active ? 'page' : undefined}
+        onPointerEnter={preload(route)}
+        onFocus={preload(route)}
+        onClick={() => setMobileMenuOpen(false)}
+        className={cn(
+          'group relative flex min-h-9 items-center gap-2.5 rounded-md border border-transparent px-2 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
+          active ? cn('font-medium text-foreground', tone.rowActive) : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
+        )}
+      >
+        {active && <span className={cn('absolute start-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-s-full', tone.bar)} aria-hidden />}
+        <Icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', active ? tone.iconActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
+        <span className="truncate">{label}</span>
+        {rowBadge(route, active)}
+      </Link>
+    )
+  }
+
+  const sectionHasSignal = (section: NavSection) =>
+    (section.id === 'server' && modUpdatesAvailable > 0) ||
+    (section.id === 'players' && shownPlayerCount > 0) ||
+    (section.id === 'panel' && !!panelUpdateAvailable)
+
+  // "Search… Ctrl K": the palette's visible way in. In the rail, an icon.
+  const searchButton = sidebarCollapsed ? (
+    <div className="flex justify-center border-b border-border/40 p-2">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={openPalette}
+            aria-label={t('search.label')}
+            aria-keyshortcuts="Control+K Meta+K"
+            className={FOOTER_ICON_BUTTON}
+          >
+            <Search className="h-3.5 w-3.5" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {t('search.label')} <kbd className="ms-1 font-sans text-micro text-muted-foreground">{modKey} K</kbd>
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  ) : (
+    <div className="border-b border-border/40 px-2 py-2">
+      <button
+        type="button"
+        onClick={openPalette}
+        aria-label={t('search.label')}
+        aria-keyshortcuts="Control+K Meta+K"
+        className="flex h-8 w-full items-center gap-2 rounded-md border border-input bg-background/40 px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="flex-1 truncate text-start">{t('search.placeholder')}</span>
+        <kbd className="shrink-0 rounded border border-border/60 px-1 text-micro text-muted-foreground [@media(pointer:coarse)]:hidden" aria-hidden>{modKey} K</kbd>
+      </button>
+    </div>
+  )
+
+  const activeServerStrip = servers && servers.length > 0 && !sidebarCollapsed && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "active-server-strip group relative w-full border-b border-border/40 px-3 py-2.5 text-start transition-colors",
+            "focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60",
+            `active-server-strip--${serverRunState}`
+          )}
+        >
+          {/* Start-edge accent — pulses on running, dim on stopped */}
+          <span className="active-server-strip__edge" aria-hidden />
+
+          <div className="flex items-center gap-1.5">
+            <span className="label-micro">{t('activeServer.label')}</span>
+            <span className="ms-1 inline-block h-px flex-1 bg-gradient-to-r rtl:bg-gradient-to-l from-border/40 to-transparent" aria-hidden />
+            <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+          </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            <span className="active-server-strip__dot relative h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden>
+              <span className="absolute inset-0 rounded-full" />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold leading-tight text-foreground transition-colors group-hover:text-primary">
+              {activeServer?.name || t('activeServer.none')}
+            </span>
+            {serverRunState === 'running' && playerCount > 0 && (
+              <Badge
+                variant="success"
+                className="shrink-0 px-1.5 py-0 text-[10px] leading-none"
+                title={t('activeServer.playersOnline', { count: playerCount })}
+              >
+                {playerCountLabel}
+              </Badge>
+            )}
+            {activeServer?.isRemote && (
+              <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
+                {t('activeServer.remoteBadge')}
+              </Badge>
+            )}
+            <span className="sr-only">{serverStateLabel}</span>
+          </div>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-60 glass border-border/50">
+        {switchDeniedReason && servers.length > 1 && (
+          <p className="px-3 pb-1.5 pt-2 text-xs text-muted-foreground">{switchDeniedReason}</p>
+        )}
+        {servers.map(server => (
+          <DropdownMenuItem
+            key={server.id}
+            onClick={() => handleSwitchServer(server)}
+            disabled={!server.isActive && !canSwitchServer}
+            className={cn(
+              "py-2.5 px-3 cursor-pointer transition-colors",
+              server.isActive && 'bg-primary/10'
+            )}
+          >
+            <div className="flex items-center gap-3 w-full">
+              <div className={cn(
+                "w-8 h-8 rounded-lg flex items-center justify-center",
+                server.isActive ? "bg-primary/20" : "bg-muted/70"
+              )}>
+                <Server className={cn("w-4 h-4", server.isActive && "text-primary")} />
+              </div>
+              <span className="truncate flex-1 font-medium">{server.name}</span>
+              {server.isRemote && (
+                <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
+                  {t('activeServer.remoteBadgeFull')}
+                </Badge>
+              )}
+              {server.isActive && (
+                <Badge variant="secondary" className="px-2 py-0.5 text-xs">
+                  {t('activeServer.activeBadge')}
+                </Badge>
+              )}
+            </div>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => void guardedNavigate('/server-setup')} className="py-2.5 px-3">
+          <Plus className="w-4 h-4 me-2" />
+          {t('activeServer.addServer')}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void guardedNavigate('/servers')} className="py-2.5 px-3">
+          <Layers className="w-4 h-4 me-2" />
+          {t('activeServer.manageServers')}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+
+  const mainWidth =
+    currentRoute?.layout === 'wide' ? 'max-w-none' : currentRoute?.layout === 'narrow' ? 'max-w-3xl' : 'max-w-7xl'
 
   return (
     <div className="flex h-screen bg-background">
-      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm">{t('skipToContent')}</a>
-      {/* Mobile Header */}
+      {/* Focus moves in script: under the demo's HashRouter a plain
+          #main-content jump was read as a route, the 404 page. */}
+      <a
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault()
+          document.getElementById('main-content')?.focus()
+        }}
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:start-2 focus:z-[60] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:text-sm"
+      >
+        {t('skipToContent')}
+      </a>
+      {/* Mobile top bar: the menu, where you are, and which server. */}
       <div className="fixed top-0 inset-x-0 z-50 border-b bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/85 lg:hidden">
-        <div className="flex items-center justify-between p-3">
-          <PanelBrand compact />
+        <div className="flex h-16 items-center gap-2 px-2">
           <Button
             ref={mobileMenuButtonRef}
             variant="ghost"
             size="icon"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label={mobileMenuOpen ? t('mobileMenu.close') : t('mobileMenu.open')}
-            className="h-11 w-11 rounded-lg border border-transparent hover:border-border/70 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2"
+            aria-expanded={mobileMenuOpen}
+            className="h-11 w-11 shrink-0 rounded-lg border border-transparent hover:border-border/70 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </Button>
+          {/* Rendered below lg only, so the desktop DOM carries the server
+              name and state once (in the sidebar strip). */}
+          {!isLg && (
+            <p className="min-w-0 flex-1 truncate text-base font-semibold text-foreground" data-testid="mobile-page-title">
+              {currentTitle ?? t('brand.documentTitle')}
+            </p>
+          )}
+          {!isLg && activeServer && (
+            <span className="flex min-w-0 max-w-[45%] shrink items-center gap-1.5 pe-2 text-xs text-muted-foreground">
+              <span
+                className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  serverRunState === 'running' && 'bg-success',
+                  serverRunState === 'stopped' && 'bg-destructive',
+                  (serverRunState === 'transitioning' || serverRunState === 'unresponsive') && 'bg-warning motion-safe:animate-pulse',
+                  serverRunState === 'unknown' && 'bg-muted-foreground/50',
+                )}
+                aria-hidden
+              />
+              <span className="truncate">{activeServer.name}</span>
+              <span className="sr-only">{serverStateLabel}</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -815,16 +988,19 @@ export default function Layout({ children }: LayoutProps) {
         ref={mobileMenuAsideRef}
         aria-label={t('nav.sidebarAriaLabel')}
         className={cn(
-        "fixed inset-y-0 left-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
+        // start-0 and the rtl: translate: in Arabic the drawer slides in
+        // from the right, beside the menu button, where the sidebar sits.
+        "fixed inset-y-0 start-0 z-40 flex flex-col border-e bg-card transform transition-all duration-300 ease-out will-change-[width,transform] motion-reduce:transition-none lg:relative",
         sidebarCollapsed ? "lg:w-[60px]" : "lg:w-64",
         "w-72",
-        "lg:translate-x-0",
-        mobileMenuOpen ? "translate-x-0" : "-translate-x-full",
+        "lg:translate-x-0 lg:rtl:translate-x-0",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full rtl:translate-x-full",
         "pt-16 lg:pt-0" // Add padding for mobile header
       )}>
       <TooltipProvider delayDuration={150}>
-        {/* Brand strip — tactical broadcast header */}
-        <div className={cn("brand-strip relative overflow-hidden sidebar-header border-b border-border/50")}>
+        {/* Brand strip — desktop only: the drawer starts with Search instead
+            of repeating the brand under the top bar. */}
+        <div className={cn("brand-strip relative hidden overflow-hidden sidebar-header border-b border-border/50 lg:block")}>
           {/* Top broadcast accent — thin ember rule */}
           <div className="brand-strip__rule" aria-hidden />
           {/* Corner stencil */}
@@ -850,7 +1026,7 @@ export default function Layout({ children }: LayoutProps) {
                   </span>
                   <span className="brand-led" aria-hidden title={t('panelStatus.online')} />
                 </div>
-                <div className="flex items-center gap-1.5 text-[9.5px] font-medium uppercase leading-none tracking-[0.28em] text-muted-foreground/80">
+                <div className="flex items-center gap-1.5 text-micro font-medium uppercase leading-none tracking-[0.2em] text-muted-foreground/80">
                   <span className="shell-brand-subtitle truncate uppercase">{t('brand.shortSubtitle')}</span>
                   <span className="brand-strip__version font-mono normal-case tracking-normal text-muted-foreground/55">
                     v{panelVersion || (typeof __PANEL_VERSION__ !== 'undefined' ? __PANEL_VERSION__ : '0')}
@@ -861,6 +1037,9 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </div>
 
+        {/* In the drawer, Search comes first, then the server switcher. */}
+        {!isLg && searchButton}
+
         {/* No-server notice — the active-server strip below only renders once
             a server exists, so without this a brand-new install shows nothing
             between the header and a sidebar full of inert-looking nav items.
@@ -869,7 +1048,7 @@ export default function Layout({ children }: LayoutProps) {
             replacement). Reuses SystemHealthBanner's warning-strip language
             (border-warning/35, AlertCircle) rather than a new color. */}
         {serversConfirmedEmpty && !sidebarCollapsed && (
-          <div className="border-b border-border/40 bg-warning/[0.04] px-3 py-2.5 shadow-[inset_2px_0_0_hsl(var(--warning))]">
+          <div className="border-b border-border/40 bg-warning/5 px-3 py-2.5 shadow-[inset_2px_0_0_hsl(var(--warning))]">
             <div className="flex items-start gap-2">
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning mt-0.5" aria-hidden />
               <div className="min-w-0">
@@ -892,323 +1071,49 @@ export default function Layout({ children }: LayoutProps) {
         )}
 
         {/* Active server strip — tactical status bar */}
-        {servers && servers.length > 0 && !sidebarCollapsed && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  "active-server-strip group relative w-full border-b border-border/40 px-3 py-2.5 text-start transition-colors",
-                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/60",
-                  `active-server-strip--${serverRunState}`
-                )}
-              >
-                {/* Start-edge accent — pulses on running, dim on stopped */}
-                <span className="active-server-strip__edge" aria-hidden />
+        {activeServerStrip}
 
-                <div className="flex items-center gap-1.5 text-[9.5px] font-medium uppercase leading-none tracking-[0.26em] text-muted-foreground/70">
-                  <span>{t('activeServer.label')}</span>
-                  <span className="ms-1 inline-block h-px flex-1 bg-gradient-to-r rtl:bg-gradient-to-l from-border/40 to-transparent" aria-hidden />
-                  <ChevronDown className="h-3 w-3 text-muted-foreground/60 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                </div>
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span className="active-server-strip__dot relative h-2.5 w-2.5 shrink-0 rounded-full" aria-hidden>
-                    <span className="absolute inset-0 rounded-full" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold leading-tight text-foreground transition-colors group-hover:text-primary">
-                    {activeServer?.name || t('activeServer.none')}
-                  </span>
-                  {serverRunState === 'running' && playerCount > 0 && (
-                    <Badge
-                      variant="success"
-                      className="shrink-0 px-1.5 py-0 text-[10px] leading-none"
-                      title={t('activeServer.playersOnline', { count: playerCount })}
-                    >
-                      {playerCountLabel}
-                    </Badge>
-                  )}
-                  {activeServer?.isRemote && (
-                    <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
-                      {t('activeServer.remoteBadge')}
-                    </Badge>
-                  )}
-                  <span className="sr-only">
-                    {serverRunState === 'running' && t('activeServer.statusRunning')}
-                    {serverRunState === 'stopped' && t('activeServer.statusStopped')}
-                    {serverRunState === 'transitioning' && t('activeServer.statusTransitioning')}
-                    {serverRunState === 'unresponsive' && t('activeServer.statusUnresponsive')}
-                    {serverRunState === 'unknown' && t('activeServer.statusUnknown')}
-                  </span>
-                </div>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-60 glass border-border/50">
-              {servers.map(server => (
-                <DropdownMenuItem
-                  key={server.id}
-                  onClick={() => handleSwitchServer(server)}
-                  className={cn(
-                    "py-2.5 px-3 cursor-pointer transition-colors",
-                    server.isActive && 'bg-primary/10'
-                  )}
-                >
-                  <div className="flex items-center gap-3 w-full">
-                    <div className={cn(
-                      "w-8 h-8 rounded-lg flex items-center justify-center",
-                      server.isActive ? "bg-primary/18" : "bg-muted/70"
-                    )}>
-                      <Server className={cn("w-4 h-4", server.isActive && "text-primary")} />
-                    </div>
-                    <span className="truncate flex-1 font-medium">{server.name}</span>
-                    {server.isRemote && (
-                      <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase tracking-wider text-muted-foreground/80" title={t('activeServer.remoteTitle')}>
-                        {t('activeServer.remoteBadgeFull')}
-                      </Badge>
-                    )}
-                    {server.isActive && (
-                      <Badge variant="secondary" className="px-2 py-0.5 text-xs uppercase tracking-wide">
-                        {t('activeServer.activeBadge')}
-                      </Badge>
-                    )}
-                  </div>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate('/servers')} className="py-2.5 px-3">
-                <Layers className="w-4 h-4 me-2" />
-                {t('activeServer.manageServers')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        {isLg && searchButton}
 
-        {/* Navigation — flat, scannable */}
-        <nav aria-label={t('nav.ariaLabel')} className="flex-1 overflow-y-auto nav-scroll px-2 py-2">
+        {/* Navigation — from the route registry */}
+        <nav ref={navRef} aria-label={t('nav.ariaLabel')} className="flex-1 overflow-y-auto nav-scroll px-2 py-2">
           {/* Dashboard — always pinned at top */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <NavLink
-                to={dashboardItem.to}
-                end
-                onPointerEnter={() => preloadRouteModule(dashboardItem.to)}
-                onFocus={() => preloadRouteModule(dashboardItem.to)}
-                onClick={() => setMobileMenuOpen(false)}
-                className={cn(
-                  'group relative flex min-h-9 items-center rounded-md text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
-                  sidebarCollapsed ? 'justify-center px-2 py-2' : 'gap-3 px-2 py-1.5',
-                  location.pathname === dashboardItem.to
-                    ? 'bg-primary/10 text-foreground'
-                    : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
-                )}
-              >
-                {location.pathname === dashboardItem.to && (
-                  <span className="absolute start-0 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-s-full bg-primary" aria-hidden />
-                )}
-                <dashboardItem.icon className={cn('h-[15px] w-[15px] shrink-0', location.pathname === dashboardItem.to ? 'text-primary' : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                {!sidebarCollapsed && <span className="truncate">{t(dashboardItem.labelKey)}</span>}
-              </NavLink>
-            </TooltipTrigger>
-            {sidebarCollapsed && <TooltipContent side="right">{t(dashboardItem.labelKey)}</TooltipContent>}
-          </Tooltip>
+          {renderRow(DASHBOARD_ROUTE, 'primary')}
 
-          {/* Sections */}
-          {navSections.map((section, sectionIdx) => {
-            const tone = sectionToneStyles[section.color as keyof typeof sectionToneStyles] || sectionToneStyles.slate
-            const sectionHasSignal =
-              (section.id === 'server' && modUpdatesAvailable > 0) ||
-              (section.id === 'users' && playerCount > 0) ||
-              (section.id === 'panel' && !!panelUpdateAvailable)
-            const visibleItems = section.items.filter((item) => !item.capability || can(item.capability))
+          {NAV_SECTIONS.map((section) => {
+            const tone = ACCENT_STYLES[section.accent]
+            const rows = section.paths.map((path) => renderRow(getRouteMeta(path) as RouteMeta, section.accent)).filter(Boolean)
+            if (rows.length === 0) return null
 
             // Collapsed (icon rail) mode — separators between sections
             if (sidebarCollapsed) {
               return (
-                <div key={section.id} className={cn('space-y-0.5', sectionIdx === 0 ? 'mt-2 pt-2 border-t border-border/40' : 'mt-2 pt-2 border-t border-border/40')}>
-                  {visibleItems.map((item) => {
-                    const isDisabledByRemote = isBlockedByRemote(item)
-                    const isDisabledByNoServer = isBlockedByNoServer(item)
-                    const disabledReason = isDisabledByNoServer
-                      ? t('nav.requiresServer')
-                      : isDisabledByRemote
-                        ? t('nav.notAvailableRemote')
-                        : null
-
-                    if (disabledReason || item.disabled) {
-                      return (
-                        <DisabledNavTooltip key={item.to} reason={disabledReason ?? t(item.labelKey)}>
-                          <div
-                            className="flex min-h-9 items-center justify-center rounded-md px-2 py-2 opacity-45 cursor-not-allowed"
-                            aria-disabled="true"
-                            aria-label={disabledReason ? `${t(item.labelKey)} — ${disabledReason}` : t(item.labelKey)}
-                          >
-                            <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                          </div>
-                        </DisabledNavTooltip>
-                      )
-                    }
-
-                    const isActive = isItemActive(item)
-                    return (
-                      <Tooltip key={item.to}>
-                        <TooltipTrigger asChild>
-                          <NavLink
-                            to={item.to}
-                            onPointerEnter={() => preloadRouteModule(item.to.split('?')[0])}
-                            onFocus={() => preloadRouteModule(item.to.split('?')[0])}
-                            onClick={() => setMobileMenuOpen(false)}
-                            className={cn(
-                              'group relative flex min-h-9 items-center justify-center rounded-md px-2 py-2 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
-                              isActive
-                                ? cn('font-medium', tone.childActive)
-                                : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
-                            )}
-                          >
-                            {isActive && (
-                              <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
-                            )}
-                            <item.icon className={cn('h-[15px] w-[15px] shrink-0', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                          </NavLink>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-                      </Tooltip>
-                    )
-                  })}
+                <div key={section.id} className="mt-2 space-y-0.5 border-t border-border/40 pt-2">
+                  {rows}
                 </div>
               )
             }
 
-            // Expanded — flat list with lane label
             return (
-              <div key={section.id} className="mt-3 first:mt-3">
+              <div key={section.id} className="mt-3">
                 {/* Lane label */}
                 <div className="mb-1 flex items-center gap-2 px-2">
-                  <span className={cn('h-px w-3 rounded-full', tone.childDot)} aria-hidden />
-                  <span className={cn('text-[10px] font-semibold uppercase leading-none tracking-[0.18em]', tone.labelActive)}>
+                  <span className={cn('h-px w-3 rounded-full', tone.bar)} aria-hidden="true" />
+                  <span className={cn('label-micro leading-none', tone.label)}>
                     {t(section.labelKey)}
                   </span>
-                  {sectionHasSignal && (
+                  {sectionHasSignal(section) && (
                     <span
                       className={cn(
                         'h-1.5 w-1.5 rounded-full',
-                        section.id === 'users' && 'bg-success',
-                        section.id === 'server' && 'bg-warning motion-safe:animate-pulse',
-                        section.id === 'panel' && 'bg-warning motion-safe:animate-pulse'
+                        section.id === 'players' ? 'bg-success' : 'bg-warning motion-safe:animate-pulse'
                       )}
                       aria-hidden
                     />
                   )}
                   <span className="h-px flex-1 bg-border/30" aria-hidden />
                 </div>
-                <div className="space-y-0.5">
-                  {visibleItems.map((item) => {
-                    const isDisabledByRemote = isBlockedByRemote(item)
-                    const isDisabledByNoServer = isBlockedByNoServer(item)
-
-                    if (isDisabledByNoServer) {
-                      return (
-                        <DisabledNavTooltip key={item.to} reason={t('nav.requiresServer')}>
-                          <div
-                            className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-50 cursor-not-allowed"
-                            aria-label={`${t(item.labelKey)} — ${t('nav.requiresServer')}`}
-                            aria-disabled="true"
-                          >
-                            <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                            <span className="truncate text-muted-foreground/70">{t(item.labelKey)}</span>
-                          </div>
-                        </DisabledNavTooltip>
-                      )
-                    }
-
-                    if (item.disabled) {
-                      return (
-                        <DisabledNavTooltip key={item.to} reason={t(item.labelKey)}>
-                          <div
-                            className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-50 cursor-not-allowed"
-                            aria-disabled="true"
-                          >
-                            <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                            <span className="truncate text-muted-foreground/70">{t(item.labelKey)}</span>
-                          </div>
-                        </DisabledNavTooltip>
-                      )
-                    }
-
-                    if (isDisabledByRemote) {
-                      return (
-                        <DisabledNavTooltip key={item.to} reason={t('nav.notAvailableRemote')}>
-                          <div
-                            className="flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] opacity-55"
-                            aria-label={`${t(item.labelKey)} — ${t('nav.notAvailableRemote')}`}
-                            aria-disabled="true"
-                          >
-                            <item.icon className="h-[15px] w-[15px] shrink-0 text-muted-foreground/50" />
-                            <span className="truncate text-muted-foreground/70 line-through decoration-muted-foreground/30">{t(item.labelKey)}</span>
-                            <Badge variant="outline" className="ms-auto px-1 py-0 text-[9px] uppercase tracking-wider">
-                              {t('nav.localBadge')}
-                            </Badge>
-                          </div>
-                        </DisabledNavTooltip>
-                      )
-                    }
-
-                    const isActive = isItemActive(item)
-                    return (
-                      <NavLink
-                        key={item.to}
-                        to={item.to}
-                        onPointerEnter={() => preloadRouteModule(item.to.split('?')[0])}
-                        onFocus={() => preloadRouteModule(item.to.split('?')[0])}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={cn(
-                          'group relative flex min-h-9 items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60',
-                          isActive
-                            ? cn('font-medium text-foreground', tone.childActive)
-                            : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'
-                        )}
-                      >
-                        {isActive && (
-                          <span className={cn('absolute start-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-s-full', tone.childDot)} aria-hidden />
-                        )}
-                        <item.icon className={cn('h-[15px] w-[15px] shrink-0 transition-colors', isActive ? tone.labelActive : 'text-muted-foreground/80 group-hover:text-foreground')} />
-                        <span className="truncate">{t(item.labelKey)}</span>
-                        {item.badge && (
-                          <Badge
-                            variant={isActive ? 'secondary' : 'outline'}
-                            className="ms-auto px-1.5 py-0 text-[10px] uppercase tracking-wider text-warning border-warning/40"
-                          >
-                            {item.badge}
-                          </Badge>
-                        )}
-                        {item.to === '/players' && playerCount > 0 && (
-                          <Badge
-                            variant={isActive ? 'secondary' : 'success'}
-                            className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
-                          >
-                            {playerCountLabel}
-                          </Badge>
-                        )}
-                        {item.to === '/mods' && modUpdatesAvailable > 0 && (
-                          <Badge
-                            variant="warning"
-                            className="ms-auto min-w-[24px] justify-center px-1.5 py-0 text-[10px] leading-tight"
-                            title={t('modBadge.updatesAvailable', { count: modUpdatesAvailable })}
-                          >
-                            {modUpdatesAvailable > 99 ? '99+' : modUpdatesAvailable}
-                          </Badge>
-                        )}
-                        {item.to === '/settings' && panelUpdateAvailable && (
-                          <span
-                            className="ms-auto h-1.5 w-1.5 rounded-full bg-warning motion-safe:animate-pulse"
-                            title={panelUpdateAvailable.version
-                              ? t('panelUpdateBadge.titleWithVersion', { version: panelUpdateAvailable.version })
-                              : t('panelUpdateBadge.titleNoVersion')}
-                            aria-hidden
-                          />
-                        )}
-                      </NavLink>
-                    )
-                  })}
-                </div>
+                <div className="space-y-0.5">{rows}</div>
               </div>
             )
           })}
@@ -1239,7 +1144,7 @@ export default function Layout({ children }: LayoutProps) {
                 <span className="sr-only"> {t('footer.opensInNewTab')}</span>
               </a>
               <div className="space-y-2">
-                <AuthFooter />
+                <AuthFooter onSignOut={() => void handleSignOut()} />
                 <div className="flex items-center gap-1.5">
                   {/* With an update waiting, the version itself becomes the
                       amber link to Settings > Updates: a separate badge does
@@ -1248,7 +1153,7 @@ export default function Layout({ children }: LayoutProps) {
                     <NavLink
                       to="/settings?tab=updates"
                       onClick={() => setMobileMenuOpen(false)}
-                      className="inline-flex h-5 min-w-0 items-center gap-1 rounded-full border border-[hsl(var(--warning)/0.72)] bg-warning px-1.5 font-mono text-[10px] font-medium text-warning-foreground transition-colors hover:bg-warning/90 focus-visible:outline-none focus-visible:rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card [@media(pointer:coarse)]:h-7"
+                      className="inline-flex h-5 min-w-0 items-center gap-1 rounded-full border border-warning/70 bg-warning px-1.5 font-mono text-[10px] font-medium text-warning-foreground transition-colors hover:bg-warning/90 focus-visible:outline-none focus-visible:rounded-full focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-card [@media(pointer:coarse)]:h-7"
                       title={panelUpdateAvailable.version
                         ? t('panelUpdateBadge.titleWithVersionOpenSettings', { version: panelUpdateAvailable.version })
                         : t('panelUpdateBadge.titleNoVersionOpenSettings')}
@@ -1301,6 +1206,27 @@ export default function Layout({ children }: LayoutProps) {
             // 28px squares, each with a tooltip to the right.
             <div className="flex flex-col items-center gap-1.5">
               <ConnectionStatus className="h-7 w-7 justify-center p-0" />
+              {/* The account row (name and Sign out) only exists in the
+                  expanded footer, and the rail is remembered: without this a
+                  collapsed sidebar left no way to sign out. */}
+              {authEnabled && user && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => void handleSignOut()}
+                      className={FOOTER_ICON_BUTTON}
+                      aria-label={t('footer.signOut')}
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {t('footer.signOut')}
+                    <bdi className="block text-muted-foreground">{user.username}</bdi>
+                  </TooltipContent>
+                </Tooltip>
+              )}
               <LanguageSwitcher compact className={FOOTER_ICON_BUTTON} />
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -1337,17 +1263,17 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main Content */}
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto pt-16 focus:outline-none lg:pt-0">
-        <div className="p-4 lg:p-8 max-w-7xl mx-auto">
+        <div className={cn('mx-auto p-4 lg:p-8', mainWidth)}>
           <SystemHealthBanner />
-          {/* Server Update Banner — cockpit-style: vertical accent, mono micro-label, tabular build delta */}
+          {/* Server Update Banner: a warning strip with the build delta (data, in mono). */}
           {updateInfo && updateInfo.updateAvailable && !updateDismissed && (
             <div
               role="status"
-              className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/35 bg-warning/[0.04] py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))]"
+              className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-warning/35 bg-warning/5 py-2 ps-3 pe-2 shadow-[inset_2px_0_0_hsl(var(--warning))]"
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0 text-warning" />
               <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-warning">
+                <span className="label-micro text-warning">
                   {t('updateBanner.label')}
                 </span>
                 <span className="min-w-0 truncate text-xs text-muted-foreground">
@@ -1375,7 +1301,7 @@ export default function Layout({ children }: LayoutProps) {
                     const key = updateInfo && updateInfo.installed && updateInfo.latest
                       ? `updateBannerDismissed:${updateInfo.installed.buildId}->${updateInfo.latest.buildId}`
                       : null
-                    if (key) localStorage.setItem(key, 'true')
+                    if (key) writeStored(key, 'true')
                   }}
                 >
                   {t('updateBanner.dismiss')}
@@ -1384,7 +1310,7 @@ export default function Layout({ children }: LayoutProps) {
                   size="sm"
                   variant="warning"
                   className="h-7 gap-1.5 px-2.5 text-xs font-semibold"
-                  onClick={() => navigate('/servers')}
+                  onClick={() => void guardedNavigate('/servers')}
                 >
                   <RefreshCw className="h-3 w-3" />
                   {t('updateBanner.updateServer')}
@@ -1396,6 +1322,14 @@ export default function Layout({ children }: LayoutProps) {
         </div>
       </main>
       <KeyboardShortcutsHelp open={helpOpen} onClose={() => setHelpOpen(false)} shortcuts={shortcuts} />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        servers={servers}
+        activeServer={activeServer}
+        onSwitchServer={handleSwitchServer}
+        onShowShortcuts={showShortcuts}
+      />
     </div>
   )
 }

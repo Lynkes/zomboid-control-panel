@@ -86,17 +86,30 @@ export function parsePlayerExportFile(filePath) {
 // Validation helpers to prevent RCON command injection
 // Allow normal in-game names (spaces/symbols) but block control chars and quote/backslash.
 const USERNAME_REGEX = /^[^\x00-\x1F\x7F"\\]{1,64}$/;
-const SAFE_TEXT_REGEX = /^[a-zA-Z0-9\s.,!?'":;()@#&+=%_\-\u00C0-\u024F]{0,256}$/;
+// Longest kick/ban/SteamID-ban reason the API accepts (characters).
+const MAX_REASON_LENGTH = 256;
+// Control characters (newlines, NUL, ...) never belong in a reason.
+const CONTROL_CHARACTER_REGEX = /[\x00-\x1F\x7F]/;
 const ITEM_REGEX = /^[A-Za-z0-9_]+\.[A-Za-z0-9_&#+.\-]+$/;
 
+// The name is checked as given, not trimmed first: PZ allows usernames with a
+// leading or trailing space, and rcon.js sends them untrimmed.
 function isValidUsername(username) {
   if (typeof username !== 'string') return false;
-  const trimmed = username.trim();
-  return trimmed.length > 0 && USERNAME_REGEX.test(trimmed);
+  return username.trim().length > 0 && USERNAME_REGEX.test(username);
 }
 
+// A kick/ban reason is free text. What reaches the game is narrowed by
+// rcon.sanitizeForBanReason() (accents folded, anything it cannot carry
+// dropped) and the panel's own record is only ever rendered as text, so this
+// checks the type, the length cap and control characters, not an alphabet:
+// "cheating [RDM]", "RDM / KOS" and non-Latin text are all legitimate reasons.
 function isValidText(text) {
-  return typeof text === 'string' && SAFE_TEXT_REGEX.test(text);
+  return (
+    typeof text === 'string' &&
+    text.length <= MAX_REASON_LENGTH &&
+    !CONTROL_CHARACTER_REGEX.test(text)
+  );
 }
 
 function isValidItem(item) {

@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Capacidad",
+    "title": "Capacidades por rol",
     "scrollHint": "Desliza a la derecha para ver todos los roles →",
     "seededBadge": "Predefinido",
     "memberCount_one": "{{count}} miembro",
@@ -159,7 +160,7 @@
       },
       "world_events": {
         "label": "Ejecutar eventos del mundo",
-        "description": "Tiempo atmosférico, clima, hora del día, sonido ambiental, hordas de zombis (solo eliminarlas, no invocarlas sobre alguien), servicios públicos, ajustes visuales y mensajes de difusión emitidos por el servidor — efectos a escala del mundo, no dirigidos a un jugador concreto. Invocar zombis o efectos de sonido sobre un jugador concreto, los rayos/truenos dirigidos y hacerse pasar por un jugador en el chat son un permiso aparte, players.endanger_or_impersonate."
+        "description": "Tiempo atmosférico, clima, hora del día, sonido ambiental, alarmas, disparos y helicópteros a escala del mundo, hordas de zombis (solo eliminarlas, no invocarlas sobre alguien), liberar refugios (safehouses), servicios públicos, ajustes visuales y mensajes de difusión emitidos por el servidor — efectos a escala del mundo, no dirigidos a un jugador concreto. También lee el registro de consola del servidor en directo (y su recuento de errores) y la comprobación de actualizaciones del juego. Invocar zombis o efectos de sonido sobre un jugador concreto, los rayos/truenos dirigidos y hacerse pasar por un jugador en el chat son un permiso aparte, players.endanger_or_impersonate."
       }
     },
     "rcon": {

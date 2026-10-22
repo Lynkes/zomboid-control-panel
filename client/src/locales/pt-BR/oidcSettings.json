@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "Identidade",
-    "title": "Login",
+    "title": "Login único",
     "description": "Permita que as pessoas façam login com uma conta existente de um provedor de identidade (Google Workspace, Okta, Authentik e similares), além de — nunca em vez de — um nome de usuário e senha. O login local continua sempre funcionando."
   },
   "loading": "Carregando configurações de login…",

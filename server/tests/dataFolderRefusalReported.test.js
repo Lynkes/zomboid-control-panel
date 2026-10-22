@@ -244,12 +244,15 @@ describe("PT3: the features that went quiet say why", () => {
     expect(fs.readFileSync(path.join(refusedData, "Server", "Victim.ini"), "utf8")).not.toContain("RCON");
   });
 
-  it("the Discord presence says why MaxPlayers is missing, in the log, once", async () => {
+  it("the shared MaxPlayers reader says why it's missing, in the log, once", async () => {
     await useRecord({ zomboidDataPath: refusedData });
     const bot = new DiscordBot();
     expect(await bot.getConfiguredMaxPlayers()).toBeNull();
     expect(await bot.getConfiguredMaxPlayers()).toBeNull();
-    expect(linesWith("Discord", "warn", FOLDER_REFUSED)).toHaveLength(1);
+    // The reader moved from discordBot.js to services/serverCapacity.js (so
+    // index.js's perf snapshot can share it), so the warn line is scoped to
+    // that module now -- still exactly once per folder and reason.
+    expect(linesWith("ServerCapacity", "warn", FOLDER_REFUSED)).toHaveLength(1);
 
     await useRecord({});
     expect(await bot.getConfiguredMaxPlayers()).toBe(12);

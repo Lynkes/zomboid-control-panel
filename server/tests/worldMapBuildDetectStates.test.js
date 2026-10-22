@@ -131,7 +131,10 @@ describe("GET /debug/worldmap: worldmap.tiles.buildDetect reports both getB42Res
     expect(check.hint.toLowerCase()).toContain("not permanently solved");
   });
 
-  it("source: 'fallback' -> status warn", async () => {
+  // 2026-10-20: pzmap.org's bot protection refuses some networks for good
+  // (HTTP 403 on every try); the built-in build works, so it is info, not a
+  // warning nobody can act on.
+  it("source: 'fallback' -> status info", async () => {
     getB42ResolutionStatus.mockReturnValue({
       source: "fallback",
       directory: "42.19.0",
@@ -143,7 +146,7 @@ describe("GET /debug/worldmap: worldmap.tiles.buildDetect reports both getB42Res
     expect(res.getStatusCode()).toBe(200);
     const check = findCheck(res.getBody(), "worldmap.tiles.buildDetect");
     expect(check).toBeTruthy();
-    expect(check.status).toBe("warn");
+    expect(check.status).toBe("info");
     expect(check.message).toContain("42.19.0");
     expect(check.message).toContain("build_list.json listed no B42+ candidates");
     expect(check.params).toEqual({

@@ -1,5 +1,7 @@
 {
   "noUpdateYet": "no update yet",
+  "verdictAria": "Server verdict",
+  "workListAria": "Server sections",
   "updatedJustNow": "updated just now",
   "updatedSecondsAgo": "updated {{count}}s ago",
   "updatedMinutesAgo": "updated {{count}}m ago",

@@ -5,7 +5,8 @@ import express from "express";
 import path from "path";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Discovery");
-import { sanitizeError, sanitizeServerResponse } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams, sanitizeServerResponse } from "../utils/sanitize.js";
+import { ErrorCode } from "../utils/errorCodes.js";
 import { normalizeRconHost, resolveEnvRconHost } from "../services/rcon.js";
 import { createServer } from "../database/init.js";
 import { requirePermission } from "../services/permissions.js";
@@ -204,6 +205,13 @@ router.post("/create-from-discovery", requirePermission("servers.manage"), async
         message: "Server created from discovered mount",
       });
   } catch (error) {
+    if (error?.code === ErrorCode.SERVER_ALREADY_EXISTS) {
+      return res.status(409).json({
+        error: error.message,
+        code: ErrorCode.SERVER_ALREADY_EXISTS,
+        params: sanitizeErrorParams(error.params),
+      });
+    }
     log.error(`create-from-discovery failed: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }

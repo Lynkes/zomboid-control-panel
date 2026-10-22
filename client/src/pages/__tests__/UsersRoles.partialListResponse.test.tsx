@@ -61,7 +61,7 @@ describe('Settings > Users and Roles & Permissions: a reply without its list', (
 
     expect(await screen.findByRole('columnheader', { name: 'Account' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /add user/i })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /^Remove / })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Actions for / })).not.toBeInTheDocument()
   })
 
   it('Roles & Permissions renders an empty matrix and no accounts', async () => {

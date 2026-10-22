@@ -18,6 +18,7 @@
   },
   "matrix": {
     "capabilityColumnHeader": "Recht",
+    "title": "Rechte je Rolle",
     "scrollHint": "Nach rechts scrollen, um alle Rollen zu sehen →",
     "seededBadge": "Integriert",
     "memberCount_one": "{{count}} Mitglied",
@@ -156,7 +157,7 @@
       },
       "world_events": {
         "label": "Weltereignisse auslösen",
-        "description": "Wetter, Klima, Tageszeit, Umgebungsgeräusche, Zombiehorden (nur entfernen, nicht auf jemanden spawnen), Versorgungseinrichtungen, visuelle Einstellungen und vom Server gesendete Rundschreiben — weltweite Effekte, nicht auf einen bestimmten Spieler gerichtet. Zombies oder Klangeffekte auf einen namentlich genannten Spieler richten, gezielter Blitz/Donner und das Vortäuschen der Identität eines Spielers im Chat sind eine eigene Berechtigung, players.endanger_or_impersonate."
+        "description": "Wetter, Klima, Tageszeit, Umgebungsgeräusche, weltweite Alarm-, Schuss- und Hubschrauberereignisse, Zombiehorden (nur entfernen, nicht auf jemanden spawnen), das Freigeben von Safehouses, Versorgungseinrichtungen, visuelle Einstellungen und vom Server gesendete Rundschreiben — weltweite Effekte, nicht auf einen bestimmten Spieler gerichtet. Liest außerdem das laufende Konsolenprotokoll des Servers (samt Fehlerzahl) und die Update-Prüfung des Spiels. Zombies oder Klangeffekte auf einen namentlich genannten Spieler richten, gezielter Blitz/Donner und das Vortäuschen der Identität eines Spielers im Chat sind eine eigene Berechtigung, players.endanger_or_impersonate."
       }
     },
     "rcon": {

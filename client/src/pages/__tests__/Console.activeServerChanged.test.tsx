@@ -4,6 +4,7 @@ import Console from '../Console'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-04: this page loaded the active server once on mount and
 // never again -- unlike Settings.tsx/Dashboard.tsx/Servers.tsx/WorldMap.tsx/
@@ -104,7 +105,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

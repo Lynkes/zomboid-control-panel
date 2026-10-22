@@ -1,12 +1,77 @@
 ---@diagnostic disable: undefined-global, deprecated
 --[[
     PanelBridge - Server-side mod for Zomboid Control Panel
-    Version: 1.7.73
+    Version: 1.7.78
 
     This mod enables external control panel communication with the PZ server.
     Communication happens via JSON files in the server save folder.
 
-                vNEXT Changes:
+                v1.7.78 Changes:
+                - Fix: a character import can no longer freeze the server.
+                    importPlayerData levelled each perk once per level in the
+                    file, so a level of 1e9 ran a billion LevelPerk calls on
+                    the game thread. Perk levels are now clamped to 0..10
+                    (the game's range), and the item count, condition, uses
+                    and job/use deltas to their own ranges. Import data,
+                    options or a perk entry that isn't a table no longer
+                    stops the whole handler.
+                - Remove: the server no longer listens for client commands.
+                    Its only one, teleportAck, let any connected player fill
+                    a table with whatever they sent, and nothing read it.
+                    The teleport itself is unchanged.
+
+                v1.7.77 Changes:
+                - Add: bounded per-player kill-counter audit events to
+                    leaderboard diagnostics, including before/after totals.
+
+                v1.7.76 Changes:
+                - Fix: Kill Player can kill. invoke() lost a trailing nil
+                    argument, so Kill(nil) reached the game as Kill() with no
+                    argument (every Kill overload takes 1 to 4) and failed
+                    with "No implementation found", leaving the player alive
+                    with godmode already stripped. invoke() now passes every
+                    argument it was given, nil or not.
+                - Fix: the Events page's Clock shows and sets the right day.
+                    GameTime counts the day from 0, so getGameTime reported
+                    day 14 on the 15th, typing 20 set the 21st, and on the
+                    1st of a month the 0 it read back was refused when sent
+                    to Set Time. getGameTime (and getServerInfo's gameTime)
+                    now report the calendar day (1 = the 1st) and setGameTime
+                    takes it; a day below 1 is refused before anything is
+                    written.
+                - Fix: a truncated or hand-edited inbox command or queue-state
+                    file could freeze the game thread. json.decode looped
+                    forever on a character that is no JSON token (a cut-off
+                    nul, a bare word: {"a":x} or [x]) and pcall cannot stop
+                    that, so the bridge hung again after every restart (the
+                    command cursor had not moved past the file). It now
+                    reports a parse error and the file is treated as
+                    unreadable.
+                - Fix: the memory of already-run command ids is trimmed again.
+                    The trim sat behind an early return that is taken
+                    whenever the legacy commands.json is empty (always, with
+                    the numbered queue), so the id list grew by one for every
+                    command until the server restarted. It runs on each new
+                    id now and keeps at most the newest 500.
+
+                v1.7.75 Changes:
+                - Fix: two accounts behind one SteamID no longer inflate the
+                    leaderboard. Split-screen guests report the host's
+                    SteamID and alt accounts can share one Steam account, and
+                    the row (keyed by SteamID) kept a single kill baseline, so
+                    each switch between the two added the difference of their
+                    kill counters to all-time kills (a 500-kill and a 20-kill
+                    account gained 480 per switch; a co-op host and guest
+                    gained the gap every minute from the sweep) and flipped
+                    the row's name. The first name seen on a SteamID keeps the
+                    row; another name gets its own row, keyed
+                    steam:<id>|<lowercase name>. A row that already merged
+                    names keeps its key, its totals and its last name (its
+                    aliases stay); the other names start their own rows. A
+                    death's counted body is followed per account too.
+                    getLeaderboard rows are otherwise unchanged.
+
+                v1.7.74 Changes:
                 - Fix: the leaderboard tracks every player, not only the ones
                     online while someone had the panel's Leaderboard page
                     open. Kills and days were only read by getLeaderboard, so
@@ -702,7 +767,7 @@ if not (isServer and isServer()) then return end
 local json
 
 local PanelBridge = {
-    VERSION = "1.7.73",
+    VERSION = "1.7.78",
     -- Change only for a breaking wire-format change. Bridge changes must be additive: a
     -- Workshop server runs whatever version was last published, not the panel's bundled one.
     PROTOCOL_VERSION = "queue-v1",
@@ -946,9 +1011,15 @@ function PanelBridge.invoke(obj, methodName, ...)
         return false, "Method '" .. methodName .. "' not available on this build"
     end
 
+    -- Count the arguments up front: `{ ... }` plus a bare unpack(args) stops at
+    -- the first trailing nil (the length operator treats it as the end), so
+    -- invoke(player, "Kill", nil) used to call player:Kill() with NO argument
+    -- and the game, whose Kill overloads all take 1-4, raised "No
+    -- implementation found for function: Kill". Pass all n through.
+    local argCount = select("#", ...)
     local args = { ... }
     local success, result = pcall(function()
-        return obj[methodName](obj, unpack(args))
+        return obj[methodName](obj, unpack(args, 1, argCount))
     end)
 
     if success then
@@ -1472,6 +1543,7 @@ function json.decode(str)
                 return obj
             end
             while pos <= #str do
+                local passStart = pos
                 skip_whitespace()
                 if pos > #str then break end
                 local key = parse_value()
@@ -1492,6 +1564,16 @@ function json.decode(str)
                 elseif c == ',' then
                     pos = pos + 1
                 end
+                -- A pass that consumed nothing (a character that is no JSON
+                -- token, such as the x in {"a":x} or a truncated nul) would
+                -- read that same character again forever, and pcall cannot
+                -- interrupt an infinite loop. Raise instead, so the pcall
+                -- around parse_value returns nil. Anything a pass did consume
+                -- (a stray comma, a trailing comma before }) still decodes as
+                -- it always did.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
+                end
             end
             return obj
         elseif c == '[' then
@@ -1505,6 +1587,7 @@ function json.decode(str)
                 return arr
             end
             while pos <= #str do
+                local passStart = pos
                 idx = idx + 1
                 local value = parse_value()
                 -- See json.null above: preserve the slot (and every later
@@ -1519,6 +1602,11 @@ function json.decode(str)
                     return arr
                 elseif c == ',' then
                     pos = pos + 1
+                end
+                -- Same guard as the object loop: a pass that consumed nothing
+                -- (the x in [x]) would repeat forever, growing arr each time.
+                if pos == passStart then
+                    error("unexpected character '" .. c .. "' at position " .. pos)
                 end
             end
             return arr
@@ -1617,10 +1705,10 @@ local LEADERBOARD_FLUSH_INTERVAL_MS = 60000
 -- Up to 1.7.73 only a panel read (the Leaderboard page, a character sheet)
 -- did it, so whoever played while nobody watched was never counted.
 local LEADERBOARD_SWEEP_INTERVAL_MS = 60000
--- The store keeps this many of its last resets, and each row this many
--- other names it was seen under.
+-- The store keeps this many of its last resets.
 local MAX_LEADERBOARD_RESETS = 5
-local MAX_LEADERBOARD_ALIASES = 5
+local MAX_LEADERBOARD_KILL_AUDIT = 24
+local MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS = 100
 -- Who asked for a getLeaderboard read (args.source); anything else is "panel".
 local LEADERBOARD_PANEL_SOURCES = { page = true, character = true, sampler = true, bundle = true }
 
@@ -1854,9 +1942,42 @@ local function leaderboardIdentity(player)
     return "name:" .. string.lower(tostring(username)), tostring(username)
 end
 
-local function ensureLeaderboardRecord(store, player)
+-- The key of the row a player's reads belong to. A SteamID is not one
+-- account: split-screen guests report the host's, several accounts can sit
+-- behind one Steam account (MaxAccountsPerUser is unlimited by default), and
+-- two SteamID64s can collapse to the same double. A row keeps one kill
+-- baseline (lastObservedKills), so two accounts on one row each added the
+-- other's difference to all-time kills on every switch, and the row's name
+-- flipped. The first name seen on a steam key keeps the key; any other name
+-- gets a row of its own under `<key>|<lowercase name>`. A row that already
+-- merged several names under the old rule keeps its key and its last name.
+local function leaderboardAccountKey(key, username)
+    if string.sub(key, 1, 6) ~= "steam:" then return key end
+    return key .. "|" .. string.lower(username)
+end
+
+local function leaderboardRowKey(store, key, username)
+    local owner = store.players[key]
+    if type(owner) == "table" and type(owner.username) == "string"
+        and string.lower(owner.username) ~= string.lower(username) then
+        return leaderboardAccountKey(key, username)
+    end
+    return key
+end
+
+-- The key of one account for the runtime maps that follow a character: a
+-- steam key alone would let one account's live read let go of another's
+-- counted body.
+local function leaderboardBodyKey(player)
     local key, username = leaderboardIdentity(player)
-    if not key then return nil, nil end
+    if not key then return nil end
+    return leaderboardAccountKey(key, username)
+end
+
+local function ensureLeaderboardRecord(store, player)
+    local identityKey, username = leaderboardIdentity(player)
+    if not identityKey then return nil, nil end
+    local key = leaderboardRowKey(store, identityKey, username)
 
     local record = store.players[key]
     if type(record) ~= "table" then
@@ -1875,21 +1996,9 @@ local function ensureLeaderboardRecord(store, player)
         store.players[key] = record
     end
 
-    -- Another name on the same key: a renamed account, or several accounts
-    -- behind one SteamID (split-screen guests, alts on one Steam account).
-    -- The row shows the last one; the others are kept so a merged row can
-    -- be spotted without changing the key.
-    if type(record.username) == "string" and string.lower(record.username) ~= string.lower(username) then
-        local aliases = {}
-        for _, alias in ipairs(type(record.aliases) == "table" and record.aliases or {}) do
-            if type(alias) == "string" and alias ~= string.lower(username) and alias ~= string.lower(record.username) then
-                aliases[#aliases + 1] = alias
-            end
-        end
-        aliases[#aliases + 1] = string.lower(record.username)
-        while #aliases > MAX_LEADERBOARD_ALIASES do table.remove(aliases, 1) end
-        record.aliases = aliases
-    end
+    -- Only the case of the name can differ from the row's here (see
+    -- leaderboardRowKey). record.aliases, written by 1.7.74 and older when
+    -- accounts merged into one row, stays as it is: it marks that row.
     record.username = username
     record.displayName = PanelBridge.tryGet(player, "getDisplayName") or record.displayName or username
     record.currentKills = tonumber(record.currentKills) or 0
@@ -1905,26 +2014,79 @@ local function ensureLeaderboardRecord(store, player)
     return record, key
 end
 
-local function syncLeaderboardMetrics(record, player)
+local function appendLeaderboardKillAudit(record, key, kind, source, at, previousKills, currentKills, addedKills, allTimeBefore)
+    if type(record.killAudit) ~= "table" then record.killAudit = {} end
+    table.insert(record.killAudit, {
+        at = tonumber(at) or leaderboardNow(),
+        kind = kind,
+        source = type(source) == "string" and source or "panel",
+        previousKills = tonumber(previousKills),
+        currentKills = tonumber(currentKills),
+        addedKills = tonumber(addedKills) or 0,
+        allTimeBefore = tonumber(allTimeBefore) or 0,
+        allTimeAfter = tonumber(record.allTimeKills) or 0,
+    })
+    while #record.killAudit > MAX_LEADERBOARD_KILL_AUDIT do
+        table.remove(record.killAudit, 1)
+    end
+    PanelBridge.leaderboardDirty = true
+    PanelBridge.leaderboardDirtyRows[key] = true
+end
+
+local function syncLeaderboardMetrics(record, key, player, source, sampledAt)
     local currentKills = tonumber(PanelBridge.tryGet(player, "getZombieKills"))
     if currentKills then
         local lastObserved = tonumber(record.lastObservedKills)
+        local allTimeBefore = tonumber(record.allTimeKills) or 0
+        local hasAudit = type(record.killAudit) == "table" and #record.killAudit > 0
+        local kind
+        local addedKills = 0
         if record.awaitingNewLife then
             -- The first read of the life after a death recordPlayerDeath
             -- counted: that life was read to its end, so every kill on
             -- this counter is new.
-            record.allTimeKills = record.allTimeKills + currentKills
+            addedKills = currentKills
+            record.allTimeKills = allTimeBefore + addedKills
             record.awaitingNewLife = nil
+            kind = "new-life"
         elseif not lastObserved then
             record.allTimeKills = math.max(record.allTimeKills, currentKills)
+            addedKills = record.allTimeKills - allTimeBefore
+            kind = "baseline"
         elseif currentKills >= lastObserved then
-            record.allTimeKills = record.allTimeKills + (currentKills - lastObserved)
+            addedKills = currentKills - lastObserved
+            record.allTimeKills = allTimeBefore + addedKills
+            if addedKills > 0 then kind = "increase" end
+        else
+            kind = "counter-drop"
         end
         record.currentKills = currentKills
         -- A new character starts its vanilla kill counter at zero. The
         -- decrease means "new life", not lost all-time kills; reset the
         -- observation point so future kills on that life are counted.
         record.lastObservedKills = currentKills
+
+        local shouldAudit = kind ~= nil
+        if kind == "increase" and source == "kill" and addedKills <= 1 and hasAudit then
+            shouldAudit = false
+        end
+        if not shouldAudit and not hasAudit then
+            kind = "baseline"
+            shouldAudit = true
+        end
+        if shouldAudit then
+            appendLeaderboardKillAudit(
+                record,
+                key,
+                kind,
+                source,
+                sampledAt,
+                lastObserved,
+                currentKills,
+                addedKills,
+                allTimeBefore
+            )
+        end
     end
 
     local hoursSurvived = tonumber(PanelBridge.tryGet(player, "getHoursSurvived"))
@@ -1935,13 +2097,13 @@ local function syncLeaderboardMetrics(record, player)
     end
 end
 
--- The body of each death recordPlayerDeath counted, by row key. Runtime
--- only: GameServer.getPlayers keeps listing the dead IsoPlayer until its
--- owner respawns (a new object), and its counters belong to a life that is
--- already counted. IsoGameCharacter.DoDeath fires OnCharacterDeath before
--- anything else, so isDead() alone may not cover that event's own window.
--- Cleared by a live read on the key, or by the sweep once nobody on the key
--- is listed.
+-- The body of each death recordPlayerDeath counted, by account
+-- (leaderboardBodyKey). Runtime only: GameServer.getPlayers keeps listing
+-- the dead IsoPlayer until its owner respawns (a new object), and its
+-- counters belong to a life that is already counted.
+-- IsoGameCharacter.DoDeath fires OnCharacterDeath before anything else, so
+-- isDead() alone may not cover that event's own window. Cleared by a live
+-- read on the account, or by the sweep once nobody on it is listed.
 PanelBridge.leaderboardDeadPlayers = PanelBridge.leaderboardDeadPlayers or {}
 
 -- Reads one player's kills and days into their row: the one way every path
@@ -1949,18 +2111,19 @@ PanelBridge.leaderboardDeadPlayers = PanelBridge.leaderboardDeadPlayers or {}
 -- the row, or nil for an animal, a dead character or a counted body.
 -- `dying` is the death's own read, which comes before isDead() turns true.
 local function sampleLeaderboardPlayer(store, player, source, now, dying)
-    local key = leaderboardIdentity(player)
+    local key = leaderboardBodyKey(player)
     if not key then return nil end
     if not dying then
         local body = PanelBridge.leaderboardDeadPlayers[key]
         if body == player or PanelBridge.tryGet(player, "isDead") == true then return nil end
-        -- A live character on this key: the counted body is gone.
+        -- A live character on this account: the counted body is gone.
         if body ~= nil then PanelBridge.leaderboardDeadPlayers[key] = nil end
     end
     local record = ensureLeaderboardRecord(store, player)
     if not record then return nil end
-    syncLeaderboardMetrics(record, player)
-    record.lastSampledAt = now or leaderboardNow()
+    local sampledAt = now or leaderboardNow()
+    syncLeaderboardMetrics(record, key, player, source, sampledAt)
+    record.lastSampledAt = sampledAt
     record.lastSampleSource = source
     return record
 end
@@ -1990,7 +2153,7 @@ function PanelBridge.sweepLeaderboard()
     if playerList then
         local listed = {}
         for _, player in ipairs(playerList) do
-            local key = leaderboardIdentity(player)
+            local key = leaderboardBodyKey(player)
             if key then listed[key] = true end
         end
         local gone = {}
@@ -2037,7 +2200,7 @@ end
 -- 1.7.73 a death only added 1, and both the dying life's unread kills and
 -- the next life's kills up to the next read were lost.
 local function recordPlayerDeath(player)
-    local key = leaderboardIdentity(player)
+    local key = leaderboardBodyKey(player)
     if not key or PanelBridge.leaderboardDeadPlayers[key] == player then return end
     local store = getLeaderboardStore()
     local record = sampleLeaderboardPlayer(store, player, "death", leaderboardNow(), true)
@@ -2046,6 +2209,17 @@ local function recordPlayerDeath(player)
     record.awaitingNewLife = true
     record.currentKills = 0
     record.currentDays = 0
+    appendLeaderboardKillAudit(
+        record,
+        key,
+        "death",
+        "death",
+        leaderboardNow(),
+        record.lastObservedKills,
+        record.lastObservedKills,
+        0,
+        record.allTimeKills
+    )
     PanelBridge.leaderboardDeadPlayers[key] = player
 end
 
@@ -2108,9 +2282,6 @@ local function onLeaderboardZombieDead(zombie)
 end
 
 PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq or 0
-PanelBridge.teleportAcks = PanelBridge.teleportAcks or {}
-PanelBridge.teleportAckOrder = PanelBridge.teleportAckOrder or {}
-local MAX_TELEPORT_ACKS = 200
 
 local function requestClientTeleport(player, x, y, z)
     PanelBridge.teleportRequestSeq = PanelBridge.teleportRequestSeq + 1
@@ -2128,26 +2299,10 @@ local function requestClientTeleport(player, x, y, z)
     return true, requestId, nil
 end
 
-function PanelBridge.onClientCommand(module, command, player, args)
-    if module ~= "PanelBridge" or command ~= "teleportAck" or not player then return end
-    args = args or {}
-    local requestId = tostring(args.requestId or "")
-    if requestId == "" then return end
-    PanelBridge.teleportAcks[requestId] = {
-        status = tostring(args.status or "unknown"),
-        username = PanelBridge.tryGet(player, "getUsername"),
-        x = tonumber(args.x),
-        y = tonumber(args.y),
-        z = tonumber(args.z),
-        error = args.error,
-        receivedAt = getTimestampMs()
-    }
-    table.insert(PanelBridge.teleportAckOrder, requestId)
-    while #PanelBridge.teleportAckOrder > MAX_TELEPORT_ACKS do
-        local oldest = table.remove(PanelBridge.teleportAckOrder, 1)
-        if oldest then PanelBridge.teleportAcks[oldest] = nil end
-    end
-end
+-- The client companion (PanelBridgeClient.lua) still answers each teleport
+-- with a "teleportAck" client command. The server registers no
+-- OnClientCommand handler: that command came unauthenticated from any
+-- connected player, and nothing used what it said.
 
 -- ============================================
 -- FILE OPERATIONS
@@ -2601,12 +2756,41 @@ local function invalidateLiveStateCache()
     end
 end
 
+-- Sliding window over the ids processSingleCommand has already run: once more
+-- than this many are remembered, the oldest half is dropped.
+local MAX_PROCESSED_IDS = 500
+
+-- Walks processedIdOrder (true insertion order) instead of pairs(), whose
+-- iteration order over processedIds is unspecified in Lua -- iterating
+-- pairs() here used to drop an ARBITRARY half rather than the oldest half.
+local function trimProcessedIds()
+    if PanelBridge.processedIdCount <= MAX_PROCESSED_IDS then return end
+    local oldCount = PanelBridge.processedIdCount
+    local skip = math.floor(oldCount / 2)
+    local newOrder = {}
+    local newSet = {}
+    for i = skip + 1, #PanelBridge.processedIdOrder do
+        local id = PanelBridge.processedIdOrder[i]
+        newOrder[#newOrder + 1] = id
+        newSet[id] = true
+    end
+    PanelBridge.processedIds = newSet
+    PanelBridge.processedIdOrder = newOrder
+    PanelBridge.processedIdCount = #newOrder
+    PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
+end
+
 -- Marks a command id as processed, keeping processedIds (O(1) lookup) and
--- processedIdOrder (insertion order, for the trim in processCommands) in sync.
+-- processedIdOrder (insertion order, for the trim above) in sync. The trim
+-- runs here, on every mark: it used to sit at the end of processCommands,
+-- behind the early return taken whenever the legacy commands.json is empty
+-- (always, with the numbered queue), so both tables grew by one entry per
+-- command for as long as the server stayed up.
 local function markProcessed(id)
     PanelBridge.processedIds[id] = true
     table.insert(PanelBridge.processedIdOrder, id)
     PanelBridge.processedIdCount = PanelBridge.processedIdCount + 1
+    trimProcessedIds()
 end
 
 local function processSingleCommand(cmd)
@@ -3172,7 +3356,7 @@ handlers.getServerInfo = function(args)
                 minute = math.floor((tod - hour) * 60)
             end
             gameTimeData = {
-                day = gameTime:getDay(),
+                day = gameTime:getDay() + 1, -- getDay() is zero-based (the 1st is 0), like getMonth()
                 month = gameTime:getMonth() + 1, -- Lua 1-indexed
                 year = gameTime:getYear(),
                 hour = hour,
@@ -4427,7 +4611,13 @@ handlers.getGameTime = function(args)
     return true, {
         year = gameTime:getYear(),
         month = gameTime:getMonth() + 1, -- Lua 1-indexed
-        day = gameTime:getDay(),
+        -- GameTime.getDay() is the zero-based day field (the 1st of a month
+        -- is 0, vanilla DebugDemoTime.lua shows getDay()+1 and rolls the
+        -- month over at getDay() >= daysInMonth). getDayPlusOne() is
+        -- exactly that +1; the plain getter plus 1 is used because vanilla
+        -- Lua never calls getDayPlusOne (see the note on probes above).
+        -- setGameTime takes the same calendar day back.
+        day = gameTime:getDay() + 1,
         hour = timeOfDay,
         minute = math.floor((timeOfDay - hour) * 60),
         dayOfWeek = 0,
@@ -4459,6 +4649,14 @@ handlers.setGameTime = function(args)
 
     local updated = {}
 
+    -- Checked before any field is written: a day below 1 would land on
+    -- setDay(-1), and the hour (written first) must not have been changed
+    -- already when that is refused.
+    local dayArg = args.day ~= nil and tonumber(args.day) or nil
+    if dayArg and dayArg < 1 then
+        return false, nil, "day must be 1 or higher (1 is the first of the month)"
+    end
+
     local function setAndVerify(methodName, value, getterName, expected)
         local ok, err = PanelBridge.invoke(gameTime, methodName, value)
         if not ok then
@@ -4479,13 +4677,12 @@ handlers.setGameTime = function(args)
         updated.hour = hour
     end
 
-    if args.day ~= nil then
-        local day = tonumber(args.day)
-        if day then
-            local ok, err = setAndVerify("setDay", day, "getDay", day)
-            if not ok then return false, nil, err end
-            updated.day = day
-        end
+    if dayArg then
+        -- dayArg is the calendar day (1 = the 1st), the same value
+        -- getGameTime returns; GameTime.setDay/getDay are zero-based.
+        local ok, err = setAndVerify("setDay", dayArg - 1, "getDay", dayArg - 1)
+        if not ok then return false, nil, err end
+        updated.day = dayArg
     end
 
     if args.month ~= nil then
@@ -4864,8 +5061,8 @@ handlers.getLeaderboard = function(args)
         local record = sampleLeaderboardPlayer(store, player, source, now)
         if not record then
             -- A dead player waiting to respawn is still connected.
-            local key = leaderboardIdentity(player)
-            record = key and store.players[key]
+            local identityKey, username = leaderboardIdentity(player)
+            record = identityKey and store.players[leaderboardRowKey(store, identityKey, username)]
         end
         if type(record) == "table" then record.online = true end
     end
@@ -4900,6 +5097,31 @@ handlers.getLeaderboard = function(args)
         end
     end
 
+    local killAudit = {}
+    for _, record in pairs(store.players) do
+        if type(record) == "table" and type(record.killAudit) == "table" then
+            for _, entry in ipairs(record.killAudit) do
+                table.insert(killAudit, {
+                    username = record.username,
+                    at = entry.at,
+                    source = entry.source,
+                    kind = entry.kind,
+                    previousKills = entry.previousKills,
+                    currentKills = entry.currentKills,
+                    addedKills = entry.addedKills,
+                    allTimeBefore = entry.allTimeBefore,
+                    allTimeAfter = entry.allTimeAfter,
+                })
+            end
+        end
+    end
+    table.sort(killAudit, function(left, right)
+        return (tonumber(left.at) or 0) < (tonumber(right.at) or 0)
+    end)
+    while #killAudit > MAX_LEADERBOARD_KILL_AUDIT_DIAGNOSTICS do
+        table.remove(killAudit, 1)
+    end
+
     local sweep = PanelBridge.leaderboardSweep
     return true, {
         players = players,
@@ -4914,6 +5136,7 @@ handlers.getLeaderboard = function(args)
             loadedFrom = PanelBridge.leaderboardLoadedFrom,
             flushSeq = store.flushSeq,
             resets = store.resets,
+            killAudit = killAudit,
         },
     }
 end
@@ -5995,16 +6218,33 @@ end
 -- PLAYER IMPORT (restore)
 -- ============================================
 
+-- A skill's level in the game runs 0..10.
+local IMPORT_PERK_LEVEL_MAX = 10
+
+-- A number from an import file, clamped to minValue..maxValue; `default`
+-- when it is no number at all (nil, a word, NaN). Import files come from
+-- outside the game, so every count and level is bounded before it drives a
+-- loop or a setter: a perk level of 1e9 used to run a billion LevelPerk
+-- calls on the game thread.
+local function clampImportNumber(value, default, minValue, maxValue)
+    local n = tonumber(value)
+    if n == nil or n ~= n then return default end
+    if n < minValue then return minValue end
+    if n > maxValue then return maxValue end
+    return n
+end
+
 -- Import/restore player data (skills and inventory)
 handlers.importPlayerData = function(args)
     local username = args.username
     local data = args.data
-    local options = args.options or {}
+    local options = args.options
+    if type(options) ~= "table" then options = {} end
 
     if not username then
         return false, nil, "Username required"
     end
-    if not data then
+    if type(data) ~= "table" then
         return false, nil, "Import data required"
     end
 
@@ -6022,9 +6262,16 @@ handlers.importPlayerData = function(args)
     -- have taken the whole handler down with it, including the inventory
     -- restore below, which is logically independent (gated on its own
     -- data.inventory check).
-    if data.perks and options.restorePerks ~= false then
+    if type(data.perks) == "table" and options.restorePerks ~= false then
         local xp = PanelBridge.tryGet(player, "getXp")
         for perkName, perkData in pairs(data.perks) do
+            -- A whole level from 0 to IMPORT_PERK_LEVEL_MAX, or nil (the
+            -- perk is skipped) when the entry has no number for it.
+            local level = nil
+            if type(perkData) == "table" then
+                level = clampImportNumber(perkData.level, nil, 0, IMPORT_PERK_LEVEL_MAX)
+                if level then level = math.floor(level) end
+            end
             -- Guards the TABLE INDEX itself -- Perks[perkName] is a bare Lua
             -- table index, not covered by the per-perk pcall below (which
             -- only starts after this line). Same shape as the already-fixed
@@ -6033,7 +6280,7 @@ handlers.importPlayerData = function(args)
             -- below too even though it's logically independent (gated on
             -- its own data.inventory check).
             local perkOk, perk = pcall(function() return Perks[perkName] end)
-            if perkOk and perk and perkData.level then
+            if perkOk and perk and level then
                 -- Use pcall for safety
                 pcall(function()
                     -- Reset perk to 0 first
@@ -6046,7 +6293,7 @@ handlers.importPlayerData = function(args)
                     -- https://demiurgequantified.github.io/ProjectZomboidJavaDocs/zombie/characters/IsoGameCharacter.html#LevelPerk(zombie.characters.skills.PerkFactory.Perk)
                     -- vs the 2-arg overload used for automatic/passive
                     -- level-ups that shouldn't cost a point).
-                    for lvl = 1, perkData.level do
+                    for lvl = 1, level do
                         player:LevelPerk(perk, false)
                     end
                     -- Count the restore here, once the real, provable action
@@ -6079,7 +6326,7 @@ handlers.importPlayerData = function(args)
                     -- un-count a level change that genuinely already
                     -- happened.
                     if xp then
-                        pcall(function() xp:setXPToLevel(perk, perkData.level) end)
+                        pcall(function() xp:setXPToLevel(perk, level) end)
                     end
                 end)
             end
@@ -6103,7 +6350,8 @@ handlers.importPlayerData = function(args)
                         -- skip malformed entries
                     else
                         local ok, result = pcall(function()
-                            local count = math.min(itemData.count or 1, 100) -- Clamp to prevent server freeze
+                            -- Clamp to prevent server freeze
+                            local count = math.floor(clampImportNumber(itemData.count, 1, 0, 100))
                             for c = 1, count do
                                 if totalAdded >= MAX_ITEMS then break end
                                 local newItem = container:AddItem(itemData.fullType)
@@ -6113,25 +6361,35 @@ handlers.importPlayerData = function(args)
                                     -- Probe through invoke() instead of using
                                     -- `newItem.setCondition`-style guards,
                                     -- which silently skip real setters.
-                                    if itemData.condition then
-                                        PanelBridge.invoke(newItem, "setCondition", itemData.condition)
+                                    -- Condition and uses stay within the
+                                    -- item's own maximum (1000 when it
+                                    -- can't be read); the deltas are 0..1.
+                                    local condition = clampImportNumber(itemData.condition, nil, 0,
+                                        tonumber(PanelBridge.tryGet(newItem, "getConditionMax")) or 1000)
+                                    if condition then
+                                        PanelBridge.invoke(newItem, "setCondition", math.floor(condition))
                                     end
                                     -- Set uses if available (for drainable items)
-                                    if itemData.uses then
-                                        PanelBridge.invoke(newItem, "setCurrentUses", itemData.uses)
+                                    local uses = clampImportNumber(itemData.uses, nil, 0,
+                                        tonumber(PanelBridge.tryGet(newItem, "getMaxUses")) or 1000)
+                                    if uses then
+                                        PanelBridge.invoke(newItem, "setCurrentUses", math.floor(uses))
                                     end
                                     -- setDelta() does not exist either (same jar check as the
                                     -- export side, see serializeInventory) -- restore the two
                                     -- real fields a newer export may carry instead.
-                                    if itemData.jobDelta then
-                                        PanelBridge.invoke(newItem, "setJobDelta", itemData.jobDelta)
+                                    local jobDelta = clampImportNumber(itemData.jobDelta, nil, 0, 1)
+                                    if jobDelta then
+                                        PanelBridge.invoke(newItem, "setJobDelta", jobDelta)
                                     end
-                                    if itemData.useDelta then
-                                        PanelBridge.invoke(newItem, "setUseDelta", itemData.useDelta)
+                                    local useDelta = clampImportNumber(itemData.useDelta, nil, 0, 1)
+                                    if useDelta then
+                                        PanelBridge.invoke(newItem, "setUseDelta", useDelta)
                                     end
                                     -- Set delta if available
-                                    if itemData.delta then
-                                        PanelBridge.invoke(newItem, "setDelta", itemData.delta)
+                                    local delta = clampImportNumber(itemData.delta, nil, 0, 1)
+                                    if delta then
+                                        PanelBridge.invoke(newItem, "setDelta", delta)
                                     end
                                     -- Handle container contents (bags) with depth limit
                                     if itemData.contents and type(itemData.contents) == "table" then
@@ -10829,25 +11087,8 @@ function PanelBridge.processCommands()
         end
     end
 
-    -- Cleanup old processed IDs (sliding window: drop oldest half)
-    -- Walks processedIdOrder (true insertion order) instead of pairs(), whose
-    -- iteration order over processedIds is unspecified in Lua \u2014 iterating
-    -- pairs() here used to drop an ARBITRARY half rather than the oldest half.
-    if PanelBridge.processedIdCount > 500 then
-        local oldCount = PanelBridge.processedIdCount
-        local skip = math.floor(oldCount / 2)
-        local newOrder = {}
-        local newSet = {}
-        for i = skip + 1, #PanelBridge.processedIdOrder do
-            local id = PanelBridge.processedIdOrder[i]
-            newOrder[#newOrder + 1] = id
-            newSet[id] = true
-        end
-        PanelBridge.processedIds = newSet
-        PanelBridge.processedIdOrder = newOrder
-        PanelBridge.processedIdCount = #newOrder
-        PanelBridge.debug("Trimmed processed IDs", { previous = oldCount, kept = PanelBridge.processedIdCount })
-    end
+    -- The processed-id window is trimmed in markProcessed, not here: this
+    -- point is only reached when the legacy commands.json had content.
 end
 
 function PanelBridge.updateStatus()
@@ -11143,9 +11384,6 @@ if Events.OnCharacterDeath and Events.OnCharacterDeath.Add then
 end
 if Events.OnZombieDead and Events.OnZombieDead.Add then
     Events.OnZombieDead.Add(onLeaderboardZombieDead)
-end
-if Events.OnClientCommand and Events.OnClientCommand.Add then
-    Events.OnClientCommand.Add(PanelBridge.onClientCommand)
 end
 
 -- Exposes the handler table for the JS test harness (fengari) to call

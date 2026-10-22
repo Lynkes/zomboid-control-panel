@@ -1,53 +1,75 @@
+import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useRouteMeta, type PageSkeletonVariant, type PageSection } from '@/lib/navigation'
 
 const SKELETON_WIDTHS = ['w-[62%]', 'w-[78%]', 'w-[55%]', 'w-[90%]', 'w-[68%]', 'w-[82%]', 'w-[47%]', 'w-[73%]', 'w-[60%]', 'w-[85%]', 'w-[52%]', 'w-[76%]']
 
 interface PageSkeletonProps {
-  variant?: 'dashboard' | 'list' | 'form' | 'console' | 'map' | 'default'
+  variant?: PageSkeletonVariant
   title?: string
   description?: string
+  icon?: ReactNode
+  section?: PageSection | 'home'
+  /** @deprecated Ignored: the header has no kicker, so neither does its skeleton. */
   eyebrow?: string
+  /** @deprecated Ignored. */
   metrics?: string[]
 }
 
-function SkeletonHeader({
-  title = 'Loading page',
-  description = 'Preparing panel data and controls.',
-  eyebrow = '// PANEL · LOADING',
-  metrics = ['route', 'auth', 'socket'],
-}: Omit<PageSkeletonProps, 'variant'>) {
+// Mirrors PageHeader (icon, title, description) so the real header replaces
+// it in place instead of flashing a different layout.
+function SkeletonHeader({ title, description, icon, section }: { title: string; description: string; icon?: ReactNode; section?: PageSection | 'home' }) {
   return (
-    <section className="page-header-shell rounded-lg border border-border/40 bg-card/40 px-4 py-3 sm:px-5 sm:py-4" aria-hidden="true">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0 space-y-1">
-          <p className="page-eyebrow text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">{eyebrow}</p>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="h-2 w-2 rounded-full bg-primary/70 shadow-[0_0_7px_hsl(var(--primary)/0.45)]" />
-              <h1 className="page-title text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{title}</h1>
-            </div>
-            <p className="page-description max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">{description}</p>
-          </div>
+    <section className="page-header-shell rounded-lg border border-border/40 bg-card/40 px-4 py-3 sm:px-5 sm:py-4" data-tone={section ?? 'server'} aria-hidden="true">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {icon && <span className="page-title-icon shrink-0 text-primary [&>svg]:h-5 [&>svg]:w-5">{icon}</span>}
+          <h1 className="page-title text-xl font-semibold tracking-tight text-foreground sm:text-2xl">{title}</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-1.5 self-start sm:justify-end sm:self-auto">
-          {metrics.map(metric => (
-            <span key={metric} className="inline-flex h-6 items-center gap-1.5 rounded border border-border/50 bg-muted/30 px-2 font-mono text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
-              {metric}
-            </span>
-          ))}
-        </div>
+        <p className="page-description mt-1 max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">{description}</p>
       </div>
     </section>
   )
 }
 
-export function PageSkeleton({ variant = 'default', title, description, eyebrow, metrics }: PageSkeletonProps) {
-  const header = <SkeletonHeader title={title} description={description} eyebrow={eyebrow} metrics={metrics} />
+/**
+ * The loading state of the current route, named after it: its registry
+ * title, icon and description, in the operator's language.
+ */
+export function RoutePageSkeleton({ pathname }: { pathname?: string }) {
+  const { t } = useTranslation('shell')
+  const route = useRouteMeta(pathname)
+  if (!route) return <PageSkeleton />
+  const Icon = route.icon
+  return (
+    <PageSkeleton
+      variant={route.loader.variant}
+      title={t(route.titleKey)}
+      description={t(route.loader.descriptionKey)}
+      icon={<Icon />}
+      section={route.section}
+    />
+  )
+}
+
+export function PageSkeleton({ variant = 'default', title, description, icon, section }: PageSkeletonProps) {
+  const { t } = useTranslation('shell')
+  // The caller's own title when it gave one, else the stock text for the layout.
+  const loadingLabel = (fallbackKey: string) =>
+    title ? t('pageSkeleton.labels.named', { title }) : t(fallbackKey)
+  const header = (
+    <SkeletonHeader
+      title={title ?? t('pageSkeleton.defaultTitle')}
+      description={description ?? t('pageSkeleton.defaultDescription')}
+      icon={icon}
+      section={section}
+    />
+  )
 
   if (variant === 'dashboard') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label="Loading dashboard" aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={t('pageSkeleton.labels.dashboard')} aria-busy="true">
         {header}
         {/* Stat cards skeleton */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -76,7 +98,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'list') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'list page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.list')} aria-busy="true">
         {header}
         <div className="rounded-xl border bg-card">
           <div className="p-4 border-b">
@@ -99,7 +121,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'console') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'console page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.console')} aria-busy="true">
         {header}
         <div className="flex gap-2">
           <Skeleton className="h-10 flex-1 max-w-[200px]" />
@@ -126,7 +148,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'form') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'form page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.form')} aria-busy="true">
         {header}
         <div className="rounded-xl border bg-card p-6 space-y-6">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -143,7 +165,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   if (variant === 'map') {
     return (
-      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'map page'}`} aria-busy="true">
+      <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.map')} aria-busy="true">
         {header}
         <div className="grid gap-4 lg:grid-cols-[18rem_1fr]">
           <div className="rounded-xl border bg-card p-4 space-y-4">
@@ -171,7 +193,7 @@ export function PageSkeleton({ variant = 'default', title, description, eyebrow,
 
   // Default
   return (
-    <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={`Loading ${title || 'page'}`} aria-busy="true">
+    <div className="space-y-6 page-transition" role="status" aria-live="polite" aria-label={loadingLabel('pageSkeleton.labels.page')} aria-busy="true">
       {header}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {Array.from({ length: 4 }).map((_, i) => (

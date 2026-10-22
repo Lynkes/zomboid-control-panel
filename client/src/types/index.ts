@@ -33,6 +33,8 @@ export interface ConflictPair {
   highCount: number
   mediumCount: number
   lowCount: number
+  /** Intended overrides (severity "info"); absent in an older scan. */
+  infoCount?: number
   /** Per-file load-order winner counts. aWins = files where modA wins. */
   aWins?: number
   bWins?: number
@@ -42,6 +44,8 @@ export interface ConflictPair {
   thirdPartyWins?: number
   /** Files whose winner can't be determined (one of the mods is not in Mods=). */
   unknownWins?: number
+  /** Which mod the panel thinks should win, when it has a reason to (smart sort). */
+  suggestion?: import('@/lib/api').ConflictWinnerSuggestion
 }
 
 export interface ConflictModRef {
@@ -61,12 +65,21 @@ export interface ConflictOverlap {
 }
 
 export interface ConflictFile {
+  /** A path both mods ship, or a label naming one file per mod ("a.txt ↔ b.txt", "mod.info"). */
   file: string
   category: string
   categoryLabel?: string
-  severity: 'high' | 'medium' | 'low'
+  /** "info": an intended override by a mod that declares it builds on the other. */
+  severity: 'high' | 'medium' | 'low' | 'info'
   winner?: ConflictModRef | null
   overlap?: ConflictOverlap | null
+  // Since the Build 42 rules (all optional: an older scan has none).
+  kind?: string
+  /** Translated in the conflictsPanel namespace under reasons.<code>. */
+  reason?: string
+  intended?: boolean
+  /** Each mod's own file when they differ (definitions or Lua names clashing across files). */
+  files?: { modId: string; file: string }[]
 }
 
 export interface ModIdCollision {
@@ -107,7 +120,7 @@ export interface ScanStreamModScanned {
 
 export interface ScanStreamConflictFound {
   file: string
-  severity: 'high' | 'medium' | 'low'
+  severity: 'high' | 'medium' | 'low' | 'info'
   categoryLabel: string
   mods: string[]
   conflictsSoFar: number

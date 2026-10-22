@@ -53,7 +53,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatStrip } from '@/components/ui/stat-strip'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
@@ -438,17 +439,7 @@ export function WorkshopCollectionPanel() {
   // user hasn't set a collection ID yet. Points them at the Settings card.
   if (noCollectionConfigured) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Library className="w-4 h-4 text-primary" />
-            {t('panelTitle')}
-          </CardTitle>
-          <CardDescription>
-            {t('noCollectionDesc')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <SectionCard title={t('panelTitle')} description={t('noCollectionDesc')} icon={Library}>
           <div className="flex flex-col items-center justify-center text-center py-10 gap-4 border border-dashed border-border/50 rounded-lg bg-muted/10">
             <div className="w-12 h-12 rounded-full bg-muted/40 flex items-center justify-center">
               <Library className="w-6 h-6 text-muted-foreground" />
@@ -466,8 +457,7 @@ export function WorkshopCollectionPanel() {
               </Link>
             </Button>
           </div>
-        </CardContent>
-      </Card>
+      </SectionCard>
     )
   }
 
@@ -475,92 +465,81 @@ export function WorkshopCollectionPanel() {
   const syncedRatio = counts.total > 0 ? (counts.synced / counts.total) * 100 : 0
 
   return (
-    <Card className={cn(
-      'overflow-hidden transition-colors',
-      counts.mismatch > 0 ? 'border-warning/40' : ''
-    )}>
-      <CardHeader className="pb-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="space-y-1.5 min-w-0">
-            <CardTitle className="flex items-center gap-2 flex-wrap">
-              <Library className="w-4 h-4 text-primary shrink-0" />
-              <span>{t('panelTitle')}</span>
-              {diff?.title && (
-                <a
-                  href={collectionId ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${collectionId}` : '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-normal text-muted-foreground hover:text-primary inline-flex items-center gap-1 max-w-[280px] truncate"
-                  title={diff.title}
-                >
-                  · {diff.title}
-                  <ExternalLink className="w-3 h-3 shrink-0" />
-                </a>
-              )}
-            </CardTitle>
-            <CardDescription className="flex items-center gap-3 flex-wrap text-xs">
-              <span className="font-mono">{collectionId || '—'}</span>
-              <span className="text-muted-foreground/60">·</span>
-              <span>{t('autoSyncLabel')} <strong className={autoSync ? 'text-success' : 'text-muted-foreground'}>{autoSync ? t('on') : t('off')}</strong></span>
-              <span className="text-muted-foreground/60">·</span>
-              <span>{t('refreshedAgo', { ago: formatAgo(diffCheckedAt, t, i18n.language) })}</span>
-              {!credsConfigured && (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="inline-flex items-center gap-1 text-warning">
-                    <AlertTriangle className="w-3 h-3" />
-                    {t('noCookiesReadOnly')}
-                  </span>
-                </>
-              )}
-              {credsConfigured && tokenExpired && (
-                <>
-                  <span className="text-muted-foreground/60">·</span>
-                  <span className="inline-flex items-center gap-1 text-destructive">
-                    <AlertTriangle className="w-3 h-3" />
-                    {t('sessionExpiredPasteFresh')}{' '}
-                    <Link to="/settings" className="underline underline-offset-2">{t('settingsLink')}</Link>
-                  </span>
-                </>
-              )}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setCookieError(null)
-                setCookieDialogOpen(true)
-              }}
-              className="h-8 w-8 text-muted-foreground"
-              title={t('pasteSteamCookiesTitle')}
-            >
-              <KeyRound className="w-3.5 h-3.5" />
-              <span className="sr-only">{t('pasteSteamCookiesTitle')}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={refresh}
-              disabled={diffLoading}
-              className="h-8 px-2 text-xs"
-              // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the visible label; disables only transiently while re-reading is in flight (the spinning icon is the self-evident why). Triaged 2026-08-27.
-              title={t('rereadTitle')}
-            >
-              <RefreshCw className={cn('w-3.5 h-3.5 me-1.5', diffLoading && 'animate-spin')} />
-              {t('refresh')}
-            </Button>
-            <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground">
-              <Link to="/settings?tab=mods">
-                <SettingsIcon className="w-3.5 h-3.5 me-1.5" />
-                {t('configure')}
-              </Link>
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-
+    <SectionCard
+      title={t('panelTitle')}
+      icon={Library}
+      className={cn('transition-colors', counts.mismatch > 0 && 'border-warning/40')}
+      status={diff?.title ? (
+        <a
+          href={collectionId ? `https://steamcommunity.com/sharedfiles/filedetails/?id=${collectionId}` : '#'}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex max-w-[280px] items-center gap-1 truncate text-xs font-normal text-muted-foreground hover:text-primary"
+          title={diff.title}
+        >
+          <span className="truncate">{diff.title}</span>
+          <ExternalLink className="w-3 h-3 shrink-0" aria-hidden="true" />
+        </a>
+      ) : undefined}
+      description={
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="font-mono">{collectionId || '—'}</span>
+          <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+          <span>{t('autoSyncLabel')} <strong className={autoSync ? 'text-success' : 'text-muted-foreground'}>{autoSync ? t('on') : t('off')}</strong></span>
+          <span className="text-muted-foreground/60" aria-hidden="true">·</span>
+          <span>{t('refreshedAgo', { ago: formatAgo(diffCheckedAt, t, i18n.language) })}</span>
+          {!credsConfigured && (
+            <span className="inline-flex items-center gap-1 text-warning">
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+              {t('noCookiesReadOnly')}
+            </span>
+          )}
+          {credsConfigured && tokenExpired && (
+            <span className="inline-flex items-center gap-1 text-destructive">
+              <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+              {t('sessionExpiredPasteFresh')}{' '}
+              <Link to="/settings" className="underline underline-offset-2">{t('settingsLink')}</Link>
+            </span>
+          )}
+        </span>
+      }
+      actions={
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setCookieError(null)
+              setCookieDialogOpen(true)
+            }}
+            className="h-8 w-8 text-muted-foreground"
+            title={t('pasteSteamCookiesTitle')}
+          >
+            <KeyRound className="w-3.5 h-3.5" />
+            <span className="sr-only">{t('pasteSteamCookiesTitle')}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={refresh}
+            disabled={diffLoading}
+            className="h-8 px-2 text-xs"
+            // eslint-disable-next-line local/no-dead-disabled-title -- pure hint, same text as the visible label; disables only transiently while re-reading is in flight (the spinning icon is the self-evident why). Triaged 2026-08-27.
+            title={t('rereadTitle')}
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5 sm:me-1.5', diffLoading && 'animate-spin')} aria-hidden="true" />
+            {/* Icon-only on a phone, so the title and its details keep their width. */}
+            <span className="sr-only sm:not-sr-only">{t('refresh')}</span>
+          </Button>
+          <Button asChild variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground">
+            <Link to="/settings?tab=mods">
+              <SettingsIcon className="w-3.5 h-3.5 sm:me-1.5" aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only">{t('configure')}</span>
+            </Link>
+          </Button>
+        </>
+      }
+    >
       <Dialog open={cookieDialogOpen} onOpenChange={setCookieDialogOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -583,8 +562,6 @@ export function WorkshopCollectionPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <CardContent className="space-y-4">
         {/* Error banner */}
         {diffError && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -626,12 +603,28 @@ export function WorkshopCollectionPanel() {
               <span className="transition-transform group-open/collection-details:rotate-90"><Plus className="h-3 w-3" /></span>
               {t('showCollectionCounts')}
             </summary>
-            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <StatTile label={t('statOnServer')} value={counts.onServer} icon={<Server className="w-3.5 h-3.5" />} accent="primary" onClick={() => setFilter('server')} />
-              <StatTile label={t('statInCollection')} value={counts.inColl} icon={<Library className="w-3.5 h-3.5" />} accent="primary" onClick={() => setFilter('collection')} />
-              <StatTile label={t('statMissingFromCollection')} value={counts.toAdd} icon={<Plus className="w-3.5 h-3.5" />} accent={counts.toAdd > 0 ? 'warning' : 'muted'} onClick={counts.toAdd > 0 ? () => setFilter('missing') : undefined} />
-              <StatTile label={t('statNotOnServer')} value={counts.collectionOnly} icon={<Library className="w-3.5 h-3.5" />} accent={counts.collectionOnly > 0 ? 'primary' : 'muted'} onClick={counts.collectionOnly > 0 ? () => setFilter('not-on-server') : undefined} />
-            </div>
+            <StatStrip
+              className="mt-2"
+              items={[
+                { id: 'server', label: t('statOnServer'), value: counts.onServer, icon: Server, onClick: () => setFilter('server') },
+                { id: 'collection', label: t('statInCollection'), value: counts.inColl, icon: Library, onClick: () => setFilter('collection') },
+                {
+                  id: 'missing',
+                  label: t('statMissingFromCollection'),
+                  value: counts.toAdd,
+                  icon: Plus,
+                  tone: counts.toAdd > 0 ? 'warning' : 'default',
+                  onClick: counts.toAdd > 0 ? () => setFilter('missing') : undefined,
+                },
+                {
+                  id: 'not-on-server',
+                  label: t('statNotOnServer'),
+                  value: counts.collectionOnly,
+                  icon: Library,
+                  onClick: counts.collectionOnly > 0 ? () => setFilter('not-on-server') : undefined,
+                },
+              ]}
+            />
           </details>
         </div>
 
@@ -901,58 +894,13 @@ export function WorkshopCollectionPanel() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-      </CardContent>
-    </Card>
+    </SectionCard>
   )
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Subcomponents
 // ─────────────────────────────────────────────────────────────────────────
-
-type StatAccent = 'primary' | 'warning' | 'destructive' | 'muted'
-
-function StatTile({
-  label,
-  value,
-  icon,
-  accent,
-  onClick,
-}: {
-  label: string
-  value: number
-  icon: React.ReactNode
-  accent: StatAccent
-  onClick?: () => void
-}) {
-  const accentCls: Record<StatAccent, string> = {
-    primary: 'border-primary/30 bg-primary/5 text-primary',
-    warning: 'border-warning/40 bg-warning/5 text-warning',
-    destructive: 'border-destructive/40 bg-destructive/5 text-destructive',
-    muted: 'border-border/50 bg-muted/10 text-muted-foreground',
-  }
-  const interactive = !!onClick
-  const Tag: any = interactive ? 'button' : 'div'
-  return (
-    <Tag
-      type={interactive ? 'button' : undefined}
-      onClick={onClick}
-      className={cn(
-        'group rounded-md border px-3 py-2.5 text-start transition-colors',
-        accentCls[accent],
-        interactive && 'hover:bg-current/10 cursor-pointer'
-      )}
-    >
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide opacity-80">
-        {icon}
-        <span className="truncate">{label}</span>
-      </div>
-      <div className="text-2xl font-semibold tabular-nums mt-1 text-foreground">
-        {value}
-      </div>
-    </Tag>
-  )
-}
 
 function Row({
   item,

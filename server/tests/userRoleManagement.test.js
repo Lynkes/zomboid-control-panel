@@ -45,38 +45,38 @@ describe("createUser — role activation", () => {
   it("the first user always becomes admin, even if a different role is requested", async () => {
     const user = await authService.createUser(
       "owner",
-      "password123",
+      "Role-test-pass-91",
       "moderator",
     );
     expect(user.role).toBe("admin");
   });
 
   it("the first user becomes admin with no role argument at all (the /api/auth/setup call shape)", async () => {
-    const user = await authService.createUser("owner", "password123");
+    const user = await authService.createUser("owner", "Role-test-pass-91");
     expect(user.role).toBe("admin");
   });
 
   it("a second user requires an explicit, valid role — no silent default", async () => {
-    await authService.createUser("owner", "password123");
+    await authService.createUser("owner", "Role-test-pass-91");
     await expect(
-      authService.createUser("nobody", "password123"),
+      authService.createUser("nobody", "Role-test-pass-91"),
     ).rejects.toThrow(/role must be one of/);
   });
 
   it("a second user is created with the requested role", async () => {
-    await authService.createUser("owner", "password123");
+    await authService.createUser("owner", "Role-test-pass-91");
     const tech = await authService.createUser(
       "tech1",
-      "password123",
+      "Role-test-pass-91",
       "technician",
     );
     expect(tech.role).toBe("technician");
   });
 
   it("rejects an unrecognized role", async () => {
-    await authService.createUser("owner", "password123");
+    await authService.createUser("owner", "Role-test-pass-91");
     await expect(
-      authService.createUser("bad", "password123", "superuser"),
+      authService.createUser("bad", "Role-test-pass-91", "superuser"),
     ).rejects.toThrow(/role must be one of/);
   });
 });

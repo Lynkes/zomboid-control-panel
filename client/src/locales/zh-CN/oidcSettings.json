@@ -1,7 +1,7 @@
 {
   "pageHeader": {
     "eyebrow": "身份",
-    "title": "登录",
+    "title": "单点登录",
     "description": "允许使用身份提供方（如 Google Workspace、Okta、Authentik 等）的现有账户登录，作为用户名密码登录的补充——而非替代。本地登录始终可用。"
   },
   "loading": "正在加载登录设置…",

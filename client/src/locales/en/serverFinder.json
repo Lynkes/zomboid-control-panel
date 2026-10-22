@@ -1,17 +1,19 @@
 {
   "pageHeader": {
-    "title": "Browse Public Servers",
+    "title": "Public Servers",
     "description": "Search the public Project Zomboid server list and copy a server address to join quickly",
-    "refreshList": "Refresh List",
+    "refreshList": "Refresh list",
     "reloadFromSteam": "Reload from Steam",
-    "reloadFromSteamTip": "Refresh List re-shows results from the panel's own cache, which can be up to a minute old. Reload from Steam always asks Steam directly — use it if you just changed something on your own server and don't see it reflected yet."
+    "reloadFromSteamTip": "Refresh list re-shows results from the panel's own cache, which can be up to a minute old. Reload from Steam always asks Steam directly — use it if you just changed something on your own server and don't see it reflected yet.",
+    "refreshMenuAria": "More ways to refresh"
   },
   "apiKeyWarning": {
     "title": "Steam API Key Missing",
     "description": "Add your Steam API key in Settings before this page can load the public server list.",
     "step1": "Go to <1>Steam API Key page<2> (opens in new tab)</2></1> and register for a key",
     "step2": "Go to <1>Settings</1> and paste your API key in the \"Steam Web API Key\" field",
-    "step3": "Click \"Save Settings\" and refresh this page"
+    "step3": "Click \"Save Settings\" and refresh this page",
+    "action": "Add the key in Settings"
   },
   "stats": {
     "totalServers": "Total Servers",
@@ -27,9 +29,8 @@
     "matchingFilters": "matching filters"
   },
   "searchFilters": {
-    "title": "Search & Filters",
-    "hideFilters": "Hide Filters",
-    "showFilters": "Show Filters",
+    "hideFilters": "Hide filters",
+    "showFilters": "Show filters",
     "searchPlaceholder": "Search by name, IP, map, or keywords...",
     "searchAria": "Search public servers",
     "hideEmpty": "Hide empty servers",
@@ -38,13 +39,10 @@
     "vacOnly": "VAC secured only",
     "versionLabel": "Version:",
     "allVersions": "All versions",
-    "sortByLabel": "Sort by:",
     "sortName": "Name",
     "sortPlayers": "Players",
-    "sortMaxPlayers": "Max Players",
     "sortPing": "Ping",
-    "ascending": "Ascending",
-    "descending": "Descending"
+    "sortMaxPlayers": "Max Players"
   },
   "error": {
     "title": "Can't load public servers",
@@ -60,8 +58,8 @@
     "apiKeyMissing": "Steam API key missing"
   },
   "serverList": {
-    "title": "Server List",
-    "description": "Click on a server to see more details or copy the address",
+    "title": "Server list",
+    "description": "Copy an address to join, or ping a server to check that it answers.",
     "loading": "Loading servers...",
     "sortAria": "Sort by {{label}}",
     "sortAriaWithDirection": "Sort by {{label}}, {{direction}}",

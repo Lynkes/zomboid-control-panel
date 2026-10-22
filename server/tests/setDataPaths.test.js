@@ -26,7 +26,7 @@ import path from "path";
 // imported -- setDataPaths() below runs for real, against real temp
 // directories, not the developer's or panel's actual data.
 
-const { getDataPaths, setDataPaths } = await import("../utils/paths.js");
+const { getDataPaths, setDataPaths, logsDirRefusal, getPanelProgramDir } = await import("../utils/paths.js");
 
 function freshDir(label) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `zcp-setpaths-${label}-`));
@@ -163,5 +163,79 @@ describe("setDataPaths: break-verify the anti-lockout guard against a real, repr
     const newDir = freshDir("new-data-empty-target");
     const result = await setDataPaths({ dataDir: newDir }, true);
     expect(result.success).toBe(true);
+  });
+});
+
+// Security audit 2026-10-20: POST /api/debug/paths accepted the panel's own
+// data folder as the logs folder, and GET /logs/download/:filename then
+// served jwt.secret and db.json from it. The logs folder can no longer be,
+// hold, or sit inside the data folder, the program folder (other than its own
+// logs folder) or the folder of a secret file -- as typed or through a link.
+describe("setDataPaths: the logs folder stays clear of the panel's secrets", () => {
+  it("refuses the data folder itself as the logs folder", async () => {
+    const before = getDataPaths().logsDir;
+    const result = await setDataPaths({ logsDir: getDataPaths().dataDir }, false);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/data folder/i);
+    expect(getDataPaths().logsDir).toBe(before);
+  });
+
+  it("refuses a folder inside the data folder, and one that holds it", async () => {
+    const { dataDir } = getDataPaths();
+    expect((await setDataPaths({ logsDir: path.join(dataDir, "server-secrets") }, false)).success).toBe(false);
+    expect((await setDataPaths({ logsDir: path.dirname(dataDir) }, false)).success).toBe(false);
+  });
+
+  it("refuses the data folder named in the same request", async () => {
+    const dir = freshDir("same-request");
+    const result = await setDataPaths({ dataDir: dir, logsDir: path.join(dir, "logs") }, false);
+    expect(result.success).toBe(false);
+  });
+
+  it("refuses a new data folder that would hold the current logs folder", async () => {
+    const result = await setDataPaths({ dataDir: path.dirname(getDataPaths().logsDir) }, false);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/logs folder/i);
+  });
+
+  // (A trailing-dot spelling is not an alias here: Node creates "data." as a
+  // folder of its own on Windows.)
+  it("refuses a case variant of the data folder on Windows", async (ctx) => {
+    if (process.platform !== "win32") return ctx.skip();
+    const { dataDir } = getDataPaths();
+    expect((await setDataPaths({ logsDir: dataDir.toUpperCase() }, false)).success).toBe(false);
+  });
+
+  it("refuses a junction (or symlink) to the data folder, and a folder below one", async () => {
+    const holder = freshDir("junction-holder");
+    const link = path.join(holder, "alias");
+    fs.symlinkSync(getDataPaths().dataDir, link, "junction");
+    expect((await setDataPaths({ logsDir: link }, false)).success).toBe(false);
+    expect((await setDataPaths({ logsDir: path.join(link, "not-yet-created") }, false)).success).toBe(false);
+  });
+
+  it("refuses a logs folder holding a secret file the caller names (the HTTPS key)", async () => {
+    const dir = freshDir("https-key");
+    const key = path.join(dir, "key.pem");
+    fs.writeFileSync(key, "KEY");
+    const result = await setDataPaths({ logsDir: dir }, false, { secretPaths: [key] });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/secret/i);
+  });
+
+  it("refuses the program folder, a folder inside it and one holding it; allows its own logs folder", () => {
+    const programDir = getPanelProgramDir();
+    expect(logsDirRefusal(programDir)).toMatch(/program folder/i);
+    expect(logsDirRefusal(path.join(programDir, "server"))).toMatch(/program folder/i);
+    expect(logsDirRefusal(path.dirname(programDir))).toMatch(/program folder/i);
+    expect(logsDirRefusal(path.join(programDir, "logs"))).toBeNull();
+    expect(logsDirRefusal(path.join(programDir, "logs", "archive"))).toBeNull();
+  });
+
+  it("still accepts an unrelated folder", async () => {
+    const dir = freshDir("plain-logs");
+    const result = await setDataPaths({ logsDir: dir }, false);
+    expect(result.success).toBe(true);
+    expect(getDataPaths().logsDir).toBe(dir);
   });
 });

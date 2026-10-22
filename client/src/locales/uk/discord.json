@@ -5,6 +5,7 @@
     "errorTitle": "Помилка",
     "noPermission": "У вас немає дозволу керувати інтеграцією з Discord.",
     "successTitle": "Успішно",
+    "warningTitle": "Попередження",
     "unknownError": "невідома помилка"
   },
   "events": {
@@ -181,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "Бот Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Керуйте своїм ботом Discord, слеш-командами та сповіщеннями про події",
     "statusRunning": "Працює",
     "statusStopped": "Зупинено",
     "refreshAria": "Оновити стан",
+    "setupGuide": "Посібник із налаштування",
+    "closeGuide": "Назад до налаштувань бота",
     "botStatus": {
       "title": "Стан бота",
       "runtimeLabel": "Виконання",
@@ -230,6 +233,7 @@
       "commands": {
         "status": { "desc": "Переглянути стан сервера" },
         "players": { "desc": "Список гравців онлайн" },
+        "leaderboard": { "desc": "Показати рейтинг статистики" },
         "save": { "desc": "Зберегти світ" },
         "broadcast": { "desc": "Надіслати повідомлення на сервер" },
         "kick": { "desc": "Вигнати гравця" },
@@ -241,6 +245,7 @@
       "save": "Зберегти дозволи",
       "saving": "Збереження...",
       "savedMessage": "Дозволи на команди збережено. Слеш-команди перереєстровано.",
+      "savedNotRegistered": "Дозволи на команди збережено, але оновити слеш-команди в Discord не вдалося. Вони оновляться під час наступного запуску бота або наступного збереження.",
       "saveFailedFallback": "Не вдалося зберегти дозволи"
     },
     "configuration": {
@@ -314,6 +319,7 @@
     "invalidAdminRoleIdFormat": "Неправильний формат ID адмінської ролі — має бути число з 17–19 цифр",
     "invalidModRoleIdFormat": "Неправильний формат ID модераторської ролі — має бути число з 17–19 цифр",
     "configSavedBotStartFailed": "Конфігурацію збережено, але бот не запустився: {{reason}}",
+    "configSavedBotReconnectFailed": "Конфігурацію збережено, але бот не зміг перепідключитися з нею: {{reason}}",
     "configSavedAndStarted": "Конфігурацію збережено, бота запущено!",
     "configSaved": "Конфігурацію Discord успішно збережено",
     "saveConfigFailedFallback": "Не вдалося зберегти конфігурацію",

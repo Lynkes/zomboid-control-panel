@@ -8,6 +8,8 @@
   "remoteServerTitle": "Servidor remoto",
   "remoteServerDesc": "Ainda não é possível aplicar modelos a servidores remotos.",
   "previewFailedTitle": "Falha na pré-visualização",
+  "previewNoAccessTitle": "Comparação indisponível",
+  "previewNoAccessDesc": "Comparar um modelo com as configurações atuais do servidor requer a permissão \"Gerenciar modelos de servidor\", que este cargo não tem.",
   "applyConfirmTitle": "Aplicar \"{{name}}\"?",
   "applyConfirmDescription": "Isso sobrescreve a configuração atual do servidor com as {{count}} alteração(ões) deste modelo. Os jogadores só vão notar a diferença depois que o servidor reiniciar, e você pode desfazer isso aplicando outro modelo.",
   "applyConfirmButton": "Aplicar modelo"

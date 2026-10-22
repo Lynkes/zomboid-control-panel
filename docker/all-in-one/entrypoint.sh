@@ -20,6 +20,11 @@ STEAMCMD=/home/steam/steamcmd/steamcmd.sh
 PZ_APPID=380870
 
 mkdir -p /pz-servers
+# The panel writes the port it listens on here for the HEALTHCHECK; one left
+# by an earlier start must not be read in its place.
+if [ -n "${PANEL_PORT_FILE:-}" ]; then
+  rm -f -- "$PANEL_PORT_FILE"
+fi
 chown -R ${STEAM_UID}:${STEAM_GID} /pz-server /pz-servers /zomboid /app/data /app/logs "$STEAM_HOME" 2>/dev/null || true
 
 if [ ! -x "$STEAMCMD" ]; then
@@ -40,4 +45,10 @@ chown -R ${STEAM_UID}:${STEAM_GID} /pz-server
 chmod +x /pz-server/start-server.sh 2>/dev/null || true
 
 cd /app
-exec su steam -s /bin/bash -c "export HOME='$STEAM_HOME'; cd /app && exec node server/index.js"
+# Drop to steam with setpriv, not su: the panel must be PID 1, so `docker stop`
+# delivers SIGTERM straight to it and it can save and quit the game servers
+# before the container ends (see stop_grace_period in docker-compose.yml).
+# `exec su` stays PID 1 and forwards SIGTERM, but SIGKILLs the panel two
+# seconds later ("Session terminated, killing shell...").
+export HOME="$STEAM_HOME" USER=steam LOGNAME=steam
+exec setpriv --reuid="$STEAM_UID" --regid="$STEAM_GID" --init-groups node server/index.js

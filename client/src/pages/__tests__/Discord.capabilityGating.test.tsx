@@ -122,7 +122,9 @@ describe('Discord.tsx: every mutating control gates on integrations.manage', () 
     // thing left disabling it.
     fireEvent.change(screen.getByLabelText(/Bot Token/), { target: { value: 'fake-token-value' } })
 
-    const buttonNames = ['Stop Bot', 'Send Test', 'Verify Token', 'Wipe Discord Setup', 'Save Changes', 'Save Events', 'Save Permissions']
+    // The typed token is also an unsaved edit, so the page's one Save (the
+    // SaveBar, covering configuration, events and permissions) is showing.
+    const buttonNames = ['Stop Bot', 'Send Test', 'Verify Token', 'Wipe Discord Setup', 'Save Changes']
     const buttons = buttonNames.map((name) => screen.getByRole('button', { name }))
     for (const button of buttons) {
       expect(button).toBeDisabled()
@@ -190,10 +192,13 @@ describe('Discord.tsx: every mutating control gates on integrations.manage', () 
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Stop Bot' })).toBeInTheDocument())
 
-    const buttonNames = ['Stop Bot', 'Send Test', 'Wipe Discord Setup', 'Save Events', 'Save Permissions']
+    const buttonNames = ['Stop Bot', 'Send Test', 'Wipe Discord Setup']
     for (const name of buttonNames) {
       expect(screen.getByRole('button', { name })).not.toBeDisabled()
     }
+    // An edit to the event notifications brings up an enabled Save.
+    fireEvent.click(screen.getByRole('switch', { name: 'Player Join' }))
+    expect(screen.getByRole('button', { name: 'Save Changes' })).not.toBeDisabled()
     // Verify Token / Save Changes stay disabled here for reasons unrelated
     // to capability (no token typed yet / canSaveConfig's own validation) --
     // covered by their own existing tests, not this file's concern.
@@ -218,11 +223,18 @@ describe('Discord.tsx: every mutating control gates on integrations.manage', () 
     fireEvent.click(screen.getByRole('button', { name: 'Send Test' }))
     await waitFor(() => expect(sendTestMessage).toHaveBeenCalledTimes(1))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Events' }))
+    // One Save for every form: it saves the ones that were edited.
+    fireEvent.click(screen.getByRole('switch', { name: 'Player Join' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(updateWebhookEvents).toHaveBeenCalledTimes(1))
+    expect(updatePermissions).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save Changes' })).not.toBeInTheDocument())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save Permissions' }))
+    const kickRow = screen.getByText('/kick').closest('.rounded-lg') as HTMLElement
+    fireEvent.click(within(kickRow).getByRole('button', { name: /Everyone/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(updatePermissions).toHaveBeenCalledTimes(1))
+    expect(updateWebhookEvents).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop Bot' }))
     await waitFor(() => expect(stop).toHaveBeenCalledTimes(1))

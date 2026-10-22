@@ -4,6 +4,7 @@ import Console from '../Console'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (round 20): clearServerLog()'s confirm() dialog is a
 // Promise that only resolves once the operator clicks Confirm/Cancel -- if
@@ -96,7 +97,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )
@@ -124,7 +125,7 @@ describe('Console.tsx: clearServerLog refuses a stale confirm after the active s
     await screen.findByText('boot ok')
 
     // Open the confirm dialog.
-    fireEvent.click(screen.getByRole('button', { name: 'clear' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear log' }))
     await screen.findByText('Erase the console log for Ashenwood?')
 
     // The active server switches elsewhere WHILE the dialog is still open.
@@ -155,7 +156,7 @@ describe('Console.tsx: clearServerLog refuses a stale confirm after the active s
     renderConsole()
     await screen.findByText('boot ok')
 
-    fireEvent.click(screen.getByRole('button', { name: 'clear' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear log' }))
     await screen.findByText('Erase the console log for Ashenwood?')
     fireEvent.click(screen.getByRole('button', { name: 'Erase log file' }))
 

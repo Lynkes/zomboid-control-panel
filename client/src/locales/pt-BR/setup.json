@@ -32,7 +32,7 @@
     "capsLockOn": "Caps Lock está ativado",
     "showPassword": "Mostrar senha",
     "hidePassword": "Ocultar senha",
-    "hint": "Use pelo menos 6 caracteres.",
+    "hint": "Use pelo menos 10 caracteres.",
     "strength": {
       "tooShort": "Muito curta",
       "weak": "Fraca",
@@ -55,13 +55,14 @@
     "setupTokenRequired": "Digite o token de configuração exibido no log de inicialização do painel ou na saída do console.",
     "invalidSetupToken": "Token de configuração inválido ou ausente. Procure o token de uso único no log de inicialização do painel ou na saída do console.",
     "invalidUsername": "O nome de usuário deve ter de 3 a 32 caracteres (letras, números, _ ou -)",
-    "passwordTooShort": "A senha deve ter pelo menos 6 caracteres",
+    "passwordTooShort": "A senha deve ter pelo menos 10 caracteres",
     "passwordsDontMatch": "As senhas não coincidem",
     "invalidPort": "A porta do painel deve ser um número inteiro entre 1024 e 65535",
     "setupFailed": "Falha na configuração"
   },
   "afterThisStep": {
     "heading": "Depois desta etapa",
+    "nextHeading": "O que vem a seguir",
     "previewBadge": "Prévia",
     "step1Title": "Trazer um servidor para o painel",
     "step1Desc": "Adicione uma instalação existente ou use a configuração guiada para criar uma.",

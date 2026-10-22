@@ -199,6 +199,12 @@ describe("support bundle: leaderboard diagnostics", () => {
       diagnostics: {
         bridgeVersion: "1.7.74", sweepIntervalMs: 60000, lastSweepAt: 1759900000000, sweepCount: 42,
         loadedFrom: "leaderboard.2.json", flushSeq: 17, resets: [{ at: 1759100000000, reason: "world changed" }],
+        killAudit: [{
+          username: "Alice", at: 1759900001000, source: "sweep", kind: "increase",
+          previousKills: 2200, currentKills: 86348, addedKills: 84148,
+          allTimeBefore: 2200, allTimeAfter: 86348,
+          rowId: "steam:76561198000000001", aliases: ["alice_alt"],
+        }],
       },
     },
   };
@@ -224,7 +230,16 @@ describe("support bundle: leaderboard diagnostics", () => {
     expect(result).toEqual(expect.objectContaining({
       available: true,
       notReadCount: 1,
-      bridge: expect.objectContaining({ version: "1.7.74", sweepCount: 42, resets: [{ at: 1759100000000, reason: "world changed" }] }),
+      bridge: expect.objectContaining({
+        version: "1.7.74",
+        sweepCount: 42,
+        resets: [{ at: 1759100000000, reason: "world changed" }],
+        killAudit: [{
+          username: "Alice", at: 1759900001000, source: "sweep", kind: "increase",
+          previousKills: 2200, currentKills: 86348, addedKills: 84148,
+          allTimeBefore: 2200, allTimeAfter: 86348,
+        }],
+      }),
       panelSampler: expect.any(Object),
     }));
     expect(result.players).toEqual([
@@ -256,7 +271,7 @@ describe("support bundle: leaderboard diagnostics", () => {
     expect(byName["leaderboard-diagnostics.json"]).toBeDefined();
     expect(byName["leaderboard-diagnostics.json"]).not.toMatch(/steam:/);
     expect(JSON.parse(byName["leaderboard-diagnostics.json"]).players.map((p) => p.username)).toEqual(["Alice", "ejspinn"]);
-    expect(byName["README.md"]).toContain("leaderboard-diagnostics.json");
+    expect(byName["README.md"]).toContain("killAudit");
   });
 
   it("says why when the bridge is not connected or the read fails", async () => {

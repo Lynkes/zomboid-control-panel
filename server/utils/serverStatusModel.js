@@ -32,6 +32,15 @@ export function resolveProvider(server) {
   return server?.isRemote ? "remote-sftp" : "native";
 }
 
+// Whether this panel has no way to stop or start the server's process: it is
+// a remote (SFTP) server. A server with a Docker container mapped to it keeps
+// a restart path of its own (`docker restart`, see managedContainer.js)
+// whatever its isRemote says, which is why this asks for the provider rather
+// than the flag alone.
+export function isUnmanagedRemoteServer(server) {
+  return resolveProvider(server) === "remote-sftp";
+}
+
 // Kept as a local list rather than importing linuxServiceLifecycle.js's
 // isManagedLifecycleProvider(): this module stays free of the fs/exec
 // dependencies that one carries.
@@ -133,6 +142,11 @@ function describeStopReason(stopReason) {
   }
 }
 
+const CONTAINER_STATE_DETAILS = {
+  paused: "Container is paused",
+  restarting: "Container is restarting (it keeps stopping; check its logs)",
+};
+
 export function buildHostSignal(provider, isRunning, scanFailed = false, dockerContainer = null, stopReason = null) {
   if (provider === "native") {
     if (scanFailed) {
@@ -158,7 +172,11 @@ export function buildHostSignal(provider, isRunning, scanFailed = false, dockerC
     return {
       status: dockerContainer.running ? "running" : "stopped",
       label: "Container",
-      detail: null,
+      // Docker keeps calling a paused container, or one waiting out its
+      // restart policy between crashes, "running"; say what it is doing.
+      detail: dockerContainer.running
+        ? null
+        : CONTAINER_STATE_DETAILS[dockerContainer.containerState] || null,
     };
   }
   if (provider === "remote-sftp") {

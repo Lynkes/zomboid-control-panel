@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
-import { rawErrorMessageIntentional, getUserErrorMessage } from '../lib/errorMessage'
+import { getUserErrorMessage } from '../lib/errorMessage'
 import { apiFetch, handleResponse } from '../lib/api'
 import { rememberTrustedDeviceFrom } from '../lib/trustedDevice'
 import { Button, buttonVariants } from '../components/ui/button'
@@ -9,7 +9,9 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Checkbox } from '../components/ui/checkbox'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
+import { StatusPill, type StatusTone } from '../components/ui/status-pill'
 import { Eye, EyeOff, Loader2, ArrowLeft, KeyRound } from 'lucide-react'
+import { exceedsPasswordMaxBytes, meetsPasswordMinLength } from '../lib/passwordPolicy'
 
 type PanelStatus = 'checking' | 'online' | 'unreachable'
 type RecoveryMethod = 'code' | 'token'
@@ -199,15 +201,12 @@ export default function Login() {
       setDeviceFailedAttempts(0)
       try { localStorage.removeItem(LOGIN_DEVICE_FAILURE_KEY) } catch { /* ignore */ }
     } catch (err) {
-      // 2026-08-26: NOT a getUserErrorMessage() site -- AuthContext's
-      // login() already resolves and translates the final message itself
-      // (see its getLoginErrorMessage(), which routes a genuine 5xx through
-      // getUserErrorMessage() before this ever sees it, and keeps the
-      // account-enumeration-safe generic text for an actual auth failure).
-      // Calling getUserErrorMessage() here too would double-process an
-      // already-translated string. rawErrorMessageIntentional() documents
-      // that this is a deliberate exception, not a missed conversion.
-      setError(rawErrorMessageIntentional(err, t('errors.loginFailed')))
+      // login() throws a coded error (AuthContext's toLoginError()): the
+      // account-enumeration-safe LOGIN_FAILED for an actual auth failure,
+      // LOGIN_CORS_BLOCKED for a blocked origin, or the transport/server
+      // error itself for a 5xx or a 429. getUserErrorMessage() translates
+      // each by its code.
+      setError(getUserErrorMessage(err, t('errors.loginFailed')))
       setDeviceFailedAttempts((prev) => {
         const next = prev + 1
         try { localStorage.setItem(LOGIN_DEVICE_FAILURE_KEY, String(next)) } catch { /* ignore */ }
@@ -231,8 +230,12 @@ export default function Login() {
       setError(t('errors.resetTokenTooShort'))
       return
     }
-    if (!newPassword || newPassword.length < 6) {
+    if (!newPassword || !meetsPasswordMinLength(newPassword)) {
       setError(t('errors.passwordTooShort'))
+      return
+    }
+    if (exceedsPasswordMaxBytes(newPassword)) {
+      setError(t('PASSWORD_TOO_LONG_BYTES', { ns: 'errors' }))
       return
     }
     if (newPassword !== confirmPassword) {
@@ -346,10 +349,10 @@ export default function Login() {
     }
   }
 
-  const statusMap: Record<PanelStatus, { label: string; tone: string; dot: string }> = {
-    checking: { label: t('status.checking'), tone: 'text-muted-foreground', dot: 'bg-muted-foreground/60' },
-    online: { label: t('status.online'), tone: 'text-success', dot: 'bg-success' },
-    unreachable: { label: t('status.offline'), tone: 'text-destructive', dot: 'bg-destructive' },
+  const statusMap: Record<PanelStatus, { label: string; tone: StatusTone }> = {
+    checking: { label: t('status.checking'), tone: 'busy' },
+    online: { label: t('status.online'), tone: 'ok' },
+    unreachable: { label: t('status.offline'), tone: 'error' },
   }
   const s = statusMap[status]
 
@@ -364,7 +367,7 @@ export default function Login() {
 
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(var(--primary)/0.10),transparent_34rem),linear-gradient(180deg,hsl(var(--background)),hsl(24_8%_4%))]"
+        className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(var(--primary)/0.10),transparent_34rem)]"
       />
       <div
         aria-hidden="true"
@@ -379,9 +382,8 @@ export default function Login() {
         <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground">
           <LanguageSwitcher />
           <span className="flex items-center gap-2">
-            <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-            <span className={s.tone}>{s.label}</span>
-            {version && <span className="hidden text-muted-foreground/70 sm:inline">v{version}</span>}
+            <StatusPill tone={s.tone} label={s.label} size="sm" />
+            {version && <span className="hidden font-mono text-muted-foreground sm:inline">v{version}</span>}
           </span>
         </div>
       </header>
@@ -392,9 +394,6 @@ export default function Login() {
           aria-labelledby="login-title"
         >
           <div className="mb-6 space-y-2">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {resetMode ? t('recovery.eyebrow') : t('signIn.eyebrow')}
-            </p>
             <h1 id="login-title" className="text-2xl font-semibold tracking-normal text-foreground">
               {resetMode ? t('recovery.title') : t('signIn.title')}
             </h1>
@@ -584,7 +583,6 @@ export default function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
                   autoComplete="username"
                   autoFocus
                   maxLength={32}

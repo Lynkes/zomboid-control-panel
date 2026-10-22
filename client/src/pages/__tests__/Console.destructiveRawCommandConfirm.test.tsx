@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
 import enConsole from '../../locales/en/console.json'
+import { MemoryRouter } from 'react-router-dom'
 
 // console follow-ups (2026-09-18): a raw command typed into the RCON console
 // ran the instant Enter was pressed -- `quit`, `banuser`, `kick`,
@@ -57,7 +58,7 @@ async function typeAndRun(commandLine: string) {
   render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

@@ -40,7 +40,7 @@
     "general": {
       "label": "General",
       "tip": "Puerto del panel, reinicio y apariencia",
-      "description": "Puerto en el que escucha esta interfaz de administración, además del tema."
+      "description": "Puerto y reinicio del panel, tema, formato de fecha y rangos de valores de los ajustes."
     },
     "updates": {
       "label": "Actualizaciones",
@@ -80,7 +80,7 @@
     "backups": {
       "label": "Copias de seguridad",
       "tip": "Programación de copias del mundo y exportaciones de personajes",
-      "description": "Copias de seguridad automáticas del mundo y copias de exportación por personaje."
+      "description": "Copias de personajes exportados. Las copias del mundo y su programación están en Copias de seguridad del mundo."
     },
     "about": {
       "label": "Acerca de",
@@ -90,7 +90,7 @@
     "users": {
       "label": "Usuarios",
       "tip": "Cuentas del panel y los roles asignados",
-      "description": "Cree y elimine cuentas del panel, y cambie su rol."
+      "description": "Añada y elimine cuentas del panel. El rol de cada una se asigna en Roles y permisos."
     },
     "roles": {
       "label": "Roles y permisos",
@@ -98,7 +98,7 @@
       "description": "Qué capacidades concede cada rol y qué cuentas del panel las tienen."
     },
     "sso": {
-      "label": "Inicio de sesión",
+      "label": "Inicio de sesión único",
       "tip": "Proveedor de inicio de sesión único (OIDC)",
       "description": "Permita que las cuentas del panel inicien sesión a través de un proveedor de identidad externo."
     }
@@ -121,7 +121,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Actualización no aplicada",
+    "rolledBackDescription": "El panel se reinició, pero ejecuta la v{{running}}, no la v{{expected}}: la actualización se revirtió o no se aplicó. La sección Actualizaciones muestra qué pasó."
   },
   "saveButton": {
     "saving": "Guardando…",
@@ -139,8 +141,8 @@
     "ymd": "Año-Mes-Día ({{example}})"
   },
   "general": {
-    "cardTitle": "Ajustes del panel",
-    "cardDescription": "Puerto en el que escucha este panel, y su aspecto.",
+    "cardTitle": "Puerto y reinicio",
+    "cardDescription": "El puerto en el que escucha este panel y el reinicio del panel para aplicarlo.",
     "portLabel": "Puerto del panel",
     "portHelp": "Puerto usado para acceder al panel (por defecto: 3001).",
     "restartRequiredTitle": "Se requiere reiniciar",
@@ -344,7 +346,7 @@
     "reverseProxyTitle": "Nota sobre proxy inverso",
     "reverseProxyDesc": "Si el TLS lo termina Nginx, Caddy o Cloudflare Tunnel, mantén el HTTPS del panel desactivado y haz proxy del HTTP local.",
     "restartRequiredTitle": "Se requiere reiniciar",
-    "restartRequiredDesc": "Los cambios de HTTPS requieren un reinicio. Guarda primero y después reinicia desde Ajustes del panel.",
+    "restartRequiredDesc": "Los cambios de HTTPS requieren un reinicio. Guarda primero y después reinicia desde Ajustes › General.",
     "certPathPlaceholder": "Path to the certificate PEM file",
     "certPathPlaceholderWindows": "Example: C:\\certs\\panel.fullchain.pem",
     "certPathPlaceholderPosix": "Example: /etc/zomboid-panel/panel.fullchain.pem",
@@ -403,6 +405,7 @@
     "sectionRemoteConfigLogs": "Configuración y registros remotos",
     "sectionInstallUpdates": "Instalación y actualizaciones",
     "howItWorksButton": "Cómo funciona",
+    "openInDiagnostics": "Abrir en Diagnóstico",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "Un mod de Lua que se ejecuta dentro de Project Zomboid y da a este panel acceso directo al mundo del juego en vivo.",
     "unlocksTitle": "Qué desbloquea",
@@ -621,6 +624,9 @@
     "backupsPathLabel": "Copias de seguridad:",
     "characterExportsCardTitle": "Exportaciones de personajes",
     "characterExportsCardDesc": "Copias de personajes por jugador, guardadas por separado de las copias de seguridad del mundo.",
+    "worldBackupsLinkTitle": "Copias de seguridad del mundo",
+    "worldBackupsLinkDesc": "Las copias automáticas, su programación, cuántas se guardan, las restauraciones y las descargas están en la página Copias de seguridad del mundo.",
+    "openWorldBackups": "Abrir Copias de seguridad del mundo",
     "autoExportLabel": "Exportar un personaje cuando un jugador se une",
     "autoExportDesc": "Se ejecuta unos diez segundos después de que el jugador carga, de modo que se puede restaurar un personaje sin revertir el mundo. Necesita PanelBridge conectado.",
     "copiesKeptLabel": "Copias conservadas por jugador",
@@ -640,7 +646,7 @@
     "showPassword": "Mostrar contraseña",
     "hidePassword": "Ocultar contraseña",
     "passwordsDontMatch": "Las contraseñas no coinciden",
-    "passwordTooShort": "La contraseña debe tener al menos 6 caracteres",
+    "passwordTooShort": "La contraseña debe tener al menos 10 caracteres",
     "changingButton": "Cambiando…",
     "changeButton": "Cambiar contraseña",
     "recoveryCodesTitle": "Códigos de recuperación",
@@ -714,6 +720,7 @@
       "label": "Tareas programadas",
       "detail": "Reinicios, anuncios y comandos recurrentes."
     },
+    "elsewhereBackups": { "label": "Copias del mundo", "detail": "Programación de copias, cuántas se guardan, restauraciones y descargas." },
     "elsewhereServerConfig": {
       "label": "Configuración del servidor del juego",
       "detail": "Opciones del INI del servidor y reglas de sandbox."
@@ -722,7 +729,7 @@
       "label": "Mensajes rápidos de chat",
       "detail": "Mensajes preestablecidos que se muestran encima del campo de chat."
     },
-    "aboutCardTitle": "Acerca de",
+    "aboutCardTitle": "Versión y enlaces",
     "aboutCardDesc": "Versión del panel, información del entorno de ejecución y enlaces útiles.",
     "installedVersionLabel": "Versión instalada",
     "latestAvailableLabel": "Última disponible",
@@ -1002,7 +1009,7 @@
     "updateDownloaded": {
       "title": "Actualización descargada"
     },
-    "updateDownloadedDescDocker": "El contenedor del panel se está reconstruyendo y se reconectará cuando pase la comprobación de estado.",
+    "updateDownloadedDescDocker": "El contenedor del panel se está recreando. El panel no puede confirmar que la actualización terminó: si no vuelve, revisa el estado o los registros del contenedor.",
     "updateDownloadedDescBinary": "Los archivos de la actualización están listos. Reinicia el panel para aplicar esta versión.",
     "downloadFailed": {
       "title": "Descarga fallida",
@@ -1151,7 +1158,7 @@
       "title": "Las contraseñas no coinciden"
     },
     "passwordTooShort": {
-      "title": "La contraseña debe tener al menos 6 caracteres"
+      "title": "La contraseña debe tener al menos 10 caracteres"
     },
     "passwordChanged": {
       "title": "Contraseña cambiada",
@@ -1179,6 +1186,10 @@
     "passwordResetFailed": {
       "title": "Error al restablecer la contraseña",
       "fallback": "El panel no pudo restablecer tu contraseña desde este servidor."
+    },
+    "settingsSavedWithWarnings": {
+      "title": "Ajustes guardados, con advertencias",
+      "description": "Tus ajustes se guardaron, pero no todo se pudo aplicar de inmediato: {{warnings}}"
     }
   },
   "errors": {

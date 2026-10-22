@@ -4,6 +4,7 @@ import Console from '../Console'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { serverApi, serversApi, rconApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // bug-hunt-2026-09-18 (round 8): loadConsoleTarget's own `cancelled` flag
 // (see Console.activeServerChanged.test.tsx, round-2026-09-04's fix) only
@@ -101,7 +102,7 @@ function renderConsole() {
   return render(
     <TooltipProvider>
       <ConfirmProvider>
-        <Console />
+        <MemoryRouter><Console /></MemoryRouter>
       </ConfirmProvider>
     </TooltipProvider>,
   )

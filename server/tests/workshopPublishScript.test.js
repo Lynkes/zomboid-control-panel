@@ -13,7 +13,7 @@ import {
   toVdfPath,
 } from "../../scripts/workshop/publish.mjs";
 import { writeBridgeVersionLock } from "../../scripts/check-bridge-version.mjs";
-import { BRIDGE_FILES, REPO_ROOT, readRepoText } from "../../scripts/workshop/lib.mjs";
+import { BRIDGE_FILES, REPO_ROOT, normalizeText, readRepoText, sha256Hex } from "../../scripts/workshop/lib.mjs";
 import { escapeRegExp } from "../utils/regex.js";
 
 // scripts/workshop/publish.mjs (spec §8.9). steamcmd is never run here: the
@@ -323,10 +323,14 @@ describe("workshop publish: recording the id", () => {
       workshopId: "3712345678",
       visibility: "unlisted",
       publishedVersion: VERSION,
+      // What steamcmd uploaded: the built item's Lua (BOM and CRs dropped).
+      serverLuaSha256: sha256Hex(Buffer.from(normalizeText(serverLua()), "utf8")),
       publishedAt: NOW.toISOString(),
     });
-    // Only the four fields moved; the hand-maintained liveVerified line didn't reflow.
+    // Only those fields moved; the hand-maintained liveVerified line didn't
+    // reflow, and the new checksum got a line of its own.
     expect(repo.readPublishedText()).toMatch(/^ {2}"liveVerified": \{ "windowsServer": null, "linuxServer": null \}$/m);
+    expect(repo.readPublishedText()).toMatch(/^ {2}"publishedVersion": ".+",\n {2}"serverLuaSha256": "[0-9a-f]{64}",$/m);
     // A push to main republishes the aio Docker image, so a new item's id
     // waits for the live test.
     expect(result.out).toMatch(
@@ -460,6 +464,40 @@ describe("workshop publish: recording the id", () => {
     expect(again.code).toBe(0);
     expect(again.err).toMatch(/is still in the game's Workshop folder\. Move it out/);
     expect(again.out).toMatch(/^Commit pz-mod\/workshop\/published\.json\.$/m);
+  });
+
+  // The panel checks a server's Workshop download against this checksum;
+  // left over from an earlier version, it would flag the new one as altered.
+  it("records the uploaded Lua's checksum from a staged item, and clears a stale one when it can't know it", async () => {
+    const repo = makeRepo({ published: { workshopId: "3712345678", publishedVersion: "1.7.1" } });
+    // The checksum an earlier publish recorded for 1.7.1.
+    const stale = "b".repeat(64);
+    repo.write(BRIDGE_FILES.published, `${JSON.stringify({ ...repo.readPublished(), serverLuaSha256: stale }, null, 2)}\n`);
+    expect(repo.readPublished().serverLuaSha256).toBe(stale);
+
+    const byId = await run(repo, ["record", "--id", "3712345678"]);
+    expect(byId.code).toBe(0);
+    expect(repo.readPublished()).toMatchObject({ publishedVersion: VERSION, serverLuaSha256: null });
+    expect(byId.out).toMatch(/No PanelBridge\.lua checksum recorded/);
+
+    const staged = path.join(repo.root, "Workshop", "ZCPB");
+    const stagedLua = path.join(staged, "Contents", "mods", "ZCPB", "common", "media", "lua", "server", "PanelBridge.lua");
+    fs.mkdirSync(path.dirname(stagedLua), { recursive: true });
+    fs.writeFileSync(path.join(staged, "workshop.txt"), "version=1\nid=3712345678\ntitle=x\n");
+    fs.writeFileSync(stagedLua, "-- uploaded bytes\n");
+    const fromStaged = await run(repo, ["record", "--from-staged", staged]);
+    expect(fromStaged.code).toBe(0);
+    expect(repo.readPublished().serverLuaSha256).toBe(sha256Hex(Buffer.from("-- uploaded bytes\n")));
+    expect(fromStaged.out).not.toMatch(/No PanelBridge\.lua checksum recorded/);
+  });
+
+  it("refuses a published.json whose checksum isn't a sha256 digest", async () => {
+    const repo = makeRepo();
+    const doc = repo.readPublished();
+    repo.write(BRIDGE_FILES.published, JSON.stringify({ ...doc, serverLuaSha256: "ABC" }));
+    const result = await run(repo, ["record", "--id", "3712345678"]);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/serverLuaSha256 must be null or a lower-case sha256 hex digest/);
   });
 
   it("record --from-staged outside a Workshop folder gives the conditional warning", async () => {

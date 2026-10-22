@@ -12,6 +12,7 @@ import {
   requireAnyPermission,
 } from "../services/permissions.js";
 import { listBackupRecords } from "../services/backupRecords.js";
+import { resolveObservedServerRunning } from "../utils/serverStatus.js";
 import {
   acquireLifecycleLock,
   lifecycleInProgressResponse,
@@ -31,6 +32,8 @@ import {
   UPLOAD_TOO_LARGE_CODE,
   UPLOAD_BAD_SIGNATURE_CODE,
 } from "../utils/uploadStream.js";
+import { freeBytesAt, insufficientSpaceError } from "../services/backupDiskSpace.js";
+import { FM_LIMITS } from "../services/fileManagerContract.js";
 const log = createLogger("API:Backup");
 
 const router = express.Router();
@@ -326,7 +329,7 @@ router.get("/:name/snapshot", requirePermission("backups.manage"), async (req, r
     const backupService = req.app.get("backupService");
     const result = await backupService.getBackupSnapshot(req.params.name);
     if (result.success) return res.json(result);
-    return res.status(404).json(result);
+    return res.status(result.code === ErrorCode.BACKUP_SNAPSHOT_TOO_LARGE ? 422 : 404).json(result);
   } catch (error) {
     log.error(`Failed to read backup snapshot: ${error.message}`);
     return res.status(500).json({ error: sanitizeError(error.message) });
@@ -506,8 +509,15 @@ router.post("/create", requirePermission("backups.manage"), async (req, res) => 
     const backupService = req.app.get("backupService");
     const io = req.app.get("io");
 
-    // Pass io for progress updates
-    const result = await backupService.createBackup({ ...req.body, io });
+    // Nothing in the request body is an option: isPreRestore and isPreWipe
+    // are the service's own flags (restoreBackup() and /wipe set them for
+    // their safety copies), which a request must not be able to set -- a
+    // safety copy is kept by retention, and isPreRestore lifts the
+    // restore-in-progress guard -- and whether the panel database goes in is
+    // the stored backup setting's decision (SECURITY 2026-10-20: a body
+    // {"includeDb":true} used to add it for any backups.manage holder).
+    // Pass io for progress updates.
+    const result = await backupService.createBackup({ io });
 
     if (result.success) {
       // 2026-08-26 bug hunt: createBackup surfaces skipped files rather than
@@ -560,8 +570,9 @@ router.delete("/:name", requirePermission("backups.manage"), async (req, res) =>
 // Download a backup archive off the machine. Its own capability, not
 // folded into backups.manage: creating, deleting or restoring a backup
 // manipulates data on this machine, but downloading EXFILTRATES a full
-// copy of it -- world save data, and if includeDb was ever turned on,
-// db.json's bcrypt password hashes too. A role trusted to manage backups
+// copy of it -- world save data, and if includeDb was ever turned on, the
+// panel's account data (a redacted copy since 2026-10-20, without password
+// hashes or sessions; older archives hold them). A role trusted to manage backups
 // day-to-day is not automatically a role that should be able to walk
 // away with an offline copy of everything.
 // /list and /history stay deliberately ungated (read-only status routes
@@ -692,19 +703,37 @@ router.post("/restore/:name", requirePermission("backups.restore"), async (req, 
     // detection scan into a plain `false` -- indistinguishable from a
     // confirmed-stopped server -- which would let this restore silently
     // overwrite the live world save while the server might still be running
-    // and holding those files open. getServerProcessDetails() exposes that
-    // distinction via scanFailed, so use it directly and fail closed when
-    // detection itself failed, same as /wipe, /delete-files and
-    // chunks.js's delete-chunks/delete-region.
-    const processDetails = await serverManager.getServerProcessDetails();
-    if (processDetails.scanFailed) {
+    // and holding those files open. So this fails closed on an undetermined
+    // state, same as /wipe, /delete-files and chunks.js's
+    // delete-chunks/delete-region.
+    //
+    // And the local process scan alone is not the answer for a server the
+    // panel cannot see as a process: with the game in another container (a
+    // docker-local setup, GH#114) the scan succeeds and finds nothing while
+    // the server is up and holding the world open, so the restore went
+    // ahead underneath it. resolveObservedServerRunning() is the verdict the
+    // status badge, the watchdog and Discord already use -- the container's
+    // own state for the Docker providers, RCON and PanelBridge alongside the
+    // scan otherwise -- so this agrees with them: true refuses, null (cannot
+    // tell) refuses as "can't verify".
+    let observedRunning;
+    try {
+      observedRunning = await resolveObservedServerRunning(
+        serverManager,
+        req.app.get("rconService"),
+      );
+    } catch (error) {
+      log.warn(`Could not tell whether the server is running before a restore: ${error.message}`);
+      observedRunning = null;
+    }
+    if (observedRunning === null) {
       return res.status(503).json({
         success: false,
         error: "Can't verify whether the server is actually stopped — the process-detection scan itself failed, not the server. Check the panel's log for the error. If this keeps happening, something on this host (antivirus, a full disk, or a missing system tool) may be blocking detection.",
         code: ErrorCode.SERVER_STATE_UNKNOWN,
       });
     }
-    if (processDetails.running) {
+    if (observedRunning) {
       return res.status(400).json({
         success: false,
         error:
@@ -826,6 +855,17 @@ router.post(
     // receiving the body -- see its own comment for why the signature
     // check can't just look at the first `data` event.
     let tmpPath = null;
+    // What the free space allows the body to reach; Infinity when unknown.
+    let spaceCap = Infinity;
+    let freeAtStart = null;
+    const insufficientSpace = (needed) => {
+      const error = insufficientSpaceError(needed, freeAtStart);
+      return res.status(507).json({
+        error: error.message,
+        code: error.errorCode,
+        params: sanitizeErrorParams(error.errorParams),
+      });
+    };
     try {
       const activeServer = await getActiveServer();
       if (activeServer?.isRemote) {
@@ -906,8 +946,23 @@ router.post(
       // world backup, which is a much larger collision window than the
       // millisecond one this codebase already knows to guard timestamped
       // filenames against.
+      // The backups folder sits on the volume the live world saves to: keep
+      // the File Manager's free-space floor, refusing up front when the
+      // announced size would cut into it and stopping the stream when a body
+      // without (or with a wrong) Content-Length gets there.
+      freeAtStart = await freeBytesAt(backupsPath).catch(() => null);
+      if (freeAtStart !== null) {
+        const announced = Number(req.headers["content-length"]);
+        const incoming = Number.isFinite(announced) && announced > 0 ? announced : 0;
+        if (freeAtStart - incoming < FM_LIMITS.DISK_FREE_FLOOR_BYTES) {
+          log.warn(`POST /upload refused: ${incoming} bytes announced, ${freeAtStart} bytes free`);
+          return insufficientSpace(incoming + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
+        }
+        spaceCap = freeAtStart - FM_LIMITS.DISK_FREE_FLOOR_BYTES;
+      }
+
       tmpPath = `${targetPath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-      const totalBytes = await streamUploadToFile(req, tmpPath, MAX_UPLOAD_BYTES);
+      const totalBytes = await streamUploadToFile(req, tmpPath, Math.min(MAX_UPLOAD_BYTES, spaceCap));
 
       if (totalBytes === 0) {
         // An empty body isn't a signature or size violation to
@@ -976,6 +1031,10 @@ router.post(
             error: "File does not look like a valid .zip archive.",
             code: ErrorCode.BACKUP_UPLOAD_INVALID_ZIP_SIGNATURE,
           });
+      }
+      if (error.code === UPLOAD_TOO_LARGE_CODE && spaceCap < MAX_UPLOAD_BYTES) {
+        log.warn("POST /upload stopped: the body reached the disk's free-space floor");
+        return insufficientSpace(spaceCap + 1 + FM_LIMITS.DISK_FREE_FLOOR_BYTES);
       }
       if (error.code === UPLOAD_TOO_LARGE_CODE) {
         return res

@@ -1,20 +1,16 @@
 {
   "pageHeader": {
-    "title": "Event-Konsole",
-    "description": "Wetter, Zeit, Sounds, Spieleraktionen und Brücken-Tools",
-    "eyebrow": "Weltsteuerung",
+    "title": "Events & Wetter",
+    "description": "Wetter und Uhrzeit ändern, Sounds abspielen, Horden und Fahrzeuge spawnen oder Brücken-Tools nutzen.",
     "refreshPlayers": "Spieler aktualisieren"
   },
   "common": {
     "playersUnavailable": "Spielerliste nicht verfügbar",
     "playersUnavailableTitle": "Spielerliste nicht verfügbar",
-    "noPermissionEndangerOrImpersonate": "Diese Aktion erfordert die Berechtigung players.endanger_or_impersonate, die diese Rolle nicht hat."
+    "noPermissionEndangerOrImpersonate": "Diese Aktion erfordert die Berechtigung players.endanger_or_impersonate, die diese Rolle nicht hat.",
+    "noPermissionRconExecute": "Diese Aktion führt einen RCON-Befehl aus und erfordert die Berechtigung rcon.execute, die diese Rolle nicht hat."
   },
   "statusBar": {
-    "panelBridge": "PanelBridge",
-    "online": "online",
-    "offline": "offline",
-    "configureLink": "einrichten →",
     "eventTarget": "Event-Ziel",
     "allOnline": "alle online",
     "specific": "bestimmt",
@@ -35,7 +31,8 @@
   },
   "bridgeOfflineAlert": {
     "title": "PanelBridge ist offline",
-    "description": "Diese Steuerelemente benötigen die Lua-Brücke. Verbinde sie in <1>Einstellungen</1>, dann starte den PZ-Server."
+    "description": "Diese Steuerelemente benötigen die Lua-Brücke. Verbinde sie in Einstellungen, dann starte den PZ-Server.",
+    "action": "PanelBridge-Einstellungen öffnen"
   },
   "groups": {
     "weather": "Wetter",
@@ -235,7 +232,7 @@
   "utilities": {
     "sublabel": "Strom- & Wassernetz",
     "refresh": "aktualisieren",
-    "b42Warning": "b42-Mehrspieler · Sandbox-Änderungen werden noch nicht an verbundene Clients übertragen",
+    "b42Warning": "Build-42-Mehrspieler: Sandbox-Änderungen werden noch nicht an verbundene Clients übertragen.",
     "power": "Strom",
     "water": "Wasser",
     "statusOnline": "online",
@@ -298,7 +295,10 @@
     "clearNear": "in der Nähe von {{target}} entfernen",
     "clearNearConfirmTitle": "Zombies in der Nähe dieses Spielers entfernen?",
     "clearNearConfirmDescTargeted": "Dies entfernt sofort jeden Zombie im gewählten Radius um {{player}} -- einschließlich aller, die er/sie gerade bekämpft. Zombies erscheinen mit der Zeit wieder, aber das beendet diese Begegnung jetzt sofort für ihn/sie.",
-    "clearNearConfirmDescRandom": "Dies entfernt sofort jeden Zombie im gewählten Radius um einen zufälligen Online-Spieler -- einschließlich aller, die er/sie gerade bekämpft. Zombies erscheinen mit der Zeit wieder, aber das beendet diese Begegnung jetzt sofort für ihn/sie."
+    "clearNearConfirmDescRandom": "Dies entfernt sofort jeden Zombie im gewählten Radius um einen zufälligen Online-Spieler -- einschließlich aller, die er/sie gerade bekämpft. Zombies erscheinen mit der Zeit wieder, aber das beendet diese Begegnung jetzt sofort für ihn/sie.",
+    "spawnConfirmTitle": "{{size}} Zombies spawnen?",
+    "spawnConfirmDescTargeted": "Eine Horde aus {{size}} Zombies erscheint sofort in der Nähe von {{player}}. Sie bleibt in der Welt, bis sie getötet oder entfernt wird.",
+    "spawnConfirmDescRandom": "Eine Horde aus {{size}} Zombies erscheint sofort in der Nähe eines zufälligen Online-Spielers. Sie bleibt in der Welt, bis sie getötet oder entfernt wird."
   },
   "vehicles": {
     "sublabel": "RCON · spawnt neben einem Spieler",
@@ -399,8 +399,6 @@
     "lastRun": "Zuletzt ausgeführt: {{time}}",
     "notRunYet": "Noch nicht ausgeführt",
     "bridgeFileLink": "Brücken-Dateilink: {{summary}}",
-    "bridgeConnectionRequiredTitle": "Brücken-Verbindung erforderlich",
-    "bridgeConnectionRequiredDesc": "Diese Aktionen erfordern eine aktive PanelBridge-Verbindung. Richte sie zuerst in den Einstellungen ein.",
     "moderationConfirmTitle": "{{operation}} ausführen?",
     "moderationConfirmDescription": "Dies sendet einen echten Moderationsbefehl über die aktive Bridge{{target}}{{reason}}. Überprüfe die Werte oben, bevor du fortfährst.",
     "moderationConfirmTarget": " für {{target}}",

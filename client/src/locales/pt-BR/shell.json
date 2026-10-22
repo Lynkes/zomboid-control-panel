@@ -1,10 +1,17 @@
 {
   "skipToContent": "Pular para o conteúdo",
+  "notFound": {
+    "title": "Página não encontrada",
+    "description": "A página solicitada não existe ou não está mais disponível nesta versão do painel.",
+    "goDashboard": "Ir para o Dashboard",
+    "openServers": "Abrir servidores"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Control Panel",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Control Panel"
+    "shortSubtitle": "Control Panel",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navegação principal",
@@ -13,31 +20,28 @@
     "sections": {
       "server": "Servidor",
       "world": "Mundo",
-      "users": "Usuários",
+      "players": "Jogadores",
       "panel": "Painel"
     },
     "items": {
-      "serverConsole": "Console do servidor",
-      "onlinePlayers": "Jogadores online",
-      "inGameChat": "Chat do jogo",
+      "serverConsole": "Console",
+      "onlinePlayers": "Jogadores",
+      "inGameChat": "Chat",
       "eventsWeather": "Eventos e clima",
       "worldMap": "Mapa do mundo",
-      "serverConfiguration": "Configuração do servidor",
-      "serverFiles": "Arquivos do servidor",
-      "modManager": "Gerenciador de mods",
+      "serverConfiguration": "Configuração",
+      "serverFiles": "Arquivos",
+      "modManager": "Mods",
       "templates": "Modelos",
-      "scheduledTasks": "Tarefas agendadas",
-      "worldBackups": "Backups do mundo",
+      "scheduledTasks": "Agendador",
+      "worldBackups": "Backups",
       "mapCleanup": "Limpeza do mapa",
-      "myServers": "Meus servidores",
+      "myServers": "Servidores",
       "serverSetup": "Adicionar servidor",
-      "browsePublic": "Explorar servidores públicos",
+      "browsePublic": "Servidores públicos",
       "discord": "Discord",
-      "panelSettings": "Configurações do painel",
-      "debugLogs": "Logs de depuração",
-      "panelUsers": "Usuários do painel",
-      "rolesPermissions": "Cargos e permissões",
-      "singleSignOn": "Login único (SSO)",
+      "panelSettings": "Configurações",
+      "debugLogs": "Diagnóstico",
       "leaderboard": "Placar"
     },
     "notAvailableRemote": "Indisponível para servidores remotos (somente RCON)",
@@ -60,6 +64,7 @@
     "remoteBadgeFull": "Remoto",
     "remoteTitle": "Servidor remoto (somente RCON)",
     "activeBadge": "Ativo",
+    "addServer": "Adicionar um servidor…",
     "manageServers": "Gerenciar servidores",
     "playersOnline_one": "{{count}} jogador online",
     "playersOnline_other": "{{count}} jogadores online",
@@ -78,8 +83,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Atualização do painel disponível: v{{version}}",
     "titleNoVersion": "Atualização do painel disponível",
-    "titleWithVersionOpenSettings": "Atualização do painel disponível: v{{version}}. Abra as Configurações do painel.",
-    "titleNoVersionOpenSettings": "Atualização do painel disponível. Abra as Configurações do painel.",
+    "titleWithVersionOpenSettings": "Atualização do painel disponível: v{{version}}. Abra as Configurações.",
+    "titleNoVersionOpenSettings": "Atualização do painel disponível. Abra as Configurações.",
     "update": "Atualizar"
   },
   "footer": {
@@ -120,5 +125,89 @@
     "statusCheckFailedTitle": "Não foi possível verificar o login",
     "statusCheckFailedDescription": "O painel, ou um proxy na frente dele, não respondeu à verificação de login. Aguarde um momento e tente novamente.",
     "retry": "Tentar novamente"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconectado",
+    "reconnectedDescription": "A conexão com o servidor foi restabelecida",
+    "lostTitle": "Conexão perdida",
+    "lostDescription": "Não foi possível reconectar automaticamente. A reconexão será tentada quando esta aba estiver visível ou a rede voltar — ou use “Tentar agora” no indicador de status da conexão.",
+    "serverClosed": "O servidor encerrou a conexão",
+    "error": "Erro de conexão",
+    "reconnectFailed": "Falha ao reconectar após várias tentativas"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Tem certeza?",
+    "confirm": "Confirmar",
+    "cancel": "Cancelar"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Carregando a página",
+    "defaultDescription": "Preparando os dados e os controles do painel.",
+    "labels": {
+      "dashboard": "Carregando o dashboard",
+      "named": "Carregando {{title}}",
+      "list": "Carregando a página de lista",
+      "console": "Carregando a página do console",
+      "form": "Carregando a página de formulário",
+      "map": "Carregando a página do mapa",
+      "page": "Carregando a página"
+    }
+  },
+  "buildGate": {
+    "checking": "Verificando a compatibilidade do painel",
+    "eyebrow": "Recuperação da atualização necessária",
+    "title": "As versões do frontend e do backend não correspondem",
+    "description": "O painel parou antes de a autenticação e as conexões ao vivo serem inicializadas. Reinicie com o Start.bat para que o atualizador conclua ou reverta o pacote incompleto.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "desconhecido",
+    "checkAgain": "Verificar novamente"
+  },
+  "serverHeader": {
+    "more": "Mais ações para {{name}}"
+  },
+  "subNav": {
+    "unsaved": "alterações não salvas"
+  },
+  "toolbar": {
+    "clearSearch": "Limpar pesquisa"
+  },
+  "stepper": {
+    "ariaLabel": "Progresso",
+    "position": "Etapa {{current}} de {{total}}",
+    "status": {
+      "done": "concluída",
+      "current": "etapa atual",
+      "upcoming": "não iniciada",
+      "locked": "bloqueada"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Dispensar",
+    "showMore": "Mostrar mais {{count}}",
+    "showFewer": "Mostrar menos"
+  },
+  "saveBar": {
+    "unsaved": "Alterações não salvas",
+    "changeCount": "Alterações não salvas: {{count}}",
+    "saving": "Salvando…",
+    "discard": "Descartar",
+    "save": "Salvar alterações"
+  },
+  "unsavedChanges": {
+    "title": "Sair sem salvar?",
+    "description": "Esta página tem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.",
+    "leave": "Descartar e sair",
+    "stay": "Continuar editando"
+  },
+  "search": {
+    "label": "Pesquisar páginas e seções",
+    "placeholder": "Pesquisar…"
+  },
+  "routes": {
+    "dashboardDescription": "Estado do servidor ao vivo, jogadores e o que precisa da sua atenção a seguir."
+  },
+  "pageHeader": {
+    "breadcrumb": "Trilha de navegação"
   }
 }

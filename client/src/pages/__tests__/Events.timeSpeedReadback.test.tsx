@@ -80,7 +80,7 @@ function renderEvents() {
 }
 
 async function openTimeSpeedSection() {
-  const nav = await screen.findByText('Time speed')
+  const nav = await screen.findByRole('button', { name: 'Time speed' })
   fireEvent.click(nav)
 }
 
@@ -129,7 +129,7 @@ describe('Events -- time speed slider reflects the server\'s real multiplier ins
       renderEvents()
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
 
-      act(() => { fireEvent.click(screen.getByText('Time speed')) })
+      act(() => { fireEvent.click(screen.getByRole('button', { name: 'Time speed' })) })
       await act(async () => { await vi.advanceTimersByTimeAsync(0) })
       expect(screen.getByText('10x')).toBeTruthy()
 

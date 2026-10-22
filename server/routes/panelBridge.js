@@ -22,9 +22,10 @@ import {
   getRoleByName,
   logPlayerAction,
 } from "../database/init.js";
-import { sanitizeError, sanitizeErrorParams, isMaskedSecret } from "../utils/sanitize.js";
+import { sanitizeError, sanitizeErrorParams } from "../utils/sanitize.js";
 import { getDataPaths } from "../utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "../utils/exportFolderName.js";
+import { DEFAULT_PRE_IMPORT_SNAPSHOTS_KEPT, prunePreImportSnapshots } from "../utils/preImportSnapshots.js";
 import { persistSandboxValues } from "./serverFiles.js";
 import {
   LIVE_SANDBOX_BRIDGE_ACTIONS,
@@ -51,9 +52,12 @@ import {
   formatSftpError,
   classifySftpErrorCode,
   validateSftpBridgeConfig,
+  validateSftpLogConfig,
   listSftpLogs,
   readSftpLogTail,
 } from "../services/panelBridgeSftp.js";
+import { SftpPasswordRequiredError, sftpPasswordForRequest } from "../utils/sftpSavedTarget.js";
+import { characterImportRefusal } from "../utils/characterImport.js";
 import {
   SFTP_CONFIG_PATH_KEY,
   listRemoteConfigFiles,
@@ -61,6 +65,7 @@ import {
   validateRemoteConfigTransport,
 } from "../services/remoteConfigFiles.js";
 import { ErrorCode } from "../utils/errorCodes.js";
+import { bridgeFolderName } from "../utils/bridgeFolderName.js";
 import {
   HostKeyTrustError,
   getHostKeyRefusal,
@@ -91,35 +96,61 @@ const SFTP_SETTING_KEYS = {
 
 const SFTP_LOG_PATH_KEY = "panelBridgeSftpLogPath";
 
+function savedSftpCredentials(settings) {
+  return {
+    host: settings[SFTP_SETTING_KEYS.host],
+    port: settings[SFTP_SETTING_KEYS.port],
+    username: settings[SFTP_SETTING_KEYS.username],
+    password: settings[SFTP_SETTING_KEYS.password],
+  };
+}
+
+// SECURITY (2026-10-20): `validated` is the target the connection will use;
+// the saved password is put in only when that is the saved host, port and
+// username (utils/sftpSavedTarget.js). Any other target needs the password
+// in the request, else SftpPasswordRequiredError.
+function withSftpPassword(validated, input, settings) {
+  return {
+    ...validated,
+    password: sftpPasswordForRequest(
+      { host: validated.host, port: validated.port, username: validated.username, password: input?.password },
+      savedSftpCredentials(settings),
+    ),
+  };
+}
+
 async function resolveSftpConfig(input = {}) {
   const settings = await getAllSettings();
-  const password = input.password && !isMaskedSecret(input.password)
-    ? input.password
-    : settings[SFTP_SETTING_KEYS.password] || "";
-  return validateSftpBridgeConfig({
+  const validated = validateSftpBridgeConfig({
     host: input.host ?? settings[SFTP_SETTING_KEYS.host],
     port: input.port ?? settings[SFTP_SETTING_KEYS.port],
     username: input.username ?? settings[SFTP_SETTING_KEYS.username],
-    password,
+    password: "",
     bridgePath: input.bridgePath ?? settings[SFTP_SETTING_KEYS.bridgePath],
     pollIntervalSeconds: input.pollIntervalSeconds ?? settings[SFTP_SETTING_KEYS.pollIntervalSeconds],
   });
+  return withSftpPassword(validated, input, settings);
 }
 
 // The log transport reuses the bridge credentials but has its own remote path
 // and does not require a configured bridgePath.
 async function resolveSftpLogConfig(input = {}) {
   const settings = await getAllSettings();
-  const password = input.password && !isMaskedSecret(input.password)
-    ? input.password
-    : settings[SFTP_SETTING_KEYS.password] || "";
-  return {
+  const validated = validateSftpLogConfig({
     host: input.host ?? settings[SFTP_SETTING_KEYS.host],
     port: input.port ?? settings[SFTP_SETTING_KEYS.port],
     username: input.username ?? settings[SFTP_SETTING_KEYS.username],
-    password,
+    password: "",
     logPath: input.logPath ?? settings[SFTP_LOG_PATH_KEY],
-  };
+  });
+  return withSftpPassword(validated, input, settings);
+}
+
+// The coded refusal for a request that named another SFTP target without its
+// password; null for any other error.
+function sftpPasswordRefusal(error) {
+  if (!(error instanceof SftpPasswordRequiredError)) return null;
+  return { error: error.message, code: error.code };
 }
 
 // Valid PanelBridge actions (defense-in-depth — Lua side also validates)
@@ -674,7 +705,10 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
       });
     }
 
-    // The PanelBridge mod writes to: {RuntimeDataPath}/Lua/panelbridge/{serverName}/
+    // The PanelBridge mod writes to: {RuntimeDataPath}/Lua/panelbridge/{bridgeFolder}/,
+    // where bridgeFolder is the server name with path-hostile characters and
+    // whitespace replaced (utils/bridgeFolderName.js), not the name as typed.
+    const bridgeFolder = bridgeFolderName(serverName);
     // For dedicated servers, the runtime data folder is often separate from the install folder
     // Pattern: Server_Data/DoomerZ_B42 (install) + Server_files_B42 (runtime data via -cachedir)
     const possiblePaths = [];
@@ -718,7 +752,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
           targetServer.zomboidDataPath,
           "Lua",
           "panelbridge",
-          serverName,
+          bridgeFolder,
         ),
         "zomboidDataPath/Lua (cachedir)",
         1,
@@ -728,7 +762,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
     // PRIORITY 2 (fallback): default ~/Zomboid folder — works on both Windows and Linux when
     // the server runs without a custom -cachedir (e.g., most Linux dedicated server setups)
     addPath(
-      path.join(os.homedir(), "Zomboid", "Lua", "panelbridge", serverName),
+      path.join(os.homedir(), "Zomboid", "Lua", "panelbridge", bridgeFolder),
       "default Zomboid folder",
       2,
     );
@@ -746,7 +780,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
             item,
             "Lua",
             "panelbridge",
-            serverName,
+            bridgeFolder,
           );
           addPath(luaPath, `${item}/Lua`, 3);
         }
@@ -763,7 +797,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
               item,
               "Lua",
               "panelbridge",
-              serverName,
+              bridgeFolder,
             );
             addPath(luaPath, `${item}/Lua`, 4);
           }
@@ -772,7 +806,7 @@ router.post("/auto-configure", requirePermission("bridge.setup"), async (req, re
 
       // PRIORITY 5: Lua folder directly in install path (fallback)
       addPath(
-        path.join(targetServer.installPath, "Lua", "panelbridge", serverName),
+        path.join(targetServer.installPath, "Lua", "panelbridge", bridgeFolder),
         "installPath/Lua",
         5,
       );
@@ -886,6 +920,10 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
         });
     }
 
+    // The mod's folder is named after the server with path-hostile characters and
+    // whitespace replaced (utils/bridgeFolderName.js), not after the name as typed.
+    const bridgeFolder = bridgeFolderName(serverName);
+
     const possiblePaths = [];
 
     // Helper to safely read directory contents
@@ -922,7 +960,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
       "Zomboid",
       "Lua",
       "panelbridge",
-      serverName,
+      bridgeFolder,
     );
     addPath(defaultZomboidPath, "default Zomboid folder", 0);
 
@@ -938,7 +976,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
             item,
             "Lua",
             "panelbridge",
-            serverName,
+            bridgeFolder,
           );
           addPath(luaPath, `${item}`, 1);
         }
@@ -955,7 +993,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
               item,
               "Lua",
               "panelbridge",
-              serverName,
+              bridgeFolder,
             );
             addPath(luaPath, `${item} (grandparent)`, 2);
           }
@@ -963,12 +1001,12 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
       }
 
       addPath(
-        path.join(targetServer.installPath, "Lua", "panelbridge", serverName),
+        path.join(targetServer.installPath, "Lua", "panelbridge", bridgeFolder),
         "installPath/Lua",
         3,
       );
       addPath(
-        path.join(parentDir, "Lua", "panelbridge", serverName),
+        path.join(parentDir, "Lua", "panelbridge", bridgeFolder),
         "parent/Lua",
         4,
       );
@@ -980,7 +1018,7 @@ router.get("/scan-server/:serverId", requirePermission("bridge.setup"), async (r
           targetServer.zomboidDataPath,
           "Lua",
           "panelbridge",
-          serverName,
+          bridgeFolder,
         ),
         "zomboidDataPath",
         1,
@@ -1170,6 +1208,8 @@ router.post("/sftp/test", requirePermission("bridge.setup"), async (req, res) =>
     const result = await testSftpBridge(config);
     res.json(result);
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     // error (English, unchanged) is the pre-2026-08-26-classification fallback
     // for any client that doesn't read `code` -- code + params.detail let an
     // updated client show the exact same classification, translated, with
@@ -1232,6 +1272,8 @@ router.post("/sftp/configure", requirePermission("bridge.setup"), async (req, re
     }
     res.json({ success: true, bridgePath: cachePath, transport: bridge.getStatus().transport });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({
       error: sanitizeError(formatSftpError(error)),
       code: classifySftpErrorCode(error),
@@ -1249,6 +1291,8 @@ router.post("/sftp/logs/list", requirePermission("bridge.setup"), async (req, re
     if (req.body?.logPath) await setSetting(SFTP_LOG_PATH_KEY, config.logPath);
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
@@ -1260,6 +1304,8 @@ router.post("/sftp/logs/tail", requirePermission("bridge.setup"), async (req, re
     const result = await readSftpLogTail(config, req.body?.name, req.body?.maxBytes);
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
@@ -1269,17 +1315,14 @@ router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, 
   let config;
   try {
     const settings = await getAllSettings();
-    const password =
-      req.body?.password && !isMaskedSecret(req.body.password)
-        ? req.body.password
-        : settings[SFTP_SETTING_KEYS.password] || "";
-    config = validateRemoteConfigTransport({
+    const validated = validateRemoteConfigTransport({
       host: req.body?.host ?? settings[SFTP_SETTING_KEYS.host],
       port: req.body?.port ?? settings[SFTP_SETTING_KEYS.port],
       username: req.body?.username ?? settings[SFTP_SETTING_KEYS.username],
-      password,
+      password: "",
       configPath: req.body?.configPath ?? settings[SFTP_CONFIG_PATH_KEY],
     });
+    config = withSftpPassword(validated, req.body, settings);
     const result = await listRemoteConfigFiles(config);
     if (req.body?.configPath) {
       await setSetting(SFTP_CONFIG_PATH_KEY, config.configPath);
@@ -1287,6 +1330,8 @@ router.post("/sftp/config/list", requirePermission("bridge.setup"), async (req, 
     }
     res.json({ success: true, ...result });
   } catch (error) {
+    const refusal = sftpPasswordRefusal(error);
+    if (refusal) return res.status(400).json(refusal);
     res.status(400).json({ error: sanitizeError(error.message), ...hostKeyRefusalFields(error, config) });
   }
 });
@@ -1474,8 +1519,13 @@ router.post("/refresh", requirePermission("bridge.setup"), (req, res) => {
   }
 });
 
-// Ping the mod
-router.get("/ping", async (req, res) => {
+// Ping the mod. SECURITY (2026-10-20, access-control audit): a ping queues a
+// command to the game like every other bridge action, so it takes a bridge
+// capability -- the ones that see the bridge's status (bridge.setup,
+// bridge.diagnostics) or run its actions (bridge.command). It answered any
+// signed-in role; the only caller is the Settings bridge tab, whose Ping
+// button needs /status (bridge.setup or bridge.diagnostics) anyway.
+router.get("/ping", requireAnyPermission("bridge.setup", "bridge.diagnostics", "bridge.command"), async (req, res) => {
   if (!bridge.bridgePath) {
     return res.status(400).json({
       error: "Bridge not configured",
@@ -1634,6 +1684,12 @@ router.post("/command", requireBridgeCommandUnlessGmToolsOnly, async (req, res) 
   }
 
   // Action-specific validation
+  if (action === "importPlayerData") {
+    const importRefusal = characterImportRefusal(args?.data);
+    if (importRefusal) {
+      return res.status(400).json({ error: importRefusal, code: ErrorCode.PANELBRIDGE_CHARACTER_PERK_INVALID });
+    }
+  }
   if (action === "airdrop" && args) {
     const VALID_PRESETS = [
       "military",
@@ -2806,7 +2862,7 @@ router.get("/commands", (req, res) => {
         description: "Set game time/date (only sent fields are changed)",
         args: {
           hour: "number (optional)",
-          day: "number (optional)",
+          day: "number 1-31, the day of the month (optional)",
           month: "number 1-12 (optional)",
           year: "number (optional)",
         },
@@ -3841,6 +3897,10 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       params: sanitizeErrorParams({ sections: validSections.join(", ") }),
     });
   }
+  const importRefusal = characterImportRefusal(data);
+  if (importRefusal) {
+    return res.status(400).json({ error: importRefusal, code: ErrorCode.PANELBRIDGE_CHARACTER_PERK_INVALID });
+  }
   // Snapshot the target's CURRENT data before overwriting it. Unlike a
   // config edit, another player's XP/perks/inventory can't be reconstructed
   // by hand if the wrong file lands on the wrong player -- so a failed
@@ -3889,6 +3949,14 @@ router.post("/character/import", requirePermission("players.gm_tools"), async (r
       snapshotPath,
       JSON.stringify(snapshot.data ?? snapshot, null, 2),
     );
+    // Keep this player's newest recovery copies (as many as the login
+    // auto-export keeps, else 5); auto-exports are never touched.
+    try {
+      const keep = Number((await getAllSettings())?.autoExportMaxPerPlayer) || DEFAULT_PRE_IMPORT_SNAPSHOTS_KEPT;
+      prunePreImportSnapshots(exportDir, safeUsername, keep);
+    } catch (pruneError) {
+      log.debug(`Could not rotate pre-import snapshots: ${pruneError.message}`);
+    }
   } catch (error) {
     return res.status(502).json({
       error: `Could not snapshot ${username}'s current data before import — refusing to overwrite without a recovery copy: ${sanitizeError(error.message)}`,

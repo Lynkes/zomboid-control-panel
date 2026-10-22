@@ -5,6 +5,7 @@
     "errorTitle": "錯誤",
     "noPermission": "您沒有權限管理 Discord 整合。",
     "successTitle": "成功",
+    "warningTitle": "警告",
     "unknownError": "未知錯誤"
   },
   "events": {
@@ -181,11 +182,13 @@
     "stepLocked": "請先完成當前步驟"
   },
   "management": {
-    "pageHeaderTitle": "Discord 機器人",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "管理 Discord 機器人、斜槓命令和事件通知",
     "statusRunning": "執行中",
     "statusStopped": "已停止",
     "refreshAria": "重新整理狀態",
+    "setupGuide": "設定指南",
+    "closeGuide": "返回機器人設定",
     "botStatus": {
       "title": "機器人狀態",
       "runtimeLabel": "執行時間",
@@ -234,6 +237,7 @@
         "players": {
           "desc": "列出線上玩家"
         },
+        "leaderboard": { "desc": "顯示統計排行榜" },
         "save": {
           "desc": "儲存世界"
         },
@@ -259,6 +263,7 @@
       "save": "儲存權限",
       "saving": "儲存中…",
       "savedMessage": "命令權限已儲存，斜槓命令已重新註冊。",
+      "savedNotRegistered": "命令權限已儲存，但在 Discord 中更新斜槓命令失敗。下次機器人啟動或再次儲存時會更新。",
       "saveFailedFallback": "儲存權限失敗"
     },
     "configuration": {
@@ -332,6 +337,7 @@
     "invalidAdminRoleIdFormat": "管理員角色 ID 格式無效（應為 17-19 位數字）",
     "invalidModRoleIdFormat": "協管員角色 ID 格式無效（應為 17-19 位數字）",
     "configSavedBotStartFailed": "設定已儲存，但機器人啟動失敗：{{reason}}",
+    "configSavedBotReconnectFailed": "設定已儲存，但機器人無法使用新設定重新連線：{{reason}}",
     "configSavedAndStarted": "設定已儲存，機器人已啟動！",
     "configSaved": "Discord 設定儲存成功",
     "saveConfigFailedFallback": "儲存設定失敗",

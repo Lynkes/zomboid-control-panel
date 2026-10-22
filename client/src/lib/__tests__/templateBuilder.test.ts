@@ -22,6 +22,27 @@ describe('buildTemplateCapture', () => {
     }
   })
 
+  // SECURITY (2026-10-20): keys other capabilities govern and anything
+  // secret-like (a masked DiscordToken) never go into a template; the server
+  // refuses a template holding one (templateSchema.js's isIniKeyExcluded()).
+  it('strips governed keys, secret-like keys by pattern, and keys in any case', () => {
+    const { serverIni } = buildTemplateCapture(
+      {
+        PVP: 'true',
+        Mods: 'A;B',
+        WorkshopItems: '1;2',
+        Map: 'Muldraugh, KY',
+        DoLuaChecksum: 'true',
+        UPnP: 'false',
+        upnp: 'true',
+        DiscordToken: '••••••••',
+        SomeApiKey: 'k',
+      },
+      emptySandbox,
+    )
+    expect(serverIni).toEqual({ PVP: 'true' })
+  })
+
   it('shapes sandboxVars into the six known sections', () => {
     const { sandboxVars } = buildTemplateCapture({}, {
       ...emptySandbox,

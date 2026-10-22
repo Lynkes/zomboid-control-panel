@@ -5,6 +5,7 @@
     "errorTitle": "خطأ",
     "noPermission": "ليست لديك صلاحية إدارة تكامل Discord.",
     "successTitle": "نجاح",
+    "warningTitle": "تحذير",
     "unknownError": "خطأ غير معروف"
   },
   "events": {
@@ -181,11 +182,13 @@
     }
   },
   "management": {
-    "pageHeaderTitle": "بوت Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "أدر بوت Discord لديك وأوامر السلاش وإشعارات الأحداث",
     "statusRunning": "يعمل",
     "statusStopped": "متوقّف",
     "refreshAria": "تحديث الحالة",
+    "setupGuide": "دليل الإعداد",
+    "closeGuide": "العودة إلى إعدادات البوت",
     "botStatus": {
       "title": "حالة البوت",
       "runtimeLabel": "حالة التشغيل",
@@ -230,6 +233,7 @@
       "commands": {
         "status": { "desc": "عرض حالة الخادم" },
         "players": { "desc": "سرد اللاعبين المتصلين" },
+        "leaderboard": { "desc": "عرض لوحة صدارة الإحصائيات" },
         "save": { "desc": "حفظ العالم" },
         "broadcast": { "desc": "إرسال رسالة من الخادم" },
         "kick": { "desc": "طرد لاعب" },
@@ -241,6 +245,7 @@
       "save": "حفظ الصلاحيات",
       "saving": "جارٍ الحفظ...",
       "savedMessage": "تم حفظ صلاحيات الأوامر. وأُعيد تسجيل أوامر السلاش.",
+      "savedNotRegistered": "تم حفظ صلاحيات الأوامر، لكن فشل تحديث أوامر السلاش في Discord. ستُحدَّث عند تشغيل البوت في المرة القادمة أو عند الحفظ مرة أخرى.",
       "saveFailedFallback": "فشل حفظ الصلاحيات"
     },
     "configuration": {
@@ -314,6 +319,7 @@
     "invalidAdminRoleIdFormat": "صيغة معرّف دور المسؤول غير صالحة (يجب أن يكون رقمًا من 17 إلى 19 خانة)",
     "invalidModRoleIdFormat": "صيغة معرّف دور المشرف غير صالحة (يجب أن يكون رقمًا من 17 إلى 19 خانة)",
     "configSavedBotStartFailed": "تم حفظ الإعدادات، لكن فشل تشغيل البوت: {{reason}}",
+    "configSavedBotReconnectFailed": "تم حفظ الإعدادات، لكن تعذّرت إعادة اتصال البوت بها: {{reason}}",
     "configSavedAndStarted": "تم حفظ الإعدادات وتشغيل البوت!",
     "configSaved": "تم حفظ إعدادات Discord بنجاح",
     "saveConfigFailedFallback": "فشل حفظ الإعدادات",

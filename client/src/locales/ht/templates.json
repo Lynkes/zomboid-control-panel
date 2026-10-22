@@ -1,10 +1,12 @@
 {
   "pageHeader": {
-    "title": "Modèl Simulasyon",
-    "description": "Aplike yon seri règ chwazi sou sèvè ou a, oswa sove konfigirasyon ou a pou itilize l ankò pita.",
+    "title": "Modèl",
+    "description": "Seri règ ou ka aplike sou nenpòt sèvè; yon foto konfigirasyon sèlman retabli fichye yon sèl sèvè.",
+    "snapshotsLink": "Foto konfigirasyon yo nan Konfigirasyon Sèvè",
     "import": "Enpòte",
     "saveCurrentConfig": "Sove konfigirasyon aktyèl la"
   },
+  "loading": "Ap chaje modèl yo",
   "emptyState": {
     "loadErrorTitle": "Pa t kapab chaje modèl yo",
     "retry": "Eseye ankò",
@@ -12,7 +14,7 @@
     "noTemplatesDesc": "Sove konfigirasyon sèvè aktyèl ou a kòm yon modèl, oswa enpòte youn nan yon dosye."
   },
   "hiddenSection": {
-    "title": "Modèl entegre kache",
+    "toggle": "Modèl entegre kache ({{n}})",
     "description": "Kache nan lis anwo a men yo pa efase. Restore youn pou pote l tounen.",
     "restoreButton": "Restore",
     "restoreAria": "Restore {{name}}"

@@ -150,7 +150,7 @@ function renderDashboard() {
 
 async function openMoreActionsMenu() {
   // Radix's DropdownMenuTrigger opens on pointerdown, not click.
-  const trigger = await screen.findByRole('button', { name: /more server actions/i })
+  const trigger = await screen.findByRole('button', { name: /more actions for/i })
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
   fireEvent.click(trigger)
   return screen.findByRole('menu')

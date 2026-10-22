@@ -1,10 +1,17 @@
 {
   "skipToContent": "Aller au contenu",
+  "notFound": {
+    "title": "Page introuvable",
+    "description": "La page demandée n'existe pas ou n'est plus disponible dans cette version du panneau.",
+    "goDashboard": "Aller au tableau de bord",
+    "openServers": "Ouvrir les serveurs"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Panneau de contrôle",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Panneau de contrôle"
+    "shortSubtitle": "Panneau de contrôle",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Navigation principale",
@@ -13,31 +20,28 @@
     "sections": {
       "server": "Serveur",
       "world": "Monde",
-      "users": "Utilisateurs",
+      "players": "Joueurs",
       "panel": "Panneau"
     },
     "items": {
-      "serverConsole": "Console du serveur",
-      "onlinePlayers": "Joueurs en ligne",
-      "inGameChat": "Chat en jeu",
+      "serverConsole": "Console",
+      "onlinePlayers": "Joueurs",
+      "inGameChat": "Chat",
       "eventsWeather": "Événements et météo",
       "worldMap": "Carte du monde",
-      "serverConfiguration": "Configuration du serveur",
-      "serverFiles": "Fichiers du serveur",
-      "modManager": "Gestionnaire de mods",
+      "serverConfiguration": "Configuration",
+      "serverFiles": "Fichiers",
+      "modManager": "Mods",
       "templates": "Modèles",
-      "scheduledTasks": "Tâches planifiées",
-      "worldBackups": "Sauvegardes du monde",
+      "scheduledTasks": "Planificateur",
+      "worldBackups": "Sauvegardes",
       "mapCleanup": "Nettoyage de la carte",
-      "myServers": "Mes serveurs",
+      "myServers": "Serveurs",
       "serverSetup": "Ajouter un serveur",
-      "browsePublic": "Parcourir les serveurs publics",
+      "browsePublic": "Serveurs publics",
       "discord": "Discord",
-      "panelSettings": "Paramètres du panneau",
-      "debugLogs": "Journaux de débogage",
-      "panelUsers": "Utilisateurs du panneau",
-      "rolesPermissions": "Rôles et permissions",
-      "singleSignOn": "Authentification unique",
+      "panelSettings": "Paramètres",
+      "debugLogs": "Diagnostic",
       "leaderboard": "Classement"
     },
     "notAvailableRemote": "Non disponible pour les serveurs distants (RCON uniquement)",
@@ -46,7 +50,7 @@
     "noServerBanner": {
       "title": "Pas encore de serveur",
       "description": "La majeure partie du panneau se débloque dès que vous en ajoutez un.",
-      "cta": "Configurer un serveur"
+      "cta": "Ajouter un serveur"
     }
   },
   "mobileMenu": {
@@ -60,6 +64,7 @@
     "remoteBadgeFull": "Distant",
     "remoteTitle": "Serveur distant (RCON uniquement)",
     "activeBadge": "Actif",
+    "addServer": "Ajouter un serveur…",
     "manageServers": "Gérer les serveurs",
     "playersOnline_one": "{{count}} joueur en ligne",
     "playersOnline_other": "{{count}} joueurs en ligne",
@@ -78,8 +83,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Mise à jour du panneau disponible : v{{version}}",
     "titleNoVersion": "Mise à jour du panneau disponible",
-    "titleWithVersionOpenSettings": "Mise à jour du panneau disponible : v{{version}}. Ouvrir les paramètres du panneau.",
-    "titleNoVersionOpenSettings": "Mise à jour du panneau disponible. Ouvrir les paramètres du panneau.",
+    "titleWithVersionOpenSettings": "Mise à jour du panneau disponible : v{{version}}. Ouvrir les paramètres.",
+    "titleNoVersionOpenSettings": "Mise à jour du panneau disponible. Ouvrir les paramètres.",
     "update": "Mettre à jour"
   },
   "footer": {
@@ -120,5 +125,89 @@
     "statusCheckFailedTitle": "Impossible de vérifier l'état de connexion",
     "statusCheckFailedDescription": "Le panneau, ou un proxy placé devant lui, n'a pas répondu à la vérification de connexion. Patientez un instant, puis réessayez.",
     "retry": "Réessayer"
+  },
+  "connection": {
+    "reconnectedTitle": "Reconnecté",
+    "reconnectedDescription": "La connexion au serveur est rétablie",
+    "lostTitle": "Connexion perdue",
+    "lostDescription": "Impossible de se reconnecter automatiquement. La reconnexion reprendra dès que cet onglet sera visible ou que votre réseau sera rétabli — ou utilisez « Réessayer maintenant » dans l'indicateur d'état de la connexion.",
+    "serverClosed": "Le serveur a fermé la connexion",
+    "error": "Erreur de connexion",
+    "reconnectFailed": "Échec de la reconnexion après plusieurs tentatives"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Êtes-vous sûr ?",
+    "confirm": "Confirmer",
+    "cancel": "Annuler"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Chargement de la page",
+    "defaultDescription": "Préparation des données et des commandes du panneau.",
+    "labels": {
+      "dashboard": "Chargement du tableau de bord",
+      "named": "Chargement : {{title}}",
+      "list": "Chargement de la page de liste",
+      "console": "Chargement de la page de la console",
+      "form": "Chargement de la page de formulaire",
+      "map": "Chargement de la page de la carte",
+      "page": "Chargement de la page"
+    }
+  },
+  "buildGate": {
+    "checking": "Vérification de la compatibilité du panneau",
+    "eyebrow": "Récupération de la mise à jour requise",
+    "title": "Les versions du frontend et du backend ne correspondent pas",
+    "description": "Le panneau s'est arrêté avant l'initialisation de l'authentification et des connexions en direct. Redémarrez-le avec Start.bat pour laisser le programme de mise à jour terminer ou annuler le paquet incomplet.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "inconnu",
+    "checkAgain": "Vérifier à nouveau"
+  },
+  "serverHeader": {
+    "more": "Autres actions pour {{name}}"
+  },
+  "subNav": {
+    "unsaved": "modifications non enregistrées"
+  },
+  "toolbar": {
+    "clearSearch": "Effacer la recherche"
+  },
+  "stepper": {
+    "ariaLabel": "Progression",
+    "position": "Étape {{current}} sur {{total}}",
+    "status": {
+      "done": "terminée",
+      "current": "étape en cours",
+      "upcoming": "pas encore commencée",
+      "locked": "verrouillée"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Masquer",
+    "showMore": "Afficher {{count}} de plus",
+    "showFewer": "Afficher moins"
+  },
+  "saveBar": {
+    "unsaved": "Modifications non enregistrées",
+    "changeCount": "Modifications non enregistrées : {{count}}",
+    "saving": "Enregistrement…",
+    "discard": "Annuler les modifications",
+    "save": "Enregistrer les modifications"
+  },
+  "unsavedChanges": {
+    "title": "Quitter sans enregistrer ?",
+    "description": "Cette page contient des modifications qui ne sont pas encore enregistrées. Si vous la quittez maintenant, elles seront perdues.",
+    "leave": "Abandonner et quitter",
+    "stay": "Continuer la modification"
+  },
+  "search": {
+    "label": "Rechercher des pages et des sections",
+    "placeholder": "Rechercher…"
+  },
+  "routes": {
+    "dashboardDescription": "État du serveur en direct, joueurs, et ce qui demande votre attention ensuite."
+  },
+  "pageHeader": {
+    "breadcrumb": "Fil d'Ariane"
   }
 }

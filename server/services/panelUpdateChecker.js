@@ -665,9 +665,13 @@ export class PanelUpdateChecker {
   }
 
   /**
-   * Download the update binary and prepare for restart
+   * The refusal downloadUpdate() would return right now before it does any
+   * work, or null when none applies. The Docker update route asks first, so
+   * it never saves and stops the game server for an update that is then
+   * refused (an update that is no longer available, a download or an apply
+   * already under way).
    */
-  async downloadUpdate() {
+  getDownloadRefusal() {
     if (this.isDownloading) {
       // See "Should the download request be held open at all?" (Pam's
       // 0924a187, god-dispatched 2026-09-07): POST /panel/update-download
@@ -703,6 +707,15 @@ export class PanelUpdateChecker {
         code: "no_update",
       };
     }
+    return null;
+  }
+
+  /**
+   * Download the update binary and prepare for restart
+   */
+  async downloadUpdate() {
+    const refusal = this.getDownloadRefusal();
+    if (refusal) return refusal;
 
     // Claim the guard NOW, before the first `await` below, not after it.
     // preflight() is async (real disk/permission checks), so the old code
@@ -793,6 +806,12 @@ export class PanelUpdateChecker {
     // the no-intervening-await invariant for the persisted values and fixing
     // the genuinely reachable message/log/emit staleness outright.
     const targetVersion = this.latestRelease.version;
+    // The release object itself, for the same reason: the checksum and
+    // manifest checks below must read checksums.txt from the release these
+    // files came from, not from whatever a background check put in
+    // this.latestRelease meanwhile (that failed a valid download as
+    // "corrupted or tampered").
+    const targetRelease = this.latestRelease;
     const assetName = isWindows
       ? "ZomboidControlPanel.exe"
       : "ZomboidControlPanel";
@@ -862,7 +881,7 @@ export class PanelUpdateChecker {
     const clientArchiveExtension = isWindows ? ".zip" : ".tar.gz";
     const tmpClientArchivePath = path.join(
       exeDir,
-      `.client-dist-${this.latestRelease.version}.partial.${partialCallId}${clientArchiveExtension}`,
+      `.client-dist-${targetVersion}.partial.${partialCallId}${clientArchiveExtension}`,
     );
     let incomingClientPath = null;
 
@@ -908,7 +927,11 @@ export class PanelUpdateChecker {
       // and supply-chain tampering on the mirror edge. Older releases may not
       // ship checksums.txt — treat that as a warning, not a failure.
       try {
-        const verified = await this.verifyChecksum(tmpDownloadPath, asset.name);
+        const verified = await this.verifyChecksum(
+          tmpDownloadPath,
+          asset.name,
+          targetRelease,
+        );
         if (verified === false) {
           throw new Error(
             "SHA256 checksum mismatch — download corrupted or tampered with",
@@ -921,7 +944,7 @@ export class PanelUpdateChecker {
           // account + TLS. release.ps1 always publishes checksums.txt, so a
           // release missing it is unexpected and should not be auto-applied.
           throw new Error(
-            `Release v${this.latestRelease.version} does not publish a checksums.txt entry for ${asset.name} — refusing to apply an unverified update`,
+            `Release v${targetVersion} does not publish a checksums.txt entry for ${asset.name} — refusing to apply an unverified update`,
           );
         }
         log.info(`SHA256 verified against release checksums.txt`);
@@ -945,6 +968,7 @@ export class PanelUpdateChecker {
       const archiveVerified = await this.verifyChecksum(
         tmpClientArchivePath,
         clientArchive.name,
+        targetRelease,
       );
       if (archiveVerified !== true) {
         throw new Error(
@@ -956,6 +980,7 @@ export class PanelUpdateChecker {
         isWindows,
         tmpDownloadPath,
         asset.name,
+        targetVersion,
       );
       incomingClientPath = stagedClient.incomingClientPath;
       fs.unlinkSync(tmpClientArchivePath);
@@ -1007,6 +1032,13 @@ export class PanelUpdateChecker {
       // comment for why re-reading the live field here is exactly the
       // staleness this paragraph already warns about.
       this._stagedVersionCache = targetVersion;
+      // A failed apply's result (canRetryApply:false, "re-download first")
+      // described the bundle this download just replaced. Left in place it
+      // kept "Restart and Apply" disabled after the very re-download it asked
+      // for.
+      if (this.lastApplyResult?.status === "failed") {
+        this.lastApplyResult = null;
+      }
       try {
         await setSetting("stagedPanelUpdateVersion", targetVersion);
       } catch (persistErr) {
@@ -1048,6 +1080,14 @@ export class PanelUpdateChecker {
       ) {
         fs.rmSync(stagedPath, { force: true });
       }
+      // Every Updates card showed "Downloading" since the 0% event above;
+      // without a closing event it stayed there after the failure. Path-free
+      // message: this goes to every signed-in socket.
+      this.io?.emit("panel:downloadProgress", {
+        progress: this.downloadProgress,
+        status: "failed",
+        message: sanitizeError(error.message),
+      });
       return { success: false, error: error.message, code: error.code };
     } finally {
       this.isDownloading = false;
@@ -1477,7 +1517,13 @@ export class PanelUpdateChecker {
   /**
    * Download a file with progress tracking
    */
-  async stageClientDist(archivePath, isWindows, binaryPath, artifactName) {
+  async stageClientDist(
+    archivePath,
+    isWindows,
+    binaryPath,
+    artifactName,
+    expectedVersion = this.latestRelease?.version,
+  ) {
     const exeDir = path.dirname(process.execPath);
     const extractDir = fs.mkdtempSync(path.join(os.tmpdir(), "zpanel-update-"));
     const escapePowerShellLiteral = (value) => String(value).replace(/'/g, "''");
@@ -1513,7 +1559,7 @@ export class PanelUpdateChecker {
       }
       const manifestError = validateReleaseManifest(
         manifest,
-        this.latestRelease?.version,
+        expectedVersion,
         artifactName,
         binaryPath ? (await this.sha256File(binaryPath)).toLowerCase() : null,
       );
@@ -2659,10 +2705,15 @@ public static extern bool CloseHandle(System.IntPtr hObject);
    * Throws if checksums.txt IS published but cannot be fetched. Silently
    * skipping on fetch failure would let a network-level attacker disable
    * verification just by blocking one request.
+   *
+   * `release` is the release the file was downloaded from. downloadUpdate()
+   * passes the one it captured before downloading, so a background update
+   * check that swaps this.latestRelease mid-download cannot make a valid
+   * file look tampered with.
    */
-  async verifyChecksum(filePath, assetName) {
-    if (!this.latestRelease?.assets) return null;
-    const checksumAsset = this.latestRelease.assets.find(
+  async verifyChecksum(filePath, assetName, release = this.latestRelease) {
+    if (!release?.assets) return null;
+    const checksumAsset = release.assets.find(
       (a) => a.name === "checksums.txt",
     );
     if (!checksumAsset) return null;

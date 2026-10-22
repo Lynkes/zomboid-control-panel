@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -62,6 +63,7 @@ const ConfirmContext = createContext<ConfirmFn>(async () => false)
  * Usage: const confirm = useConfirm(); if (!(await confirm({ description: '...' }))) return
  */
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation('shell')
   const [options, setOptions] = useState<ConfirmOptions | null>(null)
   const [open, setOpen] = useState(false)
   const [typedValue, setTypedValue] = useState('')
@@ -124,7 +126,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       <AlertDialog open={open} onOpenChange={(next) => { if (!next) settle(false) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{options?.title ?? 'Are you sure?'}</AlertDialogTitle>
+            <AlertDialogTitle>{options?.title ?? t('confirmDialog.defaultTitle')}</AlertDialogTitle>
             {!hasItems && description}
             {!hasItems && typedField}
           </AlertDialogHeader>
@@ -143,7 +145,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           )}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => settle(false)}>
-              {options?.cancelLabel ?? 'Cancel'}
+              {options?.cancelLabel ?? t('confirmDialog.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => settle(true)}
@@ -168,7 +170,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 options?.requireTypedConfirmation && 'disabled:grayscale disabled:opacity-60',
               )}
             >
-              {options?.confirmLabel ?? 'Confirm'}
+              {options?.confirmLabel ?? t('confirmDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -28,6 +28,16 @@ vi.mock("../utils/uploadStream.js", async (importOriginal) => {
   };
 });
 
+// The free space the route reads before streaming (security audit
+// 2026-10-20: the upload keeps the File Manager's 1 GiB free-space floor).
+// null = unknown, which never blocks: the tests above it don't depend on the
+// disk the suite happens to run on.
+const freeBytesAtMock = vi.fn(async () => null);
+vi.mock("../services/backupDiskSpace.js", async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, freeBytesAt: (...args) => freeBytesAtMock(...args) };
+});
+
 const { getActiveServer } = await import("../database/init.js");
 const { default: router } = await import("../routes/backup.js");
 const { streamUploadToFile: realStreamUploadToFile } = await vi.importActual(
@@ -70,6 +80,7 @@ afterEach(() => {
   if (root) fs.rmSync(root, { recursive: true, force: true });
   root = undefined;
   vi.restoreAllMocks();
+  freeBytesAtMock.mockReset().mockResolvedValue(null);
 });
 
 describe("POST /upload streams the body to disk", () => {
@@ -239,5 +250,72 @@ describe("POST /upload streams the body to disk", () => {
     await getUploadHandler()(req, response);
 
     expect(response.status).toHaveBeenCalledWith(413);
+  });
+});
+
+describe("POST /upload keeps the disk's free-space floor", () => {
+  const GiB = 1024 * 1024 * 1024;
+
+  function setup() {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "upload-route-"));
+    backupsPath = path.join(root, "backups");
+    fs.mkdirSync(backupsPath, { recursive: true });
+    getActiveServer.mockResolvedValue({ isRemote: false });
+  }
+
+  it("refuses up front when the announced size would leave less than 1 GiB free", async () => {
+    setup();
+    streamUploadToFileMock.mockClear();
+    freeBytesAtMock.mockResolvedValue(GiB + 100_000);
+    const req = fakeRequest([Buffer.from([0x50, 0x4b, 0x03, 0x04])], {
+      "content-type": "application/zip",
+      "content-length": "200000",
+      "x-backup-filename": "world.zip",
+    });
+    req.app = makeApp({ getBackupsPath: async () => backupsPath });
+    const response = createResponse();
+
+    await getUploadHandler()(req, response);
+
+    expect(response.status).toHaveBeenCalledWith(507);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "BACKUP_INSUFFICIENT_DISK_SPACE", params: expect.objectContaining({ free: expect.any(String) }) }),
+    );
+    expect(streamUploadToFileMock).not.toHaveBeenCalled();
+    expect(fs.readdirSync(backupsPath)).toEqual([]);
+  });
+
+  it("stops a body without Content-Length at the floor and leaves no tmp file", async () => {
+    setup();
+    streamUploadToFileMock.mockClear();
+    freeBytesAtMock.mockResolvedValue(GiB + 50_000);
+    const body = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), crypto.randomBytes(200_000)]);
+    const req = fakeRequest([body], { "content-type": "application/zip", "x-backup-filename": "world.zip" });
+    req.destroy = () => {};
+    req.app = makeApp({ getBackupsPath: async () => backupsPath });
+    const response = createResponse();
+
+    await getUploadHandler()(req, response);
+
+    expect(response.status).toHaveBeenCalledWith(507);
+    expect(streamUploadToFileMock).toHaveBeenCalledWith(expect.anything(), expect.any(String), 50_000);
+    await vi.waitFor(() => expect(fs.readdirSync(backupsPath)).toEqual([]));
+  });
+
+  it("accepts an upload that leaves the floor free", async () => {
+    setup();
+    freeBytesAtMock.mockResolvedValue(10 * GiB);
+    const body = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), crypto.randomBytes(1000)]);
+    const req = fakeRequest([body], {
+      "content-type": "application/zip",
+      "content-length": String(body.length),
+      "x-backup-filename": "world.zip",
+    });
+    req.app = makeApp({ getBackupsPath: async () => backupsPath });
+    const response = createResponse();
+
+    await getUploadHandler()(req, response);
+
+    expect(response.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, size: body.length }));
   });
 });

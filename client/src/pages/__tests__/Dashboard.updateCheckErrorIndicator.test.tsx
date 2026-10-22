@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import Dashboard from '../Dashboard'
@@ -133,7 +133,7 @@ describe('Dashboard.tsx: quiet update-check-error indicator', () => {
 
     renderDashboard()
 
-    await screen.findAllByRole('button', { name: 'Start' })
+    await screen.findByRole('heading', { level: 1 })
     expect(screen.queryByText(INDICATOR_TEXT)).not.toBeInTheDocument()
   })
 
@@ -148,7 +148,7 @@ describe('Dashboard.tsx: quiet update-check-error indicator', () => {
 
     renderDashboard()
 
-    await screen.findAllByRole('button', { name: 'Start' })
+    await screen.findByRole('heading', { level: 1 })
     expect(screen.queryByText(INDICATOR_TEXT)).not.toBeInTheDocument()
   })
 
@@ -178,7 +178,9 @@ describe('Dashboard.tsx: quiet update-check-error indicator', () => {
     })
 
     const first = renderDashboard()
-    const dismissBtn = await screen.findByRole('button', { name: /dismiss update check notice/i })
+    // A PageAlerts entry: its own Dismiss button.
+    const notice = (await screen.findByText(INDICATOR_TEXT)).closest('[role="status"]') as HTMLElement
+    const dismissBtn = within(notice).getByRole('button', { name: 'Dismiss' })
     dismissBtn.click()
 
     await waitFor(() => expect(screen.queryByText(INDICATOR_TEXT)).not.toBeInTheDocument())
@@ -189,7 +191,7 @@ describe('Dashboard.tsx: quiet update-check-error indicator', () => {
     first.unmount()
     renderDashboard()
 
-    await screen.findAllByRole('button', { name: 'Start' })
+    await screen.findByRole('heading', { level: 1 })
     expect(screen.queryByText(INDICATOR_TEXT)).not.toBeInTheDocument()
   })
 

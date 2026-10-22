@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Depuração e logs",
+    "title": "Diagnóstico",
     "description": "Diagnóstico ao vivo, histórico recente e detalhes do ambiente deste painel"
   },
   "permissionDenied": {
@@ -23,12 +23,18 @@
     "logs": "Logs",
     "crashes": "Crashes",
     "health": "Status ao vivo",
-    "system": "Ambiente"
+    "system": "Ambiente",
+    "ariaLabel": "Seções do diagnóstico",
+    "groups": {
+      "now": "Agora",
+      "history": "Histórico",
+      "system": "Sistema"
+    }
   },
   "fixActions": {
     "links": {
       "openDashboard": "Abrir Dashboard",
-      "openServers": "Abrir Meus servidores",
+      "openServers": "Abrir Servidores",
       "autoDetect": "Detectar automaticamente",
       "openSettings": "Abrir Configurações",
       "openServerFinder": "Explorar servidores públicos",
@@ -90,8 +96,8 @@
       "note": "Selecione ou configure um servidor ativo com um caminho de instalação válido."
     },
     "serverZomboidData": {
-      "label": "Abrir Configurações",
-      "note": "Defina o caminho dos dados do Zomboid em Configurações."
+      "label": "Abrir Servidores",
+      "note": "Defina a pasta de dados do Zomboid ao editar este servidor na página Servidores."
     },
     "serverStartScriptOrJre": {
       "label": "Explorar servidores públicos",
@@ -111,7 +117,7 @@
     },
     "serverRconPassword": {
       "label": "Abrir Configuração do servidor",
-      "note": "Defina a senha RCON na Configuração do servidor (e o mesmo valor em Configurações)."
+      "note": "Defina a senha RCON na Configuração do servidor e o mesmo valor ao editar este servidor na página Servidores."
     },
     "serverBridgeMod": {
       "label": "Abrir Configurações › PanelBridge",
@@ -290,6 +296,11 @@
     "workshopNothingToChange_other": "Nada a alterar para {{count}} IDs.",
     "mapEntriesRepairedTitle": "Entradas de mapa reparadas",
     "duplicatesCleanedTitle": "Duplicatas removidas",
+    "mapEntriesRemoved": "Entradas de mapa inválidas removidas ({{count}}): {{list}}.",
+    "mapEntriesAdded": "Entradas de mapa ausentes adicionadas ({{count}}): {{list}}.",
+    "mapEntriesAllValid": "Todas as entradas de mapa são válidas. Nenhuma alteração necessária.",
+    "duplicatesRemoved": "IDs de mod duplicados removidos ({{count}}): {{list}}.",
+    "duplicatesNone": "Nenhum ID de mod duplicado encontrado. Nenhuma alteração necessária.",
     "serverStartingTitle": "Servidor iniciando",
     "serverStartingFallback": "Sinal de início enviado ao servidor dedicado. Confira o status no Dashboard.",
     "rconReconnectedTitle": "RCON reconectado",
@@ -298,6 +309,8 @@
     "dbBackupCreatedDesc": "Backup concluído{{backupName}}.",
     "staleLocksRemovedTitle": "Arquivos de bloqueio obsoletos excluídos",
     "staleLocksRemovedFallback": "{{count}} arquivo(s) de bloqueio excluído(s).",
+    "staleLocksSomeFailed": "Alguns não puderam ser excluídos ({{count}}).",
+    "staleLocksTruncated": "Parou antes do fim: este save é grande demais para ser verificado de uma vez, então alguns arquivos de bloqueio obsoletos podem ter ficado.",
     "bridgeConfiguredTitle": "Ponte configurada",
     "bridgeConfiguredDesc": "Monitorando {{serverName}}. Inicie o servidor para concluir a conexão.",
     "bridgeConfiguredServerFallback": "o servidor ativo",
@@ -1175,6 +1188,11 @@
               "label": "Falha na detecção automática da build B42",
               "message": "Usando a build fixa {{build}} porque a detecção falhou: {{reason}}. Isso não vai acompanhar a próxima build do mapa do PZ até a detecção voltar a funcionar.",
               "hint": "A detecção pergunta ao serviço de mapas qual build é a atual, usando o curl do sistema. Se você chegou aqui, essa requisição não teve sucesso — o curl não está instalado, o painel não tem acesso de rede de saída ou o serviço de mapas recusou a requisição. Vale verificar os dois primeiros do seu lado; o terceiro talvez não tenha solução pelo painel. Fique atento a isso depois de um lançamento de mapa do Project Zomboid, pois é quando uma build desatualizada aparece como geometria errada no mapa."
+            },
+            "info": {
+              "label": "Versão do mapa {{build}} (embutida)",
+              "message": "O pzmap.org não respondeu à verificação automática de versão do painel ({{reason}}), então o mapa usa a versão embutida {{build}}. O mapa funciona normalmente.",
+              "hint": "O pzmap.org protege sua lista de versões com uma proteção contra bots que às vezes recusa servidores. Não há nada para corrigir do seu lado. Depois de uma atualização do mapa do Project Zomboid, atualize o painel para obter a nova versão."
             }
           }
         },
@@ -1593,6 +1611,7 @@
     "copyDbPathAria": "Copiar caminho do banco de dados",
     "copyLogsPathAria": "Copiar caminho da pasta de logs",
     "pathsUpdatedTitle": "Caminhos alterados",
+    "pathsUpdatedDesc": "Reinicie o painel para aplicar as alterações.",
     "enterAtLeastOnePath": "Informe pelo menos um caminho",
     "updatePathsFailedFallback": "Falha ao alterar os caminhos"
   },

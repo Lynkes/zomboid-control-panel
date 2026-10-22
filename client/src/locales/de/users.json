@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "Konto",
+    "title": "Panel-Konten",
     "role": "Rolle",
     "created": "Erstellt",
     "lastSignIn": "Letzte Anmeldung",
     "never": "Nie",
     "actions": "Aktionen",
+    "rowActions": "Aktionen für {{username}}",
     "removeTooltip": "{{username}} entfernen",
     "linkSsoTooltip": "SSO mit {{username}} verknüpfen",
     "unlinkSsoTooltip": "SSO-Verknüpfung von {{username}} entfernen",
@@ -60,7 +62,7 @@
     "passwordRequired": "Gib ein Passwort ein.",
     "passwordsDontMatch": "Die Passwörter stimmen nicht überein.",
     "roleRequired": "Wähle eine Rolle.",
-    "passwordHint": "Verwende mindestens 6 Zeichen."
+    "passwordHint": "Verwende mindestens 10 Zeichen."
   },
   "toasts": {
     "userCreatedTitle": "Konto erstellt",

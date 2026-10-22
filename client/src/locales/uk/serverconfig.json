@@ -27,7 +27,7 @@
     "uncategorizedSandbox.keyCount_few",
     "uncategorizedSandbox.keyCount_many"
   ],
-  "loading": "завантаження конфігурації…",
+  "loading": "Завантаження конфігурації…",
   "loadErrorTitle": "Не вдалося повністю завантажити дані конфігурації",
   "retry": "Повторити",
   "noAccess": {
@@ -48,14 +48,15 @@
   "pageHeader": {
     "title": "Конфігурація сервера",
     "description": "Редагуйте чинні налаштування INI, пісочниці, спавну та модів для цього сервера.",
-    "eyebrow": "конфіг",
     "unsavedChanges": "Незбережені зміни",
-    "templates": "Збережені конфігурації",
-    "backups": "Резервні копії",
-    "refresh": "Оновити"
+    "templates": "Знімки конфігурації",
+    "backups": "Резервні копії файлів конфігурації",
+    "refresh": "Оновити",
+    "more": "Інші дії",
+    "templatesPage": "Шаблони",
+    "openInFiles": "Відкрити теку у «Файли сервера»"
   },
   "activeServerStrip": {
-    "label": "Активний сервер",
     "noServerSelected": "Сервер не вибрано",
     "iniLabel": "INI",
     "sandboxLabel": "Пісочниця",
@@ -85,7 +86,8 @@
     "removeConfirm": "Прибрати «{{modId}}» з Mods=? Це лише готує зміну тут — на диск нічого не записується, доки ви не збережете.",
     "removeConfirmButton": "Прибрати",
     "removedTitle": "Запис прибрано з Mods=",
-    "removedToast": "«{{modId}}» прибрано з Mods=. Не збережено — перевірте та збережіть нижче."
+    "removedToast": "«{{modId}}» прибрано з Mods=. Не збережено — перевірте та збережіть нижче.",
+    "openActiveMods": "Відкрити активні моди"
   },
   "tabs": {
     "serverSettings": "Налаштування сервера",
@@ -94,7 +96,8 @@
     "spawnRegions": "Регіони спавну",
     "modSettings": "Налаштування модів",
     "unsavedChangesAria": "незбережені зміни",
-    "fileMissingAria": "файл відсутній"
+    "fileMissingAria": "файл відсутній",
+    "listAria": "Файли конфігурації"
   },
   "stopServerAlert": {
     "title": "Сервер запущено",
@@ -110,17 +113,13 @@
     "form": "Форма",
     "raw": "Текст",
     "downloadIniAria": "Завантажити резервну копію INI",
-    "downloadIniTooltip": "Завантажити резервну копію INI",
     "downloadSandboxAria": "Завантажити резервну копію Sandbox",
-    "downloadSandboxTooltip": "Завантажити резервну копію Sandbox",
     "downloadSpawnPointsAria": "Завантажити резервну копію Spawn Points",
-    "downloadSpawnPointsTooltip": "Завантажити резервну копію Spawnpoints",
     "downloadSpawnRegionsAria": "Завантажити резервну копію Spawn Regions",
-    "downloadSpawnRegionsTooltip": "Завантажити резервну копію Spawnregions",
     "wiki": "Вікі",
-    "map": "карта",
+    "map": "Карта",
     "saveAndReload": "Зберегти й перезавантажити",
-    "save": "зберегти",
+    "save": "Зберегти",
     "copied": "Скопійовано!",
     "copyToClipboard": "Копіювати в буфер обміну"
   },
@@ -129,31 +128,19 @@
     "sandboxPlaceholder": "Пошук налаштувань пісочниці…",
     "aria": "Пошук налаштувань сервера",
     "sandboxAria": "Пошук налаштувань пісочниці",
-    "clearAria": "Очистити пошук",
     "filterAria": "Фільтрувати налаштування",
-    "filterAll": "усі",
-    "filterModified": "змінені",
-    "filterUnsaved": "незбережені",
+    "filterAll": "Усі",
+    "filterModified": "Змінені",
+    "filterUnsaved": "Незбережені",
     "noMatches": "Немає налаштувань, що відповідають «{{query}}»."
   },
   "categoriesNav": {
     "iniAria": "Категорії налаштувань сервера",
     "sandboxAria": "Категорії пісочниці",
-    "categoriesLabel": "Категорії",
-    "expandAllAria": "Розгорнути всі групи категорій",
-    "collapseAllAria": "Згорнути всі групи категорій",
-    "expandAll": "Розгорнути все",
-    "collapseAll": "Згорнути все",
-    "modifiedCountTitle_one": "{{count}} незбережена зміна",
-    "modifiedCountTitle_other": "Незбережених змін: {{count}}",
     "matchCount_one": "{{count}} збіг",
     "matchCount_other": "Збігів: {{count}}",
     "uncategorizedIniLabel": "Без категорії / невідомі",
-    "uncategorizedIniTitle": "Ключі, наявні у вашому файлі INI, але відсутні в схемі (новіші ванільні ключі, додані модами або власні)",
     "uncategorizedSandboxLabel": "Додаткові налаштування",
-    "uncategorizedSandboxTitle": "Налаштування пісочниці, які редактор ще не згрупував",
-    "modifiedCountTitle_few": "Незбережених змін: {{count}}",
-    "modifiedCountTitle_many": "Незбережених змін: {{count}}",
     "matchCount_few": "Збігів: {{count}}",
     "matchCount_many": "Збігів: {{count}}"
   },
@@ -194,12 +181,10 @@
     "luaChecksumBody": "PanelBridge, який встановлює панель, додає на сервері файли Lua, яких у гравців немає, тож з увімкненим <1>DoLuaChecksum</1> вони не можуть під'єднатися. Вимкніть його або переведіть PanelBridge на доставку через Steam Workshop у розділі Налаштування › PanelBridge, щоб лишити його ввімкненим.",
     "luaChecksumWorkshopNote": "PanelBridge надходить зі Steam Workshop, тож цю опцію можна ввімкнути. Розділ Налаштування › PanelBridge проведе вас крок за кроком.",
     "luaChecksumWorkshopUnconfirmed": "Якщо PanelBridge досі завантажується з теки гри, гравці не зможуть приєднатися, поки цю опцію ввімкнено.",
-    "disableNow": "вимкнути зараз"
+    "disableNow": "Вимкнути зараз"
   },
   "sandboxTab": {
     "sectionLabel": "Пісочниця",
-    "sectionSublabel": "світ, зомбі, виживання",
-    "build42Title": "Оптимізовано для Build 42",
     "build42Body": "Значення пісочниці та формулювання параметрів у цьому редакторі узгоджені з типовими значеннями Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -208,11 +193,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Точки спавну",
-    "sectionSublabel": "керуються модами · місця появи гравців",
-    "infoTab": "інфо",
+    "sectionSublabel": "Місця появи гравців, якими зазвичай керує мод",
     "modManagedTitle": "Точками спавну керують моди",
     "modManagedBody": "Місцями появи зазвичай керують моди на кшталт «Spawn Select». Перемкніться на <1>текстовий</1> режим, щоб переглянути або відредагувати файл напряму.",
-    "openRawFile": "відкрити файл як текст"
+    "openRawFile": "Відкрити файл як текст"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Регіони спавну",
@@ -240,17 +224,16 @@
     "sectionLabel": "Параметри пісочниці від модів",
     "sectionSublabelLoaded_one": "{{count}} мод · наживо з PanelBridge",
     "sectionSublabelLoaded_other": "Модів: {{count}} · наживо з PanelBridge",
-    "sectionSublabelIdle": "panelbridge · наживо",
+    "sectionSublabelIdle": "Наживо через PanelBridge",
     "modifiedBadge": "змінено: {{count}}",
-    "refresh": "оновити",
-    "load": "завантажити",
+    "refresh": "Оновити",
+    "load": "Завантажити",
     "searchPlaceholder": "Пошук налаштувань модів…  (натисніть /)",
-    "clearSearchAria": "Очистити пошук",
     "modifiedFilterNoneTitle": "Жоден параметр не відрізняється від типового",
     "modifiedFilterTitle": "Показати лише параметри, змінені відносно типових",
-    "modifiedFilter": "змінені",
+    "modifiedFilter": "Змінені",
     "collapseAll": "Згорнути все",
-    "expandAll": "розгорнути все",
+    "expandAll": "Розгорнути все",
     "notLoadedTitle": "Налаштування модів не завантажено",
     "notLoadedDescPrefix": "Натисніть «завантажити», щоб отримати параметри пісочниці з усіх встановлених модів через PanelBridge",
     "notLoadedDescSuffix": ". Сервер PZ має бути запущений з активним PanelBridge.",
@@ -275,7 +258,7 @@
     "offCaps": "ВИМК",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Скинути до типового: {{value}}",
-    "resetToDefaultLabel": "тип.: {{value}}",
+    "resetToDefaultLabel": "Скинути до {{value}}",
     "resetToDefaultTooltip": "Скинути до типового: {{value}}",
     "noModifiedOptions": "Жоден параметр не було змінено відносно типових значень.",
     "showAllOptions": "Показати всі параметри",
@@ -290,22 +273,11 @@
     "sectionSublabelLoaded_few": "Модів: {{count}} · наживо з PanelBridge",
     "sectionSublabelLoaded_many": "Модів: {{count}} · наживо з PanelBridge",
     "groupModifiedTitle_few": "Параметрів, що відрізняються від типових: {{count}}",
-    "groupModifiedTitle_many": "Параметрів, що відрізняються від типових: {{count}}"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} незбережена зміна",
-    "unsavedChange_other": "Незбережених змін: {{count}}",
-    "iniScope": "server ini",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s — зберегти · застосується після перезавантаження",
-    "discard": "відхилити",
-    "save": "зберегти",
-    "saveAndReload": "зберегти й перезавантажити",
-    "unsavedChange_few": "Незбережених змін: {{count}}",
-    "unsavedChange_many": "Незбережених змін: {{count}}"
+    "groupModifiedTitle_many": "Параметрів, що відрізняються від типових: {{count}}",
+    "manageMods": "Керувати модами"
   },
   "backupsDialog": {
-    "title": "Резервні копії конфігурації",
+    "title": "Резервні копії файлів конфігурації",
     "description": "Відновіть попередню версію ваших файлів конфігурації. Резервні копії створюються автоматично під час збереження.",
     "filterLabel": "Фільтр:",
     "filterAll": "Усі файли",
@@ -328,9 +300,9 @@
     "totalCount_many": "Усього резервних копій: {{count}}"
   },
   "templatesDialog": {
-    "title": "Збережені конфігурації",
+    "title": "Знімки конфігурації",
     "applyTip": "Застосування збереженої конфігурації замінює ВСІ ваші поточні налаштування — воно не об'єднує їх із наявними. Панель робить резервну копію чинних налаштувань перед застосуванням, тож «Відновити» може це скасувати, але спершу сервер має бути зупинений.",
-    "description": "Збережіть свою поточну конфігурацію або завантажте ту, яку зберегли раніше.",
+    "description": "Збережіть поточні налаштування як знімок або застосуйте збережений раніше.",
     "savedCount_one": "{{count}} збережена конфігурація",
     "savedCount_other": "Збережених конфігурацій: {{count}}",
     "saveCurrentAsTemplate": "Зберегти поточну конфігурацію",
@@ -373,13 +345,21 @@
   "applyTemplateConfirm": {
     "title": "Застосувати збережену конфігурацію «{{name}}»?",
     "description": "Замінити ваші поточні налаштування сервера цією збереженою конфігурацією? Панель спершу зробить резервну копію чинних налаштувань, тож «Відновити» зможе це скасувати за потреби.",
-    "rconWarning": "Пароль RCON не зберігається у збережених конфігураціях, тож застосування цієї конфігурації прибере пароль RCON вашого сервера — його доведеться ввести знову.",
+    "secretsKept": "Збережені конфігурації не містять паролів і токенів, тож застосування цієї конфігурації залишає без змін поточні пароль RCON, пароль сервера та токени вашого сервера.",
     "confirmLabel": "Застосувати"
   },
   "restoreBackupConfirm": {
     "title": "Відновити цю резервну копію?",
     "description": "Замінити поточний файл на «{{filename}}»? Незбережені зміни чинної конфігурації буде втрачено.",
     "confirmLabel": "Відновити"
+  },
+  "switchEditorConfirm": {
+    "rawTitle": "Відхилити незбережені зміни в текстовому редакторі?",
+    "rawDescription": "У текстовому редакторі є незбережені зміни. Якщо продовжити, їх буде відхилено, а файл завантажиться з диска.",
+    "rawConfirm": "Відхилити зміни",
+    "formTitle": "Відкрити текстовий редактор без змін із форми?",
+    "formDescription": "Текстовий редактор показує файл таким, яким він є на диску, без ваших незбережених змін у формі. Збереження з текстового редактора замінить їх.",
+    "formConfirm": "Відкрити текстовий редактор"
   },
   "fileBrowserDialog": {
     "title": "Вибрати файл зображення",
@@ -411,7 +391,7 @@
   "toasts": {
     "error": "Помилка",
     "loadConfigFailed": "Не вдалося завантажити конфігурацію сервера.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "Активний сервер змінився після завантаження цієї сторінки. Перезавантажте її перед збереженням, щоб не перезаписати не той сервер.",
     "invalidIniTitle": "Некоректні налаштування сервера",
     "invalidSandboxTitle": "Некоректні значення пісочниці",
     "fixSettings": "Виправте: {{settings}}",
@@ -3190,23 +3170,23 @@
         "description": "Скільки днів минає до піку популяції щурів."
       },
       "Farming": {
-        "label": "Множник землеробства",
-        "description": "Швидкість підвищення рівня навички «Землеробство».",
+        "label": "Швидкість вирощування (Farming)",
+        "description": "Застаріла швидкість росту рослин. Build 42 приховує цей параметр у грі й натомість використовує «Швидкість вирощування» (FarmingSpeedNew).",
         "options": {
           "1": {
-            "label": "Дуже низький"
+            "label": "Дуже швидка"
           },
           "2": {
-            "label": "Низький"
+            "label": "Швидка"
           },
           "3": {
-            "label": "Звичайний"
+            "label": "Звичайна"
           },
           "4": {
-            "label": "Високий"
+            "label": "Повільна"
           },
           "5": {
-            "label": "Дуже високий"
+            "label": "Дуже повільна"
           }
         }
       },
@@ -3266,7 +3246,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Швидкість вирощування",
-        "description": "Множник швидкості росту. Менше значення — швидше."
+        "description": "Множник швидкості росту рослин. Більше значення — швидше (2 = удвічі швидше)."
       },
       "FarmingAmountNew": {
         "label": "Обсяг урожаю",
@@ -3627,16 +3607,16 @@
         "description": "Відстань навколо точок появи, очищена від зомбі.",
         "options": {
           "1": {
-            "label": "Немає"
+            "label": "У будівлі та довкола неї"
           },
           "2": {
-            "label": "Мала"
+            "label": "У будівлі"
           },
           "3": {
-            "label": "Середня"
+            "label": "У кімнаті"
           },
           "4": {
-            "label": "Велика"
+            "label": "Зомбі можуть з'являтися всюди"
           },
           "5": {
             "label": "Дуже велика"
@@ -3947,10 +3927,10 @@
         "description": "Як часто в будівлях трапляються підвали.",
         "options": {
           "1": {
-            "label": "Немає"
+            "label": "Ніколи"
           },
           "2": {
-            "label": "Дуже рідко"
+            "label": "Надзвичайно рідко"
           },
           "3": {
             "label": "Рідко"

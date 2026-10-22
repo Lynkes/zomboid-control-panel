@@ -1,49 +1,48 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import type { TFunction } from 'i18next'
+import { Link } from 'react-router-dom'
 import {
+  Archive,
+  ArrowRight,
+  CalendarClock,
   Clock,
-  Plus,
-  Trash2,
-  RotateCcw,
+  Copy,
+  Globe,
+  HelpCircle,
   History,
+  ListChecks,
+  Loader2,
+  Megaphone,
+  Pencil,
+  Play,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Save,
+  Send,
+  Settings2,
+  Trash2,
   CheckCircle2,
   XCircle,
-  RefreshCw,
-  Play,
-  Pencil,
-  Loader2,
-  AlertCircle,
   AlertTriangle,
-  ChevronDown,
-  HelpCircle,
-  Search,
-  SearchX,
-  Send
 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { SaveBar } from '@/components/SaveBar'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatusPill } from '@/components/ui/status-pill'
+import { StatStrip, type StatStripItem } from '@/components/ui/stat-strip'
+import { Segmented } from '@/components/ui/segmented'
+import { RowActions } from '@/components/ui/row-actions'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogBody,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
-import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
+import { formatRelativeTime } from '@/lib/cronSchedule'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,13 +67,16 @@ import { schedulerApi, rconApi, serverApi, serversApi, backupApi, ScheduleHistor
 import { resolveServerRunning } from '@/lib/serverStatus'
 import { EmptyState } from '@/components/EmptyState'
 import { NumberInput } from '@/components/NumberInput'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { BackupRestartOverlapNotice } from '@/components/BackupRestartOverlapNotice'
 import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledBackupHealth'
 import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
+import { TimezonePicker } from '@/components/scheduler/TimezonePicker'
+import { TaskDialog } from '@/components/scheduler/TaskDialog'
+import { draftFromTask, emptyTaskDraft, type CronPreset, type TaskDraft } from '@/components/scheduler/taskDraft'
+import { TASK_TYPE_ICONS, getCommandSuggestions, taskTypeOfCommand, useScheduleText } from '@/components/scheduler/scheduleText'
 
 const RESTART_WARNING_LOCALES = ['en', 'zh-CN', 'fr', 'de', 'es', 'ht', 'pt-BR'] as const
 // Manual restart countdowns, in minutes, plus a custom length.
@@ -91,52 +93,10 @@ interface ScheduledTask {
   enabled: number
   last_run: string | null
   created_at: string
-  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): computed
-  // server-side by GET /scheduler/tasks (scheduler.getTaskNextRun) -- the
-  // live node-cron job's own next-fire time for an enabled task, or a plain
-  // cron_expression+timezone computation for a disabled one. null when the
-  // schedule has no server (an old cached response), or genuinely has no
-  // upcoming run.
+  // Computed server-side by GET /scheduler/tasks (scheduler.getTaskNextRun):
+  // the live node-cron job's next fire for an enabled task. null when the
+  // schedule has no upcoming run (or an old cached response).
   next_run?: string | null
-}
-
-interface CronPreset {
-  name: string
-  cron: string
-}
-
-function getWeekDays(t: TFunction) {
-  return [
-    { value: '1', short: t('weekdays.mon.short'), name: t('weekdays.mon.name') },
-    { value: '2', short: t('weekdays.tue.short'), name: t('weekdays.tue.name') },
-    { value: '3', short: t('weekdays.wed.short'), name: t('weekdays.wed.name') },
-    { value: '4', short: t('weekdays.thu.short'), name: t('weekdays.thu.name') },
-    { value: '5', short: t('weekdays.fri.short'), name: t('weekdays.fri.name') },
-    { value: '6', short: t('weekdays.sat.short'), name: t('weekdays.sat.name') },
-    { value: '0', short: t('weekdays.sun.short'), name: t('weekdays.sun.name') },
-  ]
-}
-
-function getCommonCommands(t: TFunction) {
-  return [
-    { label: t('commands.restartServer'), value: 'restart' },
-    { label: t('commands.saveWorld'), value: 'save' },
-    { label: t('commands.serverMessage'), value: 'servermsg Server maintenance in progress' },
-    { label: t('commands.checkModUpdates'), value: 'checkModsNeedUpdate' },
-    // PanelBridge actions \u2014 routed through the Lua mod via `bridge:<action>`.
-    // JSON args after the action name are validated server-side.
-    { label: t('commands.triggerBlizzard'), value: 'bridge:triggerBlizzard {"duration":2}' },
-    { label: t('commands.triggerStorm'), value: 'bridge:triggerStorm {"duration":1}' },
-    { label: t('commands.triggerTropicalStorm'), value: 'bridge:triggerTropicalStorm {"duration":1}' },
-    { label: t('commands.stopAllWeather'), value: 'bridge:stopWeather' },
-    { label: t('commands.startRain'), value: 'bridge:startRain {"intensity":0.7}' },
-    { label: t('commands.stopRain'), value: 'bridge:stopRain' },
-    { label: t('commands.restoreUtilities'), value: 'bridge:restoreUtilities' },
-    { label: t('commands.shutOffUtilities'), value: 'bridge:shutOffUtilities' },
-    // No bridge:saveWorld preset (#197): the bridge's save wrote the world's
-    // map_sand.bin. An existing bridge:saveWorld task runs as `save` above.
-    { label: t('commands.broadcastServerChat'), value: 'bridge:sendToServerChat {"message":"Scheduled broadcast"}' },
-  ]
 }
 
 // No pagination on this panel -- when a fetch returns exactly this many
@@ -145,293 +105,34 @@ function getCommonCommands(t: TFunction) {
 // truth: hitting the limit exactly by coincidence is possible too.
 const EXECUTION_HISTORY_FETCH_LIMIT = 50
 
-// Timezone picker's candidate pool (2026-08-31, whitespace/picker card).
-// Intl.supportedValuesOf('timeZone') is deliberately NOT the sole source of
-// truth here -- server/utils/cronValidation.js's isValidIanaTimezone()
-// already documents that this canonical list is narrower than what
-// Intl.DateTimeFormat (and therefore node-cron) actually accepts, and
-// omits some valid legacy/alias names real installs use. Confirmed
-// concretely: 'UTC' itself -- the exact fallback value this page's own
-// status object reports and the server's own invalid-timezone error message
-// cites as an example -- is NOT in supportedValuesOf()'s output. Prepended
-// by hand rather than pulled from a second Intl call so the gap is explicit
-// and doesn't silently reappear if ICU data changes again. Computed once at
-// module load, not per-render or per-mount.
-//
-// Typed via a local cast, not a tsconfig "lib" bump: this project's ts
-// target (ES2020) predates the ES2022 Intl types that declare
-// supportedValuesOf, but the method itself has shipped in every real engine
-// (Node 18+, all evergreen browsers) since well before that -- a runtime
-// feature gap, not a real absence, so a narrow cast here is more honest than
-// widening "lib" project-wide for one call site.
-type IntlWithSupportedValuesOf = typeof Intl & {
-  supportedValuesOf?: (key: 'timeZone') => string[]
-}
-
-const TIMEZONE_POOL: string[] = (() => {
-  let canonical: string[] = []
-  try {
-    const supportedValuesOf = (Intl as IntlWithSupportedValuesOf).supportedValuesOf
-    if (typeof supportedValuesOf === 'function') {
-      canonical = supportedValuesOf('timeZone')
-    }
-  } catch {
-    // Unsupported engine (pre-2022 Safari, etc.) -- degrade to just the
-    // hand-picked entries below rather than crashing the whole page.
-  }
-  return Array.from(new Set(['UTC', ...canonical]))
-})()
-
-// Groups by the IANA area prefix ("America/New_York" -> "America"). A zone
-// with no "/" (currently only the hand-added 'UTC') becomes its own
-// single-entry group labeled with the zone name itself.
-function timezoneGroup(zone: string): string {
-  const slash = zone.indexOf('/')
-  return slash === -1 ? zone : zone.slice(0, slash).replace(/_/g, ' ')
-}
-
-interface TimezonePickerProps {
-  id: string
-  value: string
-  onChange: (value: string) => void
-  disabled?: boolean
-}
-
-// Searchable timezone combobox. Deliberately built on a single always-
-// present <input> (not a separate closed-trigger + hidden-search-input
-// split like ItemPicker/VehiclePicker) so the input's value IS the
-// committed value at every moment -- typing both filters the dropdown AND
-// sets the real value, so a saved zone that isn't in TIMEZONE_POOL (a
-// dropped legacy name, or this panel restored from another machine) is
-// still shown verbatim rather than getting silently blanked or reset.
-function TimezonePicker({ id, value, onChange, disabled }: TimezonePickerProps) {
-  const { t } = useTranslation('scheduler')
-  const [open, setOpen] = useState(false)
-  const [highlightIndex, setHighlightIndex] = useState(-1)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const listRef = useRef<HTMLDivElement>(null)
-  const [dropUp, setDropUp] = useState(false)
-  // Opening on a field that already has a saved value (the normal case --
-  // this field is seeded from the operator's current zone) must NOT filter
-  // the dropdown down to just that one self-match; a "choice picker" needs
-  // to show every choice on open. Only real typing narrows the list --
-  // false again on every fresh open, so clicking away and back re-browses
-  // the full set instead of staying pinned to whatever was last typed.
-  const [searching, setSearching] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [open])
-
-  useEffect(() => { setHighlightIndex(-1) }, [value, open])
-
-  useEffect(() => {
-    if (!open || !containerRef.current) return
-    const rect = containerRef.current.getBoundingClientRect()
-    setDropUp(window.innerHeight - rect.bottom < 320)
-  }, [open])
-
-  const query = searching ? value.trim().toLowerCase().replace(/_/g, ' ') : ''
-  const { visible, grouped } = useMemo(() => {
-    if (!query) {
-      const groups = new Map<string, string[]>()
-      for (const zone of TIMEZONE_POOL) {
-        const g = timezoneGroup(zone)
-        if (!groups.has(g)) groups.set(g, [])
-        groups.get(g)!.push(zone)
-      }
-      for (const list of groups.values()) list.sort((a, b) => a.localeCompare(b))
-      const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) =>
-        a === 'UTC' ? -1 : b === 'UTC' ? 1 : a.localeCompare(b)
-      )
-      return { visible: sortedGroups.flatMap(([, zones]) => zones), grouped: sortedGroups }
-    }
-    const filtered = TIMEZONE_POOL
-      .filter((z) => z.toLowerCase().replace(/_/g, ' ').includes(query))
-      .sort((a, b) => a.localeCompare(b))
-    return { visible: filtered, grouped: null as [string, string[]][] | null }
-  }, [query])
-
-  const handleSelect = (zone: string) => {
-    onChange(zone)
-    setOpen(false)
-    setHighlightIndex(-1)
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!open) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true) }
-      return
-    }
-    switch (e.key) {
-      case 'ArrowDown':
-        e.preventDefault()
-        setHighlightIndex((prev) => Math.min(prev + 1, visible.length - 1))
-        break
-      case 'ArrowUp':
-        e.preventDefault()
-        setHighlightIndex((prev) => Math.max(prev - 1, 0))
-        break
-      case 'Enter':
-        // No fallback to "select the first visible item" on a bare Enter --
-        // unlike ItemPicker/VehiclePicker, a value that isn't in the pool is
-        // a legitimate outcome here, so an un-highlighted Enter just keeps
-        // whatever was typed instead of silently substituting a guess.
-        if (highlightIndex >= 0 && highlightIndex < visible.length) {
-          e.preventDefault()
-          handleSelect(visible[highlightIndex])
-        }
-        break
-      case 'Escape':
-        setOpen(false)
-        setHighlightIndex(-1)
-        break
-    }
-  }
-
-  useEffect(() => {
-    if (highlightIndex < 0 || !listRef.current) return
-    const el = listRef.current.querySelector(`[data-tz-index="${highlightIndex}"]`)
-    el?.scrollIntoView({ block: 'nearest' })
-  }, [highlightIndex])
-
-  const renderOption = (zone: string) => {
-    const idx = visible.indexOf(zone)
-    return (
-      <button
-        key={zone}
-        type="button"
-        role="option"
-        id={`${id}-opt-${idx}`}
-        aria-selected={zone === value}
-        data-tz-index={idx}
-        onClick={() => handleSelect(zone)}
-        className={cn(
-          'w-full px-3 py-1.5 text-start text-xs font-mono truncate motion-safe:transition-colors',
-          'hover:bg-accent/10',
-          zone === value && 'bg-primary/10 text-primary',
-          idx === highlightIndex && 'bg-accent/15'
-        )}
-      >
-        {zone}
-      </button>
-    )
-  }
-
-  return (
-    <div ref={containerRef} className="relative">
-      <div className="relative">
-        <Search className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/50" aria-hidden="true" />
-        <Input
-          id={id}
-          role="combobox"
-          aria-expanded={open}
-          aria-haspopup="listbox"
-          aria-controls={`${id}-listbox`}
-          aria-autocomplete="list"
-          aria-activedescendant={open && highlightIndex >= 0 && visible[highlightIndex] ? `${id}-opt-${highlightIndex}` : undefined}
-          value={value}
-          onChange={(e) => { onChange(e.target.value); setOpen(true); setSearching(true) }}
-          onFocus={(e) => { setOpen(true); setSearching(false); e.target.select() }}
-          onKeyDown={handleKeyDown}
-          placeholder="America/New_York"
-          className="font-mono ps-8 pe-8"
-          maxLength={100}
-          disabled={disabled}
-          autoComplete="off"
-        />
-        <ChevronDown
-          className={cn(
-            'pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground/60 motion-safe:transition-transform',
-            open && 'rotate-180'
-          )}
-          aria-hidden="true"
-        />
-      </div>
-      {open && !disabled && (
-        <div
-          className={cn(
-            'absolute z-50 w-full min-w-[260px] rounded-md border border-border bg-popover shadow-lg',
-            dropUp ? 'bottom-full mb-1' : 'top-full mt-1'
-          )}
-        >
-          <div
-            ref={listRef}
-            role="listbox"
-            id={`${id}-listbox`}
-            aria-label={t('timezone.inputLabel')}
-            className="max-h-64 overflow-y-auto overscroll-contain py-1"
-          >
-            {visible.length === 0 ? (
-              <p className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-                <SearchX className="w-3.5 h-3.5 shrink-0 opacity-50" aria-hidden="true" />
-                {t('timezone.noMatches')}
-              </p>
-            ) : grouped ? (
-              grouped.map(([group, zones]) => (
-                <div key={group}>
-                  {/* Skip the header for a single-entry group whose only
-                      zone IS the group label (currently just 'UTC') --
-                      showing "UTC" as both a section header and the one
-                      option under it is a redundant, not a clarifying, line. */}
-                  {!(zones.length === 1 && zones[0] === group) && (
-                    <div className="sticky top-0 z-10 px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 bg-muted/70 backdrop-blur-sm">
-                      {group}
-                    </div>
-                  )}
-                  {zones.map(renderOption)}
-                </div>
-              ))
-            ) : (
-              visible.map(renderOption)
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// The task list's columns from md up: the task, its next run, its last run,
+// then the switch and the row's actions.
+const TASK_GRID = 'md:grid-cols-[minmax(0,1fr)_9.5rem_10.5rem_auto]'
 
 export default function Scheduler() {
   const { t } = useTranslation('scheduler')
-  const { formatDateTime } = useDateFormat()
-  const weekDays = useMemo(() => getWeekDays(t), [t])
-  const commonCommands = useMemo(() => getCommonCommands(t), [t])
+  const { formatDateTime, locale } = useDateFormat()
+  const scheduleText = useScheduleText()
+  const commandSuggestions = useMemo(() => getCommandSuggestions(t), [t])
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [history, setHistory] = useState<ScheduleHistoryEntry[]>([])
   const [presets, setPresets] = useState<CronPreset[]>([])
   const [servers, setServers] = useState<ServerInstance[]>([])
-  // continuous-bug-hunt round 28 (ux-proposals-need-backend-data): the
-  // backup-health card's last-attempt/result comes from backup's OWN status
-  // endpoint (backupApi.getStatus()), not the scheduler's -- see fetchData's
-  // own comment on the parallel fetch below.
+  // The backup-health card's last attempt comes from backup's OWN status
+  // endpoint (backupApi.getStatus()), not the scheduler's.
   const [backupStatus, setBackupStatus] = useState<BackupStatus | null>(null)
   const [status, setStatus] = useState<{
     activeTasks: number
     autoRestartEnabled: boolean
-    // round 28: the backup schedule's own next-run time, computed
-    // server-side (scheduler.getBackupNextRun()) -- distinct from the
-    // aggregate `nextRun` below (soonest across every job).
+    // The backup schedule's own next run (scheduler.getBackupNextRun()).
     backupNextRun?: string | null
-    // Fetched by every call site (server/services/scheduler.js's getStatus())
-    // but, until this pass, never read anywhere on this page -- same
-    // silent-drop shape as autoRestartEnabled below. Optional because older
-    // cached/mocked responses may predate this field.
+    // Optional because older cached/mocked responses may predate it.
     backupScheduleEnabled?: boolean
     modUpdateRestartPending: boolean
-    // Timezone-picker card (2026-08-29, hunt-wave5 follow-up): `timezone`
-    // is the EFFECTIVE zone every schedule below actually runs in right
-    // now. `configuredTimezone` is the operator's saved choice (normally
-    // identical). `timezoneFallback` is non-null only when the saved zone
-    // stopped being valid (tzdata dropped a deprecated name, or db.json
-    // was restored from a different machine) -- the panel falls back to
-    // the process default rather than refusing to schedule, and this is
-    // how the UI shows that mismatch instead of staying quiet about it.
+    // `timezone` is the EFFECTIVE zone every schedule runs in right now;
+    // `configuredTimezone` is the operator's saved choice (normally the
+    // same). `timezoneFallback` is non-null only when the saved zone stopped
+    // being valid and the panel fell back to the process default.
     timezone?: string
     configuredTimezone?: string | null
     timezoneFallback?: { configured: string; effective: string } | null
@@ -449,6 +150,10 @@ export default function Scheduler() {
   const [runningTaskId, setRunningTaskId] = useState<number | null>(null)
   const [broadcastingKey, setBroadcastingKey] = useState<string | null>(null)
   const [fetchError, setFetchError] = useState<string | null>(null)
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'failed'>('all')
+  const [deleteTarget, setDeleteTarget] = useState<ScheduledTask | null>(null)
+  // Relative times ("in 3 hr.") move on without a refetch.
+  const [now, setNow] = useState(() => Date.now())
   const { toast } = useToast()
   const { can } = useAuth()
   // POST /scheduler/restart-now is an immediate, direct restart -- it
@@ -460,38 +165,11 @@ export default function Scheduler() {
   // button when the answer is a confirmed no.
   const canRestartNow = can('server.control')
 
-  // New task form
-  const [newTaskName, setNewTaskName] = useState('')
-  const [newTaskCron, setNewTaskCron] = useState('')
-  const [newTaskCommand, setNewTaskCommand] = useState('')
-  const [newTaskServerId, setNewTaskServerId] = useState<string>('')
+  // Task dialog: one draft per open, keyed so the form starts from it.
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogKey, setDialogKey] = useState(0)
+  const [draft, setDraft] = useState<TaskDraft>(() => emptyTaskDraft(''))
   const [editingTask, setEditingTask] = useState<ScheduledTask | null>(null)
-  // scheduler-time-audit follow-up (06f07d66 landed the server half: POST
-  // /tasks and PUT /tasks/:id now return a non-null dstWarning whenever the
-  // saved schedule is sub-hourly in a DST-observing zone -- node-cron's own
-  // documented limitation is that the repeated hour during a fall-back only
-  // fires once, silently dropping one occurrence a year. The server string
-  // is plain English, not a translation key -- it's assembled from the
-  // schedule's own interval/timezone data, not a fixed message a translator
-  // could pre-author. Held here (not cleared by the toast+close a normal
-  // save does) so it survives long enough to actually be read.
-  const [dstWarning, setDstWarning] = useState<string | null>(null)
-
-  // Advisory-only preview of the custom cron field via POST /validate-cron --
-  // never gates Save. The server re-validates independently and is the real
-  // source of truth, so a failed/slow preview call must never block or
-  // second-guess what create/update will actually decide.
-  const [cronValidation, setCronValidation] = useState<{ valid: boolean; error?: string; code?: string } | null>(null)
-  const cronValidationIdRef = useRef(0)
-
-  // Simple Scheduler State
-  const [scheduleMode, setScheduleMode] = useState<'simple' | 'advanced'>('simple')
-  const [simpleIntervalType, setSimpleIntervalType] = useState<'hourly' | 'daily' | 'weekly' | 'interval'>('daily')
-  const [simpleHour, setSimpleHour] = useState('06')
-  const [simpleMinute, setSimpleMinute] = useState('00')
-  const [simpleHoursInterval, setSimpleHoursInterval] = useState('4')
-  const [simpleWeekday, setSimpleWeekday] = useState('1')
 
   // Restart form
   const [restartMinutes, setRestartMinutes] = useState(5)
@@ -507,39 +185,35 @@ export default function Scheduler() {
     const retries = opts?.manual ? { retries: 0 } : undefined
     setFetchError(null)
     try {
-      // Only getTasks() is allowed to fail the whole load -- it's the one
-      // thing this page can't function without. The other three used to have
-      // no catch of their own, so an unrelated hiccup (e.g. the presets or
-      // history endpoint 500ing) rejected the entire Promise.all and threw
-      // away a perfectly good task list, replacing it with an empty-state
-      // "no tasks scheduled" even though real tasks existed and loaded fine.
+      // Only getTasks() may fail the whole load -- the page can't work
+      // without it. The others are best-effort, so a hiccup in one of them
+      // can't throw away a good task list and show "no tasks scheduled".
       const [tasksData, presetsData, statusData, historyData, serversData, backupStatusData] = await Promise.all([
         schedulerApi.getTasks(retries),
         schedulerApi.getCronPresets(retries).catch(() => ({ presets: [] as CronPreset[] })),
         schedulerApi.getStatus(retries).catch(() => null),
         schedulerApi.getHistory(EXECUTION_HISTORY_FETCH_LIMIT, undefined, retries).catch(() => ({ history: [] as ScheduleHistoryEntry[] })),
         serversApi.getAll(retries).catch(() => ({ servers: [] as ServerInstance[] })),
-        // continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
-        // lastScheduledBackupAttempt only lives on backup's own status
-        // endpoint, not the scheduler's -- best-effort, same as the other
-        // secondary fetches above, so a backup-status hiccup can't blank the
-        // whole page.
         backupApi.getStatus().catch(() => null),
       ])
       setTasks(tasksData.tasks || [])
       setPresets(presetsData.presets || [])
       setStatus(statusData)
+      // Seed the settings fields in the same render as the status they are
+      // compared with: filled by an effect a render later, the SaveBar flashed
+      // "Unsaved changes" on every load.
+      if (statusData?.configuredTimezone) {
+        const saved = statusData.configuredTimezone
+        setTimezoneInput((prev) => (prev === '' ? saved : prev))
+      }
+      if (statusData?.restartWarning && !restartWarningDirtyRef.current) {
+        setRestartWarningLocale(statusData.restartWarning.locale)
+        setRestartWarningTemplate(statusData.restartWarning.template)
+      }
       setHistory(historyData.history || [])
       setBackupStatus(backupStatusData)
-      const serverList: ServerInstance[] = serversData.servers || []
-      setServers(serverList)
-      // Default the create-task dialog's target server to the active one,
-      // but only on first load — don't clobber an in-progress selection.
-      setNewTaskServerId((prev) => {
-        if (prev) return prev
-        const active = serverList.find((s) => s.isActive)
-        return active ? String(active.id) : (serverList[0] ? String(serverList[0].id) : '')
-      })
+      setServers(serversData.servers || [])
+      setNow(Date.now())
     } catch (error) {
       reportClientError('Failed to fetch scheduler data.', error)
       setFetchError(getUserErrorMessage(error, t('fetchError.fallback')))
@@ -551,6 +225,11 @@ export default function Scheduler() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Seeds the timezone picker's input from the operator's saved choice --
   // only while untouched, so an explicit refetch after an unrelated action
@@ -631,56 +310,14 @@ export default function Scheduler() {
     }
   }
 
-  // Preview the custom cron field as the operator types, so an invalid
-  // expression is caught here instead of only on Save. Advanced-only: the
-  // simple builder always produces a cron string it already knows is valid,
-  // so validating it too would just be an extra request for no signal.
-  // Debounced via the effect's own cleanup (a new keystroke cancels the
-  // still-pending timer before it fires) -- but that alone doesn't cover a
-  // slower-typed request resolving AFTER a faster-typed later one, so the
-  // generation counter below still gates every state update. Same
-  // shape as the fetch-race hunt's loadIdRef fixes tonight, applied to a
-  // debounce instead of a mount-triggered fetch.
-  useEffect(() => {
-    if (scheduleMode !== 'advanced' || !newTaskCron.trim()) {
-      setCronValidation(null)
-      return
-    }
-    const validationId = ++cronValidationIdRef.current
-    const timer = setTimeout(() => {
-      schedulerApi.validateCron(newTaskCron)
-        .then((result) => {
-          if (cronValidationIdRef.current !== validationId) return
-          setCronValidation(result)
-        })
-        // Advisory only -- a failed preview call says nothing about whether
-        // the expression is actually valid, so it clears any stale verdict
-        // rather than showing a wrong one. Save still works either way: the
-        // server validates independently at submit time.
-        .catch(() => {
-          if (cronValidationIdRef.current !== validationId) return
-          setCronValidation(null)
-        })
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [newTaskCron, scheduleMode])
-
   // Poll server status so Manual Restart / Quick Broadcasts stay accurate.
   // Skipped while the tab is hidden to avoid pointless work in background tabs.
   //
-  // GH#114-shaped (2026-09-08, Angela's is-running enumeration): this used
-  // to trust serverApi.getStatus()'s raw local process scan unconditionally,
-  // which can only ever see a process on THIS host -- a docker-managed
-  // server's process runs in a different container the scan can't see at
-  // all, and a remote-sftp server isn't on this host to begin with. Either
-  // one would leave serverRunning permanently false, disabling Manual
-  // Restart and Quick Broadcasts on a server that is genuinely up -- a
-  // legitimate-action-blocked bug, the mirror image of the Stop-button
-  // version of this same defect. resolveServerRunning() shares
-  // ServerConfig.tsx's provider-aware fix; null (indeterminate) is treated
-  // as "may be running" (`!== false`, same collapse ServerConfig.tsx's own
-  // serverMayBeRunning uses) rather than disabling these non-destructive
-  // actions on an uncertain read -- restarting an already-stopped server or
+  // GH#114-shaped (2026-09-08): a raw local process scan can't see a
+  // docker-managed or remote server's process, which left these actions
+  // disabled on a server that was genuinely up. resolveServerRunning()
+  // shares ServerConfig.tsx's provider-aware fix; null (indeterminate) is
+  // treated as "may be running" -- restarting an already-stopped server or
   // broadcasting to an unconnected RCON just fails cleanly server-side.
   useEffect(() => {
     let cancelled = false
@@ -695,19 +332,12 @@ export default function Scheduler() {
     return () => { cancelled = true; clearInterval(id) }
   }, [servers])
 
-  // A task's own `last_run` column (server/database/init.js's
-  // updateTaskLastRun()) is only ever written on the SUCCESS path of
-  // runTaskNow() -- a failed or refused run (RCON down, server already
-  // stopped, an overlapping execution) never touches it, so a repeatedly
-  // failing task can sit there with a stale or blank "Last run" and no sign
-  // anything is wrong. Execution History's own rows (logScheduleExecution)
-  // ARE written on every outcome including failure, so this cross-references
-  // the already-fetched `history` by task_id to show what actually happened
-  // last, not just the last time it happened to succeed. Same
-  // EXECUTION_HISTORY_FETCH_LIMIT caveat as the history card itself applies
-  // here -- a task whose real last attempt fell outside the fetched window
-  // simply isn't in this map, and the render below falls back to the plain
-  // (success-only) `last_run` date rather than asserting anything about it.
+  // A task's own `last_run` column is only written on the SUCCESS path of
+  // runTaskNow() -- a failed or refused run never touches it, so a failing
+  // task could sit there with a stale "Last run" and no sign anything is
+  // wrong. Execution History rows ARE written on every outcome, so the
+  // latest one per task_id says what actually happened last. A task whose
+  // last attempt fell outside the fetched window falls back to `last_run`.
   const latestRunByTaskId = useMemo(() => {
     const map = new Map<number, ScheduleHistoryEntry>()
     for (const entry of history) {
@@ -720,188 +350,32 @@ export default function Scheduler() {
     return map
   }, [history])
 
-  // Resolve a task's target server name for display — "Unknown server" if
-  // it was deleted since the task was created, "This server" (no badge
-  // shown, just falls back cleanly) if server_id is unset (legacy/no
-  // multi-server setup yet).
+  // A task's target server name: "Unknown server" if it was deleted since
+  // the task was created, nothing if server_id is unset (legacy tasks).
   const getServerLabel = (serverId: string | number | null): string | null => {
     if (!serverId) return null
     const match = servers.find((s) => String(s.id) === String(serverId))
     return match ? (match.name || match.serverName || `Server ${serverId}`) : t('scheduledTasks.unknownServer')
   }
 
-  // Shared by the submit path and the preview so they cannot disagree.
-  const buildSimpleCron = (): string => {
-    const clamp = (raw: string, min: number, max: number, fallback: number) => {
-      const parsed = parseInt(raw, 10)
-      if (!Number.isFinite(parsed)) return fallback
-      return Math.min(Math.max(parsed, min), max)
-    }
-    if (simpleIntervalType === 'daily') {
-      return `${clamp(simpleMinute, 0, 59, 0)} ${clamp(simpleHour, 0, 23, 0)} * * *`
-    }
-    if (simpleIntervalType === 'weekly') {
-      return `${clamp(simpleMinute, 0, 59, 0)} ${clamp(simpleHour, 0, 23, 0)} * * ${simpleWeekday}`
-    }
-    if (simpleIntervalType === 'hourly') return `0 * * * *`
-    return `0 */${clamp(simpleHoursInterval, 1, 23, 1)} * * *`
+  // New tasks target the active server: a task with no target follows
+  // whichever server is active when it fires, not the one the operator meant.
+  const defaultServerId = () => {
+    const active = servers.find((s) => s.isActive)
+    return active ? String(active.id) : (servers[0] ? String(servers[0].id) : '')
   }
 
-  const handleCreateTask = async () => {
-    let cronToUse = newTaskCron
-
-    // Calculate cron if in simple mode
-    if (scheduleMode === 'simple') {
-      cronToUse = buildSimpleCron()
-    }
-
-    if (!newTaskName || !cronToUse || !newTaskCommand) {
-      toast({
-        title: t('toasts.errorTitle'),
-        description: t('toasts.fillAllFields'),
-        variant: 'destructive',
-      })
-      return
-    }
-
-    // Validate the cron expression against the server's own validator
-    // (scheduler-cron-client-validator-weaker-than-server) -- a local regex
-    // here used to diverge from node-cron's real rules in both directions:
-    // it accepted out-of-range/too-frequent/impossible-date expressions the
-    // server rejects (a green tick that fails one round-trip later), and it
-    // rejected named months/weekdays and L/W/#-token expressions the server
-    // happily accepts (denying the operator a schedule they were entitled
-    // to). Delegating to the same /validate-cron endpoint the live preview
-    // above already calls gets exact parity by construction instead of
-    // hand-porting node-cron's bounds/name tables and keeping them in sync.
-    try {
-      const cronCheck = await schedulerApi.validateCron(cronToUse)
-      if (!cronCheck.valid) {
-        toast({
-          title: t('toasts.invalidScheduleTitle'),
-          description:
-            (cronCheck.code && resolveRegisteredTranslation('errors', cronCheck.code, undefined)) ||
-            cronCheck.error ||
-            t('toasts.invalidCronDesc', { cron: cronToUse }),
-          variant: 'destructive',
-        })
-        return
-      }
-    } catch {
-      // Pre-check unreachable (network/500) -- fall through and let
-      // create/update's own server-side validation be the final word,
-      // same advisory-only philosophy as the live preview above.
-    }
-
-    setLoading(true)
-    try {
-      let result: { dstWarning?: string | null } | undefined
-      if (editingTask) {
-        result = await schedulerApi.updateTask(
-          editingTask.id,
-          newTaskName,
-          cronToUse,
-          newTaskCommand,
-          !!editingTask.enabled,
-          newTaskServerId || undefined,
-        )
-      } else {
-        result = await schedulerApi.createTask(newTaskName, cronToUse, newTaskCommand, newTaskServerId || undefined)
-      }
-      toast({
-        title: t('toasts.successTitle'),
-        description: editingTask ? t('toasts.taskUpdated') : t('toasts.taskCreated'),
-        variant: 'success' as const,
-      })
-      fetchData()
-      if (result?.dstWarning) {
-        // Leave the dialog open so the warning is actually seen next to the
-        // schedule that triggered it -- the task IS already saved (the
-        // toast above and fetchData() both already reflect that), this is
-        // purely "here's a caveat," not a reason to block or retry.
-        setDstWarning(result.dstWarning)
-      } else {
-        resetTaskForm()
-        setDialogOpen(false)
-      }
-    } catch (error) {
-      toast({
-        title: t('toasts.errorTitle'),
-        description: getUserErrorMessage(error, editingTask ? t('toasts.taskUpdateFailedFallback') : t('toasts.taskCreateFailedFallback')),
-        variant: 'destructive',
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const resetTaskForm = () => {
-    setEditingTask(null)
-    setDstWarning(null)
-    setNewTaskName('')
-    setNewTaskCron('')
-    setNewTaskCommand('')
-    // Re-default to the active server rather than blanking the field — otherwise
-    // every task after the first requires a manual reselect, and a task created
-    // with no target silently follows whichever server is active when it fires
-    // instead of the one the operator was looking at.
-    setNewTaskServerId(() => {
-      const active = servers.find((s) => s.isActive)
-      return active ? String(active.id) : (servers[0] ? String(servers[0].id) : '')
-    })
-    setScheduleMode('simple')
-    setSimpleIntervalType('daily')
-    setSimpleHour('06')
-    setSimpleMinute('00')
-    setSimpleHoursInterval('4')
-    setSimpleWeekday('1')
-  }
-
-  // Reopen an existing schedule in the builder when its cron matches one the
-  // simple tab can express; anything else falls back to the raw cron field.
-  const applyCronToForm = (cronExpression: string) => {
-    setNewTaskCron(cronExpression)
-    const daily = /^(\d{1,2}) (\d{1,2}) \* \* \*$/.exec(cronExpression)
-    if (daily) {
-      setScheduleMode('simple')
-      setSimpleIntervalType('daily')
-      setSimpleMinute(daily[1])
-      setSimpleHour(daily[2])
-      return
-    }
-    const weekly = /^(\d{1,2}) (\d{1,2}) \* \* ([0-6])$/.exec(cronExpression)
-    if (weekly) {
-      setScheduleMode('simple')
-      setSimpleIntervalType('weekly')
-      setSimpleMinute(weekly[1])
-      setSimpleHour(weekly[2])
-      setSimpleWeekday(weekly[3])
-      return
-    }
-    if (/^0 \* \* \* \*$/.test(cronExpression)) {
-      setScheduleMode('simple')
-      setSimpleIntervalType('hourly')
-      return
-    }
-    const interval = /^0 \*\/(\d{1,2}) \* \* \*$/.exec(cronExpression)
-    if (interval) {
-      setScheduleMode('simple')
-      setSimpleIntervalType('interval')
-      setSimpleHoursInterval(interval[1])
-      return
-    }
-    setScheduleMode('advanced')
-  }
-
-  const handleEditTask = (task: ScheduledTask) => {
+  const openTaskDialog = (next: TaskDraft, task: ScheduledTask | null) => {
     setEditingTask(task)
-    setDstWarning(null)
-    setNewTaskName(task.name)
-    setNewTaskCommand(task.command)
-    setNewTaskServerId(task.server_id != null ? String(task.server_id) : '')
-    applyCronToForm(task.cron_expression)
+    setDraft(next)
+    setDialogKey((key) => key + 1)
     setDialogOpen(true)
   }
+  const openNewTask = (overrides: Partial<TaskDraft> = {}) =>
+    openTaskDialog({ ...emptyTaskDraft(defaultServerId()), ...overrides }, null)
+  const handleEditTask = (task: ScheduledTask) => openTaskDialog(draftFromTask(task), task)
+  const handleDuplicateTask = (task: ScheduledTask) =>
+    openTaskDialog(draftFromTask(task, t('rows.copyName', { name: task.name }).slice(0, 100)), null)
 
   const handleToggleTask = async (task: ScheduledTask) => {
     setLoading(true)
@@ -1051,16 +525,6 @@ export default function Scheduler() {
     }
   }
 
-
-
-  if (initialLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[320px] py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
   const restartCountdown = restartPreset === 'custom' ? restartMinutes : restartPreset
   const restartBlocked = loading || !serverRunning || !canRestartNow
   // An emptied custom field is NaN until it's filled in again.
@@ -1068,1046 +532,883 @@ export default function Scheduler() {
     ? t('manualRestart.confirmShortRestart', { count: restartCountdown })
     : t('manualRestart.customCountdownLabel')
   const activeTaskCount = tasks.filter((task) => task.enabled).length
-  // The restart card's "Edit the warning message" link: the template lives
-  // in the settings card further down.
-  const focusRestartWarningTemplate = () => {
-    const field = document.getElementById('restart-warning-template')
+  const focusField = (id: string) => {
+    const field = document.getElementById(id)
     if (!field) return
     field.scrollIntoView({ block: 'center' })
     field.focus({ preventScroll: true })
   }
+  const focusRestartWarningTemplate = () => focusField('restart-warning-template')
+
+  // Settings card: the timezone and the restart warning are two small forms
+  // with one Save, the SaveBar at the bottom of the page.
+  const timezoneDirty = !!status && timezoneInput.trim() !== (status.configuredTimezone ?? '')
+  const restartWarningBaseline = status?.restartWarning ?? { locale: 'en' as const, template: '' }
+  const restartWarningDirty = !!status && (
+    restartWarningLocale !== restartWarningBaseline.locale || restartWarningTemplate !== restartWarningBaseline.template
+  )
+  const settingsDirty = timezoneDirty || restartWarningDirty
+  const settingsSaving = timezoneSaving || restartWarningSaving
+  const settingsDisabledReason = timezoneDirty && !timezoneInput.trim()
+    ? t('timezone.emptyReason')
+    : restartWarningDirty && !restartWarningTemplate.trim()
+      ? t('restartWarning.emptyReason')
+      : undefined
+  const saveSettings = async () => {
+    if (timezoneDirty) await handleSaveTimezone()
+    if (restartWarningDirty) await handleSaveRestartWarning()
+  }
+  const discardSettings = () => {
+    setTimezoneInput(status?.configuredTimezone ?? '')
+    restartWarningDirtyRef.current = false
+    setRestartWarningLocale(restartWarningBaseline.locale)
+    setRestartWarningTemplate(restartWarningBaseline.template)
+  }
+
+  const pageAlerts: PageAlert[] = []
+  if (fetchError) {
+    pageAlerts.push({
+      id: 'fetch-error',
+      tone: 'error',
+      title: t('fetchError.title'),
+      description: <span className="break-words" dir="auto">{fetchError}</span>,
+      action: { label: t('fetchError.retry'), onClick: () => fetchData({ manual: true }) },
+    })
+  }
+  if (status?.timezoneFallback) {
+    pageAlerts.push({
+      id: 'timezone-fallback',
+      tone: 'error',
+      title: t('timezone.fallbackTitle'),
+      description: t('timezone.fallbackDesc', {
+        configured: status.timezoneFallback.configured,
+        effective: status.timezoneFallback.effective,
+      }),
+      action: { label: t('timezone.fallbackAction'), onClick: () => focusField('scheduler-timezone-input') },
+    })
+  }
+
+  // --- What the page says at a glance -------------------------------------
+
+  const historyName = (entry: ScheduleHistoryEntry) =>
+    entry.task_name_key
+      ? t(`executionHistory.systemTasks.${entry.task_name_key}`, { defaultValue: entry.task_name })
+      : entry.task_name
+
+  const upcomingTask = tasks
+    .filter((task) => task.enabled && task.next_run)
+    .sort((a, b) => Date.parse(a.next_run as string) - Date.parse(b.next_run as string))[0]
+  const lastEntry = history.reduce<ScheduleHistoryEntry | null>(
+    (latest, entry) => (!latest || Date.parse(entry.executed_at) > Date.parse(latest.executed_at) ? entry : latest),
+    null,
+  )
+  const backupAttempt = backupStatus?.lastScheduledBackupAttempt ?? null
+  const backupHealth = scheduledBackupHealth(status?.backupScheduleEnabled, backupAttempt)
+
+  const overview: StatStripItem[] = [
+    {
+      id: 'active',
+      label: t('statusTiles.activeTasks'),
+      icon: ListChecks,
+      value: activeTaskCount,
+      detail: t('overview.ofTotal', { total: tasks.length }),
+    },
+    {
+      id: 'next',
+      label: t('rows.colNext'),
+      icon: CalendarClock,
+      value: upcomingTask ? formatRelativeTime(upcomingTask.next_run, locale, now) : '—',
+      detail: upcomingTask
+        ? <span title={formatDateTime(upcomingTask.next_run)}>{upcomingTask.name}</span>
+        : t('overview.nothingScheduled'),
+    },
+    {
+      id: 'last',
+      label: t('rows.colLast'),
+      icon: lastEntry ? (lastEntry.success ? CheckCircle2 : XCircle) : History,
+      tone: lastEntry ? (lastEntry.success ? 'success' : 'danger') : 'default',
+      value: lastEntry ? (lastEntry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')) : '—',
+      detail: lastEntry
+        ? <span title={formatDateTime(lastEntry.executed_at, { seconds: true })}>{`${historyName(lastEntry)} · ${formatRelativeTime(lastEntry.executed_at, locale, now)}`}</span>
+        : t('overview.noRuns'),
+    },
+    {
+      id: 'backups',
+      label: t('overview.backups'),
+      icon: Archive,
+      to: '/backups?panel=schedule',
+      tone: !status?.backupScheduleEnabled ? 'default' : backupHealth === 'failing' ? 'danger' : backupHealth === 'skippedForRestart' ? 'warning' : 'success',
+      value: status?.backupScheduleEnabled ? t('overview.on') : t('overview.off'),
+      detail: status?.backupScheduleEnabled
+        ? status.backupNextRun ? t('overview.backupNext', { when: formatRelativeTime(status.backupNextRun, locale, now) }) : t('overview.backupsManaged')
+        : t('overview.backupsSetUp'),
+    },
+  ]
+
+  // A task's action in a few words: the type for restart and save, the
+  // message for a broadcast, the suggestion's name or the raw command.
+  const describeTaskAction = (command: string) => {
+    const kind = taskTypeOfCommand(command)
+    if (kind.type === 'restart') return { type: kind.type, text: t('commands.restartServer'), mono: false }
+    if (kind.type === 'save') return { type: kind.type, text: t('commands.saveWorld'), mono: false }
+    if (kind.type === 'broadcast') return { type: kind.type, text: kind.message, mono: false }
+    const known = commandSuggestions.find((suggestion) => suggestion.value === command)
+    return known ? { type: kind.type, text: known.label, mono: false } : { type: kind.type, text: command, mono: true }
+  }
+
+  const quickStarts = [
+    { id: 'dailyRestart', icon: RotateCcw, cron: '0 6 * * *', draft: { type: 'restart' as const, name: t('presets.dailyRestart'), nameAuto: false, mode: 'daily' as const, time: '06:00' } },
+    { id: 'hourlySave', icon: Save, cron: '0 * * * *', draft: { type: 'save' as const, name: t('presets.hourlySave'), nameAuto: false, mode: 'interval' as const, everyHours: '1' } },
+    { id: 'restartNotice', icon: Megaphone, cron: '50 5 * * *', draft: { type: 'broadcast' as const, name: t('presets.restartNotice'), nameAuto: false, message: t('presets.restartNoticeMessage'), mode: 'daily' as const, time: '05:50' } },
+  ]
+
+  const failedCount = history.filter((entry) => !entry.success).length
+  const visibleHistory = historyFilter === 'failed' ? history.filter((entry) => !entry.success) : history
+  const multipleServers = servers.length > 1
 
   return (
-    <div className="space-y-4 page-transition">
-      {fetchError && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>{t('fetchError.title')}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span className="min-w-0 break-words" dir="auto">{fetchError}</span>
-            <Button variant="outline" size="sm" onClick={() => fetchData({ manual: true })} className="self-start">
-              <RefreshCw className="me-2 h-4 w-4" /> {t('fetchError.retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-      <Dialog
+    <div className="space-y-6 page-transition">
+      <PageHeader
+        title={t('pageHeader.title')}
+        description={t('pageHeader.description')}
+        status={status?.modUpdateRestartPending
+          ? <StatusPill size="sm" tone="warn" label={t('scheduledTasks.modUpdatePending')} />
+          : undefined}
+        meta={status?.timezone ? (
+          <span className="inline-flex flex-wrap items-center gap-x-1.5">
+            <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>{t('pageHeader.timezoneMeta', { tz: status.timezone })}</span>
+            <button
+              type="button"
+              onClick={() => focusField('scheduler-timezone-input')}
+              className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {t('pageHeader.changeTimezone')}
+            </button>
+          </span>
+        ) : undefined}
+        actions={
+          // The form defaults its target server from the loaded list: opened
+          // before that, an untouched dialog claimed unsaved edits.
+          <Button variant="command" size="sm" onClick={() => openNewTask()} disabled={initialLoading}>
+            <Plus aria-hidden="true" />
+            {t('pageHeader.newTask')}
+          </Button>
+        }
+      />
+
+      <TaskDialog
+        key={dialogKey}
         open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open)
-          if (!open) resetTaskForm()
-        }}
-      >
-        <PageHeader
-          title={t('pageHeader.title')}
-          description={t('pageHeader.description')}
-          eyebrow={t('pageHeader.eyebrow')}
-          tone="maintain"
-          icon={<Clock className="w-5 h-5" />}
-          actions={
-            <DialogTrigger asChild>
-              <Button variant="command" onClick={resetTaskForm}>
-                <Plus className="w-4 h-4 me-2" />
-                {t('pageHeader.newTask')}
-              </Button>
-            </DialogTrigger>
-          }
-        />
-        {/* 2026-09 dialog sweep: the task form is taller than its own old
-            85vh/80vh cap at every size but 1920x1080, and scrolled as a
-            whole, so Create Task / Save Changes started off-screen and the
-            title scrolled away on the way to it. It now takes
-            DialogContent's own bound and only the DialogBody scrolls (the
-            Selects already portal out of it). */}
-        <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{editingTask ? t('dialog.editTitle') : t('dialog.createTitle')}</DialogTitle>
-              <DialogDescription>
-                {editingTask
-                  ? t('dialog.editDescription', { name: editingTask.name })
-                  : t('dialog.createDescription')}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogBody className="space-y-4">
-              <div>
-                <Label>{t('dialog.taskNameLabel')}</Label>
-                <Input
-                  value={newTaskName}
-                  onChange={(e) => setNewTaskName(e.target.value)}
-                  placeholder={t('dialog.taskNamePlaceholder')}
-                  maxLength={100}
-                />
-              </div>
-              <div>
-                <Label className="mb-2 block">{t('dialog.scheduleTypeLabel')}</Label>
-                <Tabs value={scheduleMode} onValueChange={(v: string) => setScheduleMode(v as 'simple' | 'advanced')} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="simple">{t('dialog.tabSimple')}</TabsTrigger>
-                    <TabsTrigger value="advanced">{t('dialog.tabAdvanced')}</TabsTrigger>
-                  </TabsList>
+        onClose={() => setDialogOpen(false)}
+        draft={draft}
+        editingTask={editingTask}
+        servers={servers}
+        presets={presets}
+        timezone={status?.timezone}
+        backupScheduleEnabled={status?.backupScheduleEnabled}
+        backupNextRun={status?.backupNextRun}
+        onSaved={() => { void fetchData() }}
+      />
 
-                  <TabsContent value="simple" className="space-y-4 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
-                    <div className="space-y-2">
-                      <Label>{t('dialog.frequencyLabel')}</Label>
-                      <Select value={simpleIntervalType} onValueChange={(v) => setSimpleIntervalType(v as 'hourly' | 'daily' | 'weekly' | 'interval')}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="hourly">{t('dialog.freqHourly')}</SelectItem>
-                          <SelectItem value="interval">{t('dialog.freqInterval')}</SelectItem>
-                          <SelectItem value="daily">{t('dialog.freqDaily')}</SelectItem>
-                          <SelectItem value="weekly">{t('dialog.freqWeekly')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {status?.timezone && (
-                      <p className="text-xs text-muted-foreground">
-                        {t('dialog.timezoneNotice', { tz: status.timezone })}
-                      </p>
-                    )}
-
-                    {simpleIntervalType === 'weekly' && (
-                      <div className="space-y-2">
-                        <Label>{t('dialog.dayOfWeekLabel')}</Label>
-                        <div className="grid grid-cols-4 gap-2 sm:grid-cols-7" role="group" aria-label={t('dialog.dayOfWeekAria')}>
-                          {weekDays.map((day) => {
-                            const selected = simpleWeekday === day.value
-                            return (
-                              <Button
-                                key={day.value}
-                                type="button"
-                                variant={selected ? 'default' : 'outline'}
-                                size="sm"
-                                className="h-10 px-2 text-[11px] tracking-[0.12em]"
-                                aria-pressed={selected}
-                                aria-label={day.name}
-                                onClick={() => setSimpleWeekday(day.value)}
-                              >
-                                {day.short}
-                              </Button>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {(simpleIntervalType === 'daily' || simpleIntervalType === 'weekly') && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>{t('dialog.hourLabel')}</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={23}
-                            value={simpleHour}
-                            onChange={e => setSimpleHour(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>{t('dialog.minuteLabel')}</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={59}
-                            value={simpleMinute}
-                            onChange={e => setSimpleMinute(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {simpleIntervalType === 'interval' && (
-                      <div className="space-y-2">
-                        <Label>{t('dialog.everyXHoursLabel')}</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={23}
-                          value={simpleHoursInterval}
-                          onChange={e => setSimpleHoursInterval(e.target.value)}
-                          placeholder={t('dialog.everyXHoursPlaceholder')}
-                        />
-                      </div>
-                    )}
-
-                    <div className="bg-muted p-3 rounded text-xs flex items-center justify-between">
-                      <span className="text-muted-foreground">{t('dialog.generatedCronLabel')}</span>
-                      <code className="font-mono bg-background px-2 py-1 rounded border">
-                        {buildSimpleCron()}
-                      </code>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="advanced" className="space-y-3 pt-4 border rounded-md p-4 mt-0 border-t-0 rounded-t-none">
-                    <div className="space-y-2">
-                      <Label>{t('dialog.loadPresetLabel')}</Label>
-                      <Select onValueChange={(value) => setNewTaskCron(value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder={t('dialog.loadPresetPlaceholder')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {presets.map((preset) => (
-                            <SelectItem key={preset.cron} value={preset.cron}>
-                              {t('dialog.presetOption', { name: preset.name, cron: preset.cron })}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>{t('dialog.customExpressionLabel')}</Label>
-                      <Input
-                        value={newTaskCron}
-                        onChange={(e) => setNewTaskCron(e.target.value)}
-                        placeholder={t('dialog.customExpressionPlaceholder')}
-                        className="font-mono"
-                        maxLength={100}
-                        aria-label={t('dialog.cronExpressionAria')}
-                        aria-describedby="cron-format-hint"
-                      />
-                    </div>
-                    <p id="cron-format-hint" className="text-xs text-muted-foreground">
-                      {t('dialog.cronFormatHint')}
-                    </p>
-                    {cronValidation && (
-                      <p
-                        className={`flex items-center gap-1.5 text-xs ${cronValidation.valid ? 'text-primary' : 'text-destructive'}`}
-                        aria-live="polite"
-                      >
-                        {cronValidation.valid ? (
-                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        ) : (
-                          <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        )}
-                        {cronValidation.valid
-                          ? t('dialog.cronValidExpression')
-                          : (cronValidation.code && resolveRegisteredTranslation('errors', cronValidation.code, undefined)) || cronValidation.error}
-                      </p>
-                    )}
-                  </TabsContent>
-                </Tabs>
-              </div>
-              {dstWarning && (
-                <Alert variant="warning">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>{t('dialog.dstWarningTitle')}</AlertTitle>
-                  <AlertDescription className="flex flex-col gap-2">
-                    {/* dir="auto": the server's own English sentence, not a
-                        translation key -- wrong to force it LTR inside an
-                        RTL dialog the way a translated string's own
-                        direction would already be handled. */}
-                    <span dir="auto">{dstWarning}</span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="self-start"
-                      onClick={() => { resetTaskForm(); setDialogOpen(false) }}
-                    >
-                      {t('dialog.dstWarningDismiss')}
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              )}
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <Label>{t('dialog.commandLabel')}</Label>
-                  <HelpTip label={t('dialog.commandLabel')}>{t('dialog.commandTip')}</HelpTip>
-                </div>
-                <Select onValueChange={(value) => setNewTaskCommand(value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('dialog.commandSelectPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {commonCommands.map((cmd) => (
-                      <SelectItem key={cmd.value} value={cmd.value}>
-                        {cmd.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  className="mt-2"
-                  value={newTaskCommand}
-                  onChange={(e) => setNewTaskCommand(e.target.value)}
-                  placeholder={t('dialog.commandCustomPlaceholder')}
-                  maxLength={2000}
-                />
-                {newTaskCommand.startsWith('bridge:') && (
-                  <p className="mt-1.5 text-xs text-muted-foreground">
-                    <Trans
-                      i18nKey="dialog.bridgeFormatHint"
-                      t={t}
-                      components={{ 1: <code className="text-foreground" />, 2: <code className="ms-1 text-foreground" /> }}
-                    />
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label>{t('dialog.targetServerLabel')}</Label>
-                <Select value={newTaskServerId} onValueChange={setNewTaskServerId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('dialog.targetServerPlaceholder')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {servers.map((server) => (
-                      <SelectItem key={server.id} value={String(server.id)}>
-                        {server.name || server.serverName}
-                        {server.isActive ? t('dialog.targetServerActiveSuffix') : ''}
-                        {server.isRemote ? t('dialog.targetServerRemoteSuffix') : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {t('dialog.targetServerHelp')}
-                </p>
-              </div>
-            </DialogBody>
-            <DialogFooter>
-              <Button onClick={handleCreateTask} disabled={loading} className="gap-2">
-                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
-                {editingTask ? t('dialog.saveChanges') : t('dialog.createTaskButton')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-      </Dialog>
-
-      {/* Act now: the two things an operator does here mid-session sit
-          above the schedule, so a restart is one choice and one click. */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Card>
-          <CardHeader className="p-4 pb-3">
-            <CardTitle className="text-base">{t('manualRestart.title')}</CardTitle>
-            <CardDescription>
-              {serverRunning
-                ? t('manualRestart.descRunning')
-                : t('manualRestart.descOffline')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 p-4 pt-0">
-            {/* One countdown choice instead of four buttons that each
-                restarted on click: picking a length no longer fires a
-                restart, and the single action below is the only amber
-                control on the page. */}
-            <fieldset className="space-y-2" disabled={restartBlocked}>
-              <legend className="text-sm font-medium">{t('manualRestart.countdownLabel')}</legend>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex flex-wrap rounded-lg border border-border/60 bg-muted/25 p-0.5">
-                  {RESTART_PRESETS.map((preset) => (
-                    <label key={preset} className="relative">
-                      <input
-                        type="radio"
-                        name="restart-countdown"
-                        value={preset}
-                        checked={restartPreset === preset}
-                        onChange={() => setRestartPreset(preset)}
-                        className="peer sr-only"
-                      />
-                      <span className="inline-flex h-8 min-w-[3.25rem] cursor-pointer items-center justify-center rounded-md px-3 text-sm text-muted-foreground transition-colors hover:text-foreground peer-checked:bg-background peer-checked:font-medium peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-60 peer-disabled:hover:text-muted-foreground [@media(pointer:coarse)]:h-11">
-                        {preset === 'custom'
-                          ? t('manualRestart.customOption')
-                          : t('manualRestart.minutesShort', { count: preset })}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                {restartPreset === 'custom' && (
-                  <NumberInput
-                    id="restart-custom-minutes"
-                    aria-label={t('manualRestart.customCountdownLabel')}
-                    value={restartMinutes}
-                    onChange={setRestartMinutes}
-                    min={1}
-                    max={30}
-                    className="w-24"
-                    onWheel={(e) => e.currentTarget.blur()}
-                  />
-                )}
-              </div>
-            </fieldset>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
-                {Number.isFinite(restartCountdown) && restartCountdown < 5 ? (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="warning" disabled={restartBlocked}>
-                        <RotateCcw className="w-4 h-4 me-2" />
-                        {restartButtonLabel}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>{t('manualRestart.shortCountdownDialogTitle', { count: restartCountdown })}</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          {t('manualRestart.shortCountdownDialogDesc')}
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => handleRestart(restartCountdown)}
-                          className="bg-warning text-warning-foreground hover:bg-warning/90"
-                        >
-                          {t('manualRestart.confirmShortRestart', { count: restartCountdown })}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                ) : (
-                  <Button
-                    variant="warning"
-                    onClick={() => handleRestart(restartCountdown)}
-                    disabled={restartBlocked || !Number.isFinite(restartCountdown)}
-                  >
-                    <RotateCcw className="w-4 h-4 me-2" />
-                    {restartButtonLabel}
-                  </Button>
-                )}
-              </DisabledReason>
-              <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-                {t('manualRestart.countdownWarningsNote')}{' '}
-                <button
-                  type="button"
-                  onClick={focusRestartWarningTemplate}
-                  className="font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-                >
-                  {t('manualRestart.editWarningMessage')}
-                </button>
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="p-4 pb-3">
-            <CardTitle className="text-base">{t('quickBroadcasts.title')}</CardTitle>
-            <CardDescription>
-              {serverRunning
-                ? t('quickBroadcasts.descRunning')
-                : t('quickBroadcasts.descOffline')}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            {/* Each row shows the message players will actually read, so
-                the operator never sends one blind. The name stays the
-                button's label; the message is its description. */}
-            <ul className="space-y-2">
-              {QUICK_BROADCASTS.map((key) => (
-                <li key={key}>
-                  <button
-                    type="button"
-                    onClick={() => handleBroadcast(key, t(`broadcastMessages.${key}`))}
-                    disabled={broadcastingKey !== null || loading || !serverRunning}
-                    aria-labelledby={`broadcast-${key}-label`}
-                    aria-describedby={`broadcast-${key}-message`}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint: the full message, which the row truncates. Why it's disabled (server offline) is the card's own description, and a send in flight shows its spinner.
-                    title={t(`broadcastMessages.${key}`)}
-                    className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-start transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border/60 disabled:hover:bg-muted/25"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span id={`broadcast-${key}-label`} className="block text-sm font-medium text-foreground">
-                        {t(`quickBroadcasts.${key}`)}
-                      </span>
-                      <span id={`broadcast-${key}-message`} className="block truncate text-xs text-muted-foreground" dir="auto">
-                        {t(`broadcastMessages.${key}`)}
-                      </span>
-                    </span>
-                    {broadcastingKey === key ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
-                    ) : (
-                      <Send className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary group-disabled:text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Scheduled Tasks: the page's own subject, right under the actions.
-          The summary that used to be three stat tiles is a line of chips in
-          its header, next to the list it summarises. */}
-      <Card>
-        <CardHeader className="p-4 pb-3">
-          <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-            <div className="min-w-0">
-              <CardTitle className="text-base">{t('scheduledTasks.title')}</CardTitle>
-              <CardDescription>
-                {t('scheduledTasks.description')}
-              </CardDescription>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {status?.timezone && (
-                <span
-                  className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-muted/30 px-2 py-0.5 text-xs text-muted-foreground"
-                  title={`${t('timezone.title')}: ${status.timezone}`}
-                >
-                  <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  <span aria-hidden="true">{status.timezone}</span>
-                  <span className="sr-only">{`${t('timezone.title')}: ${status.timezone}`}</span>
-                </span>
-              )}
-              {tasks.length > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/[0.06] px-2 py-0.5 text-xs text-foreground">
-                  <span className="font-semibold tabular-nums">{activeTaskCount}/{tasks.length}</span>
-                  <span className="text-muted-foreground">{t('statusTiles.activeTasks')}</span>
-                </span>
-              )}
-              {status?.modUpdateRestartPending && (
-                <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning">
-                  <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  {t('statusTiles.modUpdateRestart')}: {t('statusTiles.modUpdatePending')}
-                </span>
-              )}
-            </div>
+      {initialLoading ? (
+        <div aria-busy="true" className="space-y-6">
+          <Skeleton className="h-20 w-full rounded-xl" />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+            <Skeleton className="h-72 w-full rounded-xl" />
+            <Skeleton className="h-72 w-full rounded-xl" />
           </div>
-        </CardHeader>
-        <CardContent className="p-4 pt-0">
-          {tasks.length === 0 ? (
-            <EmptyState
-              type="noSchedule"
-              title={t('scheduledTasks.emptyTitle')}
-              description={t('scheduledTasks.emptyDesc')}
-              action={{ label: t('scheduledTasks.emptyActionLabel'), onClick: () => { resetTaskForm(); setDialogOpen(true) } }}
-            />
-          ) : (
-            <div className="space-y-3">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className={`group relative flex flex-col gap-3 p-4 rounded-lg border transition-colors sm:flex-row sm:items-center ${
-                    task.enabled
-                      ? 'bg-card border-border/60 hover:border-primary/40'
-                      : 'bg-muted/30 border-border/40 text-muted-foreground'
-                  }`}
-                >
-                  <div className="flex flex-1 min-w-0 items-center gap-3">
-                    {/* Leading status pip — solid + ping when active, hollow when disabled */}
-                    <div className="shrink-0 self-stretch flex items-center" aria-hidden="true">
-                      {task.enabled ? (
-                        <span className="relative inline-flex">
-                          <span className="absolute inset-0 rounded-full bg-primary/40 animate-ping motion-reduce:hidden" />
-                          <span className="relative w-2 h-2 rounded-full bg-primary" />
-                        </span>
-                      ) : (
-                        <span className="w-2 h-2 rounded-full border border-muted-foreground/50" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <h3 className="font-medium truncate text-foreground">{task.name}</h3>
-                        {getServerLabel(task.server_id) && (
-                          <span
-                            className="shrink-0 text-[11px] font-medium bg-primary/10 border border-primary/30 px-1.5 py-0.5 rounded text-primary truncate max-w-[140px]"
-                            title={t('scheduledTasks.targetServerTitle', { server: getServerLabel(task.server_id) })}
+        </div>
+      ) : (
+        <>
+          <PageAlerts alerts={pageAlerts} />
+
+          <StatStrip items={overview} />
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+            {/* The page's own subject: what runs when, and what ran. */}
+            <div className="min-w-0 space-y-6">
+              <SectionCard
+                title={t('scheduledTasks.title')}
+                description={t('scheduledTasks.description')}
+                flush={tasks.length > 0}
+              >
+                {tasks.length === 0 ? (
+                  <div className="space-y-5">
+                    <EmptyState
+                      compact
+                      type="noSchedule"
+                      title={t('scheduledTasks.emptyTitle')}
+                      description={t('scheduledTasks.emptyDesc')}
+                      action={{ label: t('scheduledTasks.emptyActionLabel'), onClick: () => openNewTask() }}
+                    />
+                    <div className="space-y-2 border-t border-border/40 pt-4">
+                      <h3 className="text-sm font-medium">{t('presets.heading')}</h3>
+                      <p className="text-xs text-muted-foreground">{t('presets.description')}</p>
+                      <ul className="grid gap-2 pt-1 sm:grid-cols-2">
+                        {quickStarts.map((quick) => {
+                          const Icon = quick.icon
+                          return (
+                            <li key={quick.id}>
+                              <button
+                                type="button"
+                                onClick={() => openNewTask(quick.draft)}
+                                className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/25 p-3 text-start transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              >
+                                <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium text-foreground">{quick.draft.name}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">{scheduleText.describeCron(quick.cron)}</span>
+                                </span>
+                                <Plus className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
+                              </button>
+                            </li>
+                          )
+                        })}
+                        <li>
+                          <Link
+                            to="/backups?panel=schedule"
+                            className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/25 p-3 text-start transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
-                            {getServerLabel(task.server_id)}
-                          </span>
-                        )}
-                        <code className="shrink-0 text-[11px] font-mono bg-muted/70 border border-border/50 px-1.5 py-0.5 rounded text-muted-foreground truncate max-w-[180px]" title={task.cron_expression}>
-                          {task.cron_expression}
-                        </code>
-                      </div>
-                      <p className="text-sm text-muted-foreground mt-1 truncate">
-                        <code className="text-primary/90 font-mono text-xs">{task.command}</code>
-                      </p>
-                      {(() => {
-                        const latestRun = latestRunByTaskId.get(task.id)
-                        if (latestRun) {
-                          return (
-                            <p
-                              className={`flex items-center gap-1 text-[11px] mt-1 ${
-                                latestRun.success ? 'text-muted-foreground/70' : 'text-destructive'
-                              }`}
-                            >
-                              {latestRun.success ? (
-                                <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                              ) : (
-                                <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
-                              )}
-                              <span className="truncate">
-                                {latestRun.success
-                                  ? t('scheduledTasks.lastRun', { date: formatDateTime(latestRun.executed_at, { seconds: true }) })
-                                  : t('scheduledTasks.lastRunFailed', {
-                                      date: formatDateTime(latestRun.executed_at, { seconds: true }),
-                                      reason: latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason'),
-                                    })}
+                            <Archive className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-foreground">{t('presets.backups')}</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                {status?.backupScheduleEnabled ? t('presets.backupsOn') : t('presets.backupsOff')}
                               </span>
-                            </p>
-                          )
-                        }
-                        if (task.last_run) {
-                          return (
-                            <p className="text-[11px] text-muted-foreground/70 mt-1">
-                              {t('scheduledTasks.lastRun', { date: formatDateTime(task.last_run, { seconds: true }) })}
-                            </p>
-                          )
-                        }
-                        return null
-                      })()}
-                      {/* continuous-bug-hunt round 28 (ux-proposals-need-
-                          backend-data): GET /scheduler/tasks now computes
-                          next_run server-side (scheduler.getTaskNextRun) --
-                          naturally absent for a disabled task, which is
-                          exactly when there's nothing upcoming to show. */}
-                      {task.next_run && (
-                        <p className="flex items-center gap-1 text-[11px] text-muted-foreground/70 mt-1">
-                          <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
-                          <span className="truncate">
-                            {t('scheduledTasks.nextRun', { date: formatDateTime(task.next_run, { seconds: true }) })}
-                          </span>
-                        </p>
-                      )}
+                            </span>
+                            <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary rtl:-scale-x-100" aria-hidden="true" />
+                          </Link>
+                        </li>
+                      </ul>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRunNow(task)}
-                      disabled={loading || runningTaskId !== null}
-                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Run task now"); disables only on transient UI state (a page-wide loading flag, or another task already running), not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
-                      title={t('scheduledTasks.runNowTitle')}
-                      aria-label={t('scheduledTasks.runNowAria', { name: task.name })}
-                    >
-                      {runningTaskId === task.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Play className="w-4 h-4" />
-                      )}
+                ) : (
+                  <div>
+                    <div aria-hidden="true" className={cn('hidden gap-x-4 border-b border-border/60 px-5 py-2 md:grid', TASK_GRID)}>
+                      <span className="label-micro">{t('rows.colTask')}</span>
+                      <span className="label-micro">{t('rows.colNext')}</span>
+                      <span className="label-micro">{t('rows.colLast')}</span>
+                      <span className="label-micro text-end">{t('rows.colOn')}</span>
+                    </div>
+                    <ul className="divide-y divide-border/60">
+                      {tasks.map((task) => {
+                        const action = describeTaskAction(task.command)
+                        const TypeIcon = TASK_TYPE_ICONS[action.type]
+                        const schedule = scheduleText.describeCron(task.cron_expression)
+                        const serverLabel = getServerLabel(task.server_id)
+                        const showServer = serverLabel && (multipleServers || !servers.some((s) => String(s.id) === String(task.server_id)))
+                        const latestRun = latestRunByTaskId.get(task.id)
+                        const running = runningTaskId === task.id
+                        const lastAt = latestRun?.executed_at ?? task.last_run
+                        const lastOk = latestRun ? !!latestRun.success : true
+                        const failReason = latestRun && !latestRun.success
+                          ? latestRun.message || t('scheduledTasks.lastRunFailedUnknownReason')
+                          : null
+                        const nextRun = task.enabled && task.next_run ? task.next_run : null
+                        return (
+                          <li
+                            key={task.id}
+                            className={cn(
+                              'grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-3 px-5 py-3.5 md:items-center',
+                              TASK_GRID,
+                              !task.enabled && 'bg-muted/20',
+                            )}
+                          >
+                            <div className="flex min-w-0 items-start gap-3">
+                              <span
+                                className={cn(
+                                  'mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border',
+                                  task.enabled ? 'border-primary/30 bg-primary/10 text-primary' : 'border-border/60 bg-muted/30 text-muted-foreground',
+                                )}
+                                aria-hidden="true"
+                              >
+                                <TypeIcon className="h-4 w-4" />
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                  <h3 className={cn('min-w-0 truncate text-sm font-medium', task.enabled ? 'text-foreground' : 'text-muted-foreground')}>
+                                    {task.name}
+                                  </h3>
+                                  {showServer && (
+                                    <span
+                                      className="max-w-[140px] shrink-0 truncate rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground"
+                                      title={t('scheduledTasks.targetServerTitle', { server: serverLabel })}
+                                    >
+                                      {serverLabel}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className={cn('mt-0.5 truncate text-sm', task.enabled ? 'text-foreground/90' : 'text-muted-foreground')}>
+                                  {schedule ?? (
+                                    <code className="font-mono text-xs" dir="ltr" title={task.cron_expression}>{task.cron_expression}</code>
+                                  )}
+                                </p>
+                                <p className="truncate text-xs text-muted-foreground" title={task.command}>
+                                  {action.mono ? (
+                                    <code className="font-mono" dir="ltr">{action.text}</code>
+                                  ) : (
+                                    <span dir="auto">{action.text}</span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Next and last run: two columns of their own from
+                                md up, side by side under the task on phones. */}
+                            <div className="col-span-2 grid grid-cols-2 gap-4 md:contents">
+                              <div className="min-w-0 text-sm">
+                                {nextRun && (
+                                  <span className="sr-only">{t('scheduledTasks.nextRun', { date: formatDateTime(nextRun, { seconds: true }) })}</span>
+                                )}
+                                <div aria-hidden="true" className="flex min-w-0 flex-col">
+                                  <span className="label-micro md:hidden">{t('rows.colNext')}</span>
+                                  {nextRun ? (
+                                    <>
+                                      <span className="truncate text-foreground">{formatRelativeTime(nextRun, locale, now)}</span>
+                                      <span className="truncate text-xs text-muted-foreground">{formatDateTime(nextRun)}</span>
+                                    </>
+                                  ) : (
+                                    <span className="text-muted-foreground">{task.enabled ? '—' : t('rows.paused')}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="min-w-0 text-sm">
+                                {running ? (
+                                  <StatusPill size="sm" tone="busy" label={t('rows.running')} />
+                                ) : lastAt ? (
+                                  <>
+                                    <span className="sr-only">
+                                      {failReason
+                                        ? t('scheduledTasks.lastRunFailed', { date: formatDateTime(lastAt, { seconds: true }), reason: failReason })
+                                        : t('scheduledTasks.lastRun', { date: formatDateTime(lastAt, { seconds: true }) })}
+                                    </span>
+                                    <div aria-hidden="true" className="flex min-w-0 flex-col" title={failReason ?? formatDateTime(lastAt, { seconds: true })}>
+                                      <span className="label-micro md:hidden">{t('rows.colLast')}</span>
+                                      <span className="flex min-w-0 items-center gap-1.5 text-foreground">
+                                        {lastOk ? (
+                                          <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-success" />
+                                        ) : (
+                                          <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+                                        )}
+                                        <span className="truncate">{lastOk ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
+                                      </span>
+                                      <span className="truncate text-xs text-muted-foreground">
+                                        {formatRelativeTime(lastAt, locale, now)}
+                                        {failReason && <span dir="auto">{` · ${failReason}`}</span>}
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div className="flex flex-col">
+                                    <span className="label-micro md:hidden" aria-hidden="true">{t('rows.colLast')}</span>
+                                    <span className="text-muted-foreground">{t('rows.neverRun')}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="col-start-2 row-start-1 flex items-center justify-end gap-2 md:col-start-auto md:row-start-auto">
+                              <Switch
+                                checked={!!task.enabled}
+                                onCheckedChange={() => handleToggleTask(task)}
+                                disabled={loading}
+                                aria-label={t('scheduledTasks.toggleAria', { name: task.name })}
+                              />
+                              <RowActions
+                                ariaLabel={t('rows.actionsAria', { name: task.name })}
+                                primary={
+                                  <Button
+                                    variant="ghost"
+                                    size="iconDense"
+                                    onClick={() => handleEditTask(task)}
+                                    disabled={loading}
+                                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Edit task"); disables only on the page-wide loading flag, not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
+                                    title={t('scheduledTasks.editTitle')}
+                                    aria-label={t('scheduledTasks.editAria', { name: task.name })}
+                                  >
+                                    <Pencil aria-hidden="true" />
+                                  </Button>
+                                }
+                                items={[
+                                  {
+                                    label: t('scheduledTasks.runNowTitle'),
+                                    icon: Play,
+                                    onSelect: () => { void handleRunNow(task) },
+                                    disabled: loading || runningTaskId !== null,
+                                    reason: runningTaskId !== null ? t('rows.runBusy') : undefined,
+                                  },
+                                  { label: t('rows.duplicate'), icon: Copy, onSelect: () => handleDuplicateTask(task), disabled: loading },
+                                  { label: t('scheduledTasks.deleteTitle'), icon: Trash2, destructive: true, onSelect: () => setDeleteTarget(task), disabled: loading },
+                                ]}
+                              />
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  </div>
+                )}
+              </SectionCard>
+
+              <SectionCard
+                density="compact"
+                icon={History}
+                title={t('executionHistory.title')}
+                description={
+                  <>
+                    {t('executionHistory.description')}
+                    {history.length >= EXECUTION_HISTORY_FETCH_LIMIT && (
+                      <span className="block text-xs">{t('executionHistory.truncatedHint', { count: history.length })}</span>
+                    )}
+                  </>
+                }
+                actions={
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => fetchData({ manual: true })} disabled={loading}>
+                      <RefreshCw aria-hidden="true" />
+                      {t('executionHistory.refresh')}
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEditTask(task)}
-                      disabled={loading}
-                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Edit task"); disables only on the page-wide loading flag, not a permission gate -- no DisabledReason-worthy reason to lose. Triaged 2026-08-27.
-                      title={t('scheduledTasks.editTitle')}
-                      aria-label={t('scheduledTasks.editAria', { name: task.name })}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Switch
-                      checked={!!task.enabled}
-                      onCheckedChange={() => handleToggleTask(task)}
-                      disabled={loading}
-                      aria-label={t('scheduledTasks.toggleAria', { name: task.name })}
-                    />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={loading}
-                          // eslint-disable-next-line local/no-dead-disabled-title -- pure hint ("Delete task"), matching Run Now/Edit's own title+aria-label split above; disables only on the page-wide loading flag, not a permission gate.
-                          title={t('scheduledTasks.deleteTitle')}
-                          aria-label={t('scheduledTasks.deleteAria', { name: task.name })}
-                        >
-                          <Trash2 className="w-4 h-4 text-destructive" />
+                        <Button variant="outline" size="sm" disabled={loading || history.length === 0}>
+                          <Trash2 aria-hidden="true" />
+                          {t('executionHistory.clear')}
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>{t('scheduledTasks.deleteDialogTitle')}</AlertDialogTitle>
+                          <AlertDialogTitle>{t('executionHistory.clearDialogTitle')}</AlertDialogTitle>
                           <AlertDialogDescription>
-                            {t('scheduledTasks.deleteDialogDesc', { name: task.name })}
+                            {t('executionHistory.clearDialogDesc', { count: history.length })}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => handleDeleteTask(task.id)}
+                            onClick={handleClearHistory}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                           >
-                            {t('scheduledTasks.deleteConfirm')}
+                            {t('executionHistory.clearAllConfirm')}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* History beside the settings that shape it: both are looked at
-          less often than the schedule, and side by side on wide screens. */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:items-start">
-        {/* Execution History */}
-        <Card>
-          <CardHeader className="p-4 pb-3">
-            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <History className="w-5 h-5" />
-                  {t('executionHistory.title')}
-                </CardTitle>
-                <CardDescription>
-                  {t('executionHistory.description')}
-                  {history.length >= EXECUTION_HISTORY_FETCH_LIMIT && (
-                    <span className="block text-xs text-muted-foreground/80">
-                      {t('executionHistory.truncatedHint', { count: history.length })}
-                    </span>
-                  )}
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fetchData({ manual: true })}
-                  disabled={loading}
-                >
-                  <RefreshCw className="w-4 h-4 me-1" />
-                  {t('executionHistory.refresh')}
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={loading || history.length === 0}
-                    >
-                      <Trash2 className="w-4 h-4 me-1" />
-                      {t('executionHistory.clear')}
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>{t('executionHistory.clearDialogTitle')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t('executionHistory.clearDialogDesc', { count: history.length })}
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
-                      <AlertDialogAction
-                        onClick={handleClearHistory}
-                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      >
-                        {t('executionHistory.clearAllConfirm')}
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            {/* A cap, not a height: a short history no longer leaves a
-                block of empty card beside the settings. */}
-            <ScrollArea className="max-h-[300px] sm:max-h-[400px]">
-              {history.length === 0 ? (
-                <EmptyState type="noSchedule" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
-              ) : (
-                <div className="space-y-2">
-                  {history.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className={`p-3 rounded-lg border border-border/40 ${
-                        entry.success ? 'bg-card' : 'bg-destructive/[0.06]'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          {entry.success ? (
-                            <CheckCircle2 className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-                          ) : (
-                            <XCircle className="w-4 h-4 text-destructive flex-shrink-0" aria-hidden="true" />
-                          )}
-                          <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
-                          <div>
-                            <span className="font-medium">
-                              {entry.task_name_key
-                                ? t(`executionHistory.systemTasks.${entry.task_name_key}`, { defaultValue: entry.task_name })
-                                : entry.task_name}
-                            </span>
-                            <code className="ms-2 text-xs bg-muted px-1.5 py-0.5 rounded">
-                              {entry.command}
-                            </code>
-                          </div>
-                        </div>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDateTime(entry.executed_at, { seconds: true })}
-                        </span>
-                      </div>
-                      <div className="mt-1 ms-6 text-sm">
-                        {entry.message && (
-                          <p className={entry.success ? 'text-muted-foreground' : 'text-destructive'}>
-                            {/* Translated where the panel wrote the message
-                                itself (message_key); a raw error as is. */}
-                            {scheduledAttemptMessage(entry.message, entry.message_key, entry.message_params)}
-                          </p>
-                        )}
-                        {entry.duration !== null && (
-                          <p className="text-xs text-muted-foreground">
-                            {t('executionHistory.duration', { seconds: (entry.duration / 1000).toFixed(1) })}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        <div className="space-y-4">
-          {/* Schedule settings: the install-wide timezone and the restart
-              warning text, one card with a divider (2026-08-29 timezone
-              card notes: migrated automatically on upgrade, so it shows a
-              real, already-correct value and only needs touching to
-              CHANGE the zone). */}
-          <Card>
-            <CardContent className="space-y-2 p-4">
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-sm font-medium">{t('timezone.title')}</h3>
-                <HelpTip label={t('timezone.title')}>{t('timezone.description')}</HelpTip>
-              </div>
-              {status?.timezoneFallback && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertTitle>{t('timezone.fallbackTitle')}</AlertTitle>
-                  <AlertDescription>
-                    {t('timezone.fallbackDesc', {
-                      configured: status.timezoneFallback.configured,
-                      effective: status.timezoneFallback.effective,
-                    })}
-                  </AlertDescription>
-                </Alert>
-              )}
-              <div className="flex items-end gap-2">
-                <div className="flex-1 space-y-1.5">
-                  <Label htmlFor="scheduler-timezone-input">{t('timezone.inputLabel')}</Label>
-                  <TimezonePicker
-                    id="scheduler-timezone-input"
-                    value={timezoneInput}
-                    onChange={setTimezoneInput}
-                    disabled={timezoneSaving}
+                  </>
+                }
+              >
+                {failedCount > 0 && (
+                  <Segmented
+                    value={historyFilter}
+                    onValueChange={setHistoryFilter}
+                    ariaLabel={t('executionHistory.filterAria')}
+                    items={[
+                      { value: 'all', label: t('executionHistory.filterAll'), count: history.length },
+                      { value: 'failed', label: t('executionHistory.failed'), count: failedCount },
+                    ]}
                   />
-                </div>
-                <Button
-                  onClick={handleSaveTimezone}
-                  disabled={timezoneSaving || !timezoneInput.trim() || timezoneInput.trim() === status?.configuredTimezone}
-                >
-                  {timezoneSaving ? <Loader2 className="w-4 h-4 me-2 animate-spin" /> : null}
-                  {t('timezone.saveButton')}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
-              </p>
-              {/* autoRestartEnabled/backupScheduleEnabled were already fetched
-                  into `status` but never rendered anywhere on this page -- an
-                  operator with AUTO_RESTART_ENABLED set in the environment, or
-                  whose automatic backup schedule stopped running, had no way to
-                  tell from the Scheduler page itself, even though the card
-                  above already claims both run in this timezone. Gated on
-                  `status` being loaded so a fetch failure shows nothing here
-                  rather than a misleading "off". */}
-              {status && (
-                <p className="text-xs text-muted-foreground">
-                  {t('timezone.systemSchedules', {
-                    backup: status.backupScheduleEnabled ? t('timezone.backupScheduleOn') : t('timezone.backupScheduleOff'),
-                    autoRestart: status.autoRestartEnabled ? t('timezone.autoRestartOn') : t('timezone.autoRestartOff'),
-                  })}
-                </p>
-              )}
-              {/* continuous-bug-hunt round 28 (ux-proposals-need-backend-data):
-                  backupScheduleEnabled (above) only ever said on/off -- an
-                  operator couldn't tell from THIS page whether the schedule was
-                  actually succeeding, when it last tried, or when it will try
-                  next (Dashboard/Backups already surface last-attempt failure,
-                  but not here, and neither page had a next-run time at all
-                  until this round). Gated on backups being enabled: an off
-                  schedule has no next run and no recent attempt worth showing. */}
-              {status?.backupScheduleEnabled && (
-                <div className="mt-2 space-y-1 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                  <p className="text-xs font-medium text-foreground/80">{t('timezone.backupHealthTitle')}</p>
-                  {backupStatus?.lastScheduledBackupAttempt ? (() => {
-                    const attempt = backupStatus.lastScheduledBackupAttempt
-                    const date = formatDateTime(attempt.executedAt, { seconds: true })
-                    // Colour from scheduledBackupHealth(), the same verdict the
-                    // Dashboard and Backups page use, so the three can't
-                    // disagree: a restart skip (panels up to v1.3.8 dropped a
-                    // backup that landed on a restart) is amber, a real failure
-                    // red -- and either one is muted once any backup has
-                    // succeeded since (recoveredAt), which is exactly what the
-                    // Dashboard tells the operator to do. The line itself stays:
-                    // it's still this schedule's history, just not a live problem,
-                    // and the line under it says why.
-                    const health = scheduledBackupHealth(true, attempt)
-                    const recoveredAt = attempt.success ? null : attempt.recoveredAt ?? null
-                    const text = attempt.success
-                      ? t('timezone.backupLastAttemptOk', { date })
-                      : attempt.skipReason === 'restart'
-                        ? t('timezone.backupLastAttemptSkippedForRestart', { date })
-                        : t('timezone.backupLastAttemptFailed', {
-                            date,
-                            reason: scheduledAttemptMessage(attempt.message, attempt.messageKey, attempt.messageParams)
-                              || t('scheduledTasks.lastRunFailedUnknownReason'),
-                          })
-                    return (
-                      <>
-                        <p className={cn(
-                          'flex items-center gap-1 text-xs',
-                          health === 'skippedForRestart'
-                            ? 'text-amber-600 dark:text-amber-400'
-                            : health === 'failing'
-                              ? 'text-destructive'
-                              : 'text-muted-foreground',
-                        )}>
-                          {attempt.success ? (
-                            <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                          ) : attempt.skipReason === 'restart' ? (
-                            <AlertTriangle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                )}
+                {/* A cap, not a height: a short history leaves no empty block. */}
+                <ScrollArea className="max-h-[320px] sm:max-h-[420px]">
+                  {visibleHistory.length === 0 ? (
+                    <EmptyState compact type="noData" title={t('executionHistory.emptyTitle')} description={t('executionHistory.emptyDesc')} />
+                  ) : (
+                    <ul className="divide-y divide-border/60">
+                      {visibleHistory.map((entry) => (
+                        <li key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 py-2.5">
+                          {entry.success ? (
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                           ) : (
-                            <XCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
                           )}
-                          <span className="truncate" title={text}>{text}</span>
-                        </p>
-                        {/* Its own line rather than a suffix: the failure line
-                            above truncates, and a long reason would cut this off. */}
-                        {recoveredAt && (
-                          <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <CheckCircle2 className="w-3 h-3 shrink-0" aria-hidden="true" />
-                            <span className="truncate">
-                              {t('timezone.backupRecoveredSince', { date: formatDateTime(recoveredAt, { seconds: true }) })}
-                            </span>
-                          </p>
-                        )}
-                      </>
-                    )
-                  })() : (
-                    <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
+                          <div className="min-w-0">
+                            <p className="flex min-w-0 items-baseline gap-2">
+                              <span className="sr-only">{entry.success ? t('executionHistory.succeeded') : t('executionHistory.failed')}</span>
+                              <span className="truncate text-sm font-medium">{historyName(entry)}</span>
+                              <code className="min-w-0 truncate font-mono text-xs text-muted-foreground" dir="ltr" title={entry.command}>
+                                {entry.command}
+                              </code>
+                            </p>
+                            {entry.message && (
+                              <p className={cn('mt-0.5 break-words text-xs', entry.success ? 'text-muted-foreground' : 'text-destructive')} dir="auto">
+                                {/* Translated where the panel wrote the message
+                                    itself (message_key); a raw error as is. */}
+                                {scheduledAttemptMessage(entry.message, entry.message_key, entry.message_params)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-end text-xs tabular-nums text-muted-foreground">
+                            <p className="whitespace-nowrap">{formatDateTime(entry.executed_at, { seconds: true })}</p>
+                            {entry.duration !== null && (
+                              <p className="whitespace-nowrap">{t('executionHistory.duration', { seconds: (entry.duration / 1000).toFixed(1) })}</p>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   )}
-                  {status.backupNextRun && (
-                    <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Clock className="w-3 h-3 shrink-0" aria-hidden="true" />
-                      <span className="truncate">{t('timezone.backupNextRun', { date: formatDateTime(status.backupNextRun, { seconds: true }) })}</span>
+                </ScrollArea>
+              </SectionCard>
+            </div>
+
+            {/* Act now, then what shapes every schedule: looked at less often
+                than the tasks, so they sit beside them. */}
+            <div className="min-w-0 space-y-6">
+              <SectionCard
+                density="compact"
+                icon={RotateCcw}
+                title={t('manualRestart.title')}
+                description={serverRunning ? t('manualRestart.descRunning') : t('manualRestart.descOffline')}
+              >
+                {/* One countdown choice: picking a length doesn't restart, the
+                    single action below does. */}
+                <fieldset className="space-y-2" disabled={restartBlocked}>
+                  <legend className="text-sm font-medium">{t('manualRestart.countdownLabel')}</legend>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex flex-wrap rounded-lg border border-border/60 bg-muted/25 p-0.5">
+                      {RESTART_PRESETS.map((preset) => (
+                        <label key={preset} className="relative">
+                          <input
+                            type="radio"
+                            name="restart-countdown"
+                            value={preset}
+                            checked={restartPreset === preset}
+                            onChange={() => setRestartPreset(preset)}
+                            className="peer sr-only"
+                          />
+                          <span className="inline-flex h-8 min-w-[3rem] cursor-pointer items-center justify-center rounded-md px-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground peer-checked:bg-background peer-checked:font-medium peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-disabled:cursor-not-allowed peer-disabled:opacity-60 peer-disabled:hover:text-muted-foreground [@media(pointer:coarse)]:h-11">
+                            {preset === 'custom'
+                              ? t('manualRestart.customOption')
+                              : t('manualRestart.minutesShort', { count: preset })}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {restartPreset === 'custom' && (
+                      <NumberInput
+                        id="restart-custom-minutes"
+                        aria-label={t('manualRestart.customCountdownLabel')}
+                        value={restartMinutes}
+                        onChange={setRestartMinutes}
+                        min={1}
+                        max={30}
+                        className="w-24"
+                        onWheel={(e) => e.currentTarget.blur()}
+                      />
+                    )}
+                  </div>
+                </fieldset>
+                <div className="space-y-2">
+                  <DisabledReason reason={!canRestartNow ? t('manualRestart.noPermission') : null}>
+                    {Number.isFinite(restartCountdown) && restartCountdown < 5 ? (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="warning" disabled={restartBlocked}>
+                            <RotateCcw aria-hidden="true" />
+                            {restartButtonLabel}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>{t('manualRestart.shortCountdownDialogTitle', { count: restartCountdown })}</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              {t('manualRestart.shortCountdownDialogDesc')}
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleRestart(restartCountdown)}
+                              className="bg-warning text-warning-foreground hover:bg-warning/90"
+                            >
+                              {t('manualRestart.confirmShortRestart', { count: restartCountdown })}
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    ) : (
+                      <Button
+                        variant="warning"
+                        onClick={() => handleRestart(restartCountdown)}
+                        disabled={restartBlocked || !Number.isFinite(restartCountdown)}
+                      >
+                        <RotateCcw aria-hidden="true" />
+                        {restartButtonLabel}
+                      </Button>
+                    )}
+                  </DisabledReason>
+                  <p className="text-xs text-muted-foreground">
+                    {t('manualRestart.countdownWarningsNote')}{' '}
+                    <button
+                      type="button"
+                      onClick={focusRestartWarningTemplate}
+                      className="rounded-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {t('manualRestart.editWarningMessage')}
+                    </button>
+                  </p>
+                </div>
+              </SectionCard>
+
+              <SectionCard
+                density="compact"
+                icon={Send}
+                title={t('quickBroadcasts.title')}
+                description={serverRunning ? t('quickBroadcasts.descRunning') : t('quickBroadcasts.descOffline')}
+              >
+                {/* Each row shows the message players will read, so the
+                    operator never sends one blind. */}
+                <ul className="space-y-2">
+                  {QUICK_BROADCASTS.map((key) => (
+                    <li key={key}>
+                      <button
+                        type="button"
+                        onClick={() => handleBroadcast(key, t(`broadcastMessages.${key}`))}
+                        disabled={broadcastingKey !== null || loading || !serverRunning}
+                        aria-labelledby={`broadcast-${key}-label`}
+                        aria-describedby={`broadcast-${key}-message`}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint: the full message, which the row truncates. Why it's disabled (server offline) is the card's own description, and a send in flight shows its spinner.
+                        title={t(`broadcastMessages.${key}`)}
+                        className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-start transition-colors hover:border-primary/40 hover:bg-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border/60 disabled:hover:bg-muted/25"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span id={`broadcast-${key}-label`} className="block text-sm font-medium text-foreground">
+                            {t(`quickBroadcasts.${key}`)}
+                          </span>
+                          <span id={`broadcast-${key}-message`} className="block truncate text-xs text-muted-foreground" dir="auto">
+                            {t(`broadcastMessages.${key}`)}
+                          </span>
+                        </span>
+                        {broadcastingKey === key ? (
+                          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" aria-hidden="true" />
+                        ) : (
+                          <Send className="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-primary group-disabled:text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+
+              {/* Whether the automatic backup schedule is succeeding, when it
+                  last tried and when it tries next. Only while backups are
+                  on: an off schedule has nothing to show. The schedule itself
+                  lives on Backups. */}
+              {status?.backupScheduleEnabled && (
+                <SectionCard
+                  density="compact"
+                  icon={Archive}
+                  title={t('timezone.backupHealthTitle')}
+                  description={t('timezone.backupHealthDesc')}
+                  actions={
+                    <Link
+                      to="/backups?panel=schedule"
+                      className="inline-flex items-center gap-1 rounded-sm text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                    >
+                      {t('timezone.backupHealthLink')}
+                      <ArrowRight className="h-3.5 w-3.5 rtl:-scale-x-100" aria-hidden="true" />
+                    </Link>
+                  }
+                >
+                  <div className="space-y-1">
+                    {backupAttempt ? (() => {
+                      const date = formatDateTime(backupAttempt.executedAt, { seconds: true })
+                      // Colour from scheduledBackupHealth(), the same verdict the
+                      // Dashboard and Backups page use: a restart skip is amber,
+                      // a real failure red, and either is muted once a backup
+                      // has succeeded since (recoveredAt).
+                      const recoveredAt = backupAttempt.success ? null : backupAttempt.recoveredAt ?? null
+                      const attemptText = backupAttempt.success
+                        ? t('timezone.backupLastAttemptOk', { date })
+                        : backupAttempt.skipReason === 'restart'
+                          ? t('timezone.backupLastAttemptSkippedForRestart', { date })
+                          : t('timezone.backupLastAttemptFailed', {
+                              date,
+                              reason: scheduledAttemptMessage(backupAttempt.message, backupAttempt.messageKey, backupAttempt.messageParams)
+                                || t('scheduledTasks.lastRunFailedUnknownReason'),
+                            })
+                      return (
+                        <>
+                          <p className={cn(
+                            'flex items-center gap-1.5 text-xs',
+                            backupHealth === 'skippedForRestart'
+                              ? 'text-warning'
+                              : backupHealth === 'failing'
+                                ? 'text-destructive'
+                                : 'text-muted-foreground',
+                          )}>
+                            {backupAttempt.success ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            ) : backupAttempt.skipReason === 'restart' ? (
+                              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            ) : (
+                              <XCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                            )}
+                            <span className="truncate" title={attemptText}>{attemptText}</span>
+                          </p>
+                          {/* Its own line: the failure line above truncates. */}
+                          {recoveredAt && (
+                            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <CheckCircle2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                              <span className="truncate">
+                                {t('timezone.backupRecoveredSince', { date: formatDateTime(recoveredAt, { seconds: true }) })}
+                              </span>
+                            </p>
+                          )}
+                        </>
+                      )
+                    })() : (
+                      <p className="text-xs text-muted-foreground">{t('timezone.backupNoAttemptYet')}</p>
+                    )}
+                    {status.backupNextRun && (
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{t('timezone.backupNextRun', { date: formatDateTime(status.backupNextRun, { seconds: true }) })}</span>
+                      </p>
+                    )}
+                  </div>
+                  {/* Restarts get scheduled here, so this is where an operator
+                      stacking one on the backup schedule hears that those
+                      backups wait for it. The header names the zone. */}
+                  <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone />
+                </SectionCard>
+              )}
+
+              {/* The install-wide timezone and the restart warning text: one
+                  card, two parts, one Save (the SaveBar below). */}
+              <SectionCard
+                density="compact"
+                icon={Settings2}
+                title={t('settings.title')}
+                description={t('settings.description')}
+              >
+                <div className="space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-medium">{t('timezone.title')}</h3>
+                    <HelpTip label={t('timezone.title')}>{t('timezone.description')}</HelpTip>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="scheduler-timezone-input">{t('timezone.inputLabel')}</Label>
+                    <TimezonePicker
+                      id="scheduler-timezone-input"
+                      value={timezoneInput}
+                      onChange={setTimezoneInput}
+                      disabled={timezoneSaving}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('timezone.currentlyEffective', { tz: status?.timezone || '...' })}
+                  </p>
+                  {/* Gated on `status` so a fetch failure shows nothing here
+                      rather than a misleading "off". */}
+                  {status && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('timezone.systemSchedules', {
+                        backup: status.backupScheduleEnabled ? t('timezone.backupScheduleOn') : t('timezone.backupScheduleOff'),
+                        autoRestart: status.autoRestartEnabled ? t('timezone.autoRestartOn') : t('timezone.autoRestartOff'),
+                      })}
                     </p>
                   )}
-                  {/* This page is where restarts get scheduled, so it's where an
-                      operator stacking one on top of the backup schedule needs to
-                      hear that those backups will wait for it and run late.
-                      No timezone line of its own: this card is the timezone
-                      card, and says which zone is in effect just above. */}
-                  <BackupRestartOverlapNotice overlaps={backupStatus?.restartOverlaps} hideTimeZone className="mt-2" />
                 </div>
-              )}
 
-              <div className="mt-4 space-y-3 border-t border-border/40 pt-4">
-                <div className="flex items-center gap-1.5">
-                  <h3 className="text-sm font-medium">{t('restartWarning.title')}</h3>
-                  <HelpTip label={t('restartWarning.title')}>{t('restartWarning.description')}</HelpTip>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="restart-warning-language">{t('restartWarning.languageLabel')}</Label>
-                  <Select
-                    value={restartWarningLocale}
-                    onValueChange={(locale: typeof RESTART_WARNING_LOCALES[number]) => selectRestartWarningLocale(locale)}
-                    disabled={restartWarningSaving}
-                  >
-                    <SelectTrigger id="restart-warning-language">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RESTART_WARNING_LOCALES.map((locale) => (
-                        <SelectItem key={locale} value={locale}>
-                          {t(`restartWarning.languages.${locale}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="restart-warning-template">{t('restartWarning.templateLabel')}</Label>
-                  <Textarea
-                    id="restart-warning-template"
-                    value={restartWarningTemplate}
-                    onChange={(event) => {
-                      restartWarningDirtyRef.current = true
-                      setRestartWarningTemplate(event.target.value)
-                    }}
-                    maxLength={300}
-                    disabled={restartWarningSaving}
-                  />
-                  <p className="text-xs text-muted-foreground">{t('restartWarning.templateHint')}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="space-y-3 border-t border-border/60 pt-4">
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-medium">{t('restartWarning.title')}</h3>
+                    <HelpTip label={t('restartWarning.title')}>{t('restartWarning.description')}</HelpTip>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="restart-warning-language">{t('restartWarning.languageLabel')}</Label>
+                    <Select
+                      value={restartWarningLocale}
+                      onValueChange={(locale: typeof RESTART_WARNING_LOCALES[number]) => selectRestartWarningLocale(locale)}
+                      disabled={restartWarningSaving}
+                    >
+                      <SelectTrigger id="restart-warning-language">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RESTART_WARNING_LOCALES.map((locale) => (
+                          <SelectItem key={locale} value={locale}>
+                            {t(`restartWarning.languages.${locale}`)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="restart-warning-template">{t('restartWarning.templateLabel')}</Label>
+                    <Textarea
+                      id="restart-warning-template"
+                      value={restartWarningTemplate}
+                      onChange={(event) => {
+                        restartWarningDirtyRef.current = true
+                        setRestartWarningTemplate(event.target.value)
+                      }}
+                      maxLength={300}
+                      disabled={restartWarningSaving}
+                    />
+                    <p className="text-xs text-muted-foreground">{t('restartWarning.templateHint')}</p>
+                  </div>
                   <Button
                     variant="outline"
+                    size="sm"
                     onClick={resetRestartWarningTemplate}
                     disabled={restartWarningSaving || !status?.restartWarningPresets?.[restartWarningLocale]}
                   >
                     {t('restartWarning.presetButton')}
                   </Button>
-                  <Button
-                    onClick={handleSaveRestartWarning}
-                    disabled={restartWarningSaving || !restartWarningTemplate.trim()}
-                  >
-                    {restartWarningSaving ? <Loader2 className="me-2 h-4 w-4 animate-spin" /> : null}
-                    {t('restartWarning.saveButton')}
-                  </Button>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </SectionCard>
 
-          {/* Cron Help — collapsible reference */}
-          <Collapsible>
-            <div className="rounded-xl border border-border/40 bg-card/40">
-              <CollapsibleTrigger className="flex w-full items-center justify-between px-5 py-3 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                <span className="flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4" />
-                  {t('cronHelp.title')}
-                </span>
-                <ChevronDown className="w-4 h-4 transition-transform duration-200 [[data-state=open]>&]:rotate-180" />
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div className="px-5 pb-4 pt-0">
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
-                    <div>
-                      <p className="font-medium">{t('cronHelp.minuteLabel')}</p>
-                      <p className="text-muted-foreground">{t('cronHelp.minuteRange')}</p>
+              <SectionCard collapsible defaultOpen={false} density="compact" icon={HelpCircle} title={t('cronHelp.title')}>
+                <dl className="grid grid-cols-5 gap-2 text-sm">
+                  {(['minute', 'hour', 'day', 'month', 'weekday'] as const).map((field) => (
+                    <div key={field} className="min-w-0">
+                      <dt className="truncate font-medium">{t(`cronHelp.${field}Label`)}</dt>
+                      <dd className="text-xs text-muted-foreground">{t(`cronHelp.${field}Range`)}</dd>
                     </div>
-                    <div>
-                      <p className="font-medium">{t('cronHelp.hourLabel')}</p>
-                      <p className="text-muted-foreground">{t('cronHelp.hourRange')}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{t('cronHelp.dayLabel')}</p>
-                      <p className="text-muted-foreground">{t('cronHelp.dayRange')}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{t('cronHelp.monthLabel')}</p>
-                      <p className="text-muted-foreground">{t('cronHelp.monthRange')}</p>
-                    </div>
-                    <div>
-                      <p className="font-medium">{t('cronHelp.weekdayLabel')}</p>
-                      <p className="text-muted-foreground">{t('cronHelp.weekdayRange')}</p>
-                    </div>
-                  </div>
-                  <div className="mt-4 space-y-2 text-sm">
-                    <p><Trans i18nKey="cronHelp.anyValue" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                    <p><Trans i18nKey="cronHelp.everyNUnits" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                    <p><Trans i18nKey="cronHelp.every2HoursExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                    <p><Trans i18nKey="cronHelp.daily6amExample" t={t} components={{ 1: <code className="bg-muted px-1 rounded" /> }} /></p>
-                  </div>
+                  ))}
+                </dl>
+                <div className="space-y-2 text-sm">
+                  <p><Trans i18nKey="cronHelp.anyValue" t={t} components={{ 1: <code className="rounded bg-muted px-1 font-mono" /> }} /></p>
+                  <p><Trans i18nKey="cronHelp.everyNUnits" t={t} components={{ 1: <code className="rounded bg-muted px-1 font-mono" /> }} /></p>
+                  <p><Trans i18nKey="cronHelp.every2HoursExample" t={t} components={{ 1: <code className="rounded bg-muted px-1 font-mono" /> }} /></p>
+                  <p><Trans i18nKey="cronHelp.daily6amExample" t={t} components={{ 1: <code className="rounded bg-muted px-1 font-mono" /> }} /></p>
                 </div>
-              </CollapsibleContent>
+              </SectionCard>
             </div>
-          </Collapsible>
-        </div>
-      </div>
+          </div>
+        </>
+      )}
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('scheduledTasks.deleteDialogTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('scheduledTasks.deleteDialogDesc', { name: deleteTarget?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('manualRestart.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (deleteTarget) void handleDeleteTask(deleteTarget.id) }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t('scheduledTasks.deleteConfirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <SaveBar
+        dirty={settingsDirty}
+        saving={settingsSaving}
+        onSave={() => { void saveSettings() }}
+        onDiscard={discardSettings}
+        disabledReason={settingsDisabledReason}
+        saveLabel={t('timezone.saveButton')}
+      />
     </div>
   )
 }

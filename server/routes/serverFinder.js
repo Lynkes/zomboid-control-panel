@@ -1,5 +1,6 @@
 import express from 'express';
 import dgram from 'dgram';
+import net from 'net';
 import { createLogger } from '../utils/logger.js';
 const log = createLogger('API:Finder');
 import { getSteamApiKey } from '../services/steamApiKey.js';
@@ -16,12 +17,18 @@ const router = express.Router();
 router.use(requirePermission('server.install'));
 
 // Block private/reserved IP ranges to prevent SSRF
+//
+// SECURITY (2026-10-20): only a canonical dotted-decimal IPv4 address passes
+// (net.isIPv4: four decimal parts, no leading zeros, no padding). The old
+// check accepted "012.0.0.1" and read it as 12.0.0.1, but the address is
+// handed to dgram, which resolves anything that isn't an IP literal through
+// getaddrinfo -- and glibc reads 012 as octal: 10.0.0.1, 0177.0.0.1 is
+// 127.0.0.1. Hex, short and integer forms (0x7f.1, 127.1, 2130706433),
+// IPv6 (IPv4-mapped included) and host names are refused outright.
 export function isPrivateIp(ip) {
   if (typeof ip !== 'string') return true;
-  // Trim whitespace
-  ip = ip.trim();
-  // Block non-IPv4 patterns (no IPv6 support in this feature)
-  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return true;
+  // Exactly as given: queryServerInfo() is handed this same string.
+  if (!net.isIPv4(ip)) return true;
   const parts = ip.split('.').map(Number);
   if (parts.some(p => p < 0 || p > 255 || isNaN(p))) return true;
   const [a, b] = parts;
@@ -107,6 +114,12 @@ export const QUERY_FAILURE_MESSAGES = {
 // GET /query and GET /ping pass it to turn one generic "didn't respond"
 // outcome back into the three genuinely different causes it collapsed.
 export async function queryServerInfo(ip, port, onFailureReason) {
+  // Only an IPv4 literal reaches the socket: anything else would be resolved
+  // by getaddrinfo (see isPrivateIp), past every caller's address check.
+  if (typeof ip !== 'string' || !net.isIPv4(ip)) {
+    onFailureReason?.('socket-error');
+    return null;
+  }
   return new Promise((resolve) => {
     const socket = dgram.createSocket('udp4');
     let timeout = setTimeout(() => {

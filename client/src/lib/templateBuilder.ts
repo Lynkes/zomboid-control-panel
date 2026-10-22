@@ -5,7 +5,10 @@
  * that diff would require duplicating the large default-value table from
  * serverConfigSchema.ts here, and would drift as that schema grows. Excluded
  * identity/secret keys mirror server/utils/templateSchema.js's
- * DEFAULT_INI_EXCLUSIONS (the backend independently enforces the same list).
+ * DEFAULT_INI_EXCLUSIONS (the backend independently enforces the same list),
+ * and so does the secret-key pattern: TEMPLATE_SECRET_KEY_PATTERN is the
+ * server's SENSITIVE_FIELD_RE (server/utils/sanitize.js). Keys compare
+ * without case. Both are checked by serverClientConstantParity.test.js.
  */
 export const TEMPLATE_INI_EXCLUSIONS = [
   "RCONPassword",
@@ -16,7 +19,23 @@ export const TEMPLATE_INI_EXCLUSIONS = [
   "UDPPort",
   "RCONPort",
   "server_browser_announced_ip",
+  "UPnP",
+  "Mods",
+  "WorkshopItems",
+  "Map",
+  "DoLuaChecksum",
+  "DiscordToken",
 ];
+
+export const TEMPLATE_SECRET_KEY_PATTERN = /password|secret|token|apikey|api_key|jwt|sessionid|loginsecure|cookie|webhook|recovery/i;
+
+export function isTemplateIniKeyExcluded(key: string): boolean {
+  const lower = key.toLowerCase();
+  return (
+    TEMPLATE_SECRET_KEY_PATTERN.test(key) ||
+    TEMPLATE_INI_EXCLUSIONS.some((excluded) => excluded.toLowerCase() === lower)
+  );
+}
 
 export type SandboxSectionValues = Record<string, string | number | boolean>;
 
@@ -42,7 +61,7 @@ export function buildTemplateCapture(
 ): TemplateCapture {
   const serverIni = Object.fromEntries(
     Object.entries(iniSettings || {}).filter(
-      ([key]) => !TEMPLATE_INI_EXCLUSIONS.includes(key),
+      ([key]) => !isTemplateIniKeyExcluded(key),
     ),
   );
   const sandboxVars: Record<string, SandboxSectionValues> = {

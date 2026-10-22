@@ -4,6 +4,8 @@
     "andMore_many"
   ],
   "noUpdateYet": "оновлень ще не було",
+  "verdictAria": "Стан сервера",
+  "workListAria": "Розділи сервера",
   "updatedJustNow": "оновлено щойно",
   "updatedSecondsAgo": "оновлено {{count}} с тому",
   "updatedMinutesAgo": "оновлено {{count}} хв тому",

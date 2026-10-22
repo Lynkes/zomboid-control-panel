@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useMemo } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import {
-  Search,
   RefreshCw,
   Users,
   MapPin,
@@ -11,7 +10,6 @@ import {
   Server,
   Globe,
   Loader2,
-  AlertCircle,
   Filter,
   ArrowUpDown,
   ChevronUp,
@@ -22,17 +20,23 @@ import {
   ChevronsRight,
   Copy,
 } from 'lucide-react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatStrip } from '@/components/ui/stat-strip'
+import { Toolbar } from '@/components/ui/toolbar'
 import { EmptyState } from '@/components/EmptyState'
-import { HelpTip } from '@/components/HelpTip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select,
   SelectContent,
@@ -124,6 +128,8 @@ export function pingFailDescKey(reason?: string): string {
 
 export default function ServerFinder() {
   const { t, i18n } = useTranslation('serverFinder')
+  // The breadcrumb names the parent page by its own title.
+  const { t: tServers } = useTranslation('servers')
   const [servers, setServers] = useState<GameServer[]>([])
   const [filteredServers, setFilteredServers] = useState<GameServer[]>([])
   const [loading, setLoading] = useState(false)
@@ -344,6 +350,15 @@ export default function ServerFinder() {
     })
   }, [servers])
 
+  // A refresh can drop the version the operator filtered on (the last server
+  // running it went offline). The Select then shows nothing selected and the
+  // list stays empty with no visible reason, so fall back to "all versions".
+  useEffect(() => {
+    if (versionFilter !== 'all' && !availableVersions.includes(versionFilter)) {
+      setVersionFilter('all')
+    }
+  }, [availableVersions, versionFilter])
+
   // Calculate pagination from filtered servers
   const totalPages = Math.max(1, Math.ceil(filteredServers.length / ITEMS_PER_PAGE))
 
@@ -453,283 +468,310 @@ export default function ServerFinder() {
     return 'text-destructive'
   }
 
+  // The API-key fetch also records its own "key missing" error; the warning
+  // below already says that (with the steps), so it isn't repeated as an error.
+  const apiKeyMissing = !apiKeyConfigured && !loading
+  const alerts: PageAlert[] = []
+  if (error && !(apiKeyMissing && error === t('toasts.apiKeyMissing'))) {
+    alerts.push({
+      id: 'load-error',
+      tone: 'error',
+      title: t('error.title'),
+      description: error,
+      action: { label: t('error.retry'), onClick: () => void fetchServers() },
+    })
+  }
+  if (apiKeyMissing) {
+    alerts.push({
+      id: 'api-key',
+      tone: 'warning',
+      title: t('apiKeyWarning.title'),
+      description: (
+        <div className="space-y-1">
+          <p>{t('apiKeyWarning.description')}</p>
+          <ol className="list-inside list-decimal space-y-1">
+            <li>
+              <Trans
+                i18nKey="apiKeyWarning.step1"
+                t={t}
+                components={{
+                  1: <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" />,
+                  2: <span className="sr-only" />,
+                }}
+              />
+            </li>
+            <li>
+              <Trans
+                i18nKey="apiKeyWarning.step2"
+                t={t}
+                components={{ 1: <Link to="/settings?tab=mods" className="text-primary hover:underline" /> }}
+              />
+            </li>
+            <li>{t('apiKeyWarning.step3')}</li>
+          </ol>
+        </div>
+      ),
+      action: { label: t('apiKeyWarning.action'), to: '/settings?tab=mods' },
+    })
+  }
+
+  const isFiltered = filteredServers.length !== servers.length
+  const resetFilters = () => {
+    setSearchQuery('')
+    setHideEmpty(false)
+    setHideFull(false)
+    setHidePrivate(false)
+    setShowVacOnly(false)
+    setVersionFilter('all')
+  }
+
+  const pagination = filteredServers.length > ITEMS_PER_PAGE && (
+    <>
+      <p className="me-auto text-xs text-muted-foreground">
+        {t('pagination.showing', {
+          from: ((currentPage - 1) * ITEMS_PER_PAGE) + 1,
+          to: Math.min(currentPage * ITEMS_PER_PAGE, filteredServers.length),
+          total: filteredServers.length.toLocaleString(i18n.language),
+        })}
+      </p>
+      <nav aria-label={t('pagination.nav')} className="flex items-center gap-1.5">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => goToPage(1)}
+          disabled={currentPage <= 1}
+          aria-label={t('pagination.firstAria')}
+        >
+          <ChevronsLeft className="rtl:-scale-x-100" aria-hidden="true" />
+          <span className="hidden sm:inline">{t('pagination.first')}</span>
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => goToPage(currentPage - 1)}
+          disabled={currentPage <= 1}
+          aria-label={t('pagination.prevAria')}
+        >
+          <ChevronLeft className="rtl:-scale-x-100" aria-hidden="true" />
+          <span className="hidden sm:inline">{t('pagination.prev')}</span>
+        </Button>
+        <span className="px-1.5 text-xs font-medium tabular-nums" aria-current="page">
+          {t('pagination.pageOf', { current: currentPage, total: totalPages })}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => goToPage(currentPage + 1)}
+          disabled={currentPage >= totalPages}
+          aria-label={t('pagination.nextAria')}
+        >
+          <span className="hidden sm:inline">{t('pagination.next')}</span>
+          <ChevronRight className="rtl:-scale-x-100" aria-hidden="true" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => goToPage(totalPages)}
+          disabled={currentPage >= totalPages}
+          aria-label={t('pagination.lastAria')}
+        >
+          <span className="hidden sm:inline">{t('pagination.last')}</span>
+          <ChevronsRight className="rtl:-scale-x-100" aria-hidden="true" />
+        </Button>
+      </nav>
+    </>
+  )
+
   return (
     <div className="space-y-6 page-transition">
-      {/* Header */}
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        icon={<Globe className="w-5 h-5" />}
+        breadcrumb={[{ label: tServers('pageHeader.title'), to: '/servers' }]}
         actions={
-          <>
-            <Button variant="outline" onClick={() => fetchServers(false)} disabled={loading}>
-              {loading ? (
-                <Loader2 className="h-4 w-4 me-2 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4 me-2" />
-              )}
+          // One Refresh: the panel's cached list, with "Reload from Steam"
+          // (ask Steam directly) in its menu.
+          <div className="flex items-center">
+            <Button variant="outline" size="sm" onClick={() => fetchServers(false)} disabled={loading} className="rounded-e-none">
+              {loading ? <Loader2 className="animate-spin" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
               {t('pageHeader.refreshList')}
             </Button>
-            <Button onClick={() => fetchServers(true)} disabled={loading}>
-              <RefreshCw className="h-4 w-4 me-2" />
-              {t('pageHeader.reloadFromSteam')}
-            </Button>
-            <HelpTip label={t('pageHeader.reloadFromSteam')}>{t('pageHeader.reloadFromSteamTip')}</HelpTip>
-          </>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  aria-label={t('pageHeader.refreshMenuAria')}
+                  className="rounded-s-none border-s-0 px-2"
+                >
+                  <ChevronDown aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[min(20rem,calc(100vw-2rem))]">
+                <DropdownMenuItem onSelect={() => fetchServers(true)} className="items-start gap-2.5 py-2">
+                  <RefreshCw className="mt-0.5 text-muted-foreground" aria-hidden="true" />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-medium">{t('pageHeader.reloadFromSteam')}</span>
+                    <span className="text-xs text-muted-foreground">{t('pageHeader.reloadFromSteamTip')}</span>
+                  </span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         }
       />
 
-      {/* API Key Warning */}
-      {!apiKeyConfigured && !loading && (
-        <Card className="border-warning/40 bg-warning/10 shadow-sm">
-          <CardContent className="flex items-start gap-4 py-4">
-            <AlertCircle className="h-6 w-6 text-warning shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-medium text-warning">{t('apiKeyWarning.title')}</p>
-              <p className="text-sm text-muted-foreground">
-                {t('apiKeyWarning.description')}
-              </p>
-              <ol className="text-sm text-muted-foreground list-decimal list-inside space-y-1 mt-2">
-                <li>
-                  <Trans
-                    i18nKey="apiKeyWarning.step1"
-                    t={t}
-                    components={{
-                      1: <a href="https://steamcommunity.com/dev/apikey" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" />,
-                      2: <span className="sr-only" />,
-                    }}
-                  />
-                </li>
-                <li>
-                  <Trans
-                    i18nKey="apiKeyWarning.step2"
-                    t={t}
-                    components={{ 1: <Link to="/settings" className="text-primary hover:underline" /> }}
-                  />
-                </li>
-                <li>{t('apiKeyWarning.step3')}</li>
-              </ol>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <PageAlerts alerts={alerts} />
 
-      {/* Stats */}
-      {(() => {
-        const isFiltered = filteredServers.length !== servers.length
-        const tiles = [
+      <StatStrip
+        items={[
           {
+            id: 'total',
             icon: Server,
             label: t('stats.totalServers'),
             value: servers.length.toLocaleString(i18n.language),
-            sub: `${source === 'steam_api' ? t('stats.viaSteamApi') : t('stats.viaMasterServer')}${cached ? t('stats.cachedSuffix') : ''}`,
-            tone: 'muted' as const,
+            detail: `${source === 'steam_api' ? t('stats.viaSteamApi') : t('stats.viaMasterServer')}${cached ? t('stats.cachedSuffix') : ''}`,
           },
           {
+            id: 'active',
             icon: Globe,
             label: t('stats.activeServers'),
             value: stats.activeServers.toLocaleString(i18n.language),
-            sub: t('stats.withPlayersOnline'),
-            tone: 'primary' as const,
+            detail: t('stats.withPlayersOnline'),
           },
           {
+            id: 'players',
             icon: Users,
             label: t('stats.totalPlayers'),
             value: stats.totalPlayers.toLocaleString(i18n.language),
-            sub: t('stats.playingNow'),
-            tone: 'primary' as const,
+            detail: t('stats.playingNow'),
           },
           {
+            id: 'showing',
             icon: Filter,
             label: t('stats.showing'),
             value: filteredServers.length.toLocaleString(i18n.language),
-            sub: isFiltered ? t('stats.filteredOf', { count: servers.length.toLocaleString(i18n.language) }) : t('stats.matchingFilters'),
-            tone: isFiltered ? ('warning' as const) : ('muted' as const),
+            detail: isFiltered ? t('stats.filteredOf', { count: servers.length.toLocaleString(i18n.language) }) : t('stats.matchingFilters'),
+            tone: isFiltered ? 'warning' : 'default',
           },
-        ]
-        const toneClass = (tone: 'primary' | 'warning' | 'muted') =>
-          tone === 'primary'
-            ? 'border-primary/30 bg-primary/[0.06] text-primary'
-            : tone === 'warning'
-            ? 'border-warning/40 bg-warning/10 text-warning'
-            : 'border-border/55 bg-muted/30 text-muted-foreground'
-        return (
-          <div className="grid gap-3 md:grid-cols-4 stagger-in">
-            {tiles.map(({ icon: Icon, label, value, sub, tone }) => (
-              <Card key={label}>
-                <CardContent className="flex items-center gap-3 p-4">
-                  <div className={`grid place-items-center w-10 h-10 rounded-md border shrink-0 ${toneClass(tone)}`} aria-hidden="true">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-                    <p className="text-xl font-semibold leading-tight tabular-nums">{value}</p>
-                    {sub && <p className="text-[11px] text-muted-foreground/80 truncate">{sub}</p>}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )
-      })()}
+        ]}
+      />
 
-      {/* Search and Filters */}
-      <Card className="border-border/70 bg-card/92 shadow-sm">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">{t('searchFilters.title')}</CardTitle>
-            <Button variant="ghost" size="sm" onClick={() => setFiltersOpen(!filtersOpen)}>
-              <Filter className="h-4 w-4 me-2" />
+      <SectionCard
+        title={t('serverList.title')}
+        description={t('serverList.description')}
+        flush
+        footer={pagination || undefined}
+      >
+        <div className="space-y-3 p-4">
+          <Toolbar
+            search={{
+              value: searchQuery,
+              onChange: (value) => setSearchQuery(value.slice(0, 128)),
+              placeholder: t('searchFilters.searchPlaceholder'),
+              ariaLabel: t('searchFilters.searchAria'),
+              slashToFocus: true,
+            }}
+            end={
+              <div className="flex flex-wrap items-center gap-1">
+                <SortButton field="name" label={t('searchFilters.sortName')} />
+                <SortButton field="players" label={t('searchFilters.sortPlayers')} />
+                <SortButton field="maxPlayers" label={t('searchFilters.sortMaxPlayers')} />
+                <SortButton field="ping" label={t('searchFilters.sortPing')} />
+              </div>
+            }
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setFiltersOpen(!filtersOpen)}
+              aria-expanded={filtersOpen}
+              aria-controls="server-finder-filters"
+            >
+              <Filter aria-hidden="true" />
               {filtersOpen ? t('searchFilters.hideFilters') : t('searchFilters.showFilters')}
             </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="relative">
-            <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder={t('searchFilters.searchPlaceholder')}
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="ps-9"
-              aria-label={t('searchFilters.searchAria')}
-              maxLength={128}
-            />
-          </div>
+          </Toolbar>
 
           {filtersOpen && (
-            <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
-                <div className="flex items-center space-x-2">
+            <div id="server-finder-filters" className="space-y-4 rounded-xl border border-border/70 bg-background/40 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="hideEmpty"
                     checked={hideEmpty}
                     onCheckedChange={(checked) => setHideEmpty(checked === true)}
                   />
-                  <Label htmlFor="hideEmpty" className="text-sm cursor-pointer">
+                  <Label htmlFor="hideEmpty" className="cursor-pointer text-sm">
                     {t('searchFilters.hideEmpty')}
                   </Label>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="hideFull"
                     checked={hideFull}
                     onCheckedChange={(checked) => setHideFull(checked === true)}
                   />
-                  <Label htmlFor="hideFull" className="text-sm cursor-pointer">
+                  <Label htmlFor="hideFull" className="cursor-pointer text-sm">
                     {t('searchFilters.hideFull')}
                   </Label>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="hidePrivate"
                     checked={hidePrivate}
                     onCheckedChange={(checked) => setHidePrivate(checked === true)}
                   />
-                  <Label htmlFor="hidePrivate" className="text-sm cursor-pointer">
+                  <Label htmlFor="hidePrivate" className="cursor-pointer text-sm">
                     {t('searchFilters.hidePrivate')}
                   </Label>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <Checkbox
                     id="showVacOnly"
                     checked={showVacOnly}
                     onCheckedChange={(checked) => setShowVacOnly(checked === true)}
                   />
-                  <Label htmlFor="showVacOnly" className="text-sm cursor-pointer">
+                  <Label htmlFor="showVacOnly" className="cursor-pointer text-sm">
                     {t('searchFilters.vacOnly')}
                   </Label>
                 </div>
               </div>
-
-              <Separator className="my-4" />
-
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">{t('searchFilters.versionLabel')}</Label>
-                  <Select value={versionFilter} onValueChange={setVersionFilter}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue placeholder={t('searchFilters.allVersions')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t('searchFilters.allVersions')}</SelectItem>
-                      {availableVersions.map(v => (
-                        <SelectItem key={v} value={v}>{v}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Separator orientation="vertical" className="h-6 hidden md:block" />
-
-                <div className="flex items-center gap-2">
-                  <Label className="text-sm">{t('searchFilters.sortByLabel')}</Label>
-                  <Select value={sortField} onValueChange={(v) => setSortField(v as SortField)}>
-                    <SelectTrigger className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="players">{t('searchFilters.sortPlayers')}</SelectItem>
-                      <SelectItem value="name">{t('searchFilters.sortName')}</SelectItem>
-                      <SelectItem value="maxPlayers">{t('searchFilters.sortMaxPlayers')}</SelectItem>
-                      <SelectItem value="ping">{t('searchFilters.sortPing')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Select value={sortDirection} onValueChange={(v) => setSortDirection(v as SortDirection)}>
-                    <SelectTrigger className="w-32">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="asc">{t('searchFilters.ascending')}</SelectItem>
-                      <SelectItem value="desc">{t('searchFilters.descending')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+                <Label className="text-sm">{t('searchFilters.versionLabel')}</Label>
+                <Select value={versionFilter} onValueChange={setVersionFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder={t('searchFilters.allVersions')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('searchFilters.allVersions')}</SelectItem>
+                    {availableVersions.map(v => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </>
+            </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Error State */}
-      {error && (
-        <Card className="border-destructive/40 bg-destructive/10 shadow-sm">
-          <CardContent className="flex items-center gap-4 py-4">
-            <AlertCircle className="h-8 w-8 text-destructive" />
-            <div>
-              <p className="font-medium text-destructive">{t('error.title')}</p>
-              <p className="text-sm text-muted-foreground">{error}</p>
-            </div>
-            <Button variant="outline" onClick={() => fetchServers()} className="ms-auto">
-              {t('error.retry')}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Server List */}
-      <Card className="border-border/70 bg-card/92 shadow-sm">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>{t('serverList.title')}</CardTitle>
-            <div className="flex items-center gap-2">
-              <SortButton field="name" label={t('searchFilters.sortName')} />
-              <SortButton field="players" label={t('searchFilters.sortPlayers')} />
-              <SortButton field="ping" label={t('searchFilters.sortPing')} />
-            </div>
-          </div>
-          <CardDescription>
-            {t('serverList.description')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <div className="border-t border-border/60">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              <span className="ms-3 text-muted-foreground">{t('serverList.loading')}</span>
+            <div role="status" aria-busy="true" aria-label={t('serverList.loading')} className="divide-y divide-border/60">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-3">
+                  <Skeleton className="h-8 w-8 shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-48 max-w-full" />
+                    <Skeleton className="h-3 w-32 max-w-full" />
+                  </div>
+                  <Skeleton className="hidden h-8 w-20 sm:block" />
+                </div>
+              ))}
             </div>
           ) : filteredServers.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="px-4 py-10">
               {servers.length === 0 ? (
                 <EmptyState
                   type="noResults"
@@ -741,50 +783,39 @@ export default function ServerFinder() {
                   type="noResults"
                   title={t('emptyState.noMatchTitle')}
                   description={t('emptyState.noMatchDesc')}
-                  action={{
-                    label: t('emptyState.clearFilters'),
-                    onClick: () => {
-                      setSearchQuery('')
-                      setHideEmpty(false)
-                      setHideFull(false)
-                      setHidePrivate(false)
-                      setShowVacOnly(false)
-                    }
-                  }}
+                  action={{ label: t('emptyState.clearFilters'), onClick: resetFilters }}
                 />
               )}
             </div>
           ) : (
-            <ScrollArea className="h-[400px] sm:h-[600px]">
-              <div className="space-y-2">
-                {paginatedServers.map((server, index) => {
-                  const serverKey = `${server.ip}:${server.port}`
-                  const pKey = pingKey(server)
-                  const ping = pKey ? serverPings[pKey] : undefined
-                  const isPinging = pKey ? pingingServers.has(pKey) : false
-                  const address = displayAddress(server)
-                  const isFull = server.players >= server.maxPlayers && server.maxPlayers > 0
-                  const hasPlayers = server.players > 0 && !isFull
-                  const statusTone = isFull
-                    ? 'border-destructive/40 bg-destructive/[0.08] text-destructive'
-                    : hasPlayers
-                    ? 'border-primary/30 bg-primary/[0.07] text-primary'
-                    : 'border-border/50 bg-muted/40 text-muted-foreground'
+            <ul className="divide-y divide-border/60">
+              {paginatedServers.map((server, index) => {
+                const serverKey = `${server.ip}:${server.port}`
+                const pKey = pingKey(server)
+                const ping = pKey ? serverPings[pKey] : undefined
+                const isPinging = pKey ? pingingServers.has(pKey) : false
+                const address = displayAddress(server)
+                const isFull = server.players >= server.maxPlayers && server.maxPlayers > 0
+                const hasPlayers = server.players > 0 && !isFull
+                const statusTone = isFull
+                  ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                  : hasPlayers
+                  ? 'border-primary/30 bg-primary/10 text-primary'
+                  : 'border-border/60 bg-muted/40 text-muted-foreground'
 
-                  return (
-                    <div
-                      key={`${serverKey}-${index}`}
-                      className="flex items-center gap-3 p-3 rounded-lg border border-border/60 bg-card/70 hover:border-primary/30 hover:bg-accent/20 transition-colors"
-                    >
-                      {/* Leading status tile */}
-                      <div className={`grid place-items-center w-9 h-9 rounded-md border shrink-0 ${statusTone}`} aria-hidden="true">
+                return (
+                  <li
+                    key={`${serverKey}-${index}`}
+                    className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-accent/20 sm:flex-row sm:items-center sm:gap-4"
+                  >
+                    {/* Name and address first; on a phone the numbers wrap below */}
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <span className={`mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-md border ${statusTone}`} aria-hidden="true">
                         <Server className="h-4 w-4" />
-                      </div>
-
-                      {/* Server Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-medium truncate">{server.name}</h3>
+                      </span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <h3 className="truncate text-sm font-medium text-foreground">{server.name}</h3>
                           {server.isPrivate && (
                             <Tooltip>
                               <TooltipTrigger>
@@ -802,7 +833,7 @@ export default function ServerFinder() {
                             </Tooltip>
                           )}
                         </div>
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -811,73 +842,71 @@ export default function ServerFinder() {
                                   e.stopPropagation()
                                   copyAddress(address)
                                 }}
-                                className="flex items-center gap-1 rounded hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                                className="flex items-center gap-1 rounded font-mono hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
                                 aria-label={t('serverItem.copyAddressAria', { address })}
                               >
-                                <Globe className="h-3 w-3" />
-                                {address}
-                                <Copy className="h-3 w-3 opacity-50" />
+                                <span dir="ltr">{address}</span>
+                                <Copy className="h-3 w-3 opacity-50" aria-hidden="true" />
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>{t('serverItem.copyAddress')}</TooltipContent>
                           </Tooltip>
                           {server.map && (
-                            <span className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3 shrink-0" />
+                            <span className="flex min-w-0 items-center gap-1">
+                              <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
                               <span className="truncate">{server.map}</span>
                             </span>
                           )}
-                          {server.version && (
-                            <Badge variant="outline" className="text-xs">
-                              v{server.version}
-                            </Badge>
-                          )}
                         </div>
                         {server.tags && server.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
+                          <div className="flex flex-wrap gap-1">
                             {server.tags.slice(0, 5).map((tag, i) => (
-                              <Badge key={i} variant="secondary" className="text-xs px-1.5 py-0 max-w-[150px] truncate">
+                              <Badge key={i} variant="secondary" className="max-w-[150px] truncate px-1.5 py-0 text-xs">
                                 {tag}
                               </Badge>
                             ))}
                             {server.tags.length > 5 && (
-                              <Badge variant="secondary" className="text-xs px-1.5 py-0">
+                              <Badge variant="secondary" className="px-1.5 py-0 text-xs">
                                 +{server.tags.length - 5}
                               </Badge>
                             )}
                           </div>
                         )}
                       </div>
+                    </div>
 
-                      {/* Players */}
-                      <div className="flex items-center gap-2 px-3">
-                        <Users className="h-4 w-4 text-muted-foreground" />
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 ps-11 sm:flex-nowrap sm:ps-0">
+                      <span className="flex items-center gap-1.5 text-sm tabular-nums">
+                        <Users className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                         <span
                           className={
                             server.players >= server.maxPlayers
-                                ? 'text-destructive font-medium'
+                              ? 'font-medium text-destructive'
                               : server.players > 0
-                                ? 'text-primary font-medium'
+                              ? 'font-medium text-primary'
                               : 'text-muted-foreground'
                           }
                         >
                           {server.players}/{server.maxPlayers}
                         </span>
-                      </div>
-
-                      {/* Ping */}
-                      <div className="w-16 text-center">
+                      </span>
+                      {server.version && (
+                        <Badge variant="outline" className="font-mono text-xs">
+                          v{server.version}
+                        </Badge>
+                      )}
+                      <span className="flex w-14 justify-center">
                         {isPinging ? (
-                          <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" />
                         ) : ping !== undefined ? (
                           ping !== null ? (
-                            <span className={`text-sm font-medium ${getPingColor(ping)}`}>
+                            <span className={`text-sm font-medium tabular-nums ${getPingColor(ping)}`}>
                               {t('serverItem.pingMs', { ping })}
                             </span>
                           ) : (
                             <Tooltip>
                               <TooltipTrigger asChild>
-                                <span className="text-sm font-medium text-muted-foreground cursor-help">
+                                <span className="cursor-help text-sm font-medium text-muted-foreground">
                                   {t('serverItem.pingNa')}
                                 </span>
                               </TooltipTrigger>
@@ -901,98 +930,34 @@ export default function ServerFinder() {
                               e.stopPropagation()
                               pingServer(server.ip, server.port)
                             }}
-                            className="h-9 px-3 text-xs"
                           >
                             {t('serverItem.pingButton')}
                           </Button>
                         )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-1">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="default"
-                              size="sm"
-                              className="h-7 px-2"
-                              disabled={displayPort(server) === null}
-                              onClick={() => {
-                                window.open(`steam://connect/${address}`, '_self')
-                              }}
-                            >
-                              {t('serverItem.connect')}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>{t('serverItem.connectTooltip')}</TooltipContent>
-                        </Tooltip>
-                      </div>
+                      </span>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="default"
+                            size="sm"
+                            disabled={displayPort(server) === null}
+                            onClick={() => {
+                              window.open(`steam://connect/${address}`, '_self')
+                            }}
+                          >
+                            {t('serverItem.connect')}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('serverItem.connectTooltip')}</TooltipContent>
+                      </Tooltip>
                     </div>
-                  )
-                })}
-              </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-
-        {/* Pagination Controls - Outside CardContent so always visible */}
-        {filteredServers.length > ITEMS_PER_PAGE && (
-          <div className="flex items-center justify-between p-4 border-t bg-card">
-            <div className="text-sm text-muted-foreground">
-              {t('pagination.showing', {
-                from: ((currentPage - 1) * ITEMS_PER_PAGE) + 1,
-                to: Math.min(currentPage * ITEMS_PER_PAGE, filteredServers.length),
-                total: filteredServers.length.toLocaleString(i18n.language),
+                  </li>
+                )
               })}
-            </div>
-            <nav aria-label={t('pagination.nav')} className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(1)}
-                disabled={currentPage <= 1}
-                aria-label={t('pagination.firstAria')}
-              >
-                <ChevronsLeft className="h-4 w-4" />
-                {t('pagination.first')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(currentPage - 1)}
-                disabled={currentPage <= 1}
-                aria-label={t('pagination.prevAria')}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                {t('pagination.prev')}
-              </Button>
-              <div className="flex items-center gap-2 px-2" aria-current="page">
-                <span className="text-sm font-medium">{t('pagination.pageOf', { current: currentPage, total: totalPages })}</span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(currentPage + 1)}
-                disabled={currentPage >= totalPages}
-                aria-label={t('pagination.nextAria')}
-              >
-                {t('pagination.next')}
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => goToPage(totalPages)}
-                disabled={currentPage >= totalPages}
-                aria-label={t('pagination.lastAria')}
-              >
-                {t('pagination.last')}
-                <ChevronsRight className="h-4 w-4" />
-              </Button>
-            </nav>
-          </div>
-        )}
-      </Card>
+            </ul>
+          )}
+        </div>
+      </SectionCard>
     </div>
   )
 }

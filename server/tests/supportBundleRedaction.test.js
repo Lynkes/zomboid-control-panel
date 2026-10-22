@@ -113,6 +113,23 @@ describe("redactRawLogText() -- shape-based patterns for what a known-value scru
     const line = "session id: 0123456789abcdef0123456789abcdef (not a URL)";
     expect(redactRawLogText(line, [])).toBe(line);
   });
+
+  // Security audit 2026-10-20: PZ (ServerWorldDatabase, first start of a
+  // world) logs the -adminpassword value. Covered by shape too, for a value
+  // the panel no longer holds (changed since, or a custom launcher's).
+  it("redacts the game's 'Command line admin password:' line", () => {
+    const line = "LOG  : General      f:0 st:195,165,107> Command line admin password: Sup3rS3cret! with spaces";
+    expect(redactRawLogText(line, [])).toBe(
+      "LOG  : General      f:0 st:195,165,107> Command line admin password: [REDACTED]",
+    );
+  });
+
+  it("redacts only that line, keeping the next one and a CRLF ending", () => {
+    const text = "Command line admin password: pw1\r\nRCON: listening on port 27015\r\n";
+    expect(redactRawLogText(text, [])).toBe(
+      "Command line admin password: [REDACTED]\r\nRCON: listening on port 27015\r\n",
+    );
+  });
 });
 
 describe("collectBundleKnownSecrets() -- assembles the real secret superset for this bundle", () => {
@@ -134,6 +151,22 @@ describe("collectBundleKnownSecrets() -- assembles the real secret superset for 
     expect(secrets).toContain("bundle-rcon-secret");
     expect(secrets).toContain("bundle-discord-secret");
     expect(secrets).toContain("bundle-steam-api-secret");
+  });
+
+  // Security audit 2026-10-20: the game logs the -adminpassword value the
+  // panel starts it with; the bundle's known secrets lacked it.
+  it("includes every server profile's in-game admin password", async () => {
+    await createServer({
+      name: "AdminPwBundleServer",
+      serverName: "AdminPwBundleServer",
+      installPath: "/srv/pz",
+      rconHost: "127.0.0.1",
+      rconPort: 27015,
+      serverPort: 16261,
+      adminPassword: "bundle-admin-secret",
+    });
+
+    expect(await collectBundleKnownSecrets()).toContain("bundle-admin-secret");
   });
 
   it("never throws when nothing is configured yet -- a fresh install must still produce a (empty) bundle", async () => {
@@ -166,6 +199,19 @@ describe("createRedactingLogStream() -- streams a raw log file through the same 
     const source = Readable.from(["password=hunter2"]);
     const out = await collectStream(source.pipe(createRedactingLogStream(["hunter2"])));
     expect(out).toBe("password=[REDACTED]");
+  });
+
+  it("strips the admin password from the exact first-boot lines PZ writes, with no known secrets", async () => {
+    const log = [
+      "LOG  : General      f:0 st:195,165,107> User 'admin' not found, creating it ",
+      "LOG  : General      f:0 st:195,165,107> Command line admin password: Sup3rS3cret!",
+      "LOG  : General      f:0 st:195,166,001> RCON: listening on port 27015",
+      "",
+    ].join("\n");
+    const out = await collectStream(Readable.from([Buffer.from(log)]).pipe(createRedactingLogStream([])));
+    expect(out).not.toContain("Sup3rS3cret!");
+    expect(out).toContain("Command line admin password: [REDACTED]");
+    expect(out).toContain("RCON: listening on port 27015");
   });
 
   it("leaves the ETXTBSY stack trace line intact when streamed", async () => {

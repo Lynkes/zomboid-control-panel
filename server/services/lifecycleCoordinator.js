@@ -193,7 +193,10 @@ export function notifyServerLaunched(server, launchSeq) {
 // property the eventual same-server SteamCMD guard needs.
 export function acquireLifecycleLock(operation = "lifecycle", serverId = null) {
   if (activeLock) return null;
+  return installLifecycleLock(operation, serverId);
+}
 
+function installLifecycleLock(operation, serverId) {
   // Coerced with String(), not restricted to typeof === "string": real
   // server DB ids are always UUID strings (database/init.js's generateId()),
   // but found via this normalization's own test suite that a caller can
@@ -223,6 +226,26 @@ export function acquireLifecycleLock(operation = "lifecycle", serverId = null) {
       lastReleasedAt.set(token.serverId ?? "", Date.now());
     },
   };
+}
+
+// Who holds the lock right now: { operation, serverId } or null. Read-only; a
+// caller that wants to wait for the holder or take over from it uses this to
+// decide whether that is allowed (see supersedeLifecycleLock).
+export function getLifecycleLockHolder() {
+  if (!activeLock) return null;
+  return { operation: activeLock.operation, serverId: activeLock.serverId };
+}
+
+// Takes the lock away from its current holder and hands it to the caller.
+// For Stop and Force stop only, when the holder is a restart that did not
+// finish cancelling: a restart holds the one process-wide lock for its whole
+// run (a countdown of up to an hour, then the stop, the start and the wait for
+// RCON), and an operator must be able to turn the server off at any point.
+// The previous holder's release() becomes a no-op (it only clears the lock it
+// still owns), so it can run to its end without freeing the new owner's lock.
+export function supersedeLifecycleLock(operation = "lifecycle", serverId = null) {
+  activeLock = null;
+  return installLifecycleLock(operation, serverId);
 }
 
 // Whether a panel lifecycle operation could account for this server going

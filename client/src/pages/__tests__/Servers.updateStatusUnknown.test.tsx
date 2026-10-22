@@ -131,7 +131,7 @@ function renderServers(socket: Socket | null) {
 
 function cardFor(serverName: string): HTMLElement {
   const title = screen.getByText(serverName)
-  const card = title.closest('.overflow-hidden.transition-colors')
+  const card = title.closest('article')
   if (!card) throw new Error(`could not find card container for ${serverName}`)
   return card as HTMLElement
 }

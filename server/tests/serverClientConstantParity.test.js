@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_INI_EXCLUSIONS } from "../utils/templateSchema.js";
+import { DEFAULT_INI_EXCLUSIONS, TEMPLATE_SECRET_KEY_RE } from "../utils/templateSchema.js";
 import { USER_ROLES } from "../services/auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +60,17 @@ describe("TEMPLATE_INI_EXCLUSIONS (client) vs DEFAULT_INI_EXCLUSIONS (server): p
       clientList,
       "client and server ini-exclusion lists have drifted apart -- the client will build a template payload the server's validateTemplate() then rejects (serverIni must not contain excluded keys), a confusing UX regression even though it can't leak a secret",
     ).toEqual(DEFAULT_INI_EXCLUSIONS);
+  });
+
+  // SECURITY (2026-10-20): secret-like keys are excluded by pattern too
+  // (isIniKeyExcluded()); the client's copy of that pattern must match, or a
+  // capture holding e.g. DiscordToken is refused on save.
+  it(`${CLIENT_PATH}'s TEMPLATE_SECRET_KEY_PATTERN matches server's TEMPLATE_SECRET_KEY_RE`, () => {
+    const content = fs.readFileSync(path.join(ROOT, CLIENT_PATH), "utf-8");
+    const match = content.match(/const TEMPLATE_SECRET_KEY_PATTERN = \/(.+)\/([a-z]*);/);
+    expect(match, "could not find TEMPLATE_SECRET_KEY_PATTERN in the client file").not.toBeNull();
+    expect(match[1]).toBe(TEMPLATE_SECRET_KEY_RE.source);
+    expect(match[2]).toBe(TEMPLATE_SECRET_KEY_RE.flags);
   });
 });
 

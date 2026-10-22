@@ -32,7 +32,7 @@
     "capsLockOn": "大写锁定已开启",
     "showPassword": "显示密码",
     "hidePassword": "隐藏密码",
-    "hint": "至少使用 6 个字符。",
+    "hint": "至少使用 10 个字符。",
     "strength": {
       "tooShort": "过短",
       "weak": "弱",
@@ -55,13 +55,14 @@
     "setupTokenRequired": "输入面板启动日志或控制台输出中打印的设置令牌。",
     "invalidSetupToken": "设置令牌无效或缺失。请查看面板启动日志或控制台输出以获取一次性令牌。",
     "invalidUsername": "用户名必须为 3-32 个字符（字母、数字、_ 或 -）",
-    "passwordTooShort": "密码必须至少为 6 个字符",
+    "passwordTooShort": "密码必须至少为 10 个字符",
     "passwordsDontMatch": "密码不一致",
     "invalidPort": "面板端口必须是 1024 到 65535 之间的整数",
     "setupFailed": "设置失败"
   },
   "afterThisStep": {
     "heading": "此步骤之后",
+    "nextHeading": "接下来",
     "previewBadge": "预览",
     "step1Title": "将服务器接入面板",
     "step1Desc": "添加现有安装，或运行引导设置创建新服务器。",

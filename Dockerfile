@@ -18,16 +18,20 @@
 # target platform (e.g. arm64 on GitHub's amd64 runners) — Rolldown/lightningcss's
 # native binaries under emulation are dramatically slower and can hang for
 # a very long time instead of the ~30s this takes natively.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS builder
+#
+# Base images are pinned by digest (the tag stays for readers and for
+# Dependabot, which proposes digest updates): a re-pushed tag can't change
+# what this builds.
+FROM --platform=$BUILDPLATFORM node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS builder
 
 WORKDIR /app
 
-# Install client dependencies (includes devDeps for build tooling).
-# We use `npm install` rather than `npm ci` because Rolldown/lightningcss ship
-# OS-specific optional binaries; a Windows-generated lockfile won't contain
-# the linux/amd64 + linux/arm64 entries that `npm ci` requires.
-COPY client/package.json client/package-lock.json* ./client/
-RUN cd client && npm install --no-audit --prefer-offline --include=optional
+# Install client dependencies (includes devDeps for build tooling) exactly as
+# client/package-lock.json pins them. The lockfile carries the linux gnu and
+# musl entries of Rolldown/lightningcss's platform binaries, so `npm ci` finds
+# the musl one this Alpine stage needs.
+COPY client/package.json client/package-lock.json ./client/
+RUN cd client && npm ci --no-audit --prefer-offline
 
 # Copy client source and build.
 # The root package.json is needed because vite.config.ts reads the panel version from it.
@@ -44,7 +48,7 @@ ENV PANEL_BUILD_SHA=${PANEL_BUILD_SHA}
 RUN cd client && npm run build
 
 # --- Runtime stage ---
-FROM node:22-bookworm-slim
+FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
 
 # The panel supports arm64 for remote-server administration. SteamCMD itself
 # is only usable on amd64, where its 32-bit runtime libraries are installed.
@@ -78,10 +82,10 @@ RUN set -eux; \
 
 WORKDIR /app
 
-# Install server dependencies only (no devDeps).
-# Same reasoning as the client: cross-platform optional deps make `npm ci` fragile.
-COPY package.json package-lock.json* ./
-RUN npm install --no-audit --prefer-offline --omit=dev
+# Install server dependencies only (no devDeps), exactly as package-lock.json
+# pins them.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --prefer-offline --omit=dev
 
 # Copy server source
 COPY server/ ./server/
@@ -95,6 +99,7 @@ COPY pz-mod/ ./pz-mod/
 # Runtime PUID/PGID support is handled before Node starts.
 COPY docker/entrypoint.sh /usr/local/bin/zomboid-panel-entrypoint
 RUN chmod 0755 /usr/local/bin/zomboid-panel-entrypoint
+COPY docker/healthcheck.cjs /usr/local/lib/zomboid-panel/healthcheck.cjs
 
 # The extension bundle is served when present, but its source is not currently
 # tracked in Git and `release/` is intentionally excluded from Docker builds.
@@ -116,12 +121,16 @@ EXPOSE 3001
 
 ENV NODE_ENV=production \
     PUID=1000 \
-    PGID=1000
+    PGID=1000 \
+    PANEL_PORT_FILE=/tmp/zomboid-panel.port
 
-# Healthcheck hits the unauthenticated /api/health endpoint.
 # start_period is generous because first-run DB init + JWT secret generation can be slow on cold disks.
+# Hits the unauthenticated /api/health on the port the panel really listens
+# on: it records that port in PANEL_PORT_FILE (PORT, the port saved in
+# Settings, 3001, or a free one it picked), and the check falls back to
+# PORT, then 3001, until it has.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD node -e "import('http').then(h => h.get('http://localhost:3001/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1)))"
+    CMD ["node", "/usr/local/lib/zomboid-panel/healthcheck.cjs"]
 
 ENTRYPOINT ["/usr/local/bin/zomboid-panel-entrypoint"]
 CMD ["node", "server/index.js"]

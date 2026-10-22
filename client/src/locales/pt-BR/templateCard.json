@@ -5,9 +5,12 @@
   "settingsOverridden_other": "{{count}} opções sobrescritas",
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
-  "preview": "Pré-visualizar",
+  "preview": "Pré-visualizar e aplicar",
+  "previewOnly": "Pré-visualizar",
   "exportTitle": "Exportar modelo",
   "deleteTitle": "Excluir modelo",
+  "hideTitle": "Ocultar modelo",
+  "actionsAria": "Ações para {{name}}",
   "settingsOverridden_many": "{{count}} opções sobrescritas",
   "modsCount_many": "{{count}} mods"
 }

@@ -45,12 +45,26 @@ describe('leaderboard diagnostics redaction (Copy diagnostics)', () => {
       players: rows,
       generatedAt: 2000,
       trackingStartedAt: 500,
-      diagnostics: { bridgeVersion: '1.7.74', lastSweepAt: 1000, sweepCount: 3, resets: [{ at: 400, reason: 'world changed' }] },
+      diagnostics: {
+        bridgeVersion: '1.7.74', lastSweepAt: 1000, sweepCount: 3,
+        resets: [{ at: 400, reason: 'world changed' }],
+        killAudit: [{
+          username: 'Alice', at: 1500, source: 'sweep', kind: 'increase',
+          previousKills: 2200, currentKills: 86348, addedKills: 84148,
+          allTimeBefore: 2200, allTimeAfter: 86348,
+          rowId: 'steam:76561198000000001', aliases: ['alice_alt'],
+        }],
+      },
     })
     const text = JSON.stringify(summary)
     expect(text).not.toMatch(/steam:|7656119|alice_alt/)
     expect(summary.notReadCount).toBe(1)
     expect(summary.bridge?.resets).toEqual([{ at: 400, reason: 'world changed' }])
+    expect(summary.bridge?.killAudit).toEqual([{
+      username: 'Alice', at: 1500, source: 'sweep', kind: 'increase',
+      previousKills: 2200, currentKills: 86348, addedKills: 84148,
+      allTimeBefore: 2200, allTimeAfter: 86348,
+    }])
     expect(summary.players.map(({ username, read, aliasCount }) => ({ username, read, aliasCount }))).toEqual([
       { username: 'Alice', read: true, aliasCount: 1 },
       { username: 'Bob', read: false, aliasCount: 0 },

@@ -20,6 +20,16 @@ const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || "fpsacha/zomboid-cont
 // deployment that wants verification pins the expected archive hash here.
 const UPDATE_SHA256 = String(process.env.UPDATE_SHA256 || "").trim().toLowerCase();
 const HEALTH_TIMEOUT_MS = 120000;
+// curl has no timeout of its own. A download that stalled (a dropped
+// connection that never closes) left updateState "running" for good, and
+// every later update was answered 409 until this container restarted. Give up
+// on a host that does not answer, on a transfer that falls below
+// --speed-limit bytes/s for --speed-time seconds, and on one that simply
+// takes too long.
+const DOWNLOAD_CONNECT_TIMEOUT_SEC = 30;
+const DOWNLOAD_STALL_SEC = 60;
+const DOWNLOAD_STALL_BYTES_PER_SEC = 1024;
+const DOWNLOAD_MAX_SEC = 30 * 60;
 
 let updateState = { status: "idle", version: null, message: null, startedAt: null, completedAt: null };
 
@@ -99,17 +109,31 @@ async function waitForHealthy() {
 }
 
 async function update(version) {
-  const workDir = await fs.mkdtemp(path.join(BUILD_ROOT, "update-"));
-  const archivePath = path.join(workDir, "release.tar.gz");
-  const extractedDir = path.join(workDir, "extract");
   const backupSource = `${SOURCE_DIR}.rollback`;
   const rollbackImage = rollbackTag(PANEL_IMAGE);
   let sourceSwapped = false;
+  let workDir = null;
 
+  // "running" before the first await: the request handler starts this
+  // without awaiting it, and a second request in the meantime must get 409.
   updateState = { status: "running", version, message: "Downloading release source", startedAt: new Date().toISOString(), completedAt: null };
   try {
+    // Inside the try: a BUILD_ROOT that is missing or not writable used to
+    // reject here, after the 202, as an unhandled rejection that left the
+    // state "running" (every later update refused) or killed the process.
+    workDir = await fs.mkdtemp(path.join(BUILD_ROOT, "update-"));
+    const archivePath = path.join(workDir, "release.tar.gz");
+    const extractedDir = path.join(workDir, "extract");
     await fs.mkdir(extractedDir, { recursive: true });
-    await run("curl", ["--fail", "--location", "--silent", "--show-error", "--output", archivePath, `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`]);
+    await run("curl", [
+      "--fail", "--location", "--silent", "--show-error",
+      "--connect-timeout", String(DOWNLOAD_CONNECT_TIMEOUT_SEC),
+      "--speed-limit", String(DOWNLOAD_STALL_BYTES_PER_SEC),
+      "--speed-time", String(DOWNLOAD_STALL_SEC),
+      "--max-time", String(DOWNLOAD_MAX_SEC),
+      "--output", archivePath,
+      `https://github.com/${GITHUB_REPOSITORY}/archive/refs/tags/v${version}.tar.gz`,
+    ]);
     // security audit M5: verify the archive when a checksum is pinned, and say
     // so loudly when it is not. The updater holds the Docker socket, so an
     // unverified archive is a root-code path.
@@ -162,8 +186,21 @@ async function update(version) {
     console.error(`[updater] update to v${version} failed: ${error.message}`);
     updateState = { status: "failed", version, message: error.message, startedAt: updateState.startedAt, completedAt: new Date().toISOString() };
   } finally {
-    await fs.rm(workDir, { recursive: true, force: true });
+    if (workDir) {
+      await fs.rm(workDir, { recursive: true, force: true }).catch((error) => {
+        console.error(`[updater] could not remove ${workDir}: ${error.message}`);
+      });
+    }
   }
+}
+
+// Starts an update without waiting for it. Anything update() still throws
+// ends the update as failed instead of becoming an unhandled rejection.
+function startUpdate(version) {
+  return update(version).catch((error) => {
+    console.error(`[updater] update to v${version} failed: ${error.message}`);
+    updateState = { status: "failed", version, message: error.message, startedAt: updateState.startedAt, completedAt: new Date().toISOString() };
+  });
 }
 
 const server = http.createServer(async (request, response) => {
@@ -181,7 +218,10 @@ const server = http.createServer(async (request, response) => {
     if (typeof version !== "string" || !/^\d+\.\d+\.\d+$/.test(version)) {
       return reply(response, 400, { error: "A semantic release version is required" });
     }
-    void update(version);
+    // Again after reading the body: another request may have started one
+    // meanwhile (startUpdate sets "running" before it returns).
+    if (updateState.status === "running") return reply(response, 409, { error: "An update is already in progress" });
+    void startUpdate(version);
     return reply(response, 202, { message: `Docker update to v${version} started` });
   } catch (error) {
     return reply(response, 400, { error: error.message });
@@ -196,4 +236,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { update, getUpdateState: () => updateState };
+module.exports = { update, startUpdate, server, getUpdateState: () => updateState };

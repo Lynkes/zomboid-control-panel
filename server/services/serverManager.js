@@ -20,7 +20,7 @@ import {
   createLinuxServiceLifecycle,
   isManagedLifecycleProvider,
 } from "./linuxServiceLifecycle.js";
-import { hasActiveSteamOperation } from "./activeSteamOperations.js";
+import { hasStartBlockingSteamOperation } from "./activeSteamOperations.js";
 import { notifyServerLaunched, prepareForLaunch } from "./lifecycleCoordinator.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import { listNonInternalIPv4Interfaces } from "../utils/networkInterfaces.js";
@@ -41,6 +41,8 @@ import {
   readProcessStateWithRetry,
   waitForProcessExit,
 } from "../utils/processScanRetry.js";
+import { readStoppedEvidence } from "../utils/stoppedEvidence.js";
+import { gameLogFolderOf, zomboidDataFolderHolds } from "./zomboidDataPath.js";
 
 const isWindows = process.platform === "win32";
 // getProcessStartTime()'s memory of FAILED lookups: how soon one for the
@@ -562,6 +564,17 @@ export function gamePortInUseError({ port, serverName }) {
   return error;
 }
 
+// startServer()'s refusal when the process scan can't tell whether the server
+// is running and nothing else proves it stopped. Coded so the Dashboard can
+// offer "start anyway" (POST /start's ignoreUnknownState).
+export function serverStateUnknownError() {
+  const error = new Error(
+    "Could not confirm the server is stopped because process detection failed, and nothing else shows it stopped (a closed RCON port and the game log's shutdown lines). Start it anyway only if you're sure it isn't running on this PC.",
+  );
+  error.code = ErrorCode.SERVER_START_STATE_UNKNOWN;
+  return error;
+}
+
 // Whether a new file can be created in `dir`: what writeFileAtomic() needs
 // to write a launch script there (a temp file beside it, then a rename).
 // Tried for real rather than asked with fs.accessSync(W_OK), which on
@@ -611,7 +624,22 @@ function windowsPowerShellPath() {
 const WIN32_PROCESS_COLUMNS = `ProcessId,CommandLine,${WIN32_PROCESS_START_MS}`;
 
 // The full scan's query: every process that could be a dedicated server.
-const WIN32_SERVER_SCAN_SCRIPT = `Get-CimInstance Win32_Process | Where-Object { $_.Name -match '^(java\\.exe|ProjectZomboid64\\.exe|ProjectZomboid32\\.exe)$' } | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+// Filtered by WMI itself (-Filter), not by Where-Object: piping every process
+// through PowerShell made WMI read every process's command line first, and
+// on a slow or antivirus-heavy PC that took past the 8 s timeout on every
+// poll (a 1.5.0 support bundle: 2,057 failed scans, server state "unknown",
+// an auto-restart that quit the server and never started it again). WQL
+// matches Name case-insensitively; the filter is built from single-quoted
+// pieces so no double quote has to survive Windows argument quoting.
+const WIN32_SERVER_SCAN_SCRIPT = `$f = 'Name=''java.exe'' OR Name=''ProjectZomboid64.exe'' OR Name=''ProjectZomboid32.exe'''; Get-CimInstance Win32_Process -Filter $f | Select-Object ${WIN32_PROCESS_COLUMNS} | ConvertTo-Csv -NoTypeInformation`;
+
+// The full scan's PowerShell timeout: 8 s, and 15 s for good once a scan has
+// timed out on this PC (see _scanWindowsServerProcesses()).
+const WIN32_SCAN_SLOW_TIMEOUT_MS = 15000;
+let win32ScanTimeoutMs = 8000;
+export function _resetWin32ScanTimeoutForTests() {
+  win32ScanTimeoutMs = 8000;
+}
 
 // How long the scan waits before looking again at processes that came back
 // with no command line (see _scanWindowsServerProcesses()). A 4 GB JVM took
@@ -791,7 +819,28 @@ export function classifyWin32ProcessRows(stdout) {
   return result;
 }
 
+// Single-flight: a caller asking while the same script already runs shares
+// that run's answer. The status poll, the watchdog, the Dashboard, the
+// Servers list and the restart wait each asked on their own: a 1.5.0 support
+// bundle showed up to 57 scans a minute, so on a 4-core PC also running the
+// game ~8 PowerShells ran at once, starved each other past the timeout, and
+// every one failed -- the root cause of "server state unknown". With this at
+// most one runs; a look that starts after it returns starts a fresh one.
+const windowsPowerShellInFlight = new Map();
+function abandonWindowsPowerShellRuns() {
+  windowsPowerShellInFlight.clear();
+}
 function runWindowsPowerShell(script, timeoutMs) {
+  const running = windowsPowerShellInFlight.get(script);
+  if (running) return running;
+  const run = spawnWindowsPowerShell(script, timeoutMs).finally(() => {
+    if (windowsPowerShellInFlight.get(script) === run) windowsPowerShellInFlight.delete(script);
+  });
+  windowsPowerShellInFlight.set(script, run);
+  return run;
+}
+
+function spawnWindowsPowerShell(script, timeoutMs) {
   return new Promise((resolve) => {
     execFile(
       windowsPowerShellPath(),
@@ -808,6 +857,20 @@ function runWindowsPowerShell(script, timeoutMs) {
       (error, stdout, stderr) => resolve({ error, stdout, stderr }),
     );
   });
+}
+
+// True when the command line has a JVM executable as a whole token: java,
+// javaw or either with .exe, standing alone or ending a path (`/usr/bin/java`,
+// `"C:\Program Files\Java\bin\javaw.exe"`). A `java` that is only a folder
+// name (`/home/java/Zomboid/...`) or part of a property (`-Djava.awt.headless`)
+// is not one. The fallback rule of both dedicated-server matchers needs it:
+// without it `tail -f .../Zomboid/Logs/..._DebugLog-server.txt`, or the
+// start-server_<name>.sh wrapper still waiting on its java child, counted as
+// the server process (score 0, so the "unattributable" bucket became the
+// answer whenever the real server was stopped).
+const JVM_EXECUTABLE_TOKEN = /(?:^|[\s"'\\/])javaw?(?:\.exe)?(?=$|[\s"'])/;
+function hasJvmExecutableToken(lowerCommandLine) {
+  return JVM_EXECUTABLE_TOKEN.test(lowerCommandLine);
 }
 
 export function isWindowsDedicatedServerCommandLine(commandLine) {
@@ -834,10 +897,13 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
     }
   }
 
-  // 3. Fallback for custom generic setups (must explicitly name Zomboid)
+  // 3. Fallback for custom generic setups (must explicitly name Zomboid, and
+  // be a JVM -- see hasJvmExecutableToken: a log viewer or a wrapper script
+  // that merely mentions a zomboid path and "-server" is not the server)
   if (
     normalized.includes("zomboid") &&
-    (normalized.includes("-server") || normalized.includes("startserver"))
+    (normalized.includes("-server") || normalized.includes("startserver")) &&
+    hasJvmExecutableToken(normalized)
   ) {
     return true;
   }
@@ -850,7 +916,7 @@ export function isWindowsDedicatedServerCommandLine(commandLine) {
 // the pidfile fast path can classify a single live command line with the
 // exact same rule the full OS scan uses, instead of a second copy that
 // could drift out of sync.
-function isLinuxDedicatedServerCommandLine(commandLine) {
+export function isLinuxDedicatedServerCommandLine(commandLine) {
   const lower = String(commandLine || "").toLowerCase();
   if (!lower) return false;
   if (lower.includes("zombie.network.gameserver")) return true;
@@ -869,7 +935,8 @@ function isLinuxDedicatedServerCommandLine(commandLine) {
   }
   if (
     lower.includes("zomboid") &&
-    (lower.includes("-server") || lower.includes("startserver"))
+    (lower.includes("-server") || lower.includes("startserver")) &&
+    hasJvmExecutableToken(lower)
   ) {
     return true;
   }
@@ -956,6 +1023,51 @@ function extractLaunchArgValue(commandLine, flag) {
   return value || null;
 }
 
+// A process listing (pgrep -af, ps) joins the arguments with spaces and drops
+// their quotes, so `-servername "AU-NZ Auckland PvE"` reads back as
+// `-servername AU-NZ Auckland PvE` and extractLaunchArgValue() sees only
+// "AU-NZ": a running server whose name has spaces then looked like another
+// server's, was not detected, and the panel offered a second start (#223).
+// True when the text after the flag is the whole expected value: it ends
+// there, a closing quote follows, or the next launch flag (whitespace then
+// "-<letter>") follows. A longer value that merely starts with the expected
+// name ("Survival Hard" for a profile named "Survival") is NOT a match, or
+// one profile would claim (and Force Stop kill) another profile's process.
+// `skipSeparators` lets a path match when it was written with extra trailing
+// separators.
+function launchArgStartsWith(commandLine, flag, expected, normalize = (v) => v.toLowerCase(), skipSeparators = false) {
+  const want = normalize(String(expected || "")).trim();
+  if (!want) return false;
+  const match = String(commandLine || "").match(new RegExp(`(?:^|\\s)-${flag}(?:\\s*=\\s*|\\s+)(.*)$`, "i"));
+  if (!match) return false;
+  const rest = normalize(match[1].replace(/^["']/, "")).trim();
+  if (rest === want) return true;
+  if (!rest.startsWith(want)) return false;
+  let after = rest.slice(want.length);
+  if (skipSeparators) after = after.replace(/^\/+/, "");
+  if (after === "" || after[0] === '"' || after[0] === "'") return true;
+  return /^\s+-[a-z]/i.test(after);
+}
+
+// Whether the -<flag> argument of a command line names `expected`. A quoted
+// value (Windows keeps the quotes) is delimited, so it is compared exactly; an
+// unquoted one only ends at the next launch flag, so it goes through
+// launchArgStartsWith() above, which also covers a value the process listing
+// split on its spaces.
+function launchArgMatches(commandLine, flag, expected, normalize = (v) => v.toLowerCase(), skipSeparators = false) {
+  const pattern = new RegExp(
+    `(?:^|\\s)-${flag}(?:\\s*=\\s*|\\s+)("[^"]*"|'[^']*'|\\S+)`,
+    "i",
+  );
+  const match = String(commandLine || "").match(pattern);
+  if (!match) return false;
+  const raw = match[1];
+  if (raw.length > 1 && (raw[0] === '"' || raw[0] === "'") && raw.endsWith(raw[0])) {
+    return normalize(raw.slice(1, -1).trim()) === normalize(String(expected || "").trim());
+  }
+  return launchArgStartsWith(commandLine, flag, expected, normalize, skipSeparators);
+}
+
 function normalizePathForCompare(value) {
   const normalized = String(value || "")
     .trim()
@@ -1029,7 +1141,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 
   const nameArg = extractLaunchArgValue(cmd, "servername");
   if (nameArg && descriptor.serverName) {
-    if (nameArg.toLowerCase() !== String(descriptor.serverName).toLowerCase()) {
+    if (!launchArgMatches(cmd, "servername", descriptor.serverName)) {
       return -1;
     }
     score += 3;
@@ -1037,10 +1149,7 @@ export function scoreServerProcessOwnership(commandLine, descriptor = {}) {
 
   const cacheArg = extractLaunchArgValue(cmd, "cachedir");
   if (cacheArg && descriptor.savePath) {
-    if (
-      normalizePathForCompare(cacheArg) !==
-      normalizePathForCompare(descriptor.savePath)
-    ) {
+    if (!launchArgMatches(cmd, "cachedir", descriptor.savePath, normalizePathForCompare, true)) {
       return -1;
     }
     score += 2;
@@ -1644,6 +1753,9 @@ export class ServerManager {
         // supersession) so its own real callback, whenever it eventually
         // lands, sees a stale generation and skips the this.isRunning write.
         if (this._scanGeneration === scanGeneration) this._scanGeneration++;
+        // A run this late is abandoned: the next scan starts a fresh one
+        // instead of joining it (see runWindowsPowerShell()).
+        abandonWindowsPowerShellRuns();
         log.warn(
           "getServerProcessDetails: process detection timed out, cannot determine server state",
         );
@@ -1835,11 +1947,26 @@ export class ServerManager {
     try {
       const { error, stdout, stderr } = await runWindowsPowerShell(
         WIN32_SERVER_SCAN_SCRIPT,
-        8000,
+        win32ScanTimeoutMs,
       );
+      if (error?.killed && win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS) {
+        // A PC this slow keeps the longer wait from now on (and the scan
+        // skips its second look, so it stays inside the 18 s outer guard).
+        win32ScanTimeoutMs = WIN32_SCAN_SLOW_TIMEOUT_MS;
+        log.warn(
+          `getServerProcessDetails: the Windows process scan took longer than 8 s; waiting up to ${WIN32_SCAN_SLOW_TIMEOUT_MS / 1000} s from now on`,
+        );
+      }
       const diagnostics = String(stderr || "").trim();
       if (error || diagnostics) {
-        const detail = [error?.message, diagnostics].filter(Boolean).join(": ");
+        // error.message is "Command failed: <the whole script>" and says
+        // nothing about why; name the cause first.
+        const cause = error?.killed
+          ? "timed out"
+          : error && error.code != null
+            ? `exit code ${error.code}`
+            : null;
+        const detail = [cause, diagnostics, cause ? null : error?.message].filter(Boolean).join(": ");
         log.warn(
           `getServerProcessDetails: Windows process scan failed (${detail}), cannot determine server state`,
         );
@@ -1906,6 +2033,7 @@ export class ServerManager {
       const pids = rows.unreadable.map((row) => row.pid).join(", ");
       if (
         lookAgain &&
+        win32ScanTimeoutMs < WIN32_SCAN_SLOW_TIMEOUT_MS &&
         !keys.every((key) => knownUnreadableWin32Processes.has(key))
       ) {
         log.debug(
@@ -2225,7 +2353,44 @@ export class ServerManager {
     return this.startTime;
   }
 
-  async startServer({ skipRunningCheck = false, serverId = this._serverId } = {}) {
+  /**
+   * Secondary proof that this (local) server is stopped, for when the
+   * process scan can't answer: its RCON port refuses connections AND its
+   * console log shows the shutdown (utils/stoppedEvidence.js). Resolves to
+   * { stopped, reason } and never throws; a remote server is never "stopped"
+   * by this.
+   */
+  async checkStoppedEvidence({ serverId = this._serverId } = {}) {
+    try {
+      if (serverId !== this._serverId) this.configLoaded = false;
+      await this.loadConfig(serverId);
+      if (this._serverRecord?.isRemote) {
+        return { stopped: false, reason: "the server is remote" };
+      }
+      const rconPort = resolveConfiguredRconPort(
+        this.rconPort ?? (await getSetting("rconPort")),
+      );
+      if (rconPort === null) {
+        return { stopped: false, reason: "the RCON port setting is invalid" };
+      }
+      const rconHost = this.rconHost || (await getSetting("rconHost")) || "127.0.0.1";
+      // The same folder rule the Console page reads the log under.
+      const dataFolder = this.savePath;
+      const consoleLogPath =
+        dataFolder && zomboidDataFolderHolds(dataFolder)
+          ? path.join(gameLogFolderOf(dataFolder), "server-console.txt")
+          : null;
+      return await readStoppedEvidence({ rconHost, rconPort, consoleLogPath });
+    } catch (error) {
+      return { stopped: false, reason: `the evidence could not be read (${error.message})` };
+    }
+  }
+
+  async startServer({
+    skipRunningCheck = false,
+    serverId = this._serverId,
+    ignoreUnknownState = false,
+  } = {}) {
     // Prevent concurrent start attempts
     if (this._starting) {
       throw new Error("Server start already in progress");
@@ -2283,13 +2448,16 @@ export class ServerManager {
       // either) rather than introducing the one site in this function
       // that departs from its own neighbors' convention -- the message
       // itself is the "named, visible, not a quiet no-op" signal here.
+      // A Workshop item download (mods.js) writes only under
+      // steamapps/workshop and does not block: a restart during one used
+      // to leave the server down.
       const installPathForSteamCheck =
         this._serverRecord?.installPath || this.serverPath;
       if (installPathForSteamCheck) {
         const normalizedInstallPath = path
           .normalize(installPathForSteamCheck)
           .toLowerCase();
-        if (hasActiveSteamOperation(normalizedInstallPath)) {
+        if (hasStartBlockingSteamOperation(normalizedInstallPath)) {
           throw new Error(
             "A Steam install or update is currently in progress for this server's install directory. Wait for it to finish before starting the server.",
           );
@@ -2377,9 +2545,22 @@ export class ServerManager {
       if (!skipRunningCheck) {
         const processDetails = await this.getServerProcessDetails();
         if (!processDetails || processDetails.scanFailed) {
-          throw new Error(
-            "Could not confirm the server is stopped because process detection failed",
-          );
+          // The scan can't tell: other proof it stopped, else the operator's
+          // explicit "start anyway" (POST /start's ignoreUnknownState). The
+          // RCON and game port checks below still run either way.
+          const evidence = await this.checkStoppedEvidence({ serverId });
+          if (evidence.stopped) {
+            log.info(
+              `Start: process detection failed, but ${evidence.reason}, so the server counts as stopped`,
+            );
+          } else if (ignoreUnknownState) {
+            log.warn(
+              `Start: process detection failed and ${evidence.reason}; starting anyway because the operator confirmed it`,
+            );
+          } else {
+            log.warn(`Start refused: process detection failed and ${evidence.reason}`);
+            throw serverStateUnknownError();
+          }
         }
         if (processDetails.running) {
           throw new Error("Server is already running");
@@ -3901,7 +4082,10 @@ export class ServerManager {
           // Strip newlines from values to prevent INI injection
           const safeValue = String(value).replace(/[\r\n]/g, "");
           if (content.match(regex)) {
-            content = content.replace(regex, `${key}=${safeValue}`);
+            // A function, not a string: a string replacement is a template,
+            // so a value holding "$$", "$&", "$'" or "$`" would be rewritten
+            // by replace().
+            content = content.replace(regex, () => `${key}=${safeValue}`);
           } else {
             content += `\n${key}=${safeValue}`;
           }

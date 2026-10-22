@@ -5,6 +5,7 @@
     "errorTitle": "Error",
     "noPermission": "No tienes permiso para gestionar la integración de Discord.",
     "successTitle": "Éxito",
+    "warningTitle": "Advertencia",
     "unknownError": "error desconocido"
   },
   "events": {
@@ -181,11 +182,13 @@
     "stepLocked": "Primero completa el paso actual"
   },
   "management": {
-    "pageHeaderTitle": "Bot de Discord",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Gestionar el bot de Discord, los comandos de barra y las notificaciones de eventos",
     "statusRunning": "En ejecución",
     "statusStopped": "Detenido",
     "refreshAria": "Actualizar estado",
+    "setupGuide": "Guía de configuración",
+    "closeGuide": "Volver a los ajustes del bot",
     "botStatus": {
       "title": "Estado del bot",
       "runtimeLabel": "Tiempo de ejecución",
@@ -234,6 +237,7 @@
         "players": {
           "desc": "Listar jugadores en línea"
         },
+        "leaderboard": { "desc": "Mostrar la clasificación de estadísticas" },
         "save": {
           "desc": "Guardar el mundo"
         },
@@ -259,6 +263,7 @@
       "save": "Guardar permisos",
       "saving": "Guardando...",
       "savedMessage": "Permisos de comandos guardados. Los comandos de barra se han vuelto a registrar.",
+      "savedNotRegistered": "Permisos de comandos guardados, pero no se pudieron actualizar los comandos de barra en Discord. Se actualizarán la próxima vez que se inicie el bot o se vuelvan a guardar los permisos.",
       "saveFailedFallback": "No se pudieron guardar los permisos"
     },
     "configuration": {
@@ -332,6 +337,7 @@
     "invalidAdminRoleIdFormat": "Formato de ID del rol de administrador no válido (debe ser un número de 17 a 19 dígitos)",
     "invalidModRoleIdFormat": "Formato de ID del rol de moderador no válido (debe ser un número de 17 a 19 dígitos)",
     "configSavedBotStartFailed": "Configuración guardada, pero el bot no pudo iniciarse: {{reason}}",
+    "configSavedBotReconnectFailed": "Configuración guardada, pero el bot no pudo volver a conectarse con ella: {{reason}}",
     "configSavedAndStarted": "¡Configuración guardada y bot iniciado!",
     "configSaved": "Configuración de Discord guardada correctamente",
     "saveConfigFailedFallback": "No se pudo guardar la configuración",

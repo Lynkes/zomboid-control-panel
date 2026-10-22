@@ -108,7 +108,13 @@ describe('Backups -- snapshot and delete-older dialogs', () => {
       backups: [{ name: backupName, path: `/backups/${backupName}`, size: 1024, created: '2026-09-30T00:00:00.000Z' }],
     })
     vi.mocked(backupApi.getHistory).mockResolvedValue({ records: [] })
-    render(<TooltipProvider><Backups /></TooltipProvider>)
+    render(<MemoryRouter><TooltipProvider><Backups /></TooltipProvider></MemoryRouter>)
+  }
+
+  // View snapshot is in each row's "…" menu; "Delete older…" in the list toolbar's "More".
+  async function chooseFromMenu(trigger: string, item: RegExp) {
+    fireEvent.pointerDown(await screen.findByRole('button', { name: trigger }), { button: 0, ctrlKey: false })
+    fireEvent.click(within(await screen.findByRole('menu')).getByRole('menuitem', { name: item }))
   }
 
   it('Server Snapshot: one scrolling body with Close outside it; the <pre>s only scroll sideways', async () => {
@@ -122,7 +128,7 @@ describe('Backups -- snapshot and delete-older dialogs', () => {
       },
     } as unknown as Awaited<ReturnType<typeof backupApi.getSnapshot>>)
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: `View snapshot for ${backupName}` }))
+    await chooseFromMenu(`More actions for ${backupName}`, /view server snapshot/i)
     const dialog = await screen.findByRole('alertdialog')
     const body = bodyOf(dialog, [/^close$/i])
 
@@ -136,7 +142,7 @@ describe('Backups -- snapshot and delete-older dialogs', () => {
 
   it('Delete Old Backups: the "older than" row wraps', async () => {
     renderBackups()
-    fireEvent.click(await screen.findByRole('button', { name: /delete older/i }))
+    await chooseFromMenu('More list actions', /delete older/i)
     const dialog = await screen.findByRole('alertdialog')
     const label = within(dialog).getByText('Delete backups older than')
     expect(label.className).not.toContain('whitespace-nowrap')

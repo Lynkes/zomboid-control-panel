@@ -135,7 +135,8 @@ describe("server/index.js wires the launch-target refresh into prepareForLaunch(
 
     expect(fs.readFileSync(iniPath, "utf8")).toContain("RCONPassword=new-rcon");
     const script = fs.readFileSync(path.join(installPath, managedStartupScriptName("Wired")), "utf8");
-    expect(script).toContain('-adminpassword "admin-pw"');
+    // A .bat double-quotes its values, a .sh single-quotes them (startScriptQuoting.js).
+    expect(script).toContain(process.platform === "win32" ? '-adminpassword "admin-pw"' : "-adminpassword 'admin-pw'");
   });
 });
 

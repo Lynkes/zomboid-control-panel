@@ -86,6 +86,10 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
   });
 
   it("handleStart refuses with 'already running', not a launch attempt", async () => {
+    // A container mapped to the server keeps a start path of its own; a
+    // remote server without one is refused before the running check
+    // (discordStartRemoteRefusal.test.js).
+    getActiveServer.mockResolvedValue({ id: "s1", isRemote: true, dockerContainerName: "pz-server" });
     const bot = Object.create(DiscordBot.prototype);
     bot.serverManager = splitContainerServerManager({
       startServer: vi.fn(async () => ({ success: true })),
@@ -93,7 +97,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
     bot.rconService = { connected: true };
     const interaction = makeInteraction();
 
-    await bot.handleStart(interaction);
+    try {
+      await bot.handleStart(interaction);
+    } finally {
+      getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
+    }
 
     expect(interaction.replies[0]).toMatch(/already running/i);
     expect(bot.serverManager.startServer).not.toHaveBeenCalled();
@@ -117,6 +125,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
   });
 
   it("handleRestart proceeds (does not refuse with 'not running')", async () => {
+    // A split-container server the panel restarts through Docker (a container
+    // mapped to it). Without that mapping the panel has no way to bring a
+    // remote server back, and handleRestart refuses before announcing
+    // anything (schedulerRemoteRestartRefusal.test.js).
+    getActiveServer.mockResolvedValue({ id: "s1", isRemote: true, dockerContainerName: "pz-server" });
     const bot = Object.create(DiscordBot.prototype);
     bot.serverManager = splitContainerServerManager();
     bot.rconService = { connected: true };
@@ -125,7 +138,11 @@ describe("Discord commands vs. a split-container deployment (scan clean, RCON co
     const interaction = makeInteraction();
     interaction.options = { getInteger: () => 5 };
 
-    await bot.handleRestart(interaction);
+    try {
+      await bot.handleRestart(interaction);
+    } finally {
+      getActiveServer.mockResolvedValue({ id: "s1", isRemote: true });
+    }
 
     expect(interaction.replies.some((r) => /not running/i.test(r))).toBe(false);
     expect(bot.scheduler.performRestart).toHaveBeenCalled();

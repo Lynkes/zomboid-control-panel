@@ -1,10 +1,17 @@
 {
   "skipToContent": "Zum Inhalt springen",
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Die aufgerufene Seite gibt es nicht oder nicht mehr in dieser Version des Panels.",
+    "goDashboard": "Zum Dashboard",
+    "openServers": "Alle Server öffnen"
+  },
   "brand": {
     "title": "Project Zomboid",
     "subtitle": "Kontrollpanel",
     "shortTitle": "Zomboid",
-    "shortSubtitle": "Kontrollpanel"
+    "shortSubtitle": "Kontrollpanel",
+    "documentTitle": "Zomboid Control Panel"
   },
   "nav": {
     "ariaLabel": "Hauptnavigation",
@@ -13,31 +20,28 @@
     "sections": {
       "server": "Server",
       "world": "Welt",
-      "users": "Benutzer",
+      "players": "Spieler",
       "panel": "Panel"
     },
     "items": {
-      "serverConsole": "Serverkonsole",
-      "onlinePlayers": "Online-Spieler",
-      "inGameChat": "Ingame-Chat",
+      "serverConsole": "Konsole",
+      "onlinePlayers": "Spieler",
+      "inGameChat": "Chat",
       "eventsWeather": "Events & Wetter",
       "worldMap": "Weltkarte",
-      "serverConfiguration": "Serverkonfiguration",
-      "serverFiles": "Serverdateien",
-      "modManager": "Mod-Manager",
+      "serverConfiguration": "Konfiguration",
+      "serverFiles": "Dateien",
+      "modManager": "Mods",
       "templates": "Vorlagen",
-      "scheduledTasks": "Geplante Aufgaben",
-      "worldBackups": "Welt-Backups",
+      "scheduledTasks": "Zeitplaner",
+      "worldBackups": "Backups",
       "mapCleanup": "Kartenbereinigung",
-      "myServers": "Meine Server",
-      "serverSetup": "Server-Einrichtung",
-      "browsePublic": "Öffentliche Server durchsuchen",
+      "myServers": "Alle Server",
+      "serverSetup": "Server hinzufügen",
+      "browsePublic": "Öffentliche Server",
       "discord": "Discord",
-      "panelSettings": "Paneleinstellungen",
-      "debugLogs": "Debug-Protokolle",
-      "panelUsers": "Panelbenutzer",
-      "rolesPermissions": "Rollen und Berechtigungen",
-      "singleSignOn": "Einmalanmeldung",
+      "panelSettings": "Einstellungen",
+      "debugLogs": "Diagnose",
       "leaderboard": "Rangliste"
     },
     "notAvailableRemote": "Nicht verfügbar für Remote-Server (nur RCON)",
@@ -46,7 +50,7 @@
     "noServerBanner": {
       "title": "Noch kein Server",
       "description": "Die meisten Bereiche werden freigeschaltet, sobald du einen hinzufügst.",
-      "cta": "Server einrichten"
+      "cta": "Server hinzufügen"
     }
   },
   "mobileMenu": {
@@ -60,6 +64,7 @@
     "remoteBadgeFull": "Remote",
     "remoteTitle": "Remote-Server (nur RCON)",
     "activeBadge": "Aktiv",
+    "addServer": "Server hinzufügen…",
     "manageServers": "Server verwalten",
     "playersOnline_one": "{{count}} Spieler online",
     "playersOnline_other": "{{count}} Spieler online",
@@ -76,8 +81,8 @@
   "panelUpdateBadge": {
     "titleWithVersion": "Panel-Update verfügbar: v{{version}}",
     "titleNoVersion": "Panel-Update verfügbar",
-    "titleWithVersionOpenSettings": "Panel-Update verfügbar: v{{version}}. Paneleinstellungen öffnen.",
-    "titleNoVersionOpenSettings": "Panel-Update verfügbar. Paneleinstellungen öffnen.",
+    "titleWithVersionOpenSettings": "Panel-Update verfügbar: v{{version}}. Einstellungen öffnen.",
+    "titleNoVersionOpenSettings": "Panel-Update verfügbar. Einstellungen öffnen.",
     "update": "Update"
   },
   "footer": {
@@ -118,5 +123,89 @@
     "statusCheckFailedTitle": "Anmeldestatus konnte nicht geprüft werden",
     "statusCheckFailedDescription": "Das Panel oder ein vorgeschalteter Proxy hat auf die Anmeldeprüfung nicht geantwortet. Warte einen Moment und versuche es dann erneut.",
     "retry": "Erneut versuchen"
+  },
+  "connection": {
+    "reconnectedTitle": "Wieder verbunden",
+    "reconnectedDescription": "Die Verbindung zum Server wurde wiederhergestellt",
+    "lostTitle": "Verbindung verloren",
+    "lostDescription": "Die automatische Wiederverbindung ist fehlgeschlagen. Das Panel verbindet sich erneut, sobald dieser Tab sichtbar ist oder dein Netzwerk wieder da ist — oder nutze „Jetzt erneut versuchen“ in der Verbindungsanzeige.",
+    "serverClosed": "Der Server hat die Verbindung beendet",
+    "error": "Verbindungsfehler",
+    "reconnectFailed": "Wiederverbindung nach mehreren Versuchen fehlgeschlagen"
+  },
+  "confirmDialog": {
+    "defaultTitle": "Bist du sicher?",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen"
+  },
+  "pageSkeleton": {
+    "defaultTitle": "Seite wird geladen",
+    "defaultDescription": "Paneldaten und Bedienelemente werden vorbereitet.",
+    "labels": {
+      "dashboard": "Dashboard wird geladen",
+      "named": "{{title}} wird geladen",
+      "list": "Listenseite wird geladen",
+      "console": "Konsolenseite wird geladen",
+      "form": "Formularseite wird geladen",
+      "map": "Kartenseite wird geladen",
+      "page": "Seite wird geladen"
+    }
+  },
+  "buildGate": {
+    "checking": "Panel-Kompatibilität wird geprüft",
+    "eyebrow": "Update-Wiederherstellung erforderlich",
+    "title": "Die Versionen von Frontend und Backend stimmen nicht überein",
+    "description": "Das Panel wurde angehalten, bevor Anmeldung und Live-Verbindungen initialisiert wurden. Starte es mit Start.bat neu, damit der Updater das unvollständige Paket abschließen oder zurücksetzen kann.",
+    "frontend": "Frontend",
+    "backend": "Backend",
+    "unknown": "unbekannt",
+    "checkAgain": "Erneut prüfen"
+  },
+  "serverHeader": {
+    "more": "Weitere Aktionen für {{name}}"
+  },
+  "subNav": {
+    "unsaved": "ungespeicherte Änderungen"
+  },
+  "toolbar": {
+    "clearSearch": "Suche leeren"
+  },
+  "stepper": {
+    "ariaLabel": "Fortschritt",
+    "position": "Schritt {{current}} von {{total}}",
+    "status": {
+      "done": "erledigt",
+      "current": "aktueller Schritt",
+      "upcoming": "noch nicht begonnen",
+      "locked": "gesperrt"
+    }
+  },
+  "pageAlerts": {
+    "dismiss": "Ausblenden",
+    "showMore": "{{count}} weitere anzeigen",
+    "showFewer": "Weniger anzeigen"
+  },
+  "saveBar": {
+    "unsaved": "Ungespeicherte Änderungen",
+    "changeCount": "Ungespeicherte Änderungen: {{count}}",
+    "saving": "Wird gespeichert…",
+    "discard": "Verwerfen",
+    "save": "Änderungen speichern"
+  },
+  "unsavedChanges": {
+    "title": "Ohne Speichern verlassen?",
+    "description": "Auf dieser Seite gibt es noch nicht gespeicherte Änderungen. Wenn du sie jetzt verlässt, gehen sie verloren.",
+    "leave": "Verwerfen und verlassen",
+    "stay": "Weiter bearbeiten"
+  },
+  "search": {
+    "label": "Seiten und Bereiche durchsuchen",
+    "placeholder": "Suchen…"
+  },
+  "routes": {
+    "dashboardDescription": "Live-Zustand des Servers, Spieler und was als Nächstes deine Aufmerksamkeit braucht."
+  },
+  "pageHeader": {
+    "breadcrumb": "Pfadnavigation"
   }
 }

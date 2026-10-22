@@ -2,15 +2,15 @@
   "pageHeader": {
     "title": "Chat nan Jwèt la",
     "description": "Voye mesaj bay tout jwè ki konekte yo epi gade chat yo an tan reyèl.",
-    "refresh": "Aktyalize"
+    "refresh": "Aktyalize jwè yo"
   },
   "chatWindow": {
-    "streamLabel": "flux chat",
+    "streamLabel": "Flux chat",
     "msgCount_one": "{{count}} mesaj",
     "msgCount_other": "{{count}} mesaj",
     "msgCount_many": "{{count}} mesaj",
-    "live": "AN DIRÈK",
-    "offline": "ÒFLIY",
+    "live": "An dirèk",
+    "offline": "Òfliy",
     "messagesAria": "Mesaj chat"
   },
   "emptyState": {
@@ -25,37 +25,44 @@
     "tip": "Anons sèvè montre yon bannyè tout jwè wè imedyatman. Chat admin vizib sèlman pou lòt admin — jwè yo pa janm wè l. Chat jeneral poste yon mesaj ki sanble nòmal ki soti nan \"{{adminLabel}}\" nan chat abityèl tout moun, fasil pou manke e enposib pou distenge ak yon vrè jwè ki rele {{adminLabel}}."
   },
   "deliveryStatus": {
-    "native": "livrezon chat: natif",
-    "rconFallback": "livrezon chat: repli RCON (API chat natif pa disponib)"
+    "native": "Livrezon chat: natif",
+    "rconFallback": "Livrezon chat: repli RCON (API chat natif pa disponib)"
   },
   "input": {
     "aria": "Mesaj chat",
-    "placeholderAdmin": "sèlman pou admin yo…",
-    "placeholderGeneral": "afiche kòm Admin…",
-    "placeholderServer": "voye bay tout jwè yo…",
-    "sendButton": "voye",
+    "placeholderAdmin": "Sèlman pou admin yo…",
+    "placeholderGeneral": "Afiche kòm Admin…",
+    "placeholderServer": "Voye bay tout jwè yo…",
+    "sendButton": "Voye",
     "noPermission": "Ou pa gen pèmisyon pou voye mesaj chat."
   },
   "footer": {
-    "adminOnly": "sèlman pou admin yo — kache pou jwè òdinè yo",
-    "noPlayersOnline": "pa gen jwè anliy — sèlman jounal sèvè a",
-    "broadcastingTo_one": "ap voye bay {{count}} jwè",
-    "broadcastingTo_other": "ap voye bay {{count}} jwè",
-    "broadcastingTo_many": "ap voye bay {{count}} jwè"
+    "adminOnly": "Sèlman pou admin yo — kache pou jwè òdinè yo",
+    "noPlayersOnline": "Pa gen jwè anliy — sèlman jounal sèvè a",
+    "broadcastingTo_one": "Ap voye bay {{count}} jwè",
+    "broadcastingTo_other": "Ap voye bay {{count}} jwè",
+    "broadcastingTo_many": "Ap voye bay {{count}} jwè"
   },
   "playersPanel": {
-    "label": "jwè",
+    "label": "Jwè",
     "onlineCount": "{{count}} anliy",
-    "noPlayersConnected": "pa gen jwè konekte"
+    "noPlayersConnected": "Pa gen jwè konekte",
+    "openPlayer": "Louvri {{name}} nan Jwè"
+  },
+  "bridgeOffline": {
+    "title": "PanelBridge pa ap mache",
+    "description": "Anons sèvè yo toujou ale pa RCON. Chat admin ak chat jeneral ale pa RCON tou, tankou yon mesaj nòmal tout jwè wè.",
+    "action": "Paramèt PanelBridge"
   },
   "quickBroadcasts": {
-    "label": "anons rapid",
-    "edit": "modifye",
-    "done": "fini",
+    "label": "Anons rapid",
+    "description": "Yon sèl lis pou tout panèl la: tout admin wè menm anons yo. Chwazi youn pou mete l nan bwat mesaj la.",
+    "edit": "Modifye",
+    "done": "Fini",
     "editAria": "Modifye anons rapid yo",
     "doneAria": "Fini modifye anons rapid yo",
-    "noPresets": "// pa gen anons rapid — klike modifye pou ajoute",
-    "addPlaceholder": "ajoute yon nouvo anons rapid…",
+    "noPresets": "Pa gen anons rapid. Klike Modifye pou ajoute.",
+    "addPlaceholder": "Ajoute yon nouvo anons rapid…",
     "addAria": "Ajoute anons rapid",
     "saveAria": "Sove",
     "cancelAria": "Anile",
@@ -70,6 +77,9 @@
     "adminSentDesc": "Vizib sèlman pou admin yo nan jwèt la.",
     "generalSentTitle": "Afiche nan Chat",
     "generalSentDesc": "Afiche nan flux chat piblik la.",
+    "rconFallbackTitle": "Voye bay tout jwè yo",
+    "adminRconFallbackDesc": "Chat admin pa t disponib, kidonk mesaj la ale pa RCON tankou yon mesaj [ADMIN] tout jwè wè.",
+    "generalRconFallbackDesc": "Chat jeneral pa t disponib, kidonk mesaj la ale pa RCON tankou yon mesaj sèvè tout jwè wè.",
     "broadcastSentTitle": "Anons Voye",
     "broadcastSentDesc": "Mesaj livre bay tout jwè ki konekte yo.",
     "errorTitle": "Erè",

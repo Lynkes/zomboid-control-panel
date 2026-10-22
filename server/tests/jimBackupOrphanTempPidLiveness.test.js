@@ -106,3 +106,93 @@ describe("cleanupOrphanBackupTemps", () => {
     expect(fs.existsSync(unrelated)).toBe(true);
   });
 });
+
+// Audit 2026-10-20: POST /api/backup/upload streams into
+// `<name>.zip.<pid>.<random>.tmp`, a name neither pattern above matched, so a
+// panel killed mid-upload left a multi-GB temp file behind for good. It
+// embeds the uploading process's pid and is swept once that pid is gone.
+describe("cleanupOrphanBackupTemps: upload temps", () => {
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-backup-orphan-upload-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  // The exact shape routes/backup.js builds.
+  const uploadTemp = (pid) => `uploaded-world.zip.${pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+
+  it("removes an upload temp whose pid is confirmed dead", () => {
+    const orphan = path.join(dir, uploadTemp(makeDeadPid()));
+    fs.writeFileSync(orphan, "half an upload");
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(orphan)).toBe(false);
+  });
+
+  it("keeps an upload still streaming in a live process", () => {
+    const live = path.join(dir, uploadTemp(process.pid));
+    fs.writeFileSync(live, "an upload in flight");
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(live)).toBe(true);
+  });
+
+  it("leaves a finished upload and look-alike names alone", () => {
+    const names = ["uploaded-world.zip", "uploaded-world.zip.notapid.abc.tmp", "notes.123.abc.tmp"];
+    for (const name of names) fs.writeFileSync(path.join(dir, name), "x");
+
+    cleanupOrphanBackupTemps(dir);
+
+    for (const name of names) expect(fs.existsSync(path.join(dir, name))).toBe(true);
+  });
+});
+
+// In the Docker images the panel is PID 1 at every start, so a temp left by a
+// killed earlier run is named with a pid that is "alive" again: it is ours.
+// A temp named with our own pid but written before this process started is
+// from an earlier run and must go; one written since is in use and stays.
+describe("cleanupOrphanBackupTemps when the panel reuses its pid (Docker PID 1)", () => {
+  let dir;
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "pz-backup-pid1-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const hourAgo = () => new Date(Date.now() - process.uptime() * 1000 - 3600_000);
+
+  it("removes a temp with our pid that predates this process", () => {
+    const central = path.join(dir, centralName(process.pid));
+    const upload = path.join(dir, `world.zip.${process.pid}.abc123.tmp`);
+    for (const file of [central, upload]) {
+      fs.writeFileSync(file, "left by an earlier run");
+      fs.utimesSync(file, hourAgo(), hourAgo());
+    }
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(central)).toBe(false);
+    expect(fs.existsSync(upload)).toBe(false);
+  });
+
+  it("keeps a temp with our pid that this process is writing", () => {
+    const central = path.join(dir, centralName(process.pid));
+    const upload = path.join(dir, `world.zip.${process.pid}.abc123.tmp`);
+    fs.writeFileSync(central, "in use");
+    fs.writeFileSync(upload, "in use");
+
+    cleanupOrphanBackupTemps(dir);
+
+    expect(fs.existsSync(central)).toBe(true);
+    expect(fs.existsSync(upload)).toBe(true);
+  });
+});

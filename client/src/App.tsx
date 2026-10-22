@@ -1,5 +1,5 @@
 import { Routes, Route, Link, Navigate, useLocation } from 'react-router-dom'
-import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DirectionProvider } from '@radix-ui/react-direction'
 import type { Socket } from 'socket.io-client'
@@ -15,7 +15,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ConfirmProvider } from './contexts/ConfirmContext'
 import { TooltipProvider } from './components/ui/tooltip'
 import { useToast } from './components/ui/use-toast'
-import { PageSkeleton } from './components/PageSkeleton'
+import { RoutePageSkeleton } from './components/PageSkeleton'
+import { UnsavedChangesProvider } from './contexts/UnsavedChangesContext'
+import { ROUTES, ROUTE_ALIASES } from './lib/navigation'
 import { ScrollToTop } from './components/ScrollToTop'
 import { AuthStatusError } from './components/AuthStatusError'
 import { isDemoMode } from './lib/demo'
@@ -25,157 +27,6 @@ import { createSocketAuthRetry, isSocketAuthRefusal } from './lib/socketAuthRetr
 import { registerReconnectRecovery } from './lib/socketRecovery'
 import { isRTL } from './i18n'
 
-type RouteLoaderMeta = {
-  title: string
-  description: string
-  eyebrow: string
-  variant: 'dashboard' | 'list' | 'form' | 'console' | 'map' | 'default'
-  metrics: string[]
-}
-
-const ROUTE_LOADERS: Record<string, RouteLoaderMeta> = {
-  '/': {
-    title: 'Dashboard',
-    description: 'Loading live server state, players, actions, and maintenance telemetry.',
-    eyebrow: '// LIVE · OVERVIEW',
-    variant: 'dashboard',
-    metrics: ['status', 'players', 'rcon'],
-  },
-  '/players': {
-    title: 'Online Players',
-    description: 'Preparing player rows, admin actions, notes, and session details.',
-    eyebrow: '// LIVE · PLAYERS',
-    variant: 'list',
-    metrics: ['roster', 'actions', 'notes'],
-  },
-  '/leaderboard': {
-    title: 'Leaderboard',
-    description: 'Loading survival rankings, kill totals, deaths, and weapon mastery.',
-    eyebrow: '// LIVE · SURVIVAL RANKINGS',
-    variant: 'list',
-    metrics: ['rankings', 'kills', 'survivors'],
-  },
-  '/console': {
-    title: 'Server Console',
-    description: 'Opening command history, RCON state, and live output stream.',
-    eyebrow: '// LIVE · CONSOLE',
-    variant: 'console',
-    metrics: ['rcon', 'history', 'stream'],
-  },
-  '/chat': {
-    title: 'In-Game Chat',
-    description: 'Loading bridge chat channels and recent server messages.',
-    eyebrow: '// LIVE · CHAT',
-    variant: 'console',
-    metrics: ['bridge', 'messages', 'send'],
-  },
-  '/events': {
-    title: 'Events & Weather',
-    description: 'Preparing world controls, weather overrides, and event triggers.',
-    eyebrow: '// WORLD · CONTROL',
-    variant: 'form',
-    metrics: ['weather', 'time', 'events'],
-  },
-  '/world-map': {
-    title: 'World Map',
-    description: 'Loading map tiles, marker tools, and player/world overlays.',
-    eyebrow: '// WORLD · MAP',
-    variant: 'map',
-    metrics: ['tiles', 'markers', 'layers'],
-  },
-  '/server-config': {
-    title: 'Server Configuration',
-    description: 'Loading INI sections, validation, and server-safe edit controls.',
-    eyebrow: '// CONFIG · INI',
-    variant: 'form',
-    metrics: ['ini', 'validate', 'save'],
-  },
-  '/files': {
-    title: 'Server Files',
-    description: 'Loading server folders, file listings, and Trash.',
-    eyebrow: '// CONFIG · FILES',
-    variant: 'list',
-    metrics: ['folders', 'files', 'trash'],
-  },
-  '/mods': {
-    title: 'Mod Manager',
-    description: 'Loading Workshop status, active mod IDs, conflicts, and update state.',
-    eyebrow: '// CONFIG · WORKSHOP',
-    variant: 'list',
-    metrics: ['workshop', 'mods', 'conflicts'],
-  },
-  '/templates': {
-    title: 'Simulation Templates',
-    description: 'Loading rulesets, diff previews, and apply controls.',
-    eyebrow: '// CONFIG · TEMPLATES',
-    variant: 'list',
-    metrics: ['templates', 'diff', 'apply'],
-  },
-  '/scheduler': {
-    title: 'Scheduled Tasks',
-    description: 'Preparing task rules, run history, and automation controls.',
-    eyebrow: '// MAINTAIN · SCHEDULE',
-    variant: 'list',
-    metrics: ['tasks', 'history', 'cron'],
-  },
-  '/backups': {
-    title: 'World Backups',
-    description: 'Loading backup inventory, restore controls, and storage status.',
-    eyebrow: '// MAINTAIN · BACKUPS',
-    variant: 'list',
-    metrics: ['files', 'storage', 'restore'],
-  },
-  '/chunks': {
-    title: 'Map Cleanup',
-    description: 'Preparing chunk previews, safety checks, and cleanup tools.',
-    eyebrow: '// MAINTAIN · MAP DATA',
-    variant: 'map',
-    metrics: ['chunks', 'preview', 'safe'],
-  },
-  '/servers': {
-    title: 'My Servers',
-    description: 'Loading server profiles, active target, and connection details.',
-    eyebrow: '// SERVERS · PROFILES',
-    variant: 'list',
-    metrics: ['profiles', 'active', 'paths'],
-  },
-  '/server-setup': {
-    title: 'Server Setup',
-    description: 'Preparing install choices, paths, ports, and launch checks.',
-    eyebrow: '// SERVERS · SETUP',
-    variant: 'form',
-    metrics: ['install', 'ports', 'start'],
-  },
-  '/server-finder': {
-    title: 'Browse Public Servers',
-    description: 'Loading discovery filters, search results, and server details.',
-    eyebrow: '// SERVERS · DISCOVERY',
-    variant: 'list',
-    metrics: ['search', 'filters', 'results'],
-  },
-  '/discord': {
-    title: 'Discord Integration',
-    description: 'Loading bot status, channel wiring, and message controls.',
-    eyebrow: '// SYSTEM · DISCORD',
-    variant: 'form',
-    metrics: ['bot', 'channels', 'alerts'],
-  },
-  '/settings': {
-    title: 'Panel Settings',
-    description: 'Loading access, paths, network, and panel preference controls.',
-    eyebrow: '// SYSTEM · SETTINGS',
-    variant: 'form',
-    metrics: ['auth', 'paths', 'network'],
-  },
-  '/debug': {
-    title: 'Debug Logs',
-    description: 'Preparing diagnostics, probes, logs, and support bundle tools.',
-    eyebrow: '// SYSTEM · DIAGNOSTICS',
-    variant: 'console',
-    metrics: ['logs', 'probes', 'bundle'],
-  },
-}
-
 const AUTH_BOOT_STEPS = [
   { code: 'AUTH', label: 'Verifying credentials' },
   { code: 'LINK', label: 'Opening control channel' },
@@ -184,35 +35,16 @@ const AUTH_BOOT_STEPS = [
   { code: 'OK  ', label: 'Standing by' },
 ]
 
-// Lazy load larger pages for code splitting
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Players = lazy(() => import('./pages/Players'))
-const Leaderboard = lazy(() => import('./pages/Leaderboard'))
-const Console = lazy(() => import('./pages/Console'))
-const Scheduler = lazy(() => import('./pages/Scheduler'))
-const Mods = lazy(() => import('./pages/Mods'))
-const ChunkCleaner = lazy(() => import('./pages/ChunkCleaner'))
-const Discord = lazy(() => import('./pages/Discord'))
-const Settings = lazy(() => import('./pages/Settings'))
-const ServerSetup = lazy(() => import('./pages/ServerSetup'))
-const Servers = lazy(() => import('./pages/Servers'))
-const ServerConfig = lazy(() => import('./pages/ServerConfig'))
-const Files = lazy(() => import('./pages/Files'))
-const Templates = lazy(() => import('./pages/Templates'))
-const Debug = lazy(() => import('./pages/Debug'))
-const ServerFinder = lazy(() => import('./pages/ServerFinder'))
-const Events = lazy(() => import('./pages/Events'))
-const Chat = lazy(() => import('./pages/Chat'))
-const Backups = lazy(() => import('./pages/Backups'))
-const WorldMap = lazy(() => import('./pages/WorldMap'))
+// Every routed page, lazy-loaded from the route registry (one chunk each).
+const ROUTE_PAGES = ROUTES.map((route) => ({ route, Page: lazy(route.load) }))
 const Login = lazy(() => import('./pages/Login'))
 const Setup = lazy(() => import('./pages/Setup'))
 
-// Loading fallback — shows a skeleton layout instead of a plain spinner
+// Loading fallback: the route's own skeleton, named after it in the
+// operator's language (registry title, icon and description).
 function PageLoader() {
   const { pathname } = useLocation()
-  const meta = ROUTE_LOADERS[pathname] || ROUTE_LOADERS['/']
-  return <PageSkeleton {...meta} />
+  return <RoutePageSkeleton pathname={pathname} />
 }
 
 function AuthScreenLoader() {
@@ -386,19 +218,20 @@ function AuthScreenLoader() {
 }
 
 function NotFoundRoute() {
+  const { t } = useTranslation('shell')
   return (
     <div className="space-y-6 page-transition">
       <div className="rounded-xl border border-border/70 bg-card/70 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Page Not Found</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">{t('notFound.title')}</h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-          The route you requested does not exist or is no longer available in this panel build.
+          {t('notFound.description')}
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <Link to="/" className="inline-flex min-h-10 items-center rounded-md border border-border/70 bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-            Go to Dashboard
+            {t('notFound.goDashboard')}
           </Link>
           <Link to="/servers" className="inline-flex min-h-10 items-center rounded-md border border-border/70 bg-background px-4 text-sm font-medium hover:bg-muted/50">
-            Open Servers
+            {t('notFound.openServers')}
           </Link>
         </div>
       </div>
@@ -406,13 +239,34 @@ function NotFoundRoute() {
   )
 }
 
+// An old address (/serverconfig, /users ...) opens its new home with the
+// rest of the address kept: /serverconfig?tab=sandbox lands on the Sandbox
+// tab, not the first one. The target's own query (?tab=users) wins.
+function AliasRedirect({ to }: { to: string }) {
+  const { search, hash } = useLocation()
+  const [pathname, ownQuery = ''] = to.split('?')
+  const params = new URLSearchParams(search)
+  for (const [key, value] of new URLSearchParams(ownQuery)) params.set(key, value)
+  const query = params.toString()
+  return <Navigate to={{ pathname, search: query ? `?${query}` : '', hash }} replace />
+}
+
 function AppContent() {
   const { t } = useTranslation('shell')
+  // The socket effect below must not restart (and drop the connection) when
+  // the language changes, so its handlers read the translator through a ref.
+  const tRef = useRef(t)
+  useEffect(() => {
+    tRef.current = t
+  }, [t])
   const demoMode = isDemoMode()
   const [socket, setSocket] = useState<Socket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
     connected: false,
     reconnecting: false,
+    // Until the first connect settles, so the footer does not flash (or, with
+    // no socket at all, keep) a "Live Updates Unavailable" notice.
+    connecting: true,
     reconnectAttempt: 0,
     error: null,
   })
@@ -421,8 +275,8 @@ function AppContent() {
 
   const handleReconnectSuccess = useCallback(() => {
     toast({
-      title: 'Reconnected',
-      description: 'Connection to server restored',
+      title: tRef.current('connection.reconnectedTitle'),
+      description: tRef.current('connection.reconnectedDescription'),
       variant: 'success' as const,
     })
   }, [toast])
@@ -500,6 +354,7 @@ function AppContent() {
           return {
             connected: true,
             reconnecting: false,
+            connecting: false,
             reconnectAttempt: 0,
             error: null,
           }
@@ -517,7 +372,8 @@ function AppContent() {
         setConnectionStatus(prev => ({
           ...prev,
           connected: false,
-          error: reason === 'io server disconnect' ? 'Server closed connection' : null,
+          connecting: false,
+          error: reason === 'io server disconnect' ? tRef.current('connection.serverClosed') : null,
         }))
       })
 
@@ -530,7 +386,14 @@ function AppContent() {
         if (!newSocket.active && authEnabled && isSocketAuthRefusal(err.message)
           && socketAuthRetry.schedule()) {
           tokenExpiredByServer = true
-          setConnectionStatus(prev => ({ ...prev, connected: false, reconnecting: true }))
+          setConnectionStatus(prev => ({
+            ...prev,
+            connected: false,
+            connecting: false,
+            reconnecting: true,
+            // The popover reads "Attempt n/10": this retry is attempt 1 at least.
+            reconnectAttempt: Math.max(prev.reconnectAttempt, 1),
+          }))
           return
         }
         if (newSocket.active) {
@@ -538,16 +401,21 @@ function AppContent() {
           setConnectionStatus(prev => ({
             ...prev,
             connected: false,
+            connecting: false,
             reconnecting: true,
-            error: getUserErrorMessage(err, 'Connection error'),
+            // socket.io reports reconnect_attempt only after its backoff, so
+            // the first failure would otherwise read "Attempt 0/10".
+            reconnectAttempt: Math.max(prev.reconnectAttempt, 1),
+            error: getUserErrorMessage(err, tRef.current('connection.error')),
           }))
         } else {
           // Connection denied by server - needs manual reconnect
           setConnectionStatus({
             connected: false,
             reconnecting: false,
+            connecting: false,
             reconnectAttempt: 0,
-            error: getUserErrorMessage(err, 'Connection error'),
+            error: getUserErrorMessage(err, tRef.current('connection.error')),
           })
         }
       })
@@ -557,6 +425,7 @@ function AppContent() {
         if (tokenExpiryReconnect) return
         setConnectionStatus(prev => ({
           ...prev,
+          connecting: false,
           reconnecting: true,
           reconnectAttempt: attempt,
         }))
@@ -585,12 +454,13 @@ function AppContent() {
         setConnectionStatus({
           connected: false,
           reconnecting: false,
+          connecting: false,
           reconnectAttempt: 0,
-          error: 'Failed to reconnect after multiple attempts',
+          error: tRef.current('connection.reconnectFailed'),
         })
         toast({
-          title: 'Connection Lost',
-          description: 'Unable to reconnect automatically. Reconnecting once this tab is visible or your network is back — or use Retry in the connection status indicator.',
+          title: tRef.current('connection.lostTitle'),
+          description: tRef.current('connection.lostDescription'),
           variant: 'destructive',
         })
 
@@ -645,42 +515,31 @@ function AppContent() {
   return (
     <ConnectionStatusContext.Provider value={connectionStatus}>
       <SocketContext.Provider value={socket}>
-        <Layout>
-          <ScrollToTop />
-          <Suspense fallback={<PageLoader />}>
-            <Routes>
-              <Route path="/" element={<FeatureErrorBoundary featureName={t('nav.dashboard')}><Dashboard /></FeatureErrorBoundary>} />
-              <Route path="/dashboard" element={<Navigate to="/" replace />} />
-              <Route path="/players" element={<FeatureErrorBoundary featureName={t('nav.items.onlinePlayers')}><Players /></FeatureErrorBoundary>} />
-              <Route path="/leaderboard" element={<FeatureErrorBoundary featureName={t('nav.items.leaderboard')}><Leaderboard /></FeatureErrorBoundary>} />
-              <Route path="/console" element={<FeatureErrorBoundary featureName={t('nav.items.serverConsole')}><Console /></FeatureErrorBoundary>} />
-              <Route path="/scheduler" element={<FeatureErrorBoundary featureName={t('nav.items.scheduledTasks')}><Scheduler /></FeatureErrorBoundary>} />
-              <Route path="/mods" element={<FeatureErrorBoundary featureName={t('nav.items.modManager')}><Mods /></FeatureErrorBoundary>} />
-              <Route path="/templates" element={<FeatureErrorBoundary featureName={t('nav.items.templates')}><Templates /></FeatureErrorBoundary>} />
-              <Route path="/chunks" element={<FeatureErrorBoundary featureName={t('nav.items.mapCleanup')}><ChunkCleaner /></FeatureErrorBoundary>} />
-              <Route path="/chunk-cleaner" element={<Navigate to="/chunks" replace />} />
-              <Route path="/discord" element={<FeatureErrorBoundary featureName={t('nav.items.discord')}><Discord /></FeatureErrorBoundary>} />
-              <Route path="/settings" element={<FeatureErrorBoundary featureName={t('nav.items.panelSettings')}><Settings /></FeatureErrorBoundary>} />
-              {/* Users and Roles & Permissions are now tabs inside Settings -- these
-                  keep old bookmarks/deep links working rather than 404ing them. */}
-              <Route path="/roles" element={<Navigate to="/settings?tab=roles" replace />} />
-              <Route path="/users" element={<Navigate to="/settings?tab=users" replace />} />
-              <Route path="/sso" element={<Navigate to="/settings?tab=sso" replace />} />
-              <Route path="/server-setup" element={<FeatureErrorBoundary featureName={t('nav.items.serverSetup')}><ServerSetup /></FeatureErrorBoundary>} />
-              <Route path="/servers" element={<FeatureErrorBoundary featureName={t('nav.items.myServers')}><Servers /></FeatureErrorBoundary>} />
-              <Route path="/server-config" element={<FeatureErrorBoundary featureName={t('nav.items.serverConfiguration')}><ServerConfig /></FeatureErrorBoundary>} />
-              <Route path="/serverconfig" element={<Navigate to="/server-config" replace />} />
-              <Route path="/files" element={<FeatureErrorBoundary featureName={t('nav.items.serverFiles')}><Files /></FeatureErrorBoundary>} />
-              <Route path="/server-finder" element={<FeatureErrorBoundary featureName={t('nav.items.browsePublic')}><ServerFinder /></FeatureErrorBoundary>} />
-              <Route path="/debug" element={<FeatureErrorBoundary featureName={t('nav.items.debugLogs')}><Debug /></FeatureErrorBoundary>} />
-              <Route path="/events" element={<FeatureErrorBoundary featureName={t('nav.items.eventsWeather')}><Events /></FeatureErrorBoundary>} />
-              <Route path="/world-map" element={<FeatureErrorBoundary featureName={t('nav.items.worldMap')}><WorldMap /></FeatureErrorBoundary>} />
-              <Route path="/chat" element={<FeatureErrorBoundary featureName={t('nav.items.inGameChat')}><Chat /></FeatureErrorBoundary>} />
-              <Route path="/backups" element={<FeatureErrorBoundary featureName={t('nav.items.worldBackups')}><Backups /></FeatureErrorBoundary>} />
-              <Route path="*" element={<NotFoundRoute />} />
-            </Routes>
-          </Suspense>
-        </Layout>
+        <UnsavedChangesProvider>
+          <Layout>
+            <ScrollToTop />
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
+                {ROUTE_PAGES.map(({ route, Page }) => (
+                  <Route
+                    key={route.path}
+                    path={route.path}
+                    element={<FeatureErrorBoundary featureName={t(route.titleKey)}><Page /></FeatureErrorBoundary>}
+                  />
+                ))}
+                {Object.entries(ROUTE_ALIASES).map(([from, to]) => (
+                  <Route key={from} path={from} element={<AliasRedirect to={to} />} />
+                ))}
+                {/* Users and Roles & Permissions are now tabs inside Settings -- these
+                    keep old bookmarks/deep links working rather than 404ing them. */}
+                <Route path="/roles" element={<AliasRedirect to="/settings?tab=roles" />} />
+                <Route path="/users" element={<AliasRedirect to="/settings?tab=users" />} />
+                <Route path="/sso" element={<AliasRedirect to="/settings?tab=sso" />} />
+                <Route path="*" element={<NotFoundRoute />} />
+              </Routes>
+            </Suspense>
+          </Layout>
+        </UnsavedChangesProvider>
         <Toaster />
       </SocketContext.Provider>
     </ConnectionStatusContext.Provider>

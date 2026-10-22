@@ -1,6 +1,6 @@
 {
   "pageHeader": {
-    "title": "Debug & Protokolle",
+    "title": "Diagnose",
     "description": "Live-Diagnose, aktueller Verlauf und Umgebungsdetails für dieses Panel"
   },
   "permissionDenied": {
@@ -23,7 +23,13 @@
     "logs": "Protokolle",
     "crashes": "Abstürze",
     "health": "Live-Status",
-    "system": "Umgebung"
+    "system": "Umgebung",
+    "ariaLabel": "Bereiche der Diagnose",
+    "groups": {
+      "now": "Jetzt",
+      "history": "Verlauf",
+      "system": "System"
+    }
   },
   "fixActions": {
     "links": {
@@ -85,8 +91,8 @@
       "note": "Wähle einen aktiven Server mit gültigem Installationspfad aus oder konfiguriere ihn."
     },
     "serverZomboidData": {
-      "label": "Einstellungen öffnen",
-      "note": "Lege den Zomboid-Datenpfad in den Einstellungen fest."
+      "label": "Server öffnen",
+      "note": "Lege den Zomboid-Datenordner beim Bearbeiten dieses Servers unter „Alle Server“ fest."
     },
     "serverStartScriptOrJre": {
       "label": "Serversuche öffnen",
@@ -106,7 +112,7 @@
     },
     "serverRconPassword": {
       "label": "Serverkonfiguration öffnen",
-      "note": "Lege das RCON-Passwort in der Serverkonfiguration fest (und den passenden Wert in den Einstellungen)."
+      "note": "Lege das RCON-Passwort in der Serverkonfiguration fest und trage denselben Wert beim Bearbeiten dieses Servers unter „Alle Server“ ein."
     },
     "serverBridgeMod": {
       "label": "Einstellungen › PanelBridge öffnen",
@@ -285,6 +291,11 @@
     "workshopNothingToChange_other": "Keine Änderung erforderlich für {{count}} IDs.",
     "mapEntriesRepairedTitle": "Map-Einträge repariert",
     "duplicatesCleanedTitle": "Duplikate bereinigt",
+    "mapEntriesRemoved": "Ungültige Map-Einträge entfernt ({{count}}): {{list}}.",
+    "mapEntriesAdded": "Fehlende Map-Einträge hinzugefügt ({{count}}): {{list}}.",
+    "mapEntriesAllValid": "Alle Map-Einträge sind gültig. Keine Änderungen nötig.",
+    "duplicatesRemoved": "Doppelte Mod-IDs entfernt ({{count}}): {{list}}.",
+    "duplicatesNone": "Keine doppelten Mod-IDs gefunden. Keine Änderungen nötig.",
     "serverStartingTitle": "Server startet",
     "serverStartingFallback": "Startsignal an den dedizierten Server gesendet. Prüfe das Dashboard für den Status.",
     "rconReconnectedTitle": "RCON wieder verbunden",
@@ -293,6 +304,8 @@
     "dbBackupCreatedDesc": "Backup abgeschlossen{{backupName}}.",
     "staleLocksRemovedTitle": "Veraltete Sperrdateien entfernt",
     "staleLocksRemovedFallback": "{{count}} Sperrdatei(en) gelöscht.",
+    "staleLocksSomeFailed": "Einige konnten nicht gelöscht werden ({{count}}).",
+    "staleLocksTruncated": "Vorzeitig beendet: Dieser Spielstand ist zu groß, um ihn in einem Durchgang zu prüfen, daher können noch veraltete Sperrdateien übrig sein.",
     "bridgeConfiguredTitle": "Brücke konfiguriert",
     "bridgeConfiguredDesc": "Beobachtet {{serverName}}. Starte den Server, um den Handshake abzuschließen.",
     "bridgeConfiguredServerFallback": "den aktiven Server",
@@ -1170,6 +1183,11 @@
               "label": "Automatische B42-Build-Erkennung fehlgeschlagen",
               "message": "Es wird der fest hinterlegte Build {{build}} verwendet, da die Erkennung fehlgeschlagen ist: {{reason}}. Der nächste PZ-Karten-Build wird nicht berücksichtigt, solange die Erkennung nicht wieder funktioniert.",
               "hint": "Die Erkennung fragt beim Kartendienst nach dem aktuellen Build und verwendet dazu das curl des Systems. Wenn Sie hier landen, ist diese Anfrage fehlgeschlagen — curl fehlt, das Panel hat keinen ausgehenden Netzwerkzugriff, oder der Kartendienst hat die Anfrage abgelehnt. Die ersten beiden Punkte sollten Sie auf Ihrer Seite prüfen; der dritte lässt sich möglicherweise nicht vom Panel aus beheben. Achten Sie nach einer Project-Zomboid-Kartenveröffentlichung auf diese Warnung, denn dann wirkt sich ein veralteter Build als falsche Kartengeometrie aus."
+            },
+            "info": {
+              "label": "Kartenversion {{build}} (integriert)",
+              "message": "pzmap.org hat die automatische Versionsprüfung des Panels nicht beantwortet ({{reason}}), daher nutzt die Karte die integrierte Version {{build}}. Die Karte funktioniert normal.",
+              "hint": "pzmap.org schützt seine Versionsliste mit einem Bot-Schutz, der Server manchmal ablehnt. Auf deiner Seite ist nichts zu beheben. Aktualisiere nach einem Karten-Update von Project Zomboid das Panel, um die neue Kartenversion zu erhalten."
             }
           }
         },
@@ -1573,6 +1591,7 @@
     "copyDbPathAria": "Datenbankpfad kopieren",
     "copyLogsPathAria": "Pfad des Protokollordners kopieren",
     "pathsUpdatedTitle": "Pfade aktualisiert",
+    "pathsUpdatedDesc": "Starte das Panel neu, um die Änderungen anzuwenden.",
     "enterAtLeastOnePath": "Gib mindestens einen Pfad ein",
     "updatePathsFailedFallback": "Aktualisieren der Pfade fehlgeschlagen"
   },

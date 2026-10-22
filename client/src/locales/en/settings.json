@@ -37,18 +37,18 @@
       "automation": "Automation",
       "system": "System"
     },
-    "general": { "label": "General", "tip": "Panel port, restart, and appearance", "description": "Port this admin interface listens on, plus theme." },
+    "general": { "label": "General", "tip": "Panel port, restart, and appearance", "description": "Panel port and restart, theme, date format, and setting value ranges." },
     "updates": { "label": "Updates", "tip": "Check for and apply new panel releases", "description": "Panel release checks, downloads, and how updates apply." },
     "https": { "label": "HTTPS", "tip": "TLS certificates for encrypted connections", "description": "TLS termination. Enable this when exposing the panel beyond your LAN." },
     "access": { "label": "Remote access", "tip": "Which browsers and devices may connect (CORS)", "description": "Which origins may reach this panel from another machine, and why requests get blocked." },
     "security": { "label": "Security", "tip": "Account password and sign-in", "description": "Panel account password and sign-in controls." },
-    "users": { "label": "Users", "tip": "Panel accounts and their assigned roles", "description": "Create, remove, and reassign roles for panel accounts." },
+    "users": { "label": "Users", "tip": "Panel accounts and their assigned roles", "description": "Add and remove panel accounts. Which role each one holds is set in Roles & Permissions." },
     "roles": { "label": "Roles & Permissions", "tip": "Capability matrix for each role", "description": "Which capabilities each role grants, and which panel accounts hold them." },
-    "sso": { "label": "Sign-in", "tip": "Single sign-on (OIDC) provider", "description": "Let panel accounts sign in through an external identity provider." },
+    "sso": { "label": "Single Sign-On", "tip": "Single sign-on (OIDC) provider", "description": "Let panel accounts sign in through an external identity provider." },
     "connection": { "label": "RCON", "tip": "Remote console connection and startup behaviour", "description": "RCON connection used for commands, plus whether the game server starts with the panel." },
     "bridge": { "label": "PanelBridge", "tip": "Lua mod link, including remote servers over SFTP", "description": "PanelBridge Lua mod link for weather, teleport, and item control. Supports remote servers over SFTP." },
     "mods": { "label": "Mods & Workshop", "tip": "Update checks, collection sync, and Steam key", "description": "Workshop update detection, collection sync, and the Steam Web API key they rely on." },
-    "backups": { "label": "Backups", "tip": "World backup schedule and character exports", "description": "Automatic world backups and per-character export copies." },
+    "backups": { "label": "Backups", "tip": "World backup schedule and character exports", "description": "Character export copies. World backups and their schedule are on World Backups." },
     "about": { "label": "About", "tip": "Version, runtime info, and settings kept on other pages", "description": "Panel version and runtime details, plus where the remaining settings live." }
   },
   "ariaLabel": "Settings sections",
@@ -69,7 +69,9 @@
   "restartWait": {
     "failedTitle": "The panel hasn't come back",
     "failedDescription": "It's been a few minutes since the restart and the panel still isn't responding. It may still be starting (this can take longer than usual right after an update), or it may have failed to start. Check the panel's console/log output for errors before trying again.",
-    "checkAgain": "Check Again"
+    "checkAgain": "Check Again",
+    "rolledBackTitle": "Update not applied",
+    "rolledBackDescription": "The panel restarted but is running v{{running}}, not v{{expected}}: the update was rolled back or did not apply. Updates shows what happened."
   },
   "saveButton": {
     "saving": "Saving...",
@@ -80,8 +82,8 @@
   "dateFormatSelect": { "auto": "Automatic ({{example}})", "dmy": "Day/Month/Year ({{example}})", "mdy": "Month/Day/Year ({{example}})", "ymd": "Year-Month-Day ({{example}})" },
 
   "general": {
-    "cardTitle": "Panel Settings",
-    "cardDescription": "Port this panel listens on, and how it looks.",
+    "cardTitle": "Port and restart",
+    "cardDescription": "The port this panel listens on, and restarting the panel to apply it.",
     "portLabel": "Panel Port",
     "portHelp": "Port used to access the panel (default: 3001).",
     "restartRequiredTitle": "Restart Required",
@@ -291,7 +293,7 @@
     "reverseProxyTitle": "Reverse Proxy Note",
     "reverseProxyDesc": "If TLS is terminated by Nginx, Caddy, or Cloudflare Tunnel, keep panel HTTPS off and proxy local HTTP.",
     "restartRequiredTitle": "Restart Required",
-    "restartRequiredDesc": "HTTPS changes require restart. Save first, then restart from Panel Settings."
+    "restartRequiredDesc": "HTTPS changes require a restart. Save first, then restart from Settings › General."
   },
 
   "connection": {
@@ -346,6 +348,7 @@
     "sectionRemoteConfigLogs": "Remote config & logs",
     "sectionInstallUpdates": "Install & updates",
     "howItWorksButton": "How it works",
+    "openInDiagnostics": "Open in Diagnostics",
     "dialogTitle": "Panel Bridge",
     "dialogDesc": "A Lua mod that runs inside Project Zomboid, giving this panel direct access to the live game world.",
     "unlocksTitle": "What it unlocks",
@@ -569,6 +572,9 @@
     "backupsPathLabel": "Backups:",
     "characterExportsCardTitle": "Character Exports",
     "characterExportsCardDesc": "Per-player character copies, saved separately from world backups.",
+    "worldBackupsLinkTitle": "World backups",
+    "worldBackupsLinkDesc": "Automatic backups, their schedule, how many are kept, restores and downloads all live on the World Backups page.",
+    "openWorldBackups": "Open World Backups",
     "autoExportLabel": "Export a character when a player joins",
     "autoExportDesc": "Runs about ten seconds after the player loads, so one character can be restored without rolling back the world. Needs PanelBridge connected.",
     "copiesKeptLabel": "Copies kept per player",
@@ -585,7 +591,7 @@
     "showPassword": "Show password",
     "hidePassword": "Hide password",
     "passwordsDontMatch": "Passwords do not match",
-    "passwordTooShort": "Password must be at least 6 characters",
+    "passwordTooShort": "Password must be at least 10 characters",
     "changingButton": "Changing...",
     "changeButton": "Change Password",
     "recoveryCodesTitle": "Recovery codes",
@@ -651,9 +657,10 @@
     "elsewhereServers": { "label": "Server profiles", "detail": "Install paths, RCON host and password, memory, and SteamCMD." },
     "elsewhereDiscord": { "label": "Discord bot", "detail": "Bot token, channels, event notifications, and the chat bridge." },
     "elsewhereScheduler": { "label": "Scheduled tasks", "detail": "Restarts, announcements, and recurring commands." },
+    "elsewhereBackups": { "label": "World backups", "detail": "Backup schedule, how many are kept, restores and downloads." },
     "elsewhereServerConfig": { "label": "Game server config", "detail": "Server INI options and sandbox rules." },
     "elsewhereChat": { "label": "Chat quick messages", "detail": "Preset messages shown above the chat input." },
-    "aboutCardTitle": "About",
+    "aboutCardTitle": "Version and links",
     "aboutCardDesc": "Panel version, runtime info, and helpful links.",
     "installedVersionLabel": "Installed version",
     "latestAvailableLabel": "Latest available",
@@ -850,7 +857,7 @@
     "noUpdateAvailable": { "title": "No Update Available", "description": "No newer release was found. Run Check for Updates to refresh status." },
     "dockerUpdateStarted": { "title": "Docker Update Started" },
     "updateDownloaded": { "title": "Update Downloaded" },
-    "updateDownloadedDescDocker": "The panel container is rebuilding and will reconnect when the health check passes.",
+    "updateDownloadedDescDocker": "The panel container is being recreated. The panel can't confirm the update finished: if it doesn't come back, check the container's status or logs.",
     "updateDownloadedDescBinary": "The update files are ready. Restart the panel to apply this version.",
     "downloadFailed": { "title": "Download Failed", "fallback": "The panel could not download the update. Check network access, disk space, and permissions." },
     "updateNotApplied": { "title": "Update Not Applied", "openDashboard": "Open Dashboard", "openDashboardAlt": "Open the Dashboard, where Force stop is" },
@@ -889,14 +896,15 @@
     "modConnected": { "title": "Mod Connected!", "description": "Connected to {{server}}", "fallbackServer": "server" },
     "modNoResponse": { "title": "Mod Did Not Respond", "fallback": "No response from PanelBridge.lua. Make sure the game server is running and its world has loaded; Settings › PanelBridge shows how this server gets PanelBridge.", "openBridge": "Open Bridge", "openBridgeAlt": "Open PanelBridge settings" },
     "passwordsDontMatch": { "title": "Passwords do not match" },
-    "passwordTooShort": { "title": "Password must be at least 6 characters" },
+    "passwordTooShort": { "title": "Password must be at least 10 characters" },
     "passwordChanged": { "title": "Password Changed", "description": "Your password has been updated." },
     "passwordChangeFailed": { "title": "Change Password Failed", "fallback": "The panel could not change your password. Check your current password and try again." },
     "recoveryReady": { "title": "Recovery Ready", "fallback": "Recovery token created at data/reset-token.txt. Paste it below to continue." },
     "recoveryUnavailable": { "title": "Recovery Unavailable", "fallback": "The panel could not prepare password recovery on this server." },
     "recoveryTokenMissing": { "title": "Recovery token missing" },
     "passwordReset": { "title": "Password Reset", "description": "Your password has been reset. Sign in again with the new password." },
-    "passwordResetFailed": { "title": "Password Reset Failed", "fallback": "The panel could not reset your password from this server." }
+    "passwordResetFailed": { "title": "Password Reset Failed", "fallback": "The panel could not reset your password from this server." },
+    "settingsSavedWithWarnings": { "title": "Settings Saved, With Warnings", "description": "Your settings were saved, but not everything could be applied right away: {{warnings}}" }
   },
 
   "errors": {

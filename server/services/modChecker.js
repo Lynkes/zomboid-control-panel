@@ -15,6 +15,7 @@ import fs from "fs";
 import path from "path";
 import { EventEmitter } from "events";
 import { sanitizeError } from "../utils/sanitize.js";
+import { isUnmanagedRemoteServer } from "../utils/serverStatusModel.js";
 import { ErrorCode } from "../utils/errorCodes.js";
 import panelBridge from "./panelBridge.js";
 import { getWorkshopRelease } from "./bridgeWorkshopRelease.js";
@@ -24,6 +25,7 @@ import {
 } from "./lifecycleCoordinator.js";
 import { resolveActiveServerStartedAt } from "../utils/serverStatus.js";
 import { getRestartWarningNotice } from "../utils/restartWarning.js";
+import { modInfoName, readModInfoTextSync } from "../utils/modInfoText.js";
 
 export const MOD_CHECK_INTERVAL_MINUTES_MIN = 1;
 export const MOD_CHECK_INTERVAL_MINUTES_MAX = 120;
@@ -263,6 +265,41 @@ async function bridgeWorkshopIds() {
   return ids;
 }
 
+// Steam's public details API never lists the PanelBridge item (it answers
+// result 9: the item is unlisted), so its updates were invisible to the check
+// that sees every other Workshop mod -- a new bridge only reached a server
+// when something else restarted it (#235). The item's public change-note page
+// does list every update, and each note's id is the Unix time it was made, so
+// that time stands in for time_updated. Steam stamps the note a little after
+// it stamps the content (34 s for 1.7.75), so the comparison with the time the
+// server downloaded the item leaves a slack: a note counts as news only when
+// it is more than BRIDGE_NOTE_SLACK_SECONDS newer than the local copy.
+export const BRIDGE_NOTE_SLACK_SECONDS = 10 * 60;
+const BRIDGE_NOTE_MIN_EPOCH = 1_500_000_000;
+const BRIDGE_NOTE_PAGE_MAX_CHARS = 2_000_000;
+
+// The newest change note's time in a changelog page, or null when the page
+// has no notes (or is not a changelog page at all).
+export function newestChangeNoteTime(html, nowSeconds = Date.now() / 1000) {
+  if (typeof html !== "string" || html.length === 0) return null;
+  const blocks = html.slice(0, BRIDGE_NOTE_PAGE_MAX_CHARS).split("changeLogCtn").slice(1);
+  let newest = 0;
+  for (const block of blocks) {
+    const match = /<p id="(\d{9,11})"/.exec(block);
+    if (!match) continue;
+    const seconds = Number(match[1]);
+    // A time in the future is not a note this panel can act on.
+    if (seconds > newest && seconds <= nowSeconds + 86_400) newest = seconds;
+  }
+  return newest >= BRIDGE_NOTE_MIN_EPOCH ? newest : null;
+}
+
+// The time Steam would report for a Workshop item, with the slack that
+// applies to it: only an item whose time came from a change note has any.
+export function steamUpdateTimeFor(steam) {
+  return (steam?.time_updated || 0) - (steam?.slackSeconds || 0);
+}
+
 // Steam's latest time_updated (and title, file type, creator app, preview)
 // for each Workshop item, over ISteamRemoteStorage/GetPublishedFileDetails
 // (no API key), in batches of 100 with backoff. Keeps no state: `result`
@@ -377,7 +414,6 @@ export async function fetchWorkshopDetails(workshopIds) {
       `Steam API returned data for ${result.size}/${workshopIds.length} mods (partial)`,
     );
   }
-
 
   return { result, unavailable };
 }
@@ -847,11 +883,18 @@ export class ModChecker extends EventEmitter {
             .filter((candidate) => fs.existsSync(candidate.path))
             .sort(compareModInfoCandidates)[0]?.path;
           if (modInfoPath) {
-            let content = fs.readFileSync(modInfoPath, "utf-8");
-            if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
-            const nameMatch = content.match(/^\s*name\s*=\s*(.+)$/m);
-            if (nameMatch && nameMatch[1]) {
-              const name = nameMatch[1].trim();
+            // Capped and parsed line by line (utils/modInfoText.js): the file
+            // is the Workshop author's, and a regex over all of it
+            // backtracked for seconds on a mod.info of blank lines.
+            // A mod.info that is not a regular file (a FIFO would block) or
+            // cannot be read falls back to the folder name below.
+            let name = null;
+            try {
+              name = modInfoName(readModInfoTextSync(modInfoPath));
+            } catch {
+              name = null;
+            }
+            if (name) {
               // Update cache
               this.modNameCache.set(workshopId, {
                 name,
@@ -1133,6 +1176,28 @@ export class ModChecker extends EventEmitter {
       this._clearPendingRestart();
       return { success: false, retry: true, reason: "scheduler_unavailable" };
     }
+
+    // The panel does not manage a remote server's process, so there is no
+    // restart to make (performRestart() refuses one). Say nothing to its
+    // players about a restart that will not happen, and count the update as
+    // handled rather than retrying it every cycle.
+    try {
+      if (isUnmanagedRemoteServer(await getActiveServer())) {
+        log.info(
+          "Mod updates detected on a remote server -- not restarting it: the panel does not manage its process",
+        );
+        if (this._isPendingRestartCurrent(token)) this._clearPendingRestart();
+        return {
+          success: true,
+          skipped: true,
+          markProcessed: true,
+          reason: "server_remote",
+        };
+      }
+    } catch (error) {
+      log.debug(`Could not check whether the server is remote: ${error.message}`);
+    }
+    if (!this._isPendingRestartCurrent(token)) return this._cancelledMeanwhileResult(context);
 
     // Cancelled while this waited on RCON below.
     const cancelledMeanwhile = () => this._cancelledMeanwhileResult(context);
@@ -1743,6 +1808,31 @@ export class ModChecker extends EventEmitter {
   // This compares timeupdated vs latest_timeupdated in Steam's cache
   // Query Steam Web API for latest workshop item timestamps
   // Uses ISteamRemoteStorage/GetPublishedFileDetails (no API key required)
+  // When the PanelBridge item was last updated, read from its public change-
+  // note page (see BRIDGE_NOTE_SLACK_SECONDS). Null when the page can't be read.
+  async fetchBridgeUpdateTime(workshopId) {
+    let timeout;
+    try {
+      const controller = new AbortController();
+      timeout = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(
+        `https://steamcommunity.com/sharedfiles/filedetails/changelog/${encodeURIComponent(workshopId)}`,
+        { signal: controller.signal, headers: { "Accept-Language": "en" } },
+      );
+      if (!res?.ok || typeof res.text !== "function") return null;
+      const noteTime = newestChangeNoteTime(await res.text());
+      if (noteTime === null) {
+        log.debug(`PanelBridge item ${workshopId}: no change notes found on its Workshop page`);
+      }
+      return noteTime;
+    } catch (err) {
+      log.debug(`PanelBridge item ${workshopId}: change-note page unavailable: ${err.message}`);
+      return null;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  }
+
   async fetchSteamTimestamps(workshopIds) {
     // workshopId -> { resultCode, reason }, for every id Steam answered with
     // a non-1 result this call. See the field's own comment on the
@@ -1767,6 +1857,26 @@ export class ModChecker extends EventEmitter {
         `Steam's public Workshop listing doesn't show the PanelBridge item ${id} (result ${info.resultCode}); ` +
           "servers can still download it while Steam reviews it. Settings › PanelBridge reports on it.",
       );
+    }
+
+    // Steam answered, but not for the bridge item: take its update time from
+    // the item's change notes instead. Not when the whole call failed (no
+    // answer at all): then the ACF-only comparison runs, and a lone entry here
+    // would stop it from running for every other mod.
+    if (result.size > 0 || unavailable.size > 0) {
+      for (const id of bridgeIds) {
+        if (!unavailable.has(id)) continue;
+        const noteTime = await this.fetchBridgeUpdateTime(id);
+        if (noteTime === null) continue;
+        result.set(id, {
+          time_updated: noteTime,
+          slackSeconds: BRIDGE_NOTE_SLACK_SECONDS,
+          title: null,
+          file_type: 0,
+          creator_app_id: 0,
+          preview_url: null,
+        });
+      }
     }
 
     return result;
@@ -1982,7 +2092,7 @@ export class ModChecker extends EventEmitter {
           const steam = steamData.get(workshopId);
           if (!steam) continue; // Not found on Steam (deleted/hidden)
 
-          if (steam.time_updated > localTime) {
+          if (steamUpdateTimeFor(steam) > localTime) {
             if (
               relevantWorkshopIds &&
               !relevantWorkshopIds.has(String(workshopId))
@@ -2245,11 +2355,15 @@ export class ModChecker extends EventEmitter {
           steamInfo?.time_updated ||
           details.latest_timeupdated ||
           installed.timeupdated;
+        // Only a time that came from Steam carries a slack (see steamUpdateTimeFor).
+        const compareTime = steamInfo?.time_updated
+          ? steamUpdateTimeFor(steamInfo)
+          : latestTime;
         result[workshopId] = {
           size: installed.size,
           timeupdated: installed.timeupdated,
           latest_timeupdated: latestTime,
-          needsUpdate: latestTime > installed.timeupdated,
+          needsUpdate: compareTime > installed.timeupdated,
         };
       }
 

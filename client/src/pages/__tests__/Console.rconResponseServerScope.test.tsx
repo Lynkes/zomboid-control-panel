@@ -7,6 +7,7 @@ import { SocketContext } from '@/contexts/SocketContext'
 import type { Socket } from 'socket.io-client'
 import Console from '../Console'
 import { rconApi, serversApi, configApi, type ServerInstance } from '@/lib/api'
+import { MemoryRouter } from 'react-router-dom'
 
 // console follow-ups (2026-09-18): 'rcon:response' is broadcast to ONE global
 // "rcon-live" room, so with two servers registered (or two operators looking at
@@ -81,7 +82,7 @@ async function renderRconTab({ probeOk = true } = {}) {
     <SocketContext.Provider value={fake.socket}>
       <TooltipProvider>
         <ConfirmProvider>
-          <Console />
+          <MemoryRouter><Console /></MemoryRouter>
         </ConfirmProvider>
       </TooltipProvider>
     </SocketContext.Provider>,

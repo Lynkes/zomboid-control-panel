@@ -201,4 +201,30 @@ describe("POST /api/server/install: install:* events are scoped to their own ins
     expect(completeCalls.find((c) => c[1].installPath === installPathA)[1].serverName).toBe("ServerA");
     expect(completeCalls.find((c) => c[1].installPath === installPathB)[1].serverName).toBe("ServerB");
   });
+
+  // The wizard creates the server profile from install:complete and used to
+  // hardcode rconHost 127.0.0.1, while this route saved RCON_HOST (the
+  // two-container Docker setup) as the legacy rconHost setting.
+  it("reports the resolved RCON host in install:complete", async () => {
+    vi.stubEnv("RCON_HOST", "projectzomboid");
+    try {
+      const handler = getInstallHandler();
+      const io = { emit: vi.fn(), to: vi.fn() };
+      io.to.mockReturnValue(io);
+      const installPath = path.join(root, "install-rcon-host");
+      fs.mkdirSync(installPath, { recursive: true });
+      fs.writeFileSync(path.join(installPath, "ProjectZomboid64.json"), "{}");
+
+      const call = handler(buildRequest(installPath, "RconHostServer", io), createResponse());
+      const [child] = await waitForSpawnCount(1);
+      child.emit("close", 0);
+      const [complete] = await waitForCompleteCount(io, 1);
+      await call;
+
+      expect(complete[1].success).toBe(true);
+      expect(complete[1].rconHost).toBe("projectzomboid");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });

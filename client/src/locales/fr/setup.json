@@ -32,7 +32,7 @@
     "capsLockOn": "Verr. Maj. activé",
     "showPassword": "Afficher le mot de passe",
     "hidePassword": "Masquer le mot de passe",
-    "hint": "Utilisez au moins 6 caractères.",
+    "hint": "Utilisez au moins 10 caractères.",
     "strength": {
       "tooShort": "Trop court",
       "weak": "Faible",
@@ -55,13 +55,14 @@
     "setupTokenRequired": "Saisissez le jeton de configuration affiché dans le journal de démarrage ou la sortie console du panneau.",
     "invalidSetupToken": "Jeton de configuration invalide ou manquant. Consultez le journal de démarrage ou la sortie console du panneau pour trouver le jeton à usage unique.",
     "invalidUsername": "Le nom d'utilisateur doit comporter 3 à 32 caractères (lettres, chiffres, _ ou -)",
-    "passwordTooShort": "Le mot de passe doit comporter au moins 6 caractères",
+    "passwordTooShort": "Le mot de passe doit comporter au moins 10 caractères",
     "passwordsDontMatch": "Les mots de passe ne correspondent pas",
     "invalidPort": "Le port du panneau doit être un nombre entier entre 1024 et 65535",
     "setupFailed": "Échec de la configuration"
   },
   "afterThisStep": {
     "heading": "Après cette étape",
+    "nextHeading": "La suite",
     "previewBadge": "Aperçu",
     "step1Title": "Ajouter un serveur au panneau",
     "step1Desc": "Ajoutez une installation existante ou utilisez la configuration guidée pour en créer une.",

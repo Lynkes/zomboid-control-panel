@@ -76,7 +76,7 @@ function mockCommonLoads() {
 }
 
 describe('ServerConfig.tsx: Sandbox tab Save controls must not claim a reload that never happens', () => {
-  it('toolbar Save button on the Sandbox tab reads plain "Save", not "Save & reload"', async () => {
+  it('with no edit there is nothing to save: the Sandbox tab offers no Save of either wording', async () => {
     mockCommonLoads()
     getPaths.mockResolvedValue({
       exists: { ini: false, sandbox: true, spawnpoints: false, spawnregions: false },
@@ -91,14 +91,14 @@ describe('ServerConfig.tsx: Sandbox tab Save controls must not claim a reload th
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
 
-    // Exact match: this must find the Sandbox toolbar's Save button and must
-    // NOT match "Save & reload" text (which would also satisfy a looser
-    // /save/i query, hiding the bug).
-    expect(await screen.findByRole('button', { name: /^save$/i })).toBeInTheDocument()
+    // The one save affordance is the SaveBar, which shows only with unsaved
+    // edits (UX plan §2.4.6); the section header's own Save is gone.
+    await screen.findByRole('button', { name: /^raw$/i })
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /save & reload/i })).not.toBeInTheDocument()
   })
 
-  it('sticky unsaved-changes bar on the Sandbox tab also reads plain "Save" once an edit is made', async () => {
+  it('the SaveBar on the Sandbox tab reads plain "Save" once an edit is made', async () => {
     mockCommonLoads()
     getPaths.mockResolvedValue({
       exists: { ini: false, sandbox: true, spawnpoints: false, spawnregions: false },
@@ -116,11 +116,10 @@ describe('ServerConfig.tsx: Sandbox tab Save controls must not claim a reload th
     const input = await screen.findByDisplayValue('100')
     fireEvent.change(input, { target: { value: '200' } })
 
-    // The sticky bar only mounts once hasSandboxChanges is true.
-    await waitFor(() => expect(screen.getByRole('status')).toBeInTheDocument())
-
-    const saveButtons = screen.getAllByRole('button', { name: /^save$/i })
-    expect(saveButtons.length).toBeGreaterThanOrEqual(2) // toolbar + sticky bar
+    // Exact match: must NOT match "Save & reload" (which a looser /save/i
+    // query would also accept, hiding the bug). One Save: the SaveBar's.
+    const saveButtons = await screen.findAllByRole('button', { name: /^save$/i })
+    expect(saveButtons).toHaveLength(1)
     expect(screen.queryByRole('button', { name: /save & reload/i })).not.toBeInTheDocument()
   })
 
@@ -132,12 +131,14 @@ describe('ServerConfig.tsx: Sandbox tab Save controls must not claim a reload th
     getIni.mockResolvedValue({ settings: {}, duplicateKeys: [] } as never)
 
     render(
-      <MemoryRouter initialEntries={['/server-config?tab=ini']}>
+      <MemoryRouter initialEntries={['/server-config?tab=ini&search=MaxPlayers']}>
         <ServerConfig />
       </MemoryRouter>,
     )
 
     await waitFor(() => expect(getIni).toHaveBeenCalled())
+    fireEvent.change(await screen.findByDisplayValue('32'), { target: { value: '33' } })
     expect(await screen.findByRole('button', { name: /save & reload/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
   })
 })

@@ -1,17 +1,19 @@
 {
   "pageHeader": {
-    "title": "Explorar servidores públicos",
+    "title": "Servidores públicos",
     "description": "Pesquise na lista pública de servidores de Project Zomboid e copie o endereço de um servidor para entrar rapidamente",
     "refreshList": "Recarregar lista",
     "reloadFromSteam": "Recarregar da Steam",
-    "reloadFromSteamTip": "\"Recarregar lista\" mostra de novo os resultados do cache do próprio painel, que podem ter até um minuto. \"Recarregar da Steam\" sempre consulta a Steam diretamente — use-o se você acabou de alterar algo no seu próprio servidor e ainda não vê a mudança aqui."
+    "reloadFromSteamTip": "\"Recarregar lista\" mostra de novo os resultados do cache do próprio painel, que podem ter até um minuto. \"Recarregar da Steam\" sempre consulta a Steam diretamente — use-o se você acabou de alterar algo no seu próprio servidor e ainda não vê a mudança aqui.",
+    "refreshMenuAria": "Mais formas de atualizar"
   },
   "apiKeyWarning": {
     "title": "Chave de API da Steam ausente",
     "description": "Adicione sua chave de API da Steam em Configurações para que esta página possa carregar a lista pública de servidores.",
     "step1": "Acesse a <1>página de chaves de API da Steam<2> (abre em nova aba)</2></1> e registre-se para obter uma chave",
     "step2": "Acesse <1>Configurações</1> e cole sua chave de API no campo \"Chave da Steam Web API\"",
-    "step3": "Clique em \"Salvar configurações\" e recarregue esta página"
+    "step3": "Clique em \"Salvar configurações\" e recarregue esta página",
+    "action": "Adicionar a chave nas Configurações"
   },
   "stats": {
     "totalServers": "Total de servidores",
@@ -27,7 +29,6 @@
     "matchingFilters": "que correspondem aos filtros"
   },
   "searchFilters": {
-    "title": "Pesquisa e filtros",
     "hideFilters": "Ocultar filtros",
     "showFilters": "Mostrar filtros",
     "searchPlaceholder": "Pesquisar por nome, IP, mapa ou palavras-chave...",
@@ -38,13 +39,10 @@
     "vacOnly": "Somente protegidos por VAC",
     "versionLabel": "Versão:",
     "allVersions": "Todas as versões",
-    "sortByLabel": "Ordenar por:",
     "sortName": "Nome",
     "sortPlayers": "Jogadores",
-    "sortMaxPlayers": "Máx. de jogadores",
     "sortPing": "Ping",
-    "ascending": "Crescente",
-    "descending": "Decrescente"
+    "sortMaxPlayers": "Máx. de jogadores"
   },
   "error": {
     "title": "Não foi possível carregar os servidores públicos",
@@ -62,7 +60,7 @@
   },
   "serverList": {
     "title": "Lista de servidores",
-    "description": "Clique em um servidor para ver mais detalhes ou copiar o endereço",
+    "description": "Copie um endereço para entrar ou faça ping em um servidor para ver se ele responde.",
     "loading": "Carregando servidores...",
     "sortAria": "Ordenar por {{label}}",
     "sortAriaWithDirection": "Ordenar por {{label}}, {{direction}}",

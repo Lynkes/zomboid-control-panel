@@ -7,7 +7,8 @@ import { modsApi } from '@/lib/api'
 
 // pz-bughunt round 17 (every write that trusts the server-side active
 // server): modsApi.addModAdvanced() -- reached both from the Add-mod-by-
-// workshop-ID dialog (handleAddModAdvanced) and from the Import Collection
+// workshop-ID dialog (handleAddModAdvanced) and (as modsApi.addToIniBulk(),
+// the same ini edit in one request) from the Import Collection
 // dialog (handleAddCollectionMods) -- resolves the active server server-side
 // with no server id sent. Its payload (discovered mod IDs / map folders) was
 // looked up via modsApi.discoverModIds()/importCollection(), which
@@ -51,6 +52,7 @@ vi.mock('@/lib/api', async () => {
       discoverModIds: vi.fn(),
       trackMod: vi.fn(),
       addModAdvanced: vi.fn(),
+      addToIniBulk: vi.fn(),
       importCollection: vi.fn(),
     },
   }
@@ -90,6 +92,7 @@ const listDiskOnly = vi.mocked(modsApi.listDiskOnly)
 const discoverModIds = vi.mocked(modsApi.discoverModIds)
 const trackMod = vi.mocked(modsApi.trackMod)
 const addModAdvanced = vi.mocked(modsApi.addModAdvanced)
+const addToIniBulk = vi.mocked(modsApi.addToIniBulk)
 const importCollection = vi.mocked(modsApi.importCollection)
 
 function primeReadMocks() {
@@ -174,14 +177,14 @@ describe('Mods.tsx: activeServerChanged blocks writes from a still-open add-mod 
     expect(addModAdvanced).not.toHaveBeenCalled()
   })
 
-  it('handleAddCollectionMods: disables the add-to-server action and never calls addModAdvanced once the server changed mid-review', async () => {
+  it('handleAddCollectionMods: disables the add-to-server action and never calls addToIniBulk once the server changed mid-review', async () => {
     primeReadMocks()
     importCollection.mockResolvedValue({
       mods: [
         { workshopId: '111', name: 'Collection Mod One', isMap: false },
       ],
     } as never)
-    addModAdvanced.mockResolvedValue({ addedModIds: ['a'], mapFoldersAdded: [], workshopAlreadyExisted: false } as never)
+    addToIniBulk.mockResolvedValue({ success: true, total: 1, added: 1, alreadyConfigured: 0, workshopOnly: 0, invalid: 0, mapFoldersAdded: [], results: [] } as never)
 
     renderMods()
     await waitForLoaded()
@@ -217,6 +220,7 @@ describe('Mods.tsx: activeServerChanged blocks writes from a still-open add-mod 
 
     fireEvent.click(within(collectionDialog).getByRole('button', { name: /add.*mod/i }))
     await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(addToIniBulk).not.toHaveBeenCalled()
     expect(addModAdvanced).not.toHaveBeenCalled()
   })
 })

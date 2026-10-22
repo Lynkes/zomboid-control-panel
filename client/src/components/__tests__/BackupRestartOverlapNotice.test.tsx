@@ -68,7 +68,7 @@ describe('BackupRestartOverlapNotice: says which timezone its times are in', () 
   // browser puts the two hours apart with nothing to tell them apart.
   it('names the zone the server sent with the times', () => {
     render(<BackupRestartOverlapNotice overlaps={[{ ...overlap(10), timezone: 'UTC' }]} />)
-    expect(screen.getByText("Schedule times are in the panel's timezone, UTC (change it under Scheduled Tasks).")).toBeInTheDocument()
+    expect(screen.getByText("Schedule times are in the panel's timezone, UTC (change it in Scheduler).")).toBeInTheDocument()
   })
 
   it('leaves it out where the zone is already on screen beside it, or when an older server sent none', () => {

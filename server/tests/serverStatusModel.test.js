@@ -67,6 +67,19 @@ describe("buildHostSignal", () => {
     ).toEqual({ status: "stopped", label: "Container", detail: null });
   });
 
+  it("says why a paused or restarting container is not running", () => {
+    expect(
+      buildHostSignal("docker-local", true, false, { handled: true, running: false, containerState: "restarting" }),
+    ).toEqual({
+      status: "stopped",
+      label: "Container",
+      detail: expect.stringMatching(/restarting/i),
+    });
+    expect(
+      buildHostSignal("docker-managed", true, false, { handled: true, running: false, containerState: "paused" }),
+    ).toEqual({ status: "stopped", label: "Container", detail: expect.stringMatching(/paused/i) });
+  });
+
   it("reports docker host state as unknown when Docker control is disabled/unavailable, not stopped", () => {
     // {handled: false} is resolveManagedContainer()'s shape for "Docker
     // control is disabled, the socket is unreachable, or the server has no

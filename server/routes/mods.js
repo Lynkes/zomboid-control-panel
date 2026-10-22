@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { promises as fsp } from "fs";
-import os from "os";
 import crypto from "crypto";
 import { createLogger } from "../utils/logger.js";
 const log = createLogger("API:Mods");
@@ -17,9 +16,20 @@ import {
   createModPreset,
   updateModPreset,
   deleteModPreset,
+  getModGroups,
+  createModGroup,
+  updateModGroup,
+  deleteModGroup,
+  getDismissedModGroupSuggestions,
+  dismissModGroupSuggestion,
+  getModNotes,
+  setModNote,
+  deleteModNote,
+  setSetting,
   addIgnoredMod,
   getIgnoredMods,
   removeIgnoredMod,
+  removeIgnoredMods,
   clearAllIgnoredMods,
   isModIgnored,
   getIgnoredModPairs,
@@ -60,6 +70,66 @@ import { writeIniWithBackup as writeIniWithBackupRaw, backupWarningFor } from ".
 import { getBridgeManaged, protectBridgeIniEntries } from "../services/bridgeDelivery.js";
 import { findDuplicateIniKeys } from "../utils/iniDuplicateKeys.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
+import {
+  readTextFile,
+  splitIniList,
+  splitModIdList,
+  splitModIdTokens,
+} from "../utils/modIni.js";
+import {
+  MOD_GROUP_COLORS,
+  MOD_GROUP_LIMITS,
+  applyModGroups,
+  groupsInOrder,
+  normalizeGroup,
+  validateGroupFields,
+  validateGroupDocument,
+} from "../utils/modGroups.js";
+import { computeGroupSuggestions, isSuggestionKey } from "../utils/modGroupSuggestions.js";
+import { MOD_NOTE_LIMITS, cleanModNoteText, isNoteWorkshopId } from "../utils/modNotes.js";
+import {
+  getWorkshopPaths,
+  getModDetailsFromWorkshop,
+  findMapFoldersFromWorkshop,
+  findAllModIdsFromWorkshop,
+  findModIdFromWorkshop,
+  findModForFolder,
+  isModIdVerifiedOnDisk,
+  sanitizeModIdListWithDiskBypass,
+} from "../services/workshopModInfo.js";
+import { addWorkshopItemToIni } from "../services/modIniEdit.js";
+import {
+  extractClothingOutfits,
+  extractLuaGlobals,
+  extractLuaSymbols,
+  extractScriptDefinitionBodies,
+  extractTranslationEntries,
+} from "../utils/modDefinitionExtractors.js";
+import {
+  analyzeModOrder,
+  computeOrderingConstraints,
+  createDependencyRelation,
+  findIncompatiblePairs,
+} from "../utils/modLoadOrder.js";
+import {
+  cachedFileHash,
+  cachedParse,
+  compareLayeredDefinitions,
+  compareScriptFileCopies,
+  compareTranslationEntries,
+  expireConflictFileCacheAfter,
+  gameMediaDirs,
+  isNonGameplayMediaFile,
+  statFile,
+  translationPathInfo,
+} from "../utils/modConflictRules.js";
+import { downloadWorkshopItem } from "../services/workshopDownload.js";
+import { addConflictSuggestions, refreshConflictSuggestions } from "../services/modSmartScan.js";
+import { hardOrderEdges } from "../services/modSmartContext.js";
+
+// The workshop readers live in services/workshopModInfo.js; the route file
+// keeps exporting getModDetailsFromWorkshop for its existing importers.
+export { getModDetailsFromWorkshop };
 
 const router = express.Router();
 
@@ -141,18 +211,6 @@ export function filterOwnedClientModIds(clientModIds, ownedModIds) {
   return filtered;
 }
 
-// Strip UTF-8 BOM (byte-order mark) that some text editors prepend to files.
-// If present, the BOM breaks regex patterns anchored with ^ on the first line.
-function stripBom(str) {
-  return str.charCodeAt(0) === 0xfeff ? str.slice(1) : str;
-}
-
-// Read a text file as UTF-8 with BOM stripping and CRLF normalisation
-function readTextFile(filePath) {
-  // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-  return stripBom(fs.readFileSync(filePath, "utf-8")).replace(/\r\n/g, "\n");
-}
-
 // Every ini write in this file goes through here. When the active server
 // gets PanelBridge from the Steam Workshop, its Mods=/WorkshopItems= entries
 // are managed in Settings › PanelBridge: a remove, toggle, collection import
@@ -160,7 +218,7 @@ function readTextFile(filePath) {
 // position (bridgeDelivery.protectBridgeIniEntries). Nothing is ever added
 // that wasn't there before, and reorders are kept. Wrapping the one writer
 // instead of editing its ~18 call sites keeps a future route from missing it.
-async function writeIniWithBackup(iniPath, content) {
+export async function writeIniWithBackup(iniPath, content) {
   let before = "";
   try {
     before = readTextFile(iniPath);
@@ -174,7 +232,7 @@ async function writeIniWithBackup(iniPath, content) {
 // sanitizeIniValue strips \r\n;= to prevent injection
 // sanitizeIniList joins sanitized values with semicolons
 
-function getSanitizedIniPath(serverConfigPath, serverName) {
+export function getSanitizedIniPath(serverConfigPath, serverName) {
   if (!serverConfigPath || typeof serverName !== "string") {
     return null;
   }
@@ -261,7 +319,12 @@ export async function getActiveServerPaths() {
     serverPath = legacyPath || null;
   }
 
-  return { serverConfigPath, serverName, serverPath, configRefusal };
+  // The data folder the game runs with (-cachedir): its mods/ and Workshop/
+  // folders hold mods the server loads too. Only when it passed the
+  // data-folder rule above.
+  const zomboidDataPath = config.refused ? null : config.dataPath || null;
+
+  return { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath };
 }
 
 // SECURITY (2026-10-05, PT3): the body a route answers when it has no
@@ -350,7 +413,7 @@ router.get("/tracked", async (req, res) => {
             // (just above) exists to prevent.
             const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
             const workshopIds =
-              workshopMatch?.[1]?.split(";").filter(Boolean) || [];
+              splitIniList(workshopMatch?.[1]);
             const configuredIds = new Set(
               workshopIds.filter((id) => /^\d{1,15}$/.test(id)),
             );
@@ -630,6 +693,38 @@ router.delete("/ignored/:workshopId", async (req, res) => {
     res.json({ success: true, message: "Mod removed from ignore list" });
   } catch (error) {
     log.error(`Failed to un-ignore mod: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Un-ignore several mods at once (multi-select in the ignored list). Ids that
+// are not on the list are skipped, so the count says what actually changed.
+router.post("/ignored/remove", async (req, res) => {
+  try {
+    const { workshopIds } = req.body || {};
+    if (!Array.isArray(workshopIds) || workshopIds.length === 0) {
+      return res.status(400).json({
+        error: "workshopIds must be a non-empty array",
+        code: ErrorCode.MODS_WORKSHOP_IDS_ARRAY_REQUIRED,
+      });
+    }
+    const cleaned = workshopIds
+      .map(String)
+      .filter((id) => /^\d{1,15}$/.test(id));
+    if (cleaned.length === 0) {
+      return res.status(400).json({
+        error: "No valid workshop IDs provided",
+        code: ErrorCode.MODS_NO_VALID_WORKSHOP_IDS,
+      });
+    }
+    const removed = await removeIgnoredMods(cleaned);
+    res.json({
+      success: true,
+      message: `Removed ${removed} mod${removed !== 1 ? "s" : ""} from the ignore list`,
+      removed,
+    });
+  } catch (error) {
+    log.error(`Failed to un-ignore mods: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -1050,8 +1145,8 @@ router.post("/sync-from-server", async (req, res) => {
     const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
     const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
 
-    const modIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-    const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
+    const modIds = splitModIdList(modsMatch?.[1]);
+    const workshopIds = splitIniList(workshopMatch?.[1]);
 
     log.info(
       `sync-from-server: Found ${modIds.length} mod IDs and ${workshopIds.length} workshop IDs`,
@@ -1173,39 +1268,58 @@ router.post("/clear-updates", async (req, res) => {
 // Reads are public; writes need the user's session cookies (settings).
 // ============================================
 
+// The workshop items the active server loads (WorkshopItems=). `read` is
+// false when the INI could not be read: callers then fall back to the
+// tracked list, so an unreadable INI is never reported as "every mod is
+// missing from the server".
+async function readCollectionServerMembership() {
+  const ids = new Set();
+  try {
+    const { serverConfigPath, serverName } = await getActiveServerPaths();
+    const sanitizedServerName = path.basename(serverName || "");
+    if (
+      serverConfigPath &&
+      sanitizedServerName === serverName &&
+      !serverName.includes("..")
+    ) {
+      const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
+      if (fs.existsSync(iniPath)) {
+        const workshopMatch = readTextFile(iniPath).match(
+          /^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m,
+        );
+        for (const id of splitIniList(workshopMatch?.[1])) {
+          if (id) ids.add(id);
+        }
+        return { ids, read: true };
+      }
+    }
+  } catch (error) {
+    log.debug(`Collection server membership check skipped: ${error.message}`);
+  }
+  return { ids: new Set(), read: false };
+}
+
+// What the collection should mirror: the mods the server loads. Tracking
+// alone is not that (a deactivated mod stays tracked on purpose), so the
+// Mods page chip and Sync used to count it as missing and push it into the
+// public collection, unlike Settings' per-item view.
+function collectionMirrorIds(membership, trackedIds) {
+  return membership.read ? [...membership.ids] : trackedIds;
+}
+
 router.get("/collection/diff", async (req, res) => {
   try {
     const tracked = await getTrackedMods();
     const ids = tracked.map((m) => String(m.workshop_id));
-    const diff = await computeCollectionDiff(ids);
-    const configuredWorkshopIds = new Set();
     // Whether WorkshopItems= was actually read. Status below is derived from
     // server membership, so an unreadable INI must not be reported as "every
     // mod is missing from the server".
-    let serverConfigRead = false;
-    try {
-      const { serverConfigPath, serverName } = await getActiveServerPaths();
-      const sanitizedServerName = path.basename(serverName || "");
-      if (
-        serverConfigPath &&
-        sanitizedServerName === serverName &&
-        !serverName.includes("..")
-      ) {
-        const iniPath = path.join(serverConfigPath, `${serverName}.ini`);
-        if (fs.existsSync(iniPath)) {
-          const workshopMatch = readTextFile(iniPath).match(
-            /^WorkshopItems=(.*)$/m,
-          );
-          for (const id of workshopMatch?.[1]?.split(";") || []) {
-            if (id) configuredWorkshopIds.add(id);
-          }
-          serverConfigRead = true;
-        }
-      }
-    } catch (error) {
-      serverConfigRead = false;
-      log.debug(`Collection server membership check skipped: ${error.message}`);
-    }
+    const membership = await readCollectionServerMembership();
+    const configuredWorkshopIds = membership.ids;
+    const serverConfigRead = membership.read;
+    const diff = await computeCollectionDiff(
+      collectionMirrorIds(membership, ids),
+    );
 
     // Build a unified, name-enriched item list so the UI can show every
     // tracked + collection mod in one table with per-row actions. This is
@@ -1434,7 +1548,9 @@ router.post("/collection/sync", async (req, res) => {
     }
     const tracked = await getTrackedMods();
     const trackedIds = tracked.map((m) => String(m.workshop_id));
-    const diff = await computeCollectionDiff(trackedIds);
+    const diff = await computeCollectionDiff(
+      collectionMirrorIds(await readCollectionServerMembership(), trackedIds),
+    );
     if (!diff.ok) {
       return res
         .status(502)
@@ -1648,10 +1764,13 @@ router.post("/collection/extension-push", async (req, res) => {
 // to the install, but falls back to zipping `browser-extension/` on the fly —
 // Docker images and pkg builds ship the source folder, not the zip, so
 // relying on a prebuilt artifact made this endpoint 404 for most installs.
+// Every file popup.html loads must be listed: a missing urlPolicy.js would
+// leave the popup unable to send anything.
 const EXTENSION_SOURCE_FILES = [
   "manifest.json",
   "popup.html",
   "popup.css",
+  "urlPolicy.js",
   "popup.js",
   "README.md",
 ];
@@ -2226,7 +2345,7 @@ router.post("/write-to-ini", async (req, res) => {
       // three writers need to agree on what a key line looks like; this
       // brings mods.js's match+replace in line with the other two.
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${modIdList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${modIdList}`);
       } else {
         content += `\nMods=${modIdList}`;
       }
@@ -2235,7 +2354,7 @@ router.post("/write-to-ini", async (req, res) => {
       if (content.match(/^[ \t]*WorkshopItems[ \t]*=.*/m)) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${workshopIdList}`,
+          () => `WorkshopItems=${workshopIdList}`,
         );
       } else {
         content += `\nWorkshopItems=${workshopIdList}`;
@@ -2244,7 +2363,7 @@ router.post("/write-to-ini", async (req, res) => {
       // Update or add Map= (only if we have custom maps)
       if (detectedMapFolders && detectedMapFolders.length > 0) {
         if (content.match(/^[ \t]*Map[ \t]*=.*/m)) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${mapList}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${mapList}`);
         } else {
           content += `\nMap=${mapList}`;
         }
@@ -2335,9 +2454,9 @@ router.get("/current-config", async (req, res) => {
     const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
     const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
 
-    const modIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-    const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
-    const maps = mapMatch?.[1]?.split(";").filter(Boolean) || ["Muldraugh, KY"];
+    const modIds = splitModIdList(modsMatch?.[1]);
+    const workshopIds = splitIniList(workshopMatch?.[1]);
+    const maps = mapMatch ? splitIniList(mapMatch[1]) : ["Muldraugh, KY"];
 
     // Everything above reads via content.match(/^Key=.../m) with no /g --
     // the FIRST occurrence only. A duplicated key means this page is
@@ -2351,18 +2470,31 @@ router.get("/current-config", async (req, res) => {
 
     // Build workshop → modId mapping from disk
     const modIdSet = new Set(modIds);
-    const workshopModMap = {}; // workshopId -> [{ id, name, enabled, require }]
+    const workshopModMap = {}; // workshopId -> [{ id, name, enabled, require, loadAfter, loadBefore, incompatible, modInfoIssues }]
+    const knownMods = [];
     if (serverPath) {
       for (const wsId of workshopIds) {
         const details = getModDetailsFromWorkshop(wsId, serverPath);
+        knownMods.push(...details);
         workshopModMap[wsId] = details.map((m) => ({
           id: m.id,
           name: m.name || m.id,
           enabled: modIdSet.has(m.id),
           require: m.require?.length ? m.require : undefined,
+          loadAfter: m.loadAfter?.length ? m.loadAfter : undefined,
+          loadBefore: m.loadBefore?.length ? m.loadBefore : undefined,
+          incompatible: m.incompatible?.length ? m.incompatible : undefined,
+          modInfoIssues: m.modInfoIssues?.length ? m.modInfoIssues : undefined,
         }));
       }
     }
+    // The order the server really loads Mods= in, what is wrong with it, and
+    // the ordering rules a sort should keep (utils/modLoadOrder.js).
+    const { effectiveModOrder, orderWarnings, orderingConstraints } = analyzeModOrder(
+      modIds,
+      knownMods,
+      { conflictWinners: cachedConflictWinners(workshopIds, modIds, serverPath) },
+    );
 
     res.json({
       configured: true,
@@ -2372,6 +2504,9 @@ router.get("/current-config", async (req, res) => {
       totalMods: modIds.length,
       iniPath: (await hostPathViewFor(req.user)).file(iniPath),
       workshopModMap,
+      effectiveModOrder,
+      orderWarnings,
+      orderingConstraints,
       duplicateKeys,
       // { modId, workshopId } when those entries are PanelBridge's own
       // Steam Workshop delivery (the Mods page badges and locks them).
@@ -2447,11 +2582,11 @@ router.post("/toggle-mod-id", async (req, res) => {
       // "Mods = foo" line previously parsed as zero current mods AND took
       // the append branch, creating a duplicate "Mods=" key.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      let currentModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-      const currentWorkshopIds =
-        content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1]
-          ?.split(";")
-          .filter(Boolean) || [];
+      let currentModIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...currentModIds];
+      const currentWorkshopIds = splitIniList(
+        content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1],
+      );
 
       // Reject attempts to ENABLE a workshop-ID-shaped value as a mod ID,
       // UNLESS a real mod.info on disk confirms it's a legitimate mod ID
@@ -2484,6 +2619,7 @@ router.post("/toggle-mod-id", async (req, res) => {
         currentModIds,
         currentWorkshopIds,
         serverPath,
+        modIdsBefore,
       );
       // Reuse modsMatch (already computed above) as the existence check --
       // a separate content.includes("Mods=") would match those characters
@@ -2492,7 +2628,7 @@ router.post("/toggle-mod-id", async (req, res) => {
       // no-ops. See the 2026-08-27 comment on this file's first ini-write
       // site for the full explanation.
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -2607,11 +2743,11 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
       // see /toggle-mod-id above for why the guard AND the read must both
       // change together.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      let currentModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-      const currentWorkshopIds =
-        content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1]
-          ?.split(";")
-          .filter(Boolean) || [];
+      let currentModIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...currentModIds];
+      const currentWorkshopIds = splitIniList(
+        content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1],
+      );
 
       // Reject changes that try to ENABLE a workshop-ID-shaped value,
       // UNLESS a real mod.info on disk confirms it's a legitimate mod ID
@@ -2645,11 +2781,12 @@ router.post("/batch-toggle-mod-ids", async (req, res) => {
         currentModIds,
         currentWorkshopIds,
         serverPath,
+        modIdsBefore,
       );
       // Reuse modsMatch (see this file's first ini-write site for why a
       // separate .includes("Mods=") is wrong here).
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -2739,62 +2876,32 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
-    // Do all async detection work BEFORE taking the lock
-    let detectedModId = modId;
-    let detectionSource = "provided";
+    // Do all async detection work BEFORE taking the lock.
+    //
     // continuous-bug-hunt round 27 (mod load order / Workshop collection
-    // import): a single workshop item's mod.info can declare several `id=`
-    // lines (getModDetailsFromWorkshop's own comment; findModIdFromWorkshop
-    // below is explicitly documented as "return the first ID found (legacy
-    // behavior)"). This route only ever enabled that one default id in
-    // Mods=, with nothing telling the operator the workshop item actually
-    // bundled more mods -- WorkshopItems= (content downloaded/tracked) and
-    // Mods= (content enabled) silently drifted out of step for every extra
-    // bundled mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's
-    // addToIni, called with no explicit modId for every ordinary add). The
-    // sibling /sync-mod-ids route already solved this correctly -- same
-    // "auto-enable the default, report the rest as `alternatives`" shape,
-    // deliberately NOT auto-enabling every bundled id unasked (a workshop
-    // item's other ids can be genuinely optional sub-content, not always
-    // meant to all load) -- this just brings /add-to-ini in line with that
-    // established pattern instead of silently discarding the same
-    // information the sync route already knows how to report.
-    let alternativeModIds = [];
-
-    if (!detectedModId) {
-      // First, try to find from already downloaded workshop folder
-      if (serverPath) {
-        const availableModIds = findAllModIdsFromWorkshop(
-          String(workshopId),
-          serverPath,
-        );
-        if (availableModIds.length > 0) {
-          detectedModId = availableModIds[0];
-          alternativeModIds = availableModIds.slice(1);
-          detectionSource = "local-files";
-          log.info(
-            `Auto-detected mod ID from local files: ${detectedModId} for workshop ${workshopId}` +
-              (alternativeModIds.length > 0
-                ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
-                : ""),
-          );
-        }
-      }
-
-      // If not found locally, try to fetch from Steam Workshop page description
-      if (!detectedModId) {
-        detectedModId = await fetchModIdFromWorkshop(String(workshopId));
-        if (detectedModId) {
-          detectionSource = "steam-workshop";
-          log.info(
-            `Auto-detected mod ID from Steam Workshop: ${detectedModId} for workshop ${workshopId}`,
-          );
-        }
-      }
-    }
+    // import): a single workshop item can bundle several mods (one mod folder
+    // each). This route only ever enabled the default (first) one in Mods=,
+    // with nothing telling the operator the workshop item actually bundled
+    // more mods -- WorkshopItems= (content downloaded/tracked) and Mods=
+    // (content enabled) silently drifted out of step for every extra bundled
+    // mod, invisibly, on the MAIN "add a mod" path (Mods.tsx's addToIni,
+    // called with no explicit modId for every ordinary add). The sibling
+    // /sync-mod-ids route already solved this correctly -- same "auto-enable
+    // the default, report the rest as `alternatives`" shape, deliberately NOT
+    // auto-enabling every bundled id unasked (a workshop item's other mods
+    // can be genuinely optional sub-content, not always meant to all load) --
+    // so does this one (resolveModIdsForAddition, `discover: "first"`).
+    const resolution = await resolveModIdsForAddition({
+      workshopId: String(workshopId),
+      explicitModIds: modId ? [String(modId)] : [],
+      discover: modId ? "none" : "first",
+      serverPath,
+    });
+    const detectedModId = resolution.modIds[0] || null;
+    const detectionSource = resolution.detectionSource;
+    const alternativeModIds = resolution.alternativeModIds;
 
     // Detect map folders (async-safe, doesn't touch INI)
-    let addedMapFolders = [];
     let modMapFolders = [];
     if (serverPath) {
       modMapFolders = findMapFoldersFromWorkshop(
@@ -2805,83 +2912,25 @@ router.post("/add-to-ini", async (req, res) => {
 
     // Atomically read-modify-write inside the lock
     const result = await withIniLock(iniPath, async () => {
-      let content = readTextFile(iniPath);
-
-      // Widened to tolerate whitespace around "=" (hunt-wave13, 3d1921ad) --
-      // see /toggle-mod-id for why the guard AND the read must both change
-      // together (each match variable doubles as the current-value parse
-      // and the exists-check the replace below relies on).
-      const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWorkshopIds =
-        workshopMatch?.[1]?.split(";").filter(Boolean) || [];
-      const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+      const applied = addWorkshopItemToIni(readTextFile(iniPath), {
+        workshopId: String(workshopId),
+        modIds: detectedModId ? [detectedModId] : [],
+        mapFolders: modMapFolders,
+        serverPath,
+      });
 
       // Check if mod is already in the list
-      if (currentWorkshopIds.includes(String(workshopId))) {
+      if (applied.workshopAlreadyExisted) {
         return { alreadyExists: true };
       }
 
-      // Add the new workshop ID
-      currentWorkshopIds.push(String(workshopId));
-      const newWorkshopList = sanitizeIniList(currentWorkshopIds);
-
-      // Add the mod ID if we have one (provided or detected)
-      if (detectedModId && !currentModIds.includes(detectedModId)) {
-        currentModIds.push(detectedModId);
-      }
-      const newModList = sanitizeModIdList(currentModIds);
-
-      // Update WorkshopItems= -- reuse workshopMatch (computed above) as the
-      // existence check, not a separate .includes() (see this file's first
-      // ini-write site for why).
-      if (workshopMatch) {
-        content = content.replace(
-          /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${newWorkshopList}`,
-        );
-      } else {
-        content += `\nWorkshopItems=${newWorkshopList}`;
-      }
-
-      // Update Mods= if we have a modId -- reuse modsMatch.
-      if (detectedModId) {
-        if (modsMatch) {
-          content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
-        } else {
-          content += `\nMods=${newModList}`;
-        }
-      }
-
-      // Add map folders if detected
-      if (modMapFolders.length > 0) {
-        const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-        let currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [
-          "Muldraugh, KY",
-        ];
-
-        for (const folder of modMapFolders) {
-          if (!currentMaps.includes(folder)) {
-            currentMaps.unshift(folder);
-            addedMapFolders.push(folder);
-            log.info(`Added map folder: ${folder} for workshop ${workshopId}`);
-          }
-        }
-
-        const newMapList = currentMaps.join(";");
-        if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
-        } else {
-          content += `\nMap=${newMapList}`;
-        }
-      }
-
       const backupWarning = backupWarningFor(
-        await writeIniWithBackup(iniPath, content),
+        await writeIniWithBackup(iniPath, applied.content),
       );
       return {
         alreadyExists: false,
-        totalWorkshopItems: currentWorkshopIds.length,
+        totalWorkshopItems: applied.workshopCount,
+        addedMapFolders: applied.addedMapFolders,
         backupWarning,
       };
     });
@@ -2894,6 +2943,7 @@ router.post("/add-to-ini", async (req, res) => {
       });
     }
 
+    const addedMapFolders = result.addedMapFolders;
     log.info(
       `Added mod ${workshopId} to ${iniPath}${addedMapFolders.length > 0 ? ` with map folders: ${addedMapFolders.join(", ")}` : ""}`,
     );
@@ -2925,17 +2975,36 @@ router.post("/add-to-ini", async (req, res) => {
   }
 });
 
+// The first id= after the description's first [code], when a [/code] follows
+// it: what /\[code\][\s\S]*?id\s*=\s*([^\s\[\]]+)[\s\S]*?\[\/code\]/i
+// matched, found in one pass. That regex retried every [code] against every
+// id= and every later position (cubic: a 16,000-character Workshop
+// description took 2.7 s). A later [code] can only find the same id= or a
+// later one, and the value stops at "[", so this is the same answer.
+function matchCodeBlockId(text) {
+  const open = /\[code\]/i.exec(text);
+  if (!open) return null;
+  const idPattern = /id\s*=\s*([^\s[\]]+)/gi;
+  idPattern.lastIndex = open.index + open[0].length;
+  const idMatch = idPattern.exec(text);
+  if (!idMatch) return null;
+  const close = /\[\/code\]/gi;
+  close.lastIndex = idMatch.index + idMatch[0].length;
+  return close.test(text) ? idMatch : null;
+}
+
 export function extractWorkshopModId(description, title) {
   const patterns = [
     /Mod\s*ID\s*[:=]\s*([^\n\r\[\]<>]+)/i,
     /\bid\s*=\s*([^\n\r\[\]<>]+)/i,
     /\bMod\s*:\s*([^\n\r\[\]<>]+)/i,
-    /\[code\][\s\S]*?id\s*=\s*([^\s\n\r\[\]]+)[\s\S]*?\[\/code\]/i,
+    matchCodeBlockId,
     /IDs\s*[:=]\s*([^\n\r\[\]<>]+)/i,
   ];
 
+  const text = String(description || "");
   for (const pattern of patterns) {
-    const match = String(description || "").match(pattern);
+    const match = typeof pattern === "function" ? pattern(text) : text.match(pattern);
     if (!match) continue;
     const candidate = match[1].trim();
     if (/^[A-Za-z0-9_-]+$/.test(candidate) && candidate.length > 0) {
@@ -3006,413 +3075,86 @@ async function fetchModIdFromWorkshop(workshopId) {
   }
 }
 
-// Helper to get workshop paths for a mod
-function getWorkshopPaths(workshopId, serverPath) {
-  const home = os.homedir();
-  const paths = [
-    // Server's steamapps folder
-    path.join(
-      serverPath,
-      "steamapps",
-      "workshop",
-      "content",
-      "108600",
-      workshopId,
-    ),
-    // Alternative location
-    path.join(
-      serverPath,
-      "..",
-      "steamapps",
-      "workshop",
-      "content",
-      "108600",
-      workshopId,
-    ),
-    // User's Steam folder — platform-specific
-    path.join(
-      home,
-      "Steam",
-      "steamapps",
-      "workshop",
-      "content",
-      "108600",
-      workshopId,
-    ),
-  ];
-  // Add Linux-specific Steam paths
-  if (process.platform !== "win32") {
-    paths.push(
-      path.join(
-        home,
-        ".local",
-        "share",
-        "Steam",
-        "steamapps",
-        "workshop",
-        "content",
-        "108600",
-        workshopId,
-      ),
-      path.join(
-        home,
-        ".steam",
-        "steam",
-        "steamapps",
-        "workshop",
-        "content",
-        "108600",
-        workshopId,
-      ),
-      // Flatpak Steam sandboxes $HOME under ~/.var/app/<appid>, so its
-      // steamapps live at a completely different path from a native install.
-      path.join(
-        home,
-        ".var",
-        "app",
-        "com.valvesoftware.Steam",
-        ".local",
-        "share",
-        "Steam",
-        "steamapps",
-        "workshop",
-        "content",
-        "108600",
-        workshopId,
-      ),
+// Which mod ids should adding a workshop item enable? One answer for POST
+// /add-to-ini, POST /add-mod-advanced and the bulk POST /add-to-ini-bulk.
+//   discover "none"  -- exactly `explicitModIds`, nothing looked up
+//            "first" -- the id the game loads from the item's first mod folder;
+//                       the other mods of the item come back as
+//                       `alternativeModIds` (not enabled unasked)
+//            "all"   -- every mod of the item, plus any explicit ids
+// An item that is not downloaded yet has no mod.info on disk, so when nothing
+// was found and no id was given the Steam Workshop page is asked (unless
+// `allowSteam` is false). No id at all comes back as `modIds: []`: the item can
+// then only be added to WorkshopItems=, and callers must say so.
+async function resolveModIdsForAddition({
+  workshopId,
+  explicitModIds = [],
+  discover,
+  serverPath,
+  allowSteam = true,
+}) {
+  let modIds = [...explicitModIds];
+  let alternativeModIds = [];
+  let detectionSource = modIds.length > 0 ? "provided" : null;
+
+  const found =
+    discover !== "none" && serverPath
+      ? findAllModIdsFromWorkshop(workshopId, serverPath)
+      : [];
+  if (found.length > 0) {
+    if (discover === "all") {
+      for (const id of found) if (!modIds.includes(id)) modIds.push(id);
+    } else if (modIds.length === 0) {
+      modIds = [found[0]];
+      alternativeModIds = found.slice(1);
+    }
+    detectionSource ??= "local-files";
+    log.info(
+      `Auto-detected mod ID from local files: ${found.join(", ")} for workshop ${workshopId}` +
+        (alternativeModIds.length > 0
+          ? ` (${alternativeModIds.length} additional mod id(s) in this workshop item not auto-enabled: ${alternativeModIds.join(", ")})`
+          : ""),
     );
   }
-  return paths;
-}
 
-// Helper to check if a map folder contains actual map tile data (not just overlays/spawns)
-// Valid map folders have .lotheader, objects.lua, or .lotpack/.bin cell data
-function isValidMapFolder(mapFolderPath) {
-  try {
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    const files = fs.readdirSync(mapFolderPath);
-    for (const file of files) {
-      const lower = file.toLowerCase();
-      if (
-        lower.endsWith(".lotheader") ||
-        lower === "objects.lua" ||
-        lower.endsWith(".lotpack")
-      ) {
-        return true;
-      }
-      // Cell data files like chunkdata_*_*_*.bin or world_*_*.lotpack
-      if (lower.startsWith("world_") || lower.startsWith("chunkdata_")) {
-        return true;
-      }
-    }
-    return false;
-  } catch (e) {
-    log.debug(`Error validating map folder ${mapFolderPath}: ${e.message}`);
-    return false;
-  }
-}
-
-// Helper function to find map folders from a workshop mod
-// Map mods have a media/maps folder with their map folder inside
-// Only returns folders that contain actual map tile data
-function findMapFoldersFromWorkshop(workshopId, serverPath) {
-  const mapFolders = [];
-  const possiblePaths = getWorkshopPaths(workshopId, serverPath);
-
-  // Helper: scan a media/maps directory for valid map subfolders
-  function scanMapsDir(mapsPath) {
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    if (!fs.existsSync(mapsPath)) return;
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    const mapEntries = fs.readdirSync(mapsPath, { withFileTypes: true });
-    for (const mapEntry of mapEntries) {
-      if (
-        mapEntry.isDirectory() &&
-        !mapFolders.includes(mapEntry.name) &&
-        isValidMapFolder(path.join(mapsPath, mapEntry.name))
-      ) {
-        mapFolders.push(mapEntry.name);
-        log.debug(
-          `Found valid map folder: ${mapEntry.name} in workshop ${workshopId}`,
-        );
-      }
+  // Not downloaded (or no mod.info yet): the Steam Workshop page description
+  if (modIds.length === 0 && discover !== "none" && allowSteam) {
+    const steamModId = await fetchModIdFromWorkshop(workshopId);
+    if (steamModId) {
+      modIds = [steamModId];
+      detectionSource = "steam-workshop";
+      log.info(
+        `Auto-detected mod ID from Steam Workshop: ${steamModId} for workshop ${workshopId}`,
+      );
     }
   }
 
-  for (const workshopPath of possiblePaths) {
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    if (!fs.existsSync(workshopPath)) continue;
+  return { modIds, alternativeModIds, detectionSource };
+}
 
-    // Look for mods subfolder first (some mods have mods/ModName/media/maps structure)
-    const modsFolder = path.join(workshopPath, "mods");
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    const searchPath = fs.existsSync(modsFolder) ? modsFolder : workshopPath;
-
-    try {
-      // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-      if (fs.existsSync(searchPath)) {
-        // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-        const entries = fs.readdirSync(searchPath, { withFileTypes: true });
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue;
-          const entryPath = path.join(searchPath, entry.name);
-
-          // Check standard path: <entry>/media/maps/
-          scanMapsDir(path.join(entryPath, "media", "maps"));
-
-          // B42 multi-version layout: probe every direct subdirectory for
-          // <entry>/<sub>/media/maps/ (covers common, 42, 42.0, 42.1, 41,
-          // 43, and any future version folder).
-          try {
-            // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-            const subEntries = fs.readdirSync(entryPath, {
-              withFileTypes: true,
-            });
-            for (const sub of subEntries) {
-              if (sub.isDirectory()) {
-                scanMapsDir(path.join(entryPath, sub.name, "media", "maps"));
-              }
-            }
-          } catch {
-            // Ignore unreadable mod folders
-          }
-        }
-      }
-
-      // Also check direct media/maps path (some mods don't have mods subfolder)
-      scanMapsDir(path.join(workshopPath, "media", "maps"));
-
-      if (mapFolders.length > 0) return mapFolders;
-    } catch (e) {
-      // Continue to next path
-    }
+// What an addition amounted to, for the response (and the client's toast):
+//   "added"              at least one mod ID was written to Mods=
+//   "already-configured" nothing needed changing (or only the workshop id was new)
+//   "workshop-only"      the item was added to WorkshopItems= but no mod ID is
+//                        known, so nothing was enabled -- it will not load
+function additionStatus(resolvedModIdCount, applied) {
+  if (applied.addedModIds.length > 0) return "added";
+  if (resolvedModIdCount === 0 && !applied.workshopAlreadyExisted) {
+    return "workshop-only";
   }
-
-  return mapFolders;
+  return "already-configured";
 }
 
-// Helper function to find ALL mod IDs from workshop folder (returns array)
-function findAllModIdsFromWorkshop(workshopId, serverPath) {
-  const mods = getModDetailsFromWorkshop(workshopId, serverPath);
-  return mods.map((m) => m.id);
-}
-
-// Helper function to find mod ID from workshop folder
-function findModIdFromWorkshop(workshopId, serverPath) {
-  // Use shared helper to parse details
-  const mods = getModDetailsFromWorkshop(workshopId, serverPath);
-  // Return the first ID found (legacy behavior)
-  return mods.length > 0 ? mods[0].id : null;
-}
-
-// A workshop-ID-shaped modId is ambiguous by regex alone: some mods
-// legitimately use their Steam Workshop file ID as their mod.info id= too
-// (e.g. "Tear All Clothes" 3519629457 -- see enable-disk-mod/
-// resolve-orphan-workshop above, which already trust disk-resolved IDs
-// unconditionally for this exact reason). Disk verification is strictly
-// MORE evidence than the regex that flagged it ambiguous in the first
-// place, so toggle/batch-toggle can use it to tell a real numeric mod ID
-// apart from an actually-misplaced workshop ID, instead of rejecting both
-// alike. Checks every currently-configured WorkshopItems= entry (not just
-// one) since we don't know in advance which workshop item owns this mod ID.
-function isModIdVerifiedOnDisk(modId, currentWorkshopIds, serverPath) {
-  if (!serverPath || !currentWorkshopIds?.length) return false;
-  for (const wsId of currentWorkshopIds) {
-    try {
-      if (findAllModIdsFromWorkshop(wsId, serverPath).includes(modId)) {
-        return true;
-      }
-    } catch {
-      // Unreadable/missing workshop folder for this ID -- not evidence
-      // either way, keep checking the rest.
-    }
+function additionMessage(status, applied) {
+  if (status === "added") {
+    return `Added ${applied.addedModIds.length} mod ID(s): ${applied.addedModIds.join(", ")}`;
   }
-  return false;
-}
-
-// Same job as sanitizeModIdList (utils/sanitize.js), plus the disk-
-// verification bypass above: a numeric-looking entry is dropped UNLESS it's
-// independently confirmed by a real mod.info on disk. Order-preserving
-// single pass -- unlike a filter-then-append union, this doesn't reshuffle
-// a disk-verified entry to the end of the list, which would silently change
-// load order as a side effect of an unrelated toggle. Used for
-// toggle/batch-toggle, which (unlike save-order/presets-apply) mutate one
-// entry in an existing list rather than replacing the whole thing, so a
-// pre-existing numeric-ID mod elsewhere in that list is also at risk of
-// being silently dropped by a completely unrelated toggle if this isn't
-// applied to the FULL list, not just the entry being toggled.
-function sanitizeModIdListWithDiskBypass(ids, currentWorkshopIds, serverPath) {
-  const out = [];
-  for (const raw of ids || []) {
-    const v = sanitizeIniValue(raw);
-    if (!v) continue;
-    if (
-      looksLikeWorkshopId(v) &&
-      !isModIdVerifiedOnDisk(v, currentWorkshopIds, serverPath)
-    ) {
-      continue;
-    }
-    out.push(v);
+  if (status === "workshop-only") {
+    return "Workshop ID added to WorkshopItems only: its mod ID is not known yet, so nothing was enabled. Start the server to download it, then use Sync Mod IDs.";
   }
-  return out.join(";");
-}
-
-// Remove a single mod from server .ini file
-
-// Helper to getting full details of mods inside a workshop item.
-//
-// B42 introduced a multi-version layout where mod.info can live under
-// versioned subdirectories of the mod folder (e.g. <mod>/common/mod.info,
-// <mod>/42/mod.info, <mod>/42.0/mod.info, future <mod>/43/mod.info, ...).
-// We probe the mod root AND every direct subdirectory so we resolve mods
-// regardless of which layout the author used, instead of relying on a
-// fixed allowlist of folder names.
-//
-// A single mod.info can ALSO declare multiple `id=` lines (sub-mods that
-// share assets). We collect every id rather than letting later lines
-// overwrite earlier ones.
-function parseModInfoVersionFolder(folderName) {
-  if (!/^\d+(?:\.\d+)*$/.test(folderName)) return null;
-  return folderName.split(".").map((part) => Number.parseInt(part, 10));
-}
-
-function compareModInfoCandidatePaths(leftCandidate, rightCandidate) {
-  const leftVersion = leftCandidate.version;
-  const rightVersion = rightCandidate.version;
-
-  if (leftVersion && !rightVersion) return -1;
-  if (!leftVersion && rightVersion) return 1;
-
-  if (leftVersion && rightVersion) {
-    const maxParts = Math.max(leftVersion.length, rightVersion.length);
-    for (let partIndex = 0; partIndex < maxParts; partIndex++) {
-      const leftPart = leftVersion[partIndex] || 0;
-      const rightPart = rightVersion[partIndex] || 0;
-      if (leftPart !== rightPart) return rightPart - leftPart;
-    }
-  }
-
-  return leftCandidate.order - rightCandidate.order;
-}
-
-export function getModDetailsFromWorkshop(workshopId, serverPath) {
-  const mods = [];
-  const seenIds = new Set();
-  const possiblePaths = getWorkshopPaths(workshopId, serverPath);
-
-  // Parse a mod.info file and return { ids: [...], meta: { name, poster, ... } }.
-  function parseModInfoFile(modInfoPath) {
-    const ids = [];
-    const meta = {};
-    let content;
-    try {
-      content = readTextFile(modInfoPath);
-    } catch {
-      return { ids, meta };
-    }
-    if (!content) return { ids, meta };
-    if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
-    for (const rawLine of content.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      if (!line || line.startsWith("//") || line.startsWith("#")) continue;
-      const idx = line.indexOf("=");
-      if (idx === -1) continue;
-      const key = line.substring(0, idx).trim();
-      const val = line.substring(idx + 1).trim();
-      if (!key) continue;
-      if (key.toLowerCase() === "id") {
-        if (val) ids.push(val);
-      } else if (!(key in meta)) {
-        // First-occurrence wins for non-id fields (name/poster/icon/etc.)
-        meta[key] = val;
-      }
-    }
-    return { ids, meta };
-  }
-
-  for (const workshopPath of possiblePaths) {
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    if (!fs.existsSync(workshopPath)) continue;
-
-    const modsFolder = path.join(workshopPath, "mods");
-    // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-    const searchPath = fs.existsSync(modsFolder) ? modsFolder : workshopPath;
-
-    try {
-      // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-      const entries = fs.readdirSync(searchPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const modDir = path.join(searchPath, entry.name);
-        // Build candidate mod.info paths: the mod root, plus every direct
-        // subdirectory (covers `common/`, `42/`, `42.0/`, `41/`, `43/`, ...).
-        const candidatePaths = [
-          {
-            path: path.join(modDir, "mod.info"),
-            version: null,
-            order: 0,
-          },
-        ];
-        try {
-          const subfolders = fs
-            // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-            .readdirSync(modDir, { withFileTypes: true })
-            .filter((sub) => sub.isDirectory())
-            .map((sub) => sub.name)
-            .sort((leftName, rightName) =>
-              leftName.localeCompare(rightName, undefined, {
-                numeric: true,
-                sensitivity: "base",
-              }),
-            );
-          for (const [subIndex, subfolder] of subfolders.entries()) {
-            candidatePaths.push({
-              path: path.join(modDir, subfolder, "mod.info"),
-              version: parseModInfoVersionFolder(subfolder),
-              order: subIndex + 1,
-            });
-          }
-        } catch (e) {
-          log.debug(`Failed to scan subdirs for ${modDir}: ${e.message}`);
-        }
-
-        // Read every existing mod.info under this mod folder. Multiple
-        // version-specific files may coexist; we union the declared ids.
-        for (const candidate of candidatePaths
-          // codeql[js/path-injection] workshopId is validated as /^\d{1,15}$/ at this file's POST /inspect-workshop-item handler before reaching getWorkshopPaths/getModDetailsFromWorkshop/findMapFoldersFromWorkshop -- CodeQL's only tracked source for this sink is that numeric-validated field.
-          .filter((item) => fs.existsSync(item.path))
-          .sort(compareModInfoCandidatePaths)) {
-          const { ids, meta } = parseModInfoFile(candidate.path);
-          for (const id of ids) {
-            if (seenIds.has(id)) continue;
-            seenIds.add(id);
-            mods.push({
-              id,
-              name: meta.name || id,
-              poster: meta.poster,
-              icon: meta.icon,
-              description: meta.description || "",
-              url: meta.url,
-              require: meta.require
-                ? meta.require
-                    .split(/[,;]/)
-                    .map((s) => s.trim().replace(/^\\+/, ""))
-                    .filter(Boolean)
-                : [],
-            });
-          }
-        }
-      }
-
-      // If we found mods in this path, stop searching other paths
-      if (mods.length > 0) return mods;
-    } catch (e) {
-      log.debug(`Error scanning path ${searchPath}: ${e.message}`);
-    }
-  }
-
-  return mods;
+  return applied.workshopAlreadyExisted
+    ? "Already configured (the workshop item and its mod IDs were already in the server config)"
+    : "Workshop ID added (mod IDs were already configured)";
 }
 
 export function scoreWorkshopDependencyMatch(query, modId, modName) {
@@ -3568,11 +3310,12 @@ router.post("/remove-from-ini", async (req, res) => {
       // and the replace two guards down silently no-opped instead of
       // actually removing the workshop ID).
       const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      let workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
+      let workshopIds = splitIniList(workshopMatch?.[1]);
 
       // Get current mod IDs
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      let modIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+      let modIds = splitModIdList(modsMatch?.[1]);
+      const modIdsBefore = [...modIds];
 
       // Remove from workshop items
       workshopIds = workshopIds.filter((id) => id !== String(workshopId));
@@ -3654,7 +3397,7 @@ router.post("/remove-from-ini", async (req, res) => {
         );
         if (modMapFolders.length > 0) {
           const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-          let currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
+          let currentMaps = splitIniList(mapMatch?.[1]);
 
           for (const folder of modMapFolders) {
             if (currentMaps.includes(folder)) {
@@ -3670,9 +3413,9 @@ router.post("/remove-from-ini", async (req, res) => {
             currentMaps = ["Muldraugh, KY"];
           }
 
-          const newMapList = currentMaps.join(";");
+          const newMapList = sanitizeIniList(currentMaps);
           if (mapMatch) {
-            content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
+            content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapList}`);
           } else {
             content += `\nMap=${newMapList}`;
           }
@@ -3685,7 +3428,7 @@ router.post("/remove-from-ini", async (req, res) => {
       if (workshopMatch) {
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${sanitizeIniList(workshopIds)}`,
+          () => `WorkshopItems=${sanitizeIniList(workshopIds)}`,
         );
       }
 
@@ -3693,7 +3436,8 @@ router.post("/remove-from-ini", async (req, res) => {
       if (modsMatch) {
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          `Mods=${sanitizeModIdList(modIds)}`,
+          () =>
+            `Mods=${sanitizeModIdListWithDiskBypass(modIds, workshopIds, serverPath, modIdsBefore)}`,
         );
       }
 
@@ -3815,13 +3559,14 @@ router.post("/batch-remove", async (req, res) => {
               /^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m,
             );
             let iniWorkshopIds =
-              workshopMatch?.[1]?.split(";").filter(Boolean) || [];
+              splitIniList(workshopMatch?.[1]);
 
             const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-            let iniModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+            let iniModIds = splitModIdList(modsMatch?.[1]);
+            const iniModIdsBefore = [...iniModIds];
 
             const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-            let iniMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
+            let iniMaps = splitIniList(mapMatch?.[1]);
 
             // Collect all mod IDs and map folders to remove
             const modIdsToRemove = new Set();
@@ -3852,19 +3597,20 @@ router.post("/batch-remove", async (req, res) => {
             if (workshopMatch) {
               content = content.replace(
                 /^[ \t]*WorkshopItems[ \t]*=.*/m,
-                `WorkshopItems=${sanitizeIniList(iniWorkshopIds)}`,
+                () => `WorkshopItems=${sanitizeIniList(iniWorkshopIds)}`,
               );
             }
             if (modsMatch) {
               content = content.replace(
                 /^[ \t]*Mods[ \t]*=.*/m,
-                `Mods=${sanitizeModIdList(iniModIds)}`,
+                () =>
+                  `Mods=${sanitizeModIdListWithDiskBypass(iniModIds, iniWorkshopIds, serverPath, iniModIdsBefore)}`,
               );
             }
             if (mapMatch) {
               content = content.replace(
                 /^[ \t]*Map[ \t]*=.*/m,
-                `Map=${sanitizeIniList(iniMaps)}`,
+                () => `Map=${sanitizeIniList(iniMaps)}`,
               );
             }
 
@@ -3988,7 +3734,7 @@ router.post("/repair-map-entries", async (req, res) => {
       // Widened to tolerate whitespace around "=" (hunt-wave13, 783672aa) --
       // mapMatch is the guard for the replace below.
       const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-      const currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
+      const currentMaps = splitIniList(mapMatch?.[1]);
 
       // Same widening -- this site was missed when hunt-wave13 landed. A
       // hand-edited "WorkshopItems = ..." line previously read as zero
@@ -3996,7 +3742,7 @@ router.post("/repair-map-entries", async (req, res) => {
       // any configured mod and strip every non-vanilla Map= entry as
       // "invalid", not just repair genuinely-stale ones.
       const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const workshopIds = workshopMatch?.[1]?.split(";").filter(Boolean) || [];
+      const workshopIds = splitIniList(workshopMatch?.[1]);
 
       const validMapFolders = new Set();
       for (const wsId of workshopIds) {
@@ -4043,11 +3789,11 @@ router.post("/repair-map-entries", async (req, res) => {
 
       let backupWarning = null;
       if (removedEntries.length > 0 || addedEntries.length > 0) {
-        const newMapLine = validEntries.join(";");
+        const newMapLine = sanitizeIniList(validEntries);
         // Reuse mapMatch (computed above), same fix as this file's first
         // ini-write site.
         if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapLine}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${newMapLine}`);
         }
         backupWarning = backupWarningFor(
           await writeIniWithBackup(iniPath, content),
@@ -4137,7 +3883,7 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
       // bill of health) instead of ever reading the real, possibly-
       // duplicated list.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentMods = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+      const currentMods = splitModIdList(modsMatch?.[1]);
 
       const seen = new Map();
       const deduped = [];
@@ -4156,9 +3902,10 @@ router.post("/deduplicate-mod-ids", async (req, res) => {
         return { noChanges: true, deduped };
       }
 
+      // Nothing is added here, so every entry is one the line already had.
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        `Mods=${sanitizeModIdList(deduped)}`,
+        () => `Mods=${sanitizeModIdListWithDiskBypass(deduped, [], null, currentMods)}`,
       );
       const backupWarning = backupWarningFor(
         await writeIniWithBackup(iniPath, content),
@@ -4264,7 +4011,7 @@ router.post("/add-missing-dep", async (req, res) => {
       // Add to WorkshopItems if not present. Widened to tolerate whitespace
       // around "=" (hunt-wave13, 783672aa) -- wsMatch is the guard below.
       const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWs = wsMatch?.[1]?.split(";").filter(Boolean) || [];
+      const currentWs = splitIniList(wsMatch?.[1]);
       let wsAdded = false;
       if (!currentWs.includes(wsIdStr)) {
         currentWs.push(wsIdStr);
@@ -4280,7 +4027,7 @@ router.post("/add-missing-dep", async (req, res) => {
         // Reuse wsMatch (computed above), same fix as this file's first
         // ini-write site.
         if (wsMatch) {
-          content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, wsLine);
+          content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => wsLine);
         } else {
           content += `\n${wsLine}`;
         }
@@ -4291,18 +4038,27 @@ router.post("/add-missing-dep", async (req, res) => {
       let modIdAdded = false;
       if (resolvedModId) {
         const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-        const currentMods = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+        const currentMods = splitModIdList(modsMatch?.[1]);
         if (!currentMods.includes(resolvedModId)) {
+          const modsBefore = [...currentMods];
           currentMods.push(resolvedModId);
+          // Entries already on the line are kept; only the added id faces the
+          // numeric-workshop-ID filter (unless a mod.info on disk confirms it).
+          const modsValue = sanitizeModIdListWithDiskBypass(
+            currentMods,
+            currentWs,
+            serverPath,
+            modsBefore,
+          );
           // Reuse modsMatch (computed above), same fix as this file's
           // first ini-write site.
           if (modsMatch) {
             content = content.replace(
               /^[ \t]*Mods[ \t]*=.*/m,
-              `Mods=${sanitizeModIdList(currentMods)}`,
+              () => `Mods=${modsValue}`,
             );
           } else {
-            content += `\nMods=${sanitizeModIdList(currentMods)}`;
+            content += `\nMods=${modsValue}`;
           }
           modIdAdded = true;
         }
@@ -4311,7 +4067,7 @@ router.post("/add-missing-dep", async (req, res) => {
       // Auto-detect map folders
       if (mapFolders.length > 0) {
         const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-        const currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
+        const currentMaps = splitIniList(mapMatch?.[1]);
         let mapsChanged = false;
         for (const f of mapFolders) {
           if (!currentMaps.includes(f)) {
@@ -4325,9 +4081,9 @@ router.post("/add-missing-dep", async (req, res) => {
           if (mapMatch)
             content = content.replace(
               /^[ \t]*Map[ \t]*=.*/m,
-              `Map=${currentMaps.join(";")}`,
+              () => `Map=${sanitizeIniList(currentMaps)}`,
             );
-          else content += `\nMap=${currentMaps.join(";")}`;
+          else content += `\nMap=${sanitizeIniList(currentMaps)}`;
         }
       }
 
@@ -4439,13 +4195,14 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       // Widened to tolerate whitespace around "=" (hunt-wave13, 783672aa) --
       // each match doubles as the exists-check for its replace below.
       const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWs = new Set(wsMatch?.[1]?.split(";").filter(Boolean) || []);
+      const currentWs = new Set(splitIniList(wsMatch?.[1]));
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       const currentMods = new Set(
-        modsMatch?.[1]?.split(";").filter(Boolean) || [],
+        splitModIdList(modsMatch?.[1]),
       );
+      const modsBefore = [...currentMods];
       const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-      const currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [];
+      const currentMaps = splitIniList(mapMatch?.[1]);
 
       let wsAdded = 0,
         modIdsAdded = 0;
@@ -4493,23 +4250,30 @@ router.post("/add-all-resolved-deps", async (req, res) => {
       }
 
       const wsLine = Array.from(currentWs).join(";");
-      const modsLine = sanitizeModIdList(Array.from(currentMods));
-      const mapLine = currentMaps.join(";");
+      // Entries already on the line are kept; only the added ids face the
+      // numeric-workshop-ID filter (unless a mod.info on disk confirms them).
+      const modsLine = sanitizeModIdListWithDiskBypass(
+        Array.from(currentMods),
+        Array.from(currentWs),
+        serverPath,
+        modsBefore,
+      );
+      const mapLine = sanitizeIniList(currentMaps);
 
       // Reuse wsMatch/modsMatch/mapMatch (computed above) instead of a
       // separate .includes(), same fix as this file's first ini-write site.
       if (wsMatch)
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${wsLine}`,
+          () => `WorkshopItems=${wsLine}`,
         );
       else content += `\nWorkshopItems=${wsLine}`;
       if (modsMatch)
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${modsLine}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${modsLine}`);
       else content += `\nMods=${modsLine}`;
       if (allMapFolders.length > 0) {
         if (mapMatch)
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${mapLine}`);
+          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, () => `Map=${mapLine}`);
         else content += `\nMap=${mapLine}`;
       }
 
@@ -4891,11 +4655,68 @@ router.post("/resolve-missing-deps", async (req, res) => {
       });
     }
 
+    // Same cap as the sibling POST /add-all-resolved-deps: every dep used to
+    // trigger a synchronous read of every downloaded mod.info, so an
+    // unbounded array pinned the event loop for as long as the caller liked.
+    if (deps.length > 200) {
+      return res.status(400).json({
+        error: "Too many dependencies in one request (max 200)",
+        code: ErrorCode.MODS_RESOLVE_DEPS_TOO_MANY,
+      });
+    }
+
     const serverPath = await getServerPath();
     const resolved = [];
 
+    // mod id -> { workshopId, name } over the downloaded workshop items, built
+    // on the first dep that needs it and shared by the rest of the request
+    // (one pass over the workshop folders instead of one per dep). The first
+    // item to declare an id wins, in the same scan order as before.
+    let localModIndex = null;
+    const buildLocalModIndex = () => {
+      const index = new Map();
+      if (!serverPath) return index;
+      const workshopPaths = [
+        path.join(serverPath, "steamapps", "workshop", "content", "108600"),
+        path.join(
+          serverPath,
+          "..",
+          "steamapps",
+          "workshop",
+          "content",
+          "108600",
+        ),
+      ];
+      for (const workshopBase of workshopPaths) {
+        if (!fs.existsSync(workshopBase)) continue;
+        try {
+          for (const entry of fs.readdirSync(workshopBase, {
+            withFileTypes: true,
+          })) {
+            if (!entry.isDirectory()) continue;
+            try {
+              for (const mod of getModDetailsFromWorkshop(entry.name, serverPath)) {
+                if (!index.has(mod.id)) {
+                  index.set(mod.id, { workshopId: entry.name, name: mod.name });
+                }
+              }
+            } catch (e) {
+              log.debug(
+                `Error reading mod details during dep resolution: ${e.message}`,
+              );
+            }
+          }
+        } catch (e) {
+          log.debug(
+            `Error reading workshop path during dep scan: ${e.message}`,
+          );
+        }
+      }
+      return index;
+    };
+
     for (const dep of deps) {
-      const missingDep = dep.missingDep;
+      const missingDep = dep?.missingDep;
       if (!missingDep || typeof missingDep !== "string") continue;
       if (dep.resolvedWorkshopId) {
         resolved.push(dep);
@@ -4903,56 +4724,17 @@ router.post("/resolve-missing-deps", async (req, res) => {
       }
 
       // Search locally
-      let found = false;
-      if (serverPath) {
-        const workshopPaths = [
-          path.join(serverPath, "steamapps", "workshop", "content", "108600"),
-          path.join(
-            serverPath,
-            "..",
-            "steamapps",
-            "workshop",
-            "content",
-            "108600",
-          ),
-        ];
-        for (const workshopBase of workshopPaths) {
-          if (found || !fs.existsSync(workshopBase)) continue;
-          try {
-            for (const entry of fs.readdirSync(workshopBase, {
-              withFileTypes: true,
-            })) {
-              if (!entry.isDirectory() || found) continue;
-              try {
-                const details = getModDetailsFromWorkshop(
-                  entry.name,
-                  serverPath,
-                );
-                for (const mod of details) {
-                  if (mod.id === missingDep) {
-                    resolved.push({
-                      ...dep,
-                      resolvedWorkshopId: entry.name,
-                      resolvedModName: mod.name,
-                    });
-                    found = true;
-                    break;
-                  }
-                }
-              } catch (e) {
-                log.debug(
-                  `Error reading mod details during dep resolution: ${e.message}`,
-                );
-              }
-            }
-          } catch (e) {
-            log.debug(
-              `Error reading workshop path during dep scan: ${e.message}`,
-            );
-          }
-        }
+      localModIndex ??= buildLocalModIndex();
+      const match = localModIndex.get(missingDep);
+      if (match) {
+        resolved.push({
+          ...dep,
+          resolvedWorkshopId: match.workshopId,
+          resolvedModName: match.name,
+        });
+      } else {
+        resolved.push(dep);
       }
-      if (!found) resolved.push(dep);
     }
 
     res.json({
@@ -5007,7 +4789,7 @@ router.post("/sync-mod-ids", async (req, res) => {
     // of actually reconciling anything.
     const preWorkshopMatch = preContent.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
     const workshopIds = (
-      preWorkshopMatch?.[1]?.split(";").filter(Boolean) || []
+      splitIniList(preWorkshopMatch?.[1])
     ).filter((id) => /^\d{1,15}$/.test(id));
 
     // Pre-resolve all mod IDs BEFORE taking the lock (async operations)
@@ -5041,7 +4823,7 @@ router.post("/sync-mod-ids", async (req, res) => {
       // Widened to tolerate whitespace around "=" (hunt-wave13, 783672aa) --
       // modsMatch is the guard for the replace below.
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
+      const currentModIds = splitModIdList(modsMatch?.[1]);
       const finalModIds = [...currentModIds];
 
       const syncedMods = [];
@@ -5104,11 +4886,18 @@ router.post("/sync-mod-ids", async (req, res) => {
         }
       }
 
-      const newModList = sanitizeModIdList(finalModIds);
+      // Entries already on the line are kept; the ids added above face the
+      // numeric-workshop-ID filter unless their mod.info on disk confirms them.
+      const newModList = sanitizeModIdListWithDiskBypass(
+        finalModIds,
+        workshopIds,
+        serverPath,
+        currentModIds,
+      );
       // Reuse modsMatch (computed above), same fix as this file's first
       // ini-write site.
       if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => `Mods=${newModList}`);
       } else {
         content += `\nMods=${newModList}`;
       }
@@ -5196,9 +4985,9 @@ router.get("/validate-config", async (req, res) => {
     const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
 
     const workshopIds = workshopMatch
-      ? workshopMatch[1].split(";").filter(Boolean)
+      ? splitIniList(workshopMatch[1])
       : [];
-    const modIds = modsMatch ? modsMatch[1].split(";").filter(Boolean) : [];
+    const modIds = modsMatch ? splitModIdList(modsMatch[1]) : [];
 
     const warnings = [];
     const errors = [];
@@ -5361,9 +5150,9 @@ router.post("/presets", async (req, res) => {
     const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
 
     const workshopIds = workshopMatch
-      ? workshopMatch[1].split(";").filter(Boolean)
+      ? splitIniList(workshopMatch[1])
       : [];
-    const modIds = modsMatch ? modsMatch[1].split(";").filter(Boolean) : [];
+    const modIds = modsMatch ? splitModIdList(modsMatch[1]) : [];
 
     const preset = await createModPreset(
       name,
@@ -5517,7 +5306,7 @@ router.post("/presets/:id/apply", async (req, res) => {
       // ini-write site for why.
       const workshopLine = `WorkshopItems=${sanitizeIniList(preset.workshop_ids || [])}`;
       if (content.match(/^[ \t]*WorkshopItems[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, workshopLine);
+        content = content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => workshopLine);
       } else {
         content += `\n${workshopLine}`;
       }
@@ -5531,7 +5320,7 @@ router.post("/presets/:id/apply", async (req, res) => {
       // sanitization here, same bypass already used for disk-verified IDs.
       const modsLine = `Mods=${sanitizeIniList(preset.mods || [])}`;
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
       } else {
         content += `\n${modsLine}`;
       }
@@ -5552,6 +5341,661 @@ router.post("/presets/:id/apply", async (req, res) => {
     });
   } catch (error) {
     log.error(`Failed to apply mod preset: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ===== MOD GROUPS =====
+//
+// A group is a named, ordered list of mod IDs shared by every admin of the
+// panel (stored in the panel database like the presets above, not per
+// server): the list order is the load order those mods must keep in Mods=.
+// utils/modGroups.js holds the rules; POST /save-order enforces them.
+
+const MOD_GROUP_FIELD_ERRORS = {
+  name: `Group name must be 1-${MOD_GROUP_LIMITS.nameMax} characters`,
+  description: `Group description must be at most ${MOD_GROUP_LIMITS.descriptionMax} characters`,
+  modIds: `modIds must list 1-${MOD_GROUP_LIMITS.modIdsMax} mod IDs of at most ${MOD_GROUP_LIMITS.modIdMax} characters`,
+  color: `color must be null or one of ${MOD_GROUP_COLORS.join(", ")}`,
+  keepTogether: "keepTogether must be true or false",
+  placement: 'placement must be null, "first" or "last"',
+  enforce: "enforce must be true or false",
+  keepShared: "keepShared must be true or false",
+  key: "key must be a suggestion key from GET /groups/suggestions",
+};
+
+function respondModGroupInvalid(res, field) {
+  return res.status(400).json({
+    error: MOD_GROUP_FIELD_ERRORS[field] || "Invalid mod group",
+    code: ErrorCode.MODS_GROUP_INVALID,
+    params: sanitizeErrorParams({ field }),
+  });
+}
+
+function respondModGroupLimitReached(res) {
+  return res.status(409).json({
+    error: `At most ${MOD_GROUP_LIMITS.maxGroups} mod groups can be kept`,
+    code: ErrorCode.MODS_GROUP_LIMIT_REACHED,
+    params: sanitizeErrorParams({ max: MOD_GROUP_LIMITS.maxGroups }),
+  });
+}
+
+function respondModGroupNotFound(res) {
+  return res.status(404).json({
+    error: "Mod group not found",
+    code: ErrorCode.MODS_GROUP_NOT_FOUND,
+  });
+}
+
+// On unless an admin turned it off, so a panel that never saved the setting
+// enforces groups.
+async function isModGroupEnforcementOn() {
+  return (await getSetting("modGroupsEnforce")) !== false;
+}
+
+// The active server's ini (and install folder, from the same read of the
+// active server), resolved like the preset routes do. Answers with the coded
+// error itself and returns null when there is no ini to read.
+export async function resolveActiveServerIniOrRespond(res) {
+  const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
+  const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
+
+  if (!iniPath) {
+    res.status(400).json(
+      withConfigRefusal(configRefusal, {
+        error: "Invalid server name",
+        code: ErrorCode.MODS_INVALID_SERVER_NAME,
+      }),
+    );
+    return null;
+  }
+
+  if (!fs.existsSync(iniPath)) {
+    res.status(400).json({
+      error: "Server INI not found",
+      code: ErrorCode.MODS_SERVER_INI_NOT_FOUND,
+    });
+    return null;
+  }
+  return { iniPath, serverPath, zomboidDataPath };
+}
+
+async function resolveActiveIniPathOrRespond(res) {
+  return (await resolveActiveServerIniOrRespond(res))?.iniPath ?? null;
+}
+
+// The Mods= entries of an ini text, in load order, as { raw, id } (raw is the
+// token as written, id what the game reads).
+function modTokensOf(iniText) {
+  return splitModIdTokens(iniText.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m)?.[1]);
+}
+
+function workshopItemsOf(iniText) {
+  return splitIniList(iniText.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m)?.[1]);
+}
+
+// `line` in place of the ini's `key=` line, or appended when it has none.
+function withIniLine(content, key, line) {
+  const pattern = key === "Mods" ? /^[ \t]*Mods[ \t]*=.*/m : /^[ \t]*WorkshopItems[ \t]*=.*/m;
+  return pattern.test(content) ? content.replace(pattern, () => line) : `${content.trimEnd()}\n${line}\n`;
+}
+
+// The Mods= line for `ids`, each written the way the ini already had it
+// (backslashes kept) and a new one as its id. Equal ids are interchangeable,
+// so each takes the next unused token of its own.
+function modsLineFor(ids, tokens) {
+  const unused = new Map();
+  for (const token of tokens) {
+    if (!unused.has(token.id)) unused.set(token.id, []);
+    unused.get(token.id).push(token.raw);
+  }
+  return `Mods=${sanitizeIniList(ids.map((id) => unused.get(id)?.shift() ?? id))}`;
+}
+
+// Lists the groups with the panel-wide enforcement setting.
+router.get("/groups", async (req, res) => {
+  try {
+    res.json({ groups: (await getModGroups()).map(normalizeGroup), enforce: await isModGroupEnforcementOn() });
+  } catch (error) {
+    log.error(`Failed to get mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Create a group.
+router.post("/groups", async (req, res) => {
+  try {
+    const parsed = validateGroupFields(req.body);
+    if (!parsed.ok) return respondModGroupInvalid(res, parsed.field);
+
+    const group = await createModGroup(parsed.value, { maxGroups: MOD_GROUP_LIMITS.maxGroups });
+    if (!group) return respondModGroupLimitReached(res);
+
+    log.info(`Created mod group "${group.name}" with ${group.modIds.length} mods`);
+    res.status(201).json({ group: normalizeGroup(group) });
+  } catch (error) {
+    log.error(`Failed to create mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Create a group from a shared file. A name that is taken becomes "name (2)".
+// Registered before /groups/:id (and the other literal /groups/* paths below)
+// so a literal path is never read as a group id.
+router.post("/groups/import", async (req, res) => {
+  try {
+    const parsed = validateGroupDocument(req.body?.document);
+    if (!parsed.ok) {
+      return res.status(400).json({
+        error: "Not a valid mod group export",
+        code: ErrorCode.MODS_GROUP_IMPORT_INVALID,
+      });
+    }
+
+    const group = await createModGroup(parsed.value, {
+      maxGroups: MOD_GROUP_LIMITS.maxGroups,
+      uniqueName: true,
+    });
+    if (!group) return respondModGroupLimitReached(res);
+
+    log.info(`Imported mod group "${group.name}" with ${group.modIds.length} mods`);
+    res.status(201).json({ group: normalizeGroup(group) });
+  } catch (error) {
+    log.error(`Failed to import mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Which groups the CURRENT Mods= order already respects. A group kept
+// together that require= links or order rules keep apart (another mod must
+// load between its members) is judged on its order alone and carries
+// `forcedApart` (the rule the load-order planner follows too).
+router.get("/groups/status", async (req, res) => {
+  try {
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+
+    const content = readTextFile(active.iniPath);
+    const order = modTokensOf(content).map((token) => token.id);
+    const groups = await getModGroups();
+    const hardEdges = await hardOrderEdges(order, { content, ...active });
+    const statuses = groupsInOrder(order, groups, { hardEdges });
+    res.json({
+      groups: statuses,
+      inOrder: statuses.every((status) => status.inOrder),
+      conflicts: applyModGroups(order, groups, { hardEdges }).conflicts,
+    });
+  } catch (error) {
+    log.error(`Failed to get mod group status: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Put the groups' order into the current Mods= line. `preview: true` only
+// reports what would move. The write goes through the same lock and backup as
+// POST /save-order and only happens when something changes.
+router.post("/groups/apply", async (req, res) => {
+  try {
+    const preview = req.body?.preview === true;
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    const { iniPath } = active;
+
+    const groups = await getModGroups();
+    let result = { order: [], moved: [], conflicts: [] };
+    let written = false;
+    let backupWarning = null;
+
+    if (preview) {
+      const content = readTextFile(iniPath);
+      const ids = modTokensOf(content).map((token) => token.id);
+      result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
+    } else {
+      await withIniLock(iniPath, async () => {
+        let content = readTextFile(iniPath);
+        const tokens = modTokensOf(content);
+        const ids = tokens.map((token) => token.id);
+        result = applyModGroups(ids, groups, { hardEdges: await hardOrderEdges(ids, { content, ...active }) });
+        if (result.moved.length === 0) return;
+
+        // Write the entries as they were written (backslashes kept), only in
+        // the new order.
+        const modsLine = modsLineFor(result.order, tokens);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
+
+        backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+        written = true;
+      });
+    }
+
+    if (written) {
+      log.info(`Applied mod groups to the load order: ${result.moved.length} mods moved`);
+    }
+    res.json({
+      changed: result.moved.length > 0,
+      moved: result.moved,
+      order: result.order,
+      written,
+      conflicts: result.conflicts,
+      ...(backupWarning ? { backupWarning } : {}),
+    });
+  } catch (error) {
+    log.error(`Failed to apply mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Turn the enforcement in POST /save-order on or off, panel-wide.
+router.put("/groups/enforce", async (req, res) => {
+  try {
+    const enforce = req.body?.enforce;
+    if (typeof enforce !== "boolean") return respondModGroupInvalid(res, "enforce");
+
+    await setSetting("modGroupsEnforce", enforce);
+    log.info(`Mod group enforcement ${enforce ? "enabled" : "disabled"}`);
+    res.json({ enforce });
+  } catch (error) {
+    log.error(`Failed to set mod group enforcement: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// What mod.info says about the mods of the Workshop items in WorkshopItems=
+// (the reading GET /current-config's workshopModMap does), one entry per mod
+// with the item it came from.
+function listedWorkshopMods(workshopIds, serverPath) {
+  const mods = [];
+  if (!serverPath) return mods;
+  for (const wsId of workshopIds) {
+    if (!/^\d{1,15}$/.test(wsId)) continue;
+    for (const mod of getModDetailsFromWorkshop(wsId, serverPath)) {
+      mods.push({ id: mod.id, name: mod.name || mod.id, workshopId: wsId, require: mod.require || [] });
+    }
+  }
+  return mods;
+}
+
+// Workshop item titles the panel knows from tracking (not the placeholders it
+// gives an item before Steam answered). Best effort: none is fine.
+async function trackedWorkshopTitles() {
+  const titles = {};
+  try {
+    for (const mod of (await getTrackedMods()) || []) {
+      const wsId = String(mod?.workshop_id ?? "");
+      if (wsId && !titles[wsId] && !shouldRefreshTrackedModName(mod.name)) titles[wsId] = String(mod.name);
+    }
+  } catch (error) {
+    log.debug(`Group suggestions without Workshop titles: ${error.message}`);
+  }
+  return titles;
+}
+
+// Groups the panel suggests for the active server's enabled mods
+// (utils/modGroupSuggestions.js): a library and the mods that need it, a
+// Workshop item that ships several enabled mods, mods whose names share a
+// distinctive prefix. Leaves out what an existing group already holds and
+// what an admin dismissed. Registered before /groups/:id.
+router.get("/groups/suggestions", async (req, res) => {
+  try {
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+
+    const content = readTextFile(active.iniPath);
+    const suggestions = computeGroupSuggestions({
+      enabled: modTokensOf(content).map((token) => token.id),
+      mods: listedWorkshopMods(workshopItemsOf(content), active.serverPath),
+      groups: await getModGroups(),
+      dismissed: await getDismissedModGroupSuggestions(),
+      workshopTitles: await trackedWorkshopTitles(),
+    });
+    res.json({ suggestions });
+  } catch (error) {
+    log.error(`Failed to suggest mod groups: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Hide a suggestion for every admin (the panel keeps the newest 500 keys).
+router.post("/groups/suggestions/dismiss", async (req, res) => {
+  try {
+    const key = req.body?.key;
+    if (!isSuggestionKey(key)) return respondModGroupInvalid(res, "key");
+
+    await dismissModGroupSuggestion(key, { max: 500 });
+    log.info(`Dismissed mod group suggestion ${key}`);
+    res.json({ success: true });
+  } catch (error) {
+    log.error(`Failed to dismiss mod group suggestion: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Change the given fields of a group.
+router.put("/groups/:id", async (req, res) => {
+  try {
+    const parsed = validateGroupFields(req.body, { partial: true });
+    if (!parsed.ok) return respondModGroupInvalid(res, parsed.field);
+
+    const group = await updateModGroup(req.params.id, parsed.value);
+    if (!group) return respondModGroupNotFound(res);
+
+    log.info(`Updated mod group "${group.name}"`);
+    res.json({ group: normalizeGroup(group) });
+  } catch (error) {
+    log.error(`Failed to update mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Delete a group.
+router.delete("/groups/:id", async (req, res) => {
+  try {
+    if (!(await deleteModGroup(req.params.id))) return respondModGroupNotFound(res);
+
+    log.info(`Deleted mod group: ${req.params.id}`);
+    res.json({ success: true });
+  } catch (error) {
+    log.error(`Failed to delete mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+function uniqueMemberIds(group) {
+  return [...new Set((Array.isArray(group?.modIds) ? group.modIds : []).filter((id) => typeof id === "string"))];
+}
+
+// The Workshop item folders downloaded for this server (every content folder
+// getWorkshopPaths knows), sorted so the first match is always the same one.
+function downloadedWorkshopIds(serverPath) {
+  const roots = new Set(getWorkshopPaths("0", serverPath).map((folder) => path.dirname(folder)));
+  const ids = new Set();
+  for (const root of roots) {
+    let entries;
+    try {
+      // codeql[js/path-injection] root is one of getWorkshopPaths' fixed content folders (install folder or the panel account's Steam), no request input.
+      entries = fs.readdirSync(root, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isDirectory() && /^\d{1,15}$/.test(entry.name)) ids.add(entry.name);
+    }
+  }
+  return [...ids].sort();
+}
+
+// Which Workshop item holds each of `modIds` on disk (mod.info id): the items
+// in WorkshopItems= first, in their order, then the other downloaded items.
+// Each item is read once, and only while an id is still not placed.
+export function locateModsOnDisk(modIds, listedWorkshopIds, serverPath) {
+  const owner = new Map();
+  const wanted = new Set(modIds);
+  if (!serverPath || wanted.size === 0) return owner;
+  const scan = (wsId) => {
+    for (const mod of getModDetailsFromWorkshop(wsId, serverPath)) {
+      if (wanted.has(mod.id) && !owner.has(mod.id)) owner.set(mod.id, wsId);
+    }
+  };
+  const listed = listedWorkshopIds.filter((wsId) => /^\d{1,15}$/.test(wsId));
+  for (const wsId of listed) {
+    if (owner.size === wanted.size) return owner;
+    scan(wsId);
+  }
+  const listedSet = new Set(listed);
+  for (const wsId of downloadedWorkshopIds(serverPath)) {
+    if (owner.size === wanted.size) break;
+    if (!listedSet.has(wsId)) scan(wsId);
+  }
+  return owner;
+}
+
+// Puts each id of `adding` into `order` so the group's order holds: right
+// after the nearest earlier member that is in the list, else right before the
+// nearest later one, else at the end. Members are placed in the group's order,
+// so one placed earlier counts for the next.
+function insertInGroupOrder(order, members, adding) {
+  const result = [...order];
+  const add = new Set(adding);
+  const indexOf = (id) => result.indexOf(id);
+  for (let k = 0; k < members.length; k++) {
+    if (!add.has(members[k])) continue;
+    let at = -1;
+    for (let j = k - 1; j >= 0 && at === -1; j--) {
+      const index = indexOf(members[j]);
+      if (index !== -1) at = index + 1;
+    }
+    for (let j = k + 1; j < members.length && at === -1; j++) {
+      if (add.has(members[j])) continue; // not placed yet
+      const index = indexOf(members[j]);
+      if (index !== -1) at = index;
+    }
+    result.splice(at === -1 ? result.length : at, 0, members[k]);
+  }
+  return result;
+}
+
+// Enable every mod of a group on the active server: its member mod IDs that
+// are not in Mods= go in where the group's order puts them (then the groups
+// are enforced, like a load-order save, when that is on) and the Workshop
+// items they come from join WorkshopItems= when missing. Only IDs found in a
+// Workshop item on disk can be enabled; the others come back in `missing`.
+// One write, through the lock and backup path the other mod writes use, and
+// only when something changes.
+router.post("/groups/:id/enable", async (req, res) => {
+  try {
+    const groups = await getModGroups();
+    const group = groups.find((g) => g.id === req.params.id);
+    if (!group) return respondModGroupNotFound(res);
+
+    const active = await resolveActiveServerIniOrRespond(res);
+    if (!active) return;
+    const { iniPath, serverPath, zomboidDataPath } = active;
+    const members = uniqueMemberIds(group);
+    const enforce = await isModGroupEnforcementOn();
+
+    let result = null;
+    let backupWarning = null;
+    await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      const tokens = modTokensOf(content);
+      const order = tokens.map((token) => token.id);
+      const enabledNow = new Set(order);
+      const workshopItems = workshopItemsOf(content);
+
+      const alreadyEnabled = members.filter((id) => enabledNow.has(id));
+      const wanted = members.filter((id) => !enabledNow.has(id));
+      const owner = locateModsOnDisk(wanted, workshopItems, serverPath);
+      const enabled = wanted.filter((id) => owner.has(id));
+      const missing = wanted.filter((id) => !owner.has(id));
+      const listed = new Set(workshopItems);
+      const workshopItemsAdded = [];
+      for (const id of enabled) {
+        const wsId = owner.get(id);
+        if (!listed.has(wsId)) {
+          listed.add(wsId);
+          workshopItemsAdded.push(wsId);
+        }
+      }
+      result = { enabled, alreadyEnabled, missing, workshopItemsAdded, groupsAdjusted: [] };
+      if (enabled.length === 0) return;
+
+      let newOrder = insertInGroupOrder(order, members, enabled);
+      if (enforce) {
+        try {
+          // The mod list as it will be (with the items this adds), for the
+          // require= links the keep-together rule reads.
+          const probe = workshopItemsAdded.length
+            ? withIniLine(content, "WorkshopItems", `WorkshopItems=${sanitizeIniList([...workshopItems, ...workshopItemsAdded])}`)
+            : content;
+          const hardEdges = await hardOrderEdges(newOrder, { content: probe, serverPath, zomboidDataPath });
+          const applied = applyModGroups(newOrder, groups, { hardEdges });
+          newOrder = applied.order;
+          result.groupsAdjusted = applied.moved;
+        } catch (error) {
+          log.warn(`Mod groups not enforced while enabling "${group.name}": ${error.message}`);
+        }
+      }
+
+      content = withIniLine(content, "Mods", modsLineFor(newOrder, tokens));
+      if (workshopItemsAdded.length > 0) {
+        content = withIniLine(
+          content,
+          "WorkshopItems",
+          `WorkshopItems=${sanitizeIniList([...workshopItems, ...workshopItemsAdded])}`,
+        );
+      }
+      backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+    });
+
+    if (result.enabled.length > 0) {
+      log.info(
+        `Enabled mod group "${group.name}": ${result.enabled.length} mods` +
+          (result.workshopItemsAdded.length ? `, ${result.workshopItemsAdded.length} Workshop items added` : "") +
+          (result.missing.length ? ` (${result.missing.length} not found on disk)` : ""),
+      );
+    }
+    res.json({ ...result, ...(backupWarning ? { backupWarning } : {}) });
+  } catch (error) {
+    log.error(`Failed to enable mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// Disable every mod of a group on the active server: its member mod IDs leave
+// Mods=. With keepShared (the default) a mod that another group also lists
+// stays while that group still has an enabled mod this leaves on (keptShared):
+// a shared library its add-ons need. Not "every member enabled": groups are
+// shared by every server, so most have members a given server does not have,
+// and the library went with the add-ons still loading. PanelBridge's own mod, when
+// its Workshop delivery manages it, always stays (keptManaged). WorkshopItems=
+// is left alone, so the files stay and enabling again is instant. One write,
+// through the lock and backup path, and only when something changes.
+router.post("/groups/:id/disable", async (req, res) => {
+  try {
+    const keepShared = req.body?.keepShared === undefined ? true : req.body.keepShared;
+    if (typeof keepShared !== "boolean") return respondModGroupInvalid(res, "keepShared");
+
+    const allGroups = await getModGroups();
+    const group = allGroups.find((g) => g.id === req.params.id);
+    if (!group) return respondModGroupNotFound(res);
+
+    const iniPath = await resolveActiveIniPathOrRespond(res);
+    if (!iniPath) return;
+    const members = uniqueMemberIds(group);
+    const otherGroups = allGroups.filter((g) => g !== group).map(uniqueMemberIds);
+    const bridgeModId = (await getBridgeManaged())?.modId ?? null;
+
+    let result = null;
+    let backupWarning = null;
+    await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      const tokens = modTokensOf(content);
+      const enabledNow = new Set(tokens.map((token) => token.id));
+
+      const notEnabled = members.filter((id) => !enabledNow.has(id));
+      const keptShared = [];
+      const keptManaged = [];
+      const disabled = [];
+      const leaving = new Set(members);
+      const stillUsed = (other) => other.some((member) => !leaving.has(member) && enabledNow.has(member));
+      for (const id of members) {
+        if (!enabledNow.has(id)) continue;
+        if (id === bridgeModId) keptManaged.push(id);
+        else if (keepShared && otherGroups.some((other) => other.includes(id) && stillUsed(other))) {
+          keptShared.push(id);
+        } else disabled.push(id);
+      }
+      result = { disabled, keptShared, notEnabled, keptManaged };
+      if (disabled.length === 0) return;
+
+      const off = new Set(disabled);
+      const kept = tokens.filter((token) => !off.has(token.id));
+      content = withIniLine(content, "Mods", `Mods=${sanitizeIniList(kept.map((token) => token.raw))}`);
+      backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+    });
+
+    if (result.disabled.length > 0) {
+      log.info(
+        `Disabled mod group "${group.name}": ${result.disabled.length} mods` +
+          (result.keptShared.length ? ` (${result.keptShared.length} kept for other groups)` : ""),
+      );
+    }
+    res.json({ ...result, ...(backupWarning ? { backupWarning } : {}) });
+  } catch (error) {
+    log.error(`Failed to disable mod group: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ===== MOD NOTES =====
+//
+// One note per Workshop item, shared by every admin (panel database). An
+// empty text deletes the note.
+
+function noteResponse(note) {
+  return { text: note.text, updatedAt: note.updatedAt, updatedBy: note.updatedBy ?? null };
+}
+
+router.get("/notes", async (req, res) => {
+  try {
+    const notes = {};
+    for (const note of await getModNotes()) {
+      if (isNoteWorkshopId(note?.workshopId) && typeof note.text === "string") {
+        notes[note.workshopId] = noteResponse(note);
+      }
+    }
+    res.json({ notes });
+  } catch (error) {
+    log.error(`Failed to get mod notes: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+router.put("/notes/:workshopId", async (req, res) => {
+  try {
+    const workshopId = req.params.workshopId;
+    if (!isNoteWorkshopId(workshopId)) {
+      return res.status(400).json({
+        error: "Invalid workshop ID",
+        code: ErrorCode.MODS_INVALID_WORKSHOP_ID_LOWER,
+      });
+    }
+
+    const cleaned = cleanModNoteText(req.body?.text);
+    if (!cleaned.ok && cleaned.reason === "length") {
+      return res.status(400).json({
+        error: `A mod note can be at most ${MOD_NOTE_LIMITS.textMax} characters`,
+        code: ErrorCode.MODS_NOTE_TOO_LONG,
+        params: sanitizeErrorParams({ max: MOD_NOTE_LIMITS.textMax }),
+      });
+    }
+    if (!cleaned.ok) {
+      return res.status(400).json({
+        error: "A mod note must be text without control characters",
+        code: ErrorCode.MODS_NOTE_INVALID,
+      });
+    }
+
+    if (cleaned.text === "") {
+      if (await deleteModNote(workshopId)) log.info(`Deleted the note on Workshop item ${workshopId}`);
+      return res.json({ note: null });
+    }
+
+    const note = await setModNote(workshopId, cleaned.text, {
+      updatedBy: req.user?.username || null,
+      maxNotes: MOD_NOTE_LIMITS.maxNotes,
+    });
+    if (!note) {
+      return res.status(409).json({
+        error: `At most ${MOD_NOTE_LIMITS.maxNotes} mod notes can be kept`,
+        code: ErrorCode.MODS_NOTE_LIMIT_REACHED,
+        params: sanitizeErrorParams({ max: MOD_NOTE_LIMITS.maxNotes }),
+      });
+    }
+    log.info(`Saved the note on Workshop item ${workshopId}`);
+    res.json({ note: noteResponse(note) });
+  } catch (error) {
+    log.error(`Failed to save mod note: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -5582,7 +6026,7 @@ router.post("/save-order", async (req, res) => {
       }
     }
 
-    const { serverConfigPath, serverName, configRefusal } = await getActiveServerPaths();
+    const { serverConfigPath, serverName, serverPath, configRefusal, zomboidDataPath } = await getActiveServerPaths();
     const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
 
     if (!iniPath) {
@@ -5601,6 +6045,31 @@ router.post("/save-order", async (req, res) => {
       });
     }
 
+    // Mod groups: with enforcement on (the default) the order of every group
+    // is put into the list before it is written, so a drag in the Mod Manager
+    // cannot break a group's load order. Only the members of a group change
+    // places; the response says which mods moved and which groups cannot
+    // be satisfied together.
+    let orderToWrite = modIds;
+    let groupsAdjusted = [];
+    let groupConflicts = [];
+    try {
+      if (await isModGroupEnforcementOn()) {
+        // A group kept together that require= links or order rules keep
+        // apart only keeps its order: the rule the load-order planner
+        // follows, so saving a plan leaves it as planned.
+        const hardEdges = await hardOrderEdges(modIds, { content: readTextFile(iniPath), serverPath, zomboidDataPath });
+        const applied = applyModGroups(modIds, await getModGroups(), { hardEdges });
+        orderToWrite = applied.order;
+        groupsAdjusted = applied.moved;
+        groupConflicts = applied.conflicts;
+      }
+    } catch (error) {
+      // Groups are an aid on top of the load order: failing to read them must
+      // never stop the admin's own order from being saved.
+      log.warn(`Mod groups not enforced for this save: ${error.message}`);
+    }
+
     let backupWarning = null;
     await withIniLock(iniPath, async () => {
       let content = readTextFile(iniPath);
@@ -5612,11 +6081,11 @@ router.post("/save-order", async (req, res) => {
       // 5-15 digit number (e.g. "Tear All Clothes" 3519629457, see this
       // file's enable-disk-mod handler) on every reorder. Character-only
       // sanitization here, same bypass already used for disk-verified IDs.
-      const modsLine = `Mods=${sanitizeIniList(modIds)}`;
+      const modsLine = `Mods=${sanitizeIniList(orderToWrite)}`;
       // Same fix as this file's first ini-write site: check the anchored
       // regex, not a plain .includes().
       if (content.match(/^[ \t]*Mods[ \t]*=.*/m)) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine);
+        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine);
       } else {
         content += `\n${modsLine}`;
       }
@@ -5626,10 +6095,15 @@ router.post("/save-order", async (req, res) => {
       );
     });
 
-    log.info(`Saved mod load order: ${modIds.length} mods`);
+    log.info(
+      `Saved mod load order: ${modIds.length} mods` +
+        (groupsAdjusted.length ? ` (${groupsAdjusted.length} moved to keep mod groups in order)` : ""),
+    );
     res.json({
       message: "Mod load order saved successfully",
       modCount: modIds.length,
+      groupsAdjusted,
+      groupConflicts,
       ...(backupWarning ? { backupWarning } : {}),
     });
   } catch (error) {
@@ -5637,6 +6111,57 @@ router.post("/save-order", async (req, res) => {
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
+
+// POST /discover-mod-ids's SteamCMD downloads (below). Each request gets a
+// folder of its own under <dataDir>/workshop-download-cache/ and removes it
+// whole when it is done, appworkshop_108600.acf included: with one shared
+// folder the .acf kept saying an item was installed after its files were
+// dropped, so adding the same mod again could "succeed" without downloading
+// anything, and two adds at once could delete each other's files. Folders a
+// crashed or killed panel left behind go once they are an hour old; one this
+// process is still downloading into is never swept, however long it takes.
+const WORKSHOP_DOWNLOAD_CACHE_DIR = "workshop-download-cache";
+const WORKSHOP_DOWNLOAD_STALE_MS = 60 * 60 * 1000;
+const activeWorkshopDownloadDirs = new Set();
+
+export function sweepStaleWorkshopDownloadDirs(cacheRoot, now = Date.now()) {
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheRoot, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const entryPath = path.join(cacheRoot, entry.name);
+    if (activeWorkshopDownloadDirs.has(entryPath)) continue;
+    try {
+      if (now - fs.lstatSync(entryPath).mtimeMs < WORKSHOP_DOWNLOAD_STALE_MS) continue;
+      fs.rmSync(entryPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    } catch (error) {
+      log.debug(`Workshop download cache: could not remove ${entry.name}: ${error.message}`);
+    }
+  }
+}
+
+function workshopDownloadDirFor(dataDir) {
+  const cacheRoot = path.join(dataDir, WORKSHOP_DOWNLOAD_CACHE_DIR);
+  sweepStaleWorkshopDownloadDirs(cacheRoot);
+  const dir = path.join(cacheRoot, crypto.randomUUID());
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  activeWorkshopDownloadDirs.add(dir);
+  return dir;
+}
+
+function releaseWorkshopDownloadDir(dir) {
+  activeWorkshopDownloadDirs.delete(dir);
+  try {
+    // Retries: on Windows a SteamCMD just stopped (the dialog closed) can
+    // hold its files for a moment. A folder still left is swept later.
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (error) {
+    log.warn(`Workshop download cache: could not remove ${path.basename(dir)}: ${error.message}`);
+  }
+}
 
 router.post("/discover-mod-ids", async (req, res) => {
   try {
@@ -5677,6 +6202,61 @@ router.post("/discover-mod-ids", async (req, res) => {
         if (!discoveredModIds.includes(modId)) {
           discoveredModIds.push(modId);
           sources.push({ modId, source: "local-files" });
+        }
+      }
+    }
+
+    // 1b. Not on disk yet: have SteamCMD download it (the add dialog asks for
+    // this), so the mod IDs and map folders come from the item's own files.
+    // Without them a mod whose description does not state its mod IDs was added
+    // to WorkshopItems= only; the server downloaded it on the next boot, after
+    // it had read Mods=, and the mod was never enabled. It is downloaded into
+    // the panel's own cache, not the server's Workshop folder: SteamCMD never
+    // writes the files (or appworkshop_108600.acf) the game server itself
+    // downloads into at start, so a start is neither blocked nor raced. The
+    // server downloads its own copy when it starts. Skipped for a remote server
+    // and when SteamCMD is not set up (the description below is used as before).
+    let downloadedFromSteam = false;
+    let downloadSkippedReason = null;
+    let downloadedMapFolders = [];
+    if (discoveredModIds.length === 0 && serverPath && req.body?.download === true) {
+      const activeServer = await getActiveServer();
+      if (activeServer?.isRemote) {
+        downloadSkippedReason = "remote-server";
+      } else {
+        const abort = new AbortController();
+        res.on?.("close", () => {
+          if (!res.writableEnded) abort.abort(); // the dialog was closed: stop SteamCMD
+        });
+        const buildEnv =
+          process.platform === "win32"
+            ? null
+            : (await import("./server.js")).buildLinuxSteamCmdEnv;
+        // A folder of its own per request (see workshopDownloadDirFor()),
+        // removed whole -- appworkshop_108600.acf included -- once the IDs
+        // are read.
+        const downloadDir = workshopDownloadDirFor(getDataPaths().dataDir);
+        try {
+          const download = await downloadWorkshopItem(String(wsId), {
+            serverPath: downloadDir,
+            signal: abort.signal,
+            buildEnv,
+          });
+          if (download.success) {
+            downloadedFromSteam = true;
+            for (const modId of findAllModIdsFromWorkshop(String(wsId), downloadDir)) {
+              if (!discoveredModIds.includes(modId)) {
+                discoveredModIds.push(modId);
+                sources.push({ modId, source: "steamcmd-download" });
+              }
+            }
+            downloadedMapFolders = findMapFoldersFromWorkshop(String(wsId), downloadDir);
+          } else {
+            downloadSkippedReason = download.reason;
+            log.info(`discover-mod-ids ${wsId}: SteamCMD download not used (${download.reason}: ${download.error})`);
+          }
+        } finally {
+          releaseWorkshopDownloadDir(downloadDir);
         }
       }
     }
@@ -5757,6 +6337,9 @@ router.post("/discover-mod-ids", async (req, res) => {
     if (serverPath) {
       mapFolders = findMapFoldersFromWorkshop(String(wsId), serverPath);
     }
+    if (mapFolders.length === 0 && downloadedMapFolders.length > 0) {
+      mapFolders = downloadedMapFolders;
+    }
 
     // Check if mod has map tag from Steam API
     const isMap =
@@ -5779,6 +6362,8 @@ router.post("/discover-mod-ids", async (req, res) => {
         ? findAllModIdsFromWorkshop(String(wsId), serverPath).length > 0
         : false,
       tags: modInfo?.tags?.map((t) => t.tag) || [],
+      downloadedFromSteam,
+      downloadSkippedReason,
     });
   } catch (error) {
     log.error(`Failed to discover mod IDs: ${error.message}`);
@@ -5865,13 +6450,19 @@ router.post("/add-mod-advanced", async (req, res) => {
       }
     }
 
-    if (includeAllModIds && serverPath) {
-      const allModIds = findAllModIdsFromWorkshop(
-        String(workshopId),
-        serverPath,
-      );
-      modIdsToAdd = [...new Set([...modIdsToAdd, ...allModIds])];
-    }
+    // Which mod ids to enable: the ones asked for, plus every mod of the item
+    // when includeAllModIds is set. An item that is not downloaded yet has
+    // nothing on disk to read, so (like POST /add-to-ini) the Steam Workshop
+    // page is asked for its id; if that finds nothing either, the item goes
+    // into WorkshopItems= alone and the response says so (status
+    // "workshop-only") instead of implying the mod will load after a restart.
+    const resolution = await resolveModIdsForAddition({
+      workshopId: String(workshopId),
+      explicitModIds: modIdsToAdd,
+      discover: includeAllModIds ? "all" : "none",
+      serverPath,
+    });
+    modIdsToAdd = resolution.modIds;
 
     // Detect map folders outside the lock (sync disk reads)
     let modMapFolders = [];
@@ -5883,84 +6474,24 @@ router.post("/add-mod-advanced", async (req, res) => {
     }
 
     // Atomically read-modify-write inside the lock
-    let addedMapFolders = [];
     const lockResult = await withIniLock(iniPath, async () => {
-      let content = readTextFile(iniPath);
+      const applied = addWorkshopItemToIni(readTextFile(iniPath), {
+        workshopId: String(workshopId),
+        modIds: modIdsToAdd,
+        mapFolders: modMapFolders,
+        serverPath,
+      });
 
-      // Widened to tolerate whitespace around "=" (hunt-wave13, 783672aa) --
-      // each match doubles as the exists-check for its replace below.
-      const workshopMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const currentWorkshopIds =
-        workshopMatch?.[1]?.split(";").filter(Boolean) || [];
-      const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const currentModIds = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-
-      const workshopAlreadyExists = currentWorkshopIds.includes(
-        String(workshopId),
-      );
-      if (!workshopAlreadyExists) {
-        currentWorkshopIds.push(String(workshopId));
-      }
-
-      const addedModIds = [];
-      for (const modId of modIdsToAdd) {
-        if (!currentModIds.includes(modId)) {
-          currentModIds.push(modId);
-          addedModIds.push(modId);
-        }
-      }
-
-      const newWorkshopList = sanitizeIniList(currentWorkshopIds);
-      const newModList = sanitizeModIdList(currentModIds);
-
-      // Reuse workshopMatch/modsMatch (computed above) instead of a
-      // separate .includes(), same fix as this file's first ini-write site.
-      if (workshopMatch) {
-        content = content.replace(
-          /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${newWorkshopList}`,
+      let backupWarning = null;
+      if (applied.changed) {
+        backupWarning = backupWarningFor(
+          await writeIniWithBackup(iniPath, applied.content),
         );
-      } else {
-        content += `\nWorkshopItems=${newWorkshopList}`;
       }
-
-      if (modsMatch) {
-        content = content.replace(/^[ \t]*Mods[ \t]*=.*/m, `Mods=${newModList}`);
-      } else {
-        content += `\nMods=${newModList}`;
-      }
-
-      if (modMapFolders.length > 0) {
-        const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
-        let currentMaps = mapMatch?.[1]?.split(";").filter(Boolean) || [
-          "Muldraugh, KY",
-        ];
-
-        for (const folder of modMapFolders) {
-          if (!currentMaps.includes(folder)) {
-            currentMaps.unshift(folder);
-            addedMapFolders.push(folder);
-          }
-        }
-
-        const newMapList = currentMaps.join(";");
-        if (mapMatch) {
-          content = content.replace(/^[ \t]*Map[ \t]*=.*/m, `Map=${newMapList}`);
-        } else {
-          content += `\nMap=${newMapList}`;
-        }
-      }
-
-      const backupWarning = backupWarningFor(
-        await writeIniWithBackup(iniPath, content),
-      );
-      return {
-        addedModIds,
-        totalModIdsInConfig: currentModIds.length,
-        workshopAlreadyExisted: workshopAlreadyExists,
-        backupWarning,
-      };
+      return { applied, backupWarning };
     });
+    const applied = lockResult.applied;
+    const status = additionStatus(modIdsToAdd.length, applied);
 
     // Also add to tracking (and clear from ignore list if present)
     try {
@@ -5975,24 +6506,247 @@ router.post("/add-mod-advanced", async (req, res) => {
     autoSyncCollection("add", String(workshopId)).catch(() => {});
 
     log.info(
-      `Added mod ${workshopId} with ${lockResult.addedModIds.length} mod IDs: ${lockResult.addedModIds.join(", ")}`,
+      `Added mod ${workshopId} with ${applied.addedModIds.length} mod IDs: ${applied.addedModIds.join(", ")} (${status})`,
     );
 
     res.json({
       success: true,
       workshopId,
-      addedModIds: lockResult.addedModIds,
-      totalModIdsInConfig: lockResult.totalModIdsInConfig,
-      workshopAlreadyExisted: lockResult.workshopAlreadyExisted,
-      mapFoldersAdded: addedMapFolders,
-      message:
-        lockResult.addedModIds.length > 0
-          ? `Added ${lockResult.addedModIds.length} mod ID(s): ${lockResult.addedModIds.join(", ")}`
-          : "Workshop ID added (mod IDs were already configured)",
+      addedModIds: applied.addedModIds,
+      totalModIdsInConfig: applied.modCount,
+      workshopAlreadyExisted: applied.workshopAlreadyExisted,
+      mapFoldersAdded: applied.addedMapFolders,
+      // "added": at least one mod ID was written to Mods=. "already-configured":
+      // nothing needed changing. "workshop-only": no mod ID could be found, so
+      // only WorkshopItems= changed -- the mod does not load until its ID is
+      // known (start the server to download it, then Sync Mod IDs).
+      status,
+      detectionSource: resolution.detectionSource,
+      message: additionMessage(status, applied),
       ...(lockResult.backupWarning ? { backupWarning: lockResult.backupWarning } : {}),
     });
   } catch (error) {
     log.error(`Failed to add mod advanced: ${error.message}`);
+    res.status(500).json({ error: sanitizeError(error.message) });
+  }
+});
+
+// ─── Add many workshop items in ONE ini write ───────────────────────────────
+// Importing a collection (or re-enabling a handful of deactivated mods) used to
+// call POST /add-mod-advanced (or /add-to-ini) once per mod. Each call is a
+// separate ini write and so a separate backup, and a backup keeps only the 10
+// newest: a 60-mod import evicted the pre-import copy of the server config,
+// the one file a bad import needs back. This endpoint does the whole batch
+// under one lock with one write (so exactly one backup); the single-item
+// endpoints stay as they were and share the same edit (addWorkshopItemToIni).
+//
+// Body: { mods: [{ workshopId, selectedModIds?, includeAllModIds? }], track? }
+//   selectedModIds   exactly these mod ids (plus every mod of the item with includeAllModIds)
+//   includeAllModIds every mod of the item
+//   neither          the item's default mod only; the others come back as alternativeModIds
+//   track            also track each item and mirror it into the Workshop
+//                    collection when auto-sync is on (what an import wants)
+const ADD_BULK_MAX = 500;
+const ADD_BULK_RESOLVE_CONCURRENCY = 5;
+// Each Steam lookup can take up to 15 s when Steam is slow; stop asking after
+// this long and add the remaining items to WorkshopItems= alone.
+const ADD_BULK_STEAM_BUDGET_MS = 30_000;
+
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+router.post("/add-to-ini-bulk", async (req, res) => {
+  try {
+    const { mods, track } = req.body || {};
+    if (!Array.isArray(mods) || mods.length === 0) {
+      return res.status(400).json({
+        error: "Mods array is required",
+        code: ErrorCode.MODS_ADD_BULK_MODS_ARRAY_REQUIRED,
+      });
+    }
+    if (mods.length > ADD_BULK_MAX) {
+      return res.status(400).json({
+        error: `Maximum ${ADD_BULK_MAX} mods per batch`,
+        code: ErrorCode.MODS_ADD_BULK_TOO_MANY,
+      });
+    }
+
+    const { serverConfigPath, serverName, serverPath, configRefusal } = await getActiveServerPaths();
+    if (!serverConfigPath || !serverName) {
+      return res.status(400).json(
+        withConfigRefusal(configRefusal, {
+          error: "Server config path not set",
+          code: ErrorCode.MODS_CONFIG_PATH_NOT_SET,
+        }),
+      );
+    }
+    const iniPath = getSanitizedIniPath(serverConfigPath, serverName);
+    if (!iniPath) {
+      return res.status(400).json({
+        error: "Invalid server name",
+        code: ErrorCode.MODS_INVALID_SERVER_NAME,
+      });
+    }
+    if (!fs.existsSync(iniPath)) {
+      return res.status(400).json({
+        error: "Server config file not found",
+        code: ErrorCode.MODS_CONFIG_FILE_NOT_FOUND,
+      });
+    }
+
+    // Validate every item up front; a bad item is reported, not fatal.
+    const results = [];
+    const valid = [];
+    const seen = new Set();
+    for (const item of mods) {
+      const workshopId = String(item?.workshopId ?? "");
+      if (!/^\d{1,15}$/.test(workshopId)) {
+        results.push({
+          workshopId: workshopId.slice(0, 20),
+          status: "invalid",
+          code: ErrorCode.MODS_INVALID_WORKSHOP_ID_CAP,
+        });
+        continue;
+      }
+      if (seen.has(workshopId)) continue; // the same item twice is one item
+      seen.add(workshopId);
+      const selected = item.selectedModIds ?? [];
+      const badModId = Array.isArray(selected)
+        ? selected.find(
+            (id) =>
+              typeof id !== "string" ||
+              !id.trim() ||
+              /[\r\n;=]/.test(id) ||
+              id.length > 200,
+          )
+        : "";
+      if (!Array.isArray(selected) || badModId !== undefined) {
+        const truncatedModId = String(badModId ?? "").substring(0, 50);
+        results.push({
+          workshopId,
+          status: "invalid",
+          code: ErrorCode.MODS_INVALID_MOD_ID_FORMAT_TEMPLATE,
+          params: sanitizeErrorParams({ modId: truncatedModId }),
+        });
+        continue;
+      }
+      valid.push({
+        workshopId,
+        explicitModIds: selected,
+        discover: item.includeAllModIds ? "all" : selected.length > 0 ? "none" : "first",
+      });
+    }
+
+    // Resolve ids and map folders outside the lock (disk reads, Steam lookups).
+    const steamDeadline = performance.now() + ADD_BULK_STEAM_BUDGET_MS;
+    const planned = await mapWithConcurrency(
+      valid,
+      ADD_BULK_RESOLVE_CONCURRENCY,
+      async (entry) => {
+        const resolution = await resolveModIdsForAddition({
+          workshopId: entry.workshopId,
+          explicitModIds: entry.explicitModIds,
+          discover: entry.discover,
+          serverPath,
+          allowSteam: performance.now() < steamDeadline,
+        });
+        const mapFolders = serverPath
+          ? findMapFoldersFromWorkshop(entry.workshopId, serverPath)
+          : [];
+        return { ...entry, resolution, mapFolders };
+      },
+    );
+
+    // One read, every addition, one write.
+    const lockResult = await withIniLock(iniPath, async () => {
+      let content = readTextFile(iniPath);
+      let changed = false;
+      const outcomes = [];
+      for (const plan of planned) {
+        const applied = addWorkshopItemToIni(content, {
+          workshopId: plan.workshopId,
+          modIds: plan.resolution.modIds,
+          mapFolders: plan.mapFolders,
+          serverPath,
+        });
+        content = applied.content;
+        changed ||= applied.changed;
+        outcomes.push({ plan, applied });
+      }
+      let backupWarning = null;
+      if (changed) {
+        backupWarning = backupWarningFor(await writeIniWithBackup(iniPath, content));
+      }
+      return { outcomes, backupWarning, changed };
+    });
+
+    const mapFoldersAdded = [];
+    for (const { plan, applied } of lockResult.outcomes) {
+      const status = additionStatus(plan.resolution.modIds.length, applied);
+      results.push({
+        workshopId: plan.workshopId,
+        status,
+        addedModIds: applied.addedModIds,
+        alternativeModIds: plan.resolution.alternativeModIds,
+        mapFoldersAdded: applied.addedMapFolders,
+        workshopAlreadyExisted: applied.workshopAlreadyExisted,
+        detectionSource: plan.resolution.detectionSource,
+      });
+      mapFoldersAdded.push(...applied.addedMapFolders);
+    }
+
+    if (track) {
+      for (const { workshopId } of valid) {
+        try {
+          await removeIgnoredMod(workshopId);
+          await addTrackedMod(workshopId, `Workshop Mod ${workshopId}`);
+        } catch {
+          // Ignore if already tracked
+        }
+      }
+      // Best-effort: mirror the adds into the configured Steam Workshop
+      // collection when auto-sync is enabled. Paced like /batch-remove and
+      // never blocks the response.
+      (async () => {
+        for (const { workshopId } of valid) {
+          try {
+            await autoSyncCollection("add", workshopId);
+          } catch {
+            /* logged inside */
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      })().catch(() => {});
+    }
+
+    const count = (status) => results.filter((r) => r.status === status).length;
+    log.info(
+      `Bulk add: ${valid.length} workshop items, ${count("added")} with new mod IDs, ${count("workshop-only")} workshop-only, ${count("already-configured")} already configured, ${count("invalid")} invalid (${lockResult.changed ? "one ini write" : "no ini write"})`,
+    );
+
+    res.json({
+      success: true,
+      total: mods.length,
+      added: count("added"),
+      alreadyConfigured: count("already-configured"),
+      workshopOnly: count("workshop-only"),
+      invalid: count("invalid"),
+      mapFoldersAdded,
+      results,
+      ...(lockResult.backupWarning ? { backupWarning: lockResult.backupWarning } : {}),
+    });
+  } catch (error) {
+    log.error(`Failed to bulk add mods: ${error.message}`);
     res.status(500).json({ error: sanitizeError(error.message) });
   }
 });
@@ -6191,14 +6945,19 @@ function classifyFile(relPath) {
   // ─── Top-level media files (at media/ root) ───
   // sandbox-options.txt: PZ merges option blocks by name — always additive.
   if (basename === "sandbox-options.txt") return "sandbox-options";
-  // fileGuidTable.xml: PZ mod editor metadata, never loaded at runtime.
+  // fileGuidTable.xml: read from every mod's own folder and merged GUID by
+  // GUID (ZomboidFileSystem.loadFileGuidTable) — additive.
   if (basename === "fileguidtable.xml") return "fileguidtable";
 
   // ─── Lua scripts ───
   if (lower.startsWith("lua/")) {
     if (lower.startsWith("lua/server/")) return "lua-server";
     if (lower.startsWith("lua/client/")) return "lua-client";
-    if (lower.startsWith("lua/shared/translate/")) return "translate";
+    // A .lua file under Translate/ is Lua like any other (LoadDirBase runs
+    // every .lua under shared/); the rest there are translations.
+    if (lower.startsWith("lua/shared/translate/")) {
+      return lower.endsWith(".lua") ? "lua-shared" : "translate";
+    }
     if (lower.startsWith("lua/shared/")) return "lua-shared";
     return "lua-other";
   }
@@ -6257,8 +7016,10 @@ const CATEGORY_LABELS = {
   "lua-shared": "Shared Lua Scripts",
   "lua-client": "Client Lua Scripts",
   "lua-other": "Lua Scripts",
-  "lua-cross-file": "Lua Symbol Clash (same workshop, different files)",
+  "lua-cross-file": "Lua Global Redefined (different files)",
   scripts: "Item/Recipe/Vehicle Scripts",
+  "scripts-cross-file": "Item/Recipe/Vehicle Definitions (different files)",
+  "mod-info": "Declared Incompatible",
   clothing: "Clothing Definitions",
   "sandbox-options": "Sandbox Options",
   fileguidtable: "Mod Editor Metadata",
@@ -6271,28 +7032,6 @@ const CATEGORY_LABELS = {
   data: "Data Files",
   other: "Other Files",
 };
-
-// ─── Translation file key extraction ────────────────────────────────────────
-// PZ translation files are Lua tables with `KEY = "value"` entries.
-// Multiple mods can each add their own keys to the same file name — only
-// overlapping keys represent a real conflict.
-function extractTranslationKeys(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    const keys = new Set();
-    // Match lines like:   IGUI_perks_Lightfoot = "靈巧",
-    // The value must look like a string ("..." or '...' or [[...]]).
-    // This skips the wrapping table declaration `IGUI_EN = {` (false-positive
-    // source: every translation file has one and the names sometimes match).
-    const re = /^\s*([A-Za-z_]\w*)\s*=\s*(?:"|'|\[\[)/gm;
-    let m;
-    while ((m = re.exec(content)) !== null) keys.add(m[1]);
-    return keys;
-  } catch (e) {
-    log.debug(`Error parsing translation file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
 
 // Compare per-mod definition sets for one shared file path.
 // `extract` returns a Set of names, or null when the file could not be parsed.
@@ -6336,137 +7075,9 @@ export function compareDefinitionSets(modEntries, extract) {
   return { disjoint: !inconclusive, overlapping: [], inconclusive };
 }
 
-// Compare keys from multiple mod versions of the same translation file.
-// Returns { disjoint: true } if no keys overlap (additive — not a real conflict),
-// or { disjoint: false, overlapping: [...] } if keys collide or cannot be read.
-function compareTranslationKeys(modEntries) {
-  return compareDefinitionSets(modEntries, extractTranslationKeys);
-}
-
-// ─── PZ script file parsing ─────────────────────────────────────────────────
-// PZ script files (scripts/*.txt) contain blocks like:
-//   module Base { item BaseballBat { ... } recipe CraftBat { ... } }
-// PZ loads ALL .txt files from every mod's scripts/ folder and merges them.
-// Two mods with the same filename but DIFFERENT module.type.name definitions
-// are additive (not conflicting). Only overlapping definitions are real conflicts.
-function extractScriptDefinitions(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null; // skip huge files
-    const defs = new Set();
-    // Match: module ModuleName { ... }
-    const moduleRe = /module\s+(\w+)\s*\{/g;
-    let moduleMatch;
-    while ((moduleMatch = moduleRe.exec(content)) !== null) {
-      const moduleName = moduleMatch[1];
-      const moduleStart = moduleMatch.index + moduleMatch[0].length;
-      // Find the matching closing brace for this module block
-      let depth = 1;
-      let pos = moduleStart;
-      while (pos < content.length && depth > 0) {
-        if (content[pos] === "{") depth++;
-        else if (content[pos] === "}") depth--;
-        pos++;
-      }
-      const moduleBody = content.slice(moduleStart, pos - 1);
-      // Extract top-level definitions. B41 + B42 keywords (B42 adds craftRecipe, entity,
-      // xuiSkin, componentTemplate, bodyLocation, wallpaper, material, etc.).
-      const defRe =
-        /^\s*(item|recipe|craftrecipe|vehicle|fixing|model|sound|animation|mannequin|evolvedrecipe|uniquerecipe|multistagebuild|entity|xuiskin|componenttemplate|bodylocation|wallpaper|material|template|electrical|liquid|liquidvacuumdef|stash|profession|trait|bodypart)\s+(\S+)/gim;
-      let defMatch;
-      while ((defMatch = defRe.exec(moduleBody)) !== null) {
-        defs.add(`${moduleName}.${defMatch[1].toLowerCase()}.${defMatch[2]}`);
-      }
-    }
-    return defs;
-  } catch (e) {
-    log.debug(`Error parsing script file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
-// Compare script definitions from multiple mod versions of the same file.
-// Returns { disjoint: true } if no definitions overlap (additive),
-// or { disjoint: false, overlapping: [...] } if definitions collide.
-function compareScriptDefinitions(modEntries) {
-  return compareDefinitionSets(modEntries, extractScriptDefinitions);
-}
-
-// ─── Clothing XML parsing ───────────────────────────────────────────────────
-// PZ clothing files (clothing/clothing.xml, clothing/clothingitems/*.xml) are
-// additive: PZ loads all such files from every mod and merges by item name.
-// Two mods defining the same clothing item ID is a real conflict; different IDs
-// are harmless. PZ uses `m_MaleModel`/`m_FemaleModel` as the unique identifier.
-function extractClothingDefinitions(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null;
-    const defs = new Set();
-    // Match XML tags like <m_MaleModel>ItemName</m_MaleModel> or <m_FemaleModel>ItemName</m_FemaleModel>
-    const modelRe =
-      /<m_(?:Male|Female)Model>\s*([^<]+)\s*<\/m_(?:Male|Female)Model>/gi;
-    let m;
-    while ((m = modelRe.exec(content)) !== null) {
-      defs.add(m[1].trim().toLowerCase());
-    }
-    // Also match <m_Name> for clothingitems XML format
-    const nameRe = /<m_Name>\s*([^<]+)\s*<\/m_Name>/gi;
-    while ((m = nameRe.exec(content)) !== null) {
-      defs.add(m[1].trim().toLowerCase());
-    }
-    return defs;
-  } catch (e) {
-    log.debug(`Error parsing clothing file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
-function compareClothingDefinitions(modEntries) {
-  return compareDefinitionSets(modEntries, extractClothingDefinitions);
-}
-
-// ─── Lua symbol extraction ──────────────────────────────────────────────────
-// PZ does NOT merge Lua files: when two mods ship the same lua/.../foo.lua,
-// the last-loaded one wins outright and the loser is discarded entirely.
-// We extract the *names* both files define so the UI can show what would clash
-// vs what would merely be shadowed:
-//   fn:Foo.bar          — function declarations  (function Foo:bar / Foo.bar / function bar)
-//   event:OnPlayerMove  — Events.X.Add subscriptions
-//   class:ISFoo         — ISClass:derive("ISFoo") declarations
-//   tbl:Foo             — top-level table assigns (Foo = {...})
-function extractLuaSymbols(filePath) {
-  try {
-    const content = stripBom(fs.readFileSync(filePath, "utf-8"));
-    if (content.length > 2 * 1024 * 1024) return null;
-    // Strip --[[ block comments ]] and -- line comments to avoid false positives
-    const stripped = content
-      .replace(/--\[\[[\s\S]*?\]\]/g, "")
-      .replace(/--[^\n]*/g, "");
-    const symbols = new Set();
-    let m;
-    // function Foo:bar(...)  |  function Foo.bar.baz(...)  |  function bar(...)
-    const fnRe = /(?:^|\n)\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(/g;
-    while ((m = fnRe.exec(stripped)) !== null) symbols.add(`fn:${m[1]}`);
-    // X.Y = function(...)
-    const assignFnRe = /(?:^|\n)\s*([A-Za-z_][\w.]*)\s*=\s*function\s*\(/g;
-    while ((m = assignFnRe.exec(stripped)) !== null) symbols.add(`fn:${m[1]}`);
-    // Events.OnPlayerMove.Add(...)  /  .Remove(...)
-    const evRe = /\bEvents\.([A-Za-z_]\w*)\.(?:Add|Remove)\s*\(/g;
-    while ((m = evRe.exec(stripped)) !== null) symbols.add(`event:${m[1]}`);
-    // ISFoo = ISBar:derive("ISFoo")  — class declarations
-    const classRe =
-      /(?:^|\n)\s*([A-Z][\w]*)\s*=\s*[A-Z][\w]*\s*:\s*derive\s*\(/g;
-    while ((m = classRe.exec(stripped)) !== null) symbols.add(`class:${m[1]}`);
-    return symbols;
-  } catch (e) {
-    log.debug(`Error parsing Lua file ${filePath}: ${e.message}`);
-    return null;
-  }
-}
-
-// Lua files are read by both the per-path pass and the cross-file pass. The
-// scan mutex guarantees one scan at a time, so a module-level cache is safe and
-// halves the Lua parsing work. Cleared at the end of every scan.
+// Lua symbols (what two same-path copies both define, shown for a Lua
+// override). The scan mutex guarantees one scan at a time, so a module-level
+// cache is safe. Cleared at the end of every scan.
 const LUA_SYMBOL_CACHE_MAX = 20_000;
 const luaSymbolCache = new Map();
 
@@ -6481,6 +7092,9 @@ function getLuaSymbols(filePath) {
 
 function resetScanCaches() {
   luaSymbolCache.clear();
+  // Hashes and parses (validated by size + mtime) are kept for a rescan, then
+  // dropped once the scan results themselves would be stale.
+  expireConflictFileCacheAfter(SCAN_CACHE_TTL_MS);
 }
 
 // Compare Lua files at the same path across multiple mods.
@@ -6515,29 +7129,13 @@ const LUA_CATEGORIES = new Set([
   "lua-other",
 ]);
 
-// One mod can ship the same relative path twice (media/ plus a B42 42/ folder).
-// Pairing and reporting must run on distinct mods or a mod ends up listed as
-// conflicting with itself.
+// buildFileIndex keeps one entry per mod and path, but two Workshop items can
+// declare the same mod id. Pairing and reporting must run on distinct mods or
+// a mod ends up listed as conflicting with itself.
 function dedupeByModId(entries) {
   const byId = new Map();
   for (const entry of entries) if (!byId.has(entry.modId)) byId.set(entry.modId, entry);
   return [...byId.values()];
-}
-
-// Hash a single file for content comparison. Streamed so one large asset never
-// lands in memory whole: a path shared by 30 mods previously allocated 30 full
-// file buffers at once.
-function hashFileStreaming(filePath) {
-  return new Promise((resolve) => {
-    const hash = crypto.createHash("md5");
-    const stream = fs.createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("end", () => resolve(hash.digest("hex")));
-    stream.on("error", (e) => {
-      log.debug(`Error hashing file ${filePath}: ${e.message}`);
-      resolve(null);
-    });
-  });
 }
 
 // Decide whether every mod's copy of one relative path holds the same bytes.
@@ -6546,15 +7144,17 @@ function hashFileStreaming(filePath) {
 // Returns "identical", "differs" (also used whenever the answer cannot be
 // verified, so a real conflict is never hidden), or "unknown" when fewer than
 // two copies could be read.
+// Hashes are cached by path + size + mtime (utils/modConflictRules.js), so a
+// rescan of unchanged mods reads no file twice.
 async function compareFileContents(entries) {
   const sized = await Promise.all(
     entries.map(async (entry) => {
-      try {
-        return { entry, size: (await fsp.stat(entry.absPath)).size };
-      } catch (e) {
-        log.debug(`Error reading file size ${entry.absPath}: ${e.message}`);
+      const stat = await statFile(entry.absPath);
+      if (!stat) {
+        log.debug(`Error reading file size ${entry.absPath}`);
         return null;
       }
+      return { entry, size: stat.size, stat };
     }),
   );
   const readable = sized.filter(Boolean);
@@ -6563,7 +7163,7 @@ async function compareFileContents(entries) {
   if (new Set(readable.map((r) => r.size)).size > 1) return "differs";
   if (readable[0].size > HASH_MAX_BYTES) return "differs";
   const hashes = await Promise.all(
-    readable.map((r) => hashFileStreaming(r.entry.absPath)),
+    readable.map((r) => cachedFileHash(r.entry.absPath, r.stat)),
   );
   if (hashes.some((h) => h == null)) return "differs";
   if (new Set(hashes).size > 1) return "differs";
@@ -6602,22 +7202,20 @@ async function readIniModLists() {
     const wsMatch = iniContent.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
     const modsMatch = iniContent.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
     if (wsMatch && wsMatch[1].trim()) {
-      workshopIds = wsMatch[1]
-        .trim()
-        .split(";")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      workshopIds = splitIniList(wsMatch[1]);
     }
     if (modsMatch && modsMatch[1].trim()) {
-      modIdsFromIni = modsMatch[1]
-        .trim()
-        .split(";")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      modIdsFromIni = splitModIdList(modsMatch[1]);
     }
   }
   return { workshopIds, modIdsFromIni };
 }
+
+// How many mods' folders are walked at once. One walk is a chain of small
+// awaited readdir calls; overlapping a few keeps the fs thread pool busy
+// instead of waiting on one round trip at a time. Results are still indexed
+// strictly in mod order, so the index (and every winner) is unchanged.
+const WALK_CONCURRENCY = 6;
 
 // Build the file index and collect per-mod metadata.
 // Calls `onModScanned(modId, modName, wsId, fileCount)` for each mod.
@@ -6625,12 +7223,20 @@ async function readIniModLists() {
 // `maxEntries` defaults to the real production cap; tests override it with a
 // small value (same pattern as server.js's countDir(dir, budget)) so the cap
 // mechanism is provable without a fixture at the real 300,000-entry scale.
+//
+// Only the folders B42 loads are read (gameMediaDirs: common/ then the newest
+// 42.x folder, a root media/ only for the old layout), and each mod gets ONE
+// entry per path: the copy the game uses (the version folder's beats
+// common/'s), so a mod is never compared with a copy the game never loads.
+// `modDetailsByWorkshop` (wsId -> getModDetailsFromWorkshop()) skips reading
+// the mod.info files again when the caller already has them.
 export async function buildFileIndex(
   workshopIds,
   serverPath,
   onModScanned,
   activeModIds,
   maxEntries = FILE_INDEX_MAX_ENTRIES,
+  modDetailsByWorkshop = null,
 ) {
   const fileIndex = {};
   const modInfoMap = {};
@@ -6643,8 +7249,10 @@ export async function buildFileIndex(
   const totalWorkshopIds = workshopIds.length;
   const activeSet = activeModIds ? new Set(activeModIds) : null;
 
-  outer: for (let wsIdx = 0; wsIdx < totalWorkshopIds; wsIdx++) {
-    if (indexTruncated) break;
+  // 1. The mod folders to read, in order (synchronous and cheap: mod.info
+  // files and folder listings only).
+  const jobs = [];
+  for (let wsIdx = 0; wsIdx < totalWorkshopIds; wsIdx++) {
     const wsId = workshopIds[wsIdx];
     if (!/^\d{1,15}$/.test(wsId)) {
       warnings.push(`Skipped invalid workshop ID: ${wsId.slice(0, 20)}`);
@@ -6663,7 +7271,8 @@ export async function buildFileIndex(
       modsNotFound++;
       continue;
     }
-    const modDetails = getModDetailsFromWorkshop(wsId, serverPath);
+    const modDetails =
+      modDetailsByWorkshop?.[wsId] || getModDetailsFromWorkshop(wsId, serverPath);
     modInfoMap[wsId] = modDetails;
     const modsFolder = path.join(workshopPath, "mods");
     const searchBase = fs.existsSync(modsFolder) ? modsFolder : workshopPath;
@@ -6674,38 +7283,14 @@ export async function buildFileIndex(
       log.debug(`Could not read mod directory ${searchBase}: ${e.message}`);
       continue;
     }
-    let modsFoundInThisWs = 0;
+    const firstJob = jobs.length;
     for (const modDir of modEntries) {
-      if (indexTruncated) break;
       if (!modDir.isDirectory()) continue;
       const modDirPath = path.join(searchBase, modDir.name);
-      // Collect all media paths — direct + B42 versioned subfolders (42/, 42.X/, common/)
-      const mediaPaths = [];
-      const directMedia = path.join(modDirPath, "media");
-      if (fs.existsSync(directMedia)) {
-        mediaPaths.push(directMedia);
-      } else {
-        // B42 mods may have versioned subfolders instead of a direct media/ folder
-        try {
-          const subDirs = fs.readdirSync(modDirPath, { withFileTypes: true });
-          for (const sub of subDirs) {
-            if (!sub.isDirectory()) continue;
-            // Match: 42, 42.0, 42.13, common (versioned B42 subfolder patterns)
-            if (/^(42(\.\d+)?|common)$/i.test(sub.name)) {
-              const subMedia = path.join(modDirPath, sub.name, "media");
-              if (fs.existsSync(subMedia)) mediaPaths.push(subMedia);
-            }
-          }
-        } catch (e) {
-          log.debug(
-            `Could not scan B42 subfolders for ${modDirPath}: ${e.message}`,
-          );
-        }
-      }
+      // The media folders B42 loads, in the order it applies them.
+      const mediaPaths = gameMediaDirs(modDirPath).dirs;
       if (mediaPaths.length === 0) continue;
-      const matchingMod = modDetails.find(
-        (m) => m.id === modDir.name || m.name === modDir.name,
-      );
+      const matchingMod = findModForFolder(modDetails, modDir.name);
       const modId = matchingMod?.id || modDir.name;
       const modName = matchingMod?.name || modDir.name;
       // Skip mod directories that aren't in the active Mods= list
@@ -6713,76 +7298,100 @@ export async function buildFileIndex(
         modsSkippedInactive++;
         continue;
       }
-      modsScanned++;
-      modsFoundInThisWs++;
-      let totalFileCount = 0;
-      for (const mediaPath of mediaPaths) {
-        if (indexTruncated) break;
-        const { files, truncated } = await walkDir(mediaPath);
-        if (truncated) {
-          warnings.push(
-            `${modName} (${wsId}): file scan hit the 50,000 file limit — some files were skipped`,
-          );
+      jobs.push({ wsIdx, wsId, modId, modName, mediaPaths, modsInWorkshop: 0 });
+    }
+    if (jobs.length > firstJob) jobs[jobs.length - 1].modsInWorkshop = jobs.length - firstJob;
+  }
+
+  // 2. Walk a few mods ahead, index them one by one in order.
+  const walks = new Array(jobs.length);
+  let started = 0;
+  outer: for (let i = 0; i < jobs.length; i++) {
+    while (started < jobs.length && started < i + WALK_CONCURRENCY) {
+      const job = jobs[started];
+      walks[started] = Promise.all(job.mediaPaths.map((mediaPath) => walkDir(mediaPath)));
+      started++;
+    }
+    const job = jobs[i];
+    const { wsId, modId, modName } = job;
+    const results = await walks[i];
+    walks[i] = null;
+    modsScanned++;
+    let totalFileCount = 0;
+    // One entry per path for this mod: the copy the game loads. A later
+    // media folder (the version folder) replaces common/'s entry in place.
+    const ownEntries = new Map();
+    for (let k = 0; k < job.mediaPaths.length; k++) {
+      const mediaPath = job.mediaPaths[k];
+      const { files, truncated } = results[k];
+      if (truncated) {
+        warnings.push(
+          `${modName} (${wsId}): file scan hit the 50,000 file limit — some files were skipped`,
+        );
+      }
+      totalFileCount += files.length;
+      // Measured (mods-conflict-scan-unmeasured-at-scale): this loop, not
+      // walkDir() itself, was the real event-loop-blocking cost. A mod at
+      // the WALK_MAX_FILES ceiling (50,000 files -- a real, code-enforced
+      // case, see the truncation branch above) blocked here for ~316ms in
+      // one unbroken synchronous burst, because this loop had no yield of
+      // its own; the outer per-mod loop only yields once ALL of a mod's
+      // media paths are fully indexed. Same WALK_YIELD_EVERY cadence as
+      // walkDir(), so one giant mod can't freeze every other request on
+      // the panel for the length of its own indexing.
+      let sinceYield = 0;
+      for (const relFile of files) {
+        // Global cap (panel-oom-buildfileindex-unbounded): WALK_MAX_FILES
+        // only bounds ONE mod's walk. Without this, fileIndex keeps
+        // accumulating entries across every mod combined, unbounded by mod
+        // count — this is the check that actually stops the OOM. Bail out
+        // of the whole scan (not just this mod) the moment the cap is hit;
+        // continuing to walk further mods after the index is already full
+        // just burns more CPU and memory building `files` arrays nothing
+        // will use (at most WALK_CONCURRENCY walks are already under way).
+        if (indexedEntries >= maxEntries) {
+          indexTruncated = true;
+          break outer;
         }
-        totalFileCount += files.length;
-        // Measured (mods-conflict-scan-unmeasured-at-scale): this loop, not
-        // walkDir() itself, was the real event-loop-blocking cost. A mod at
-        // the WALK_MAX_FILES ceiling (50,000 files -- a real, code-enforced
-        // case, see the truncation branch above) blocked here for ~316ms in
-        // one unbroken synchronous burst, because this loop had no yield of
-        // its own; the outer per-mod loop only yields once ALL of a mod's
-        // media paths are fully indexed. Same WALK_YIELD_EVERY cadence as
-        // walkDir(), so one giant mod can't freeze every other request on
-        // the panel for the length of its own indexing.
-        let sinceYield = 0;
-        for (const relFile of files) {
-          // Global cap (panel-oom-buildfileindex-unbounded): WALK_MAX_FILES
-          // only bounds ONE mod's walk. Without this, fileIndex keeps
-          // accumulating entries across every mod combined, unbounded by mod
-          // count — this is the check that actually stops the OOM. Bail out
-          // of the whole scan (not just this mod) the moment the cap is hit;
-          // continuing to walk further mods after the index is already full
-          // just burns more CPU and memory building `files` arrays nothing
-          // will use.
-          if (indexedEntries >= maxEntries) {
-            indexTruncated = true;
-            break outer;
-          }
-          const normalizedPath = relFile.replace(/\\/g, "/").toLowerCase();
-          if (!fileIndex[normalizedPath]) {
-            fileIndex[normalizedPath] = [];
-          }
-          fileIndex[normalizedPath].push({
-            workshopId: wsId,
-            modId,
-            modName,
-            absPath: path.join(mediaPath, relFile),
-          });
-          indexedEntries++;
-          if (++sinceYield >= WALK_YIELD_EVERY) {
-            sinceYield = 0;
-            await yieldTick();
-          }
+        const normalizedPath = relFile.replace(/\\/g, "/").toLowerCase();
+        const absPath = path.join(mediaPath, relFile);
+        const own = ownEntries.get(normalizedPath);
+        if (own) {
+          own.absPath = absPath;
+          continue;
+        }
+        if (!fileIndex[normalizedPath]) {
+          fileIndex[normalizedPath] = [];
+        }
+        const entry = { workshopId: wsId, modId, modName, absPath };
+        ownEntries.set(normalizedPath, entry);
+        fileIndex[normalizedPath].push(entry);
+        indexedEntries++;
+        if (++sinceYield >= WALK_YIELD_EVERY) {
+          sinceYield = 0;
+          await yieldTick();
         }
       }
-      if (onModScanned)
-        onModScanned({
-          modId,
-          modName,
-          workshopId: wsId,
-          fileCount: totalFileCount,
-          modsScanned,
-          totalWorkshopIds,
-          wsIdx,
-        });
     }
-    if (modsFoundInThisWs > 1) {
-      log.debug(
-        `Workshop ${wsId}: contains ${modsFoundInThisWs} mod dirs (${modInfoMap[wsId]?.map((m) => m.id).join(", ") || "unknown"})`,
-      );
+    if (onModScanned)
+      onModScanned({
+        modId,
+        modName,
+        workshopId: wsId,
+        fileCount: totalFileCount,
+        modsScanned,
+        totalWorkshopIds,
+        wsIdx: job.wsIdx,
+      });
+    if (job.modsInWorkshop > 0) {
+      if (job.modsInWorkshop > 1) {
+        log.debug(
+          `Workshop ${wsId}: contains ${job.modsInWorkshop} mod dirs (${modInfoMap[wsId]?.map((m) => m.id).join(", ") || "unknown"})`,
+        );
+      }
+      // Yield after each workshop item so SSE writes and incoming requests aren't starved
+      await yieldTick();
     }
-    // Yield after each workshop item so SSE writes and incoming requests aren't starved
-    await yieldTick();
   }
   if (indexTruncated) {
     // A truncated scan is a wrong answer presented as a complete one unless
@@ -6803,9 +7412,156 @@ export async function buildFileIndex(
   };
 }
 
+// ─── Conflict rules ──────────────────────────────────────────────────────
+// Each conflict carries, besides file/category/severity/mods/overlap/winner:
+//   kind    file-override | lua-override | script-file-override |
+//           script-override | translation-override | clothing-override |
+//           lua-global-clash | declared-incompatible
+//   reason  a stable code the client translates (conflictsPanel reasons.*):
+//           assetOverride, mapFileOverride, dataFileOverride, luaFileOverride,
+//           scriptFileReplaced, scriptFileOverride, scriptDefinitionOverride,
+//           scriptDefinitionMerge, translationKeyOverride,
+//           translationUnreadable, clothingOutfitOverride,
+//           clothingItemOverride, luaGlobalRedefined, luaVariantClash,
+//           declaredIncompatible, intendedPatch, patchLoadsBeforeTarget
+//   severity high | medium | low | info (info: an intended override, e.g. a
+//           patch that require=s the mod it overrides and loads after it)
+//   intended true when the override is a declared patch's (see above);
+//           baseReason then keeps the file-level reason it replaced
+//   files   [{ modId, file }] for conflicts across different files
+// The rules follow what the game loads (utils/modLoadOrder.js header).
+
+const REASON_SEVERITY = {
+  assetOverride: null, // per category (SEVERITY_MAP)
+  mapFileOverride: "medium",
+  dataFileOverride: null,
+  luaFileOverride: "high",
+  scriptFileReplaced: "high",
+  scriptFileOverride: "medium",
+  scriptDefinitionOverride: "medium",
+  // Layered bodies (vehicle, xuiSkin): only the keys both set differently.
+  scriptDefinitionMerge: "low",
+  translationKeyOverride: "low",
+  translationUnreadable: "low",
+  clothingOutfitOverride: "medium",
+  clothingItemOverride: "medium",
+  luaGlobalRedefined: "medium",
+  luaVariantClash: "high",
+  declaredIncompatible: "high",
+};
+
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2, info: 3 };
+
+function fileOverrideReason(category) {
+  if (category === "maps") return "mapFileOverride";
+  if (
+    category === "data" ||
+    category === "other" ||
+    category === "clothing" ||
+    LUA_CATEGORIES.has(category)
+  ) {
+    return "dataFileOverride";
+  }
+  return "assetOverride";
+}
+
+// Position of each mod in the order the game loads them; -1 when unknown.
+function loadPosition(orderIndex, modId) {
+  const pos = orderIndex?.get(modId);
+  return pos == null ? -1 : pos;
+}
+
+// Entries sorted by load order, earliest first (unknown positions first:
+// they cannot be shown to win).
+function byLoadOrder(entries, orderIndex) {
+  return entries
+    .map((entry, i) => ({ entry, i, pos: loadPosition(orderIndex, entry.modId) }))
+    .sort((a, b) => a.pos - b.pos || a.i - b.i)
+    .map((x) => x.entry);
+}
+
+function modRef(m) {
+  return { workshopId: m.workshopId, modId: m.modId, modName: m.modName };
+}
+
+function overlapOf(kind, items) {
+  const unique = [...new Set(items)];
+  return unique.length > 0
+    ? { kind, items: unique.slice(0, 50), total: unique.length }
+    : undefined;
+}
+
+// The winner of a conflict: the mod among it that loads last in the order the
+// game really uses (the effective order: Mods= with required mods loaded
+// first). null when no mod has a known position.
+function winnerOf(conflict, orderIndex) {
+  let best = -1;
+  let winner = null;
+  for (const m of conflict.mods) {
+    const pos = loadPosition(orderIndex, m.modId);
+    if (pos > best) {
+      best = pos;
+      winner = m;
+    }
+  }
+  return winner ? modRef(winner) : null;
+}
+
+/**
+ * Re-rates one pair of a conflict when one mod declares it builds on the
+ * other (require=, loadModAfter=, the other's loadModBefore=, directly or
+ * through other mods): overriding the target is then the point of the patch
+ * (severity info, reason intendedPatch) -- as long as the patch loads after
+ * its target, otherwise its changes are lost (high, patchLoadsBeforeTarget).
+ * Returns null when the pair is unrelated.
+ */
+export function classifyConflictPair(conflict, idA, idB, dependsOn, orderIndex) {
+  if (!dependsOn || conflict.kind === "declared-incompatible") return null;
+  const aOnB = dependsOn(idA, idB);
+  const bOnA = dependsOn(idB, idA);
+  if (!aOnB && !bOnA) return null;
+  const patch = aOnB ? idA : idB;
+  const target = patch === idA ? idB : idA;
+  const patchPos = loadPosition(orderIndex, patch);
+  const targetPos = loadPosition(orderIndex, target);
+  if (patchPos < 0 || targetPos < 0) return null; // one of them does not load
+  if (patchPos > targetPos) {
+    return { severity: "info", reason: "intendedPatch", intended: true, patch, target };
+  }
+  return { severity: "high", reason: "patchLoadsBeforeTarget", intended: false, patch, target };
+}
+
+// Sets the winner (unless the detector already knows it) and re-rates a
+// two-mod conflict that is a declared patch's override.
+function makeFinalizer(orderIndex, dependsOn) {
+  return (conflict) => {
+    if (conflict.winner === undefined) conflict.winner = winnerOf(conflict, orderIndex);
+    const ids = [...new Set(conflict.mods.map((m) => m.modId))];
+    if (ids.length !== 2) return conflict;
+    const rated = classifyConflictPair(conflict, ids[0], ids[1], dependsOn, orderIndex);
+    if (rated) {
+      conflict.baseSeverity = conflict.severity;
+      conflict.baseReason = conflict.reason;
+      conflict.severity = rated.severity;
+      conflict.reason = rated.reason;
+      conflict.intended = rated.intended;
+    }
+    return conflict;
+  };
+}
+
+// The copy of a shared path the game loads: the last mod's.
+function loadedCopy(entries, orderIndex) {
+  const ordered = byLoadOrder(entries, orderIndex);
+  return ordered[ordered.length - 1];
+}
+
 // Detect conflicts from a file index. Calls `onConflictFound(conflict)` for each.
+// options: shouldAbort, onProgress, orderIndex (Map modId -> load position,
+// the effective order), dependsOn (createDependencyRelation()).
 async function detectConflicts(fileIndex, onConflictFound, options = {}) {
-  const { shouldAbort, onProgress } = options;
+  const { shouldAbort, onProgress, orderIndex = new Map(), dependsOn = null } = options;
+  const finalize = makeFinalizer(orderIndex, dependsOn);
   const conflicts = [];
   let identicalSkipped = 0;
   let additiveSkipped = 0;
@@ -6817,6 +7573,15 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     fileguidtable: 0,
     translate: 0,
   };
+  // Shared paths that are not conflicts for another reason than identical
+  // bytes: never read by the game, or the same definitions written
+  // differently.
+  const benignSkipped = { nonGameplay: 0, notLoaded: 0, sameDefinitions: 0, layeredAdditions: 0 };
+  const emit = (conflict) => {
+    finalize(conflict);
+    conflicts.push(conflict);
+    if (onConflictFound) onConflictFound(conflict);
+  };
   let processed = 0;
   const indexEntries = Object.entries(fileIndex);
   for (const [filePath, mods] of indexEntries) {
@@ -6824,12 +7589,18 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     if (mods.length < 2) continue;
     const distinctMods = dedupeByModId(mods);
     if (distinctMods.length < 2) continue;
+
+    // Workshop metadata, documentation, VCS files: the game never reads them.
+    if (isNonGameplayMediaFile(filePath)) {
+      benignSkipped.nonGameplay++;
+      continue;
+    }
     const category = classifyFile(filePath);
 
-    // sandbox-options.txt lives at the media root and PZ merges it by named
-    // option block; fileGuidTable.xml is mod-editor metadata never loaded at
-    // runtime. Both are additive whatever they contain, so skip them before
-    // comparing rather than reading 34+ copies only to discard the answer.
+    // sandbox-options.txt and fileGuidTable.xml are read from each mod's own
+    // folder and merged entry by entry (CustomSandboxOptions,
+    // ZomboidFileSystem.loadFileGuidTable): additive whatever they contain,
+    // so skip them before reading 34+ copies only to discard the answer.
     if (category === "sandbox-options" || category === "fileguidtable") {
       pzAdditiveSkipped++;
       pzAdditiveBreakdown[
@@ -6837,8 +7608,18 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
       ]++;
       continue;
     }
+    // B42 reads translations from Translate/<LANG>/*.json only; the B41 .txt
+    // files are never loaded. Script files outside .txt are never parsed.
+    const translation = category === "translate" ? translationPathInfo(filePath) : null;
+    if (
+      (category === "translate" && !translation?.json) ||
+      (category === "scripts" && !filePath.endsWith(".txt"))
+    ) {
+      benignSkipped.notLoaded++;
+      continue;
+    }
 
-    const contentState = await compareFileContents(mods);
+    const contentState = await compareFileContents(distinctMods);
     if (++processed % 25 === 0) {
       if (onProgress) onProgress({ processed, total: indexEntries.length });
       await yieldTick();
@@ -6850,116 +7631,164 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
       continue;
     }
 
-    const conflictMods = distinctMods.map((m) => ({
-      workshopId: m.workshopId,
-      modId: m.modId,
-      modName: m.modName,
-    }));
+    const ordered = byLoadOrder(distinctMods, orderIndex);
+    const base = {
+      file: filePath,
+      category,
+      categoryLabel: CATEGORY_LABELS[category] || category,
+      identical: false,
+      mods: distinctMods.map(modRef),
+    };
 
-    // ─── PZ additive files: these are NOT real conflicts ───
-
-    // Translation files: mods add their own keys to shared filenames.
-    // Only flag as a real conflict when keys actually overlap.
+    // Translations merge key by key (Translator.tryFillMapFromMods): two
+    // mods shipping the same file is harmless, only the same key with a
+    // different non-empty value is a conflict. Unreadable: fail closed.
     if (category === "translate") {
-      const comparison = compareTranslationKeys(mods);
-      if (comparison.disjoint) {
+      const comparison = compareTranslationEntries(
+        ordered.map((m) => ({
+          modId: m.modId,
+          entries: cachedParse("translation", m.absPath, extractTranslationEntries) ?? null,
+        })),
+      );
+      if (!comparison.unreadable && comparison.conflicting.length === 0) {
         additiveSkipped++;
         pzAdditiveBreakdown.translate++;
         continue;
       }
-      // Keys overlap, or the file could not be parsed — surface as a
-      // low-severity conflict with whatever keys were identified.
-      const conflict = {
-        file: filePath,
-        category,
-        categoryLabel: CATEGORY_LABELS[category] || category,
+      // Only the mods that give a clashing key a value are in the conflict;
+      // the others shipping this file just add their own keys.
+      const involved = new Set(comparison.unreadable ? distinctMods.map((m) => m.modId) : comparison.modIds);
+      emit({
+        ...base,
+        mods: distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
         severity: "low",
-        identical: false,
-        mods: conflictMods,
-      };
-      if (comparison.overlapping.length > 0) {
-        conflict.overlap = {
-          kind: "translation-keys",
-          items: comparison.overlapping.slice(0, 50),
-          total: comparison.overlapping.length,
-        };
-      }
-      conflicts.push(conflict);
-      if (onConflictFound) onConflictFound(conflict);
+        kind: "translation-override",
+        reason: comparison.conflicting.length > 0 ? "translationKeyOverride" : "translationUnreadable",
+        overlap: overlapOf("translation-keys", comparison.conflicting),
+      });
       continue;
     }
 
-    // PZ script files: parse for overlapping module.type.name definitions.
-    // PZ loads ALL .txt from every mod's scripts/ and merges them.
-    let scriptOverlap = null;
+    // Scripts: only the winner's copy of a shared path is parsed
+    // (ScriptManager.Load). What the other copies define is gone unless the
+    // winner defines it too.
     if (category === "scripts") {
-      const comparison = compareScriptDefinitions(mods);
-      if (comparison.disjoint) {
-        pzAdditiveSkipped++;
-        pzAdditiveBreakdown.scripts++;
+      const winner = ordered[ordered.length - 1];
+      const winnerDefs = cachedParse("scriptDefs", winner.absPath, extractScriptDefinitionBodies);
+      let unreadable = !winnerDefs;
+      const lost = [];
+      const overridden = [];
+      // The winner, plus every copy that loses something by being dropped
+      // (a copy defining exactly what the winner defines loses nothing).
+      const involved = new Set([winner.modId]);
+      for (const loser of ordered.slice(0, -1)) {
+        const loserDefs = cachedParse("scriptDefs", loser.absPath, extractScriptDefinitionBodies);
+        if (!loserDefs || !winnerDefs) {
+          unreadable = true;
+          involved.add(loser.modId);
+          continue;
+        }
+        const comparison = compareScriptFileCopies(winnerDefs, loserDefs);
+        if (comparison.lost.length > 0 || comparison.overridden.length > 0) involved.add(loser.modId);
+        lost.push(...comparison.lost);
+        overridden.push(...comparison.overridden);
+      }
+      if (!unreadable && lost.length === 0 && overridden.length === 0) {
+        benignSkipped.sameDefinitions++;
         continue;
       }
-      scriptOverlap = comparison.overlapping;
-      // Has overlapping defs — this IS a real conflict
+      const replaced = unreadable || lost.length > 0;
+      emit({
+        ...base,
+        mods: distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
+        severity: replaced ? "high" : "medium",
+        kind: "script-file-override",
+        reason: replaced ? "scriptFileReplaced" : "scriptFileOverride",
+        overlap: overlapOf("script-defs", lost.length > 0 ? lost : overridden),
+      });
+      continue;
     }
 
-    // Clothing XMLs: PZ merges all clothing definitions from all mods.
-    // Only flag if clothing item IDs actually overlap.
-    let clothingOverlap = null;
+    // clothing.xml is read from each mod and merged outfit by outfit
+    // (OutfitManager); clothingItems/*.xml load through the path map, so a
+    // shared path is the same item replaced.
     if (category === "clothing") {
-      const comparison = compareClothingDefinitions(mods);
-      if (comparison.disjoint) {
-        pzAdditiveSkipped++;
-        pzAdditiveBreakdown.clothing++;
+      if (filePath === "clothing/clothing.xml") {
+        const byOutfit = new Map(); // outfit -> Map(modId -> digest)
+        let unreadable = false;
+        for (const m of ordered) {
+          const outfits = cachedParse("outfits", m.absPath, extractClothingOutfits);
+          if (!outfits) {
+            unreadable = true;
+            continue;
+          }
+          for (const [name, hash] of outfits) {
+            if (!byOutfit.has(name)) byOutfit.set(name, new Map());
+            byOutfit.get(name).set(m.modId, hash);
+          }
+        }
+        const clashing = [];
+        const involved = new Set();
+        for (const [name, byMod] of byOutfit) {
+          if (new Set(byMod.values()).size < 2) continue;
+          clashing.push(name);
+          for (const modId of byMod.keys()) involved.add(modId);
+        }
+        if (!unreadable && clashing.length === 0) {
+          pzAdditiveSkipped++;
+          pzAdditiveBreakdown.clothing++;
+          continue;
+        }
+        emit({
+          ...base,
+          mods: unreadable ? base.mods : distinctMods.filter((m) => involved.has(m.modId)).map(modRef),
+          severity: "medium",
+          kind: "clothing-override",
+          reason: "clothingOutfitOverride",
+          overlap: overlapOf("clothing-items", clashing),
+        });
         continue;
       }
-      clothingOverlap = comparison.overlapping;
-      // Has overlapping clothing IDs — real conflict
-    }
-
-    // Lua: not merged — last-loaded wins. Parse symbol names so the UI can show
-    // exactly which functions/events/classes clash vs which are silently shadowed.
-    let luaOverlap = null;
-    if (LUA_CATEGORIES.has(category)) {
-      luaOverlap = compareLuaSymbols(mods); // null when files unparsable / no symbols
-    }
-
-    const conflict = {
-      file: filePath,
-      category,
-      categoryLabel: CATEGORY_LABELS[category] || category,
-      severity: SEVERITY_MAP[category] || "low",
-      identical: false,
-      mods: conflictMods,
-    };
-    if (scriptOverlap && scriptOverlap.length > 0) {
-      conflict.overlap = {
-        kind: "script-defs",
-        items: scriptOverlap.slice(0, 50),
-        total: scriptOverlap.length,
-      };
-    } else if (clothingOverlap && clothingOverlap.length > 0) {
-      conflict.overlap = {
-        kind: "clothing-items",
-        items: clothingOverlap.slice(0, 50),
-        total: clothingOverlap.length,
-      };
-    } else if (luaOverlap) {
-      if (luaOverlap.overlapping.length > 0) {
-        conflict.overlap = {
-          kind: "lua-symbols",
-          items: luaOverlap.overlapping.slice(0, 50),
-          total: luaOverlap.overlapping.length,
-        };
-      } else {
-        // Lua files at the same path with no overlapping named symbols — one fully
-        // shadows the other but they don't fight for the same names. Demote severity.
-        conflict.severity = "medium";
-        conflict.overlap = { kind: "lua-shadow", items: [], total: 0 };
+      if (filePath.startsWith("clothing/clothingitems/")) {
+        emit({
+          ...base,
+          severity: "medium",
+          kind: "clothing-override",
+          reason: "clothingItemOverride",
+        });
+        continue;
       }
     }
-    conflicts.push(conflict);
-    if (onConflictFound) onConflictFound(conflict);
+
+    // Lua: one copy of a path runs, the winner's (LuaManager.LoadDirBase);
+    // every other copy is never executed. Always a real override.
+    if (LUA_CATEGORIES.has(category) && filePath.endsWith(".lua")) {
+      const luaOverlap = compareLuaSymbols(distinctMods);
+      emit({
+        ...base,
+        severity: "high",
+        kind: "lua-override",
+        reason: "luaFileOverride",
+        overlap:
+          luaOverlap && luaOverlap.overlapping.length > 0
+            ? overlapOf("lua-symbols", luaOverlap.overlapping)
+            : { kind: "lua-shadow", items: [], total: 0 },
+      });
+      continue;
+    }
+
+    // Any other file: the path map keeps the last mod's copy. A non-Lua file
+    // under lua/ is never executed, only possibly read as data.
+    const reason = fileOverrideReason(category);
+    emit({
+      ...base,
+      severity:
+        REASON_SEVERITY[reason] ||
+        (LUA_CATEGORIES.has(category) ? "medium" : SEVERITY_MAP[category]) ||
+        "low",
+      kind: "file-override",
+      reason,
+    });
   }
   return {
     conflicts,
@@ -6967,139 +7796,241 @@ async function detectConflicts(fileIndex, onConflictFound, options = {}) {
     additiveSkipped,
     pzAdditiveSkipped,
     pzAdditiveBreakdown,
+    benignSkipped,
   };
 }
 
-// Detect Lua symbol clashes across DIFFERENT files between mod IDs that ship
-// inside the SAME workshop item. The per-file scanner above only catches
-// collisions when two mods place a file at the same relative path. Many
-// "variant bundles" (e.g. TombBodyTexNUDE / TombBodyTexDOLL, Backpacks+
-// "Lite" vs "Full") use unique filenames but redefine the same Lua names,
-// which would silently overwrite each other at runtime. This pass surfaces
-// those so the existing same-workshop "File conflict — pick one" UI fires.
-//
-// Skips pairs that already produced a same-path conflict in the per-file
-// pass (avoids duplicate UI rows). Only Lua categories are considered.
-async function detectSameWorkshopLuaSymbolConflicts(
-  fileIndex,
-  existingConflicts,
-  onConflictFound,
-  options = {},
-) {
-  const { shouldAbort } = options;
-  // Build set of (modId|modId) pairs already covered by the per-file pass.
+function crossFileLabel(files) {
+  const unique = [...new Set(files)];
+  if (unique.length <= 3) return unique.join(" ↔ ");
+  return `${unique.slice(0, 2).join(" ↔ ")} ↔ … (+${unique.length - 2})`;
+}
+
+// Script definitions across DIFFERENT files: the game merges every script
+// file it parses by module + type + name, a later body replacing the earlier
+// (vehicle / xuiSkin bodies are layered). Only the copies the game parses
+// count (a shared path's winner). Same name and same body: harmless; a name
+// only one mod defines: an addition, not a conflict.
+async function detectScriptDefinitionConflicts(fileIndex, emitConflict, options = {}) {
+  const { shouldAbort, orderIndex = new Map() } = options;
+  const defsByName = new Map();
+  let parsed = 0;
+  for (const [relPath, entries] of Object.entries(fileIndex)) {
+    if (shouldAbort && shouldAbort()) break;
+    if (!relPath.startsWith("scripts/") || !relPath.endsWith(".txt")) continue;
+    const copy = loadedCopy(dedupeByModId(entries), orderIndex);
+    if (++parsed % 50 === 0) await yieldTick();
+    const defs = cachedParse("scriptDefs", copy.absPath, extractScriptDefinitionBodies);
+    if (!defs) continue;
+    for (const [name, def] of defs) {
+      if (!defsByName.has(name)) defsByName.set(name, new Map());
+      const byMod = defsByName.get(name);
+      if (def.merged && def.layers) {
+        // A layered body: every file of the mod adds its keys (a later
+        // file's key on top of an earlier one's).
+        const prev = byMod.get(copy.modId);
+        const layers = prev?.layers || new Map();
+        for (const [layerKey, hash] of def.layers) layers.set(layerKey, { hash, entry: copy, file: relPath });
+        byMod.set(copy.modId, { entry: prev?.entry || copy, file: prev?.file || relPath, hash: def.hash, merged: true, layers });
+        continue;
+      }
+      // Within one mod the later file (game order: sorted path) wins.
+      byMod.set(copy.modId, { entry: copy, file: relPath, hash: def.hash, merged: def.merged });
+    }
+  }
+  // One conflict per pair of mods (and files) whose bodies of a name differ;
+  // two mods writing the same body agree and are no conflict. The winner is
+  // the mod whose body the game ends up with (the last of ALL that define
+  // the name), so a third mod can win a pair. Layered bodies (vehicle,
+  // xuiSkin) only clash on the keys both set differently (low): two mods
+  // each adding their own entity style to "xuiSkin default" add up.
+  let sameDefinitions = 0;
+  let layeredAdditions = 0;
+  const pairs = new Map();
+  const pairFor = (x, y, merged, winner) => {
+    const [a, b] = x.modId < y.modId ? [x, y] : [y, x];
+    const key = `${a.modId}\u0000${a.file}\u0001${b.modId}\u0000${b.file}`;
+    if (!pairs.has(key)) pairs.set(key, { a, b, items: [], merged, winner });
+    const pair = pairs.get(key);
+    if (!merged) pair.merged = false;
+    return pair;
+  };
+  for (const [name, byMod] of defsByName) {
+    if (byMod.size < 2) continue;
+    const defs = byLoadOrder([...byMod.values()].map((d) => ({ ...d, modId: d.entry.modId })), orderIndex);
+    if (defs.every((d) => d.layers)) {
+      let clashed = false;
+      for (let i = 0; i < defs.length; i++) {
+        for (let j = i + 1; j < defs.length; j++) {
+          const keys = compareLayeredDefinitions(defs[i].layers, defs[j].layers);
+          if (keys.length === 0) continue;
+          clashed = true;
+          // The files that set the first clashing key, and the mod whose
+          // value the game ends up with (the last of ALL that set it).
+          const at = (d) => ({ ...d, entry: d.layers.get(keys[0]).entry, file: d.layers.get(keys[0]).file });
+          const setters = defs.filter((d) => d.layers.has(keys[0]));
+          const pair = pairFor(at(defs[i]), at(defs[j]), true, setters[setters.length - 1].layers.get(keys[0]).entry);
+          for (const k of keys) pair.items.push(`${name} › ${k.startsWith("=") ? k.slice(1) : k}`);
+        }
+      }
+      if (clashed) continue;
+      if (new Set(defs.map((d) => d.hash)).size === 1) sameDefinitions++;
+      else layeredAdditions++;
+      continue;
+    }
+    if (new Set(defs.map((d) => d.hash)).size === 1) {
+      sameDefinitions++;
+      continue;
+    }
+    const finalDef = defs[defs.length - 1];
+    for (let i = 0; i < defs.length; i++) {
+      for (let j = i + 1; j < defs.length; j++) {
+        if (defs[i].hash === defs[j].hash) continue;
+        const pair = pairFor(defs[i], defs[j], false, finalDef.entry);
+        pair.items.push(name);
+      }
+    }
+  }
+  let emitted = 0;
+  for (const pair of pairs.values()) {
+    if (shouldAbort && shouldAbort()) break;
+    const files = [
+      { modId: pair.a.modId, file: pair.a.file },
+      { modId: pair.b.modId, file: pair.b.file },
+    ];
+    emitConflict({
+      file: crossFileLabel(files.map((f) => f.file)),
+      category: "scripts-cross-file",
+      categoryLabel: CATEGORY_LABELS["scripts-cross-file"],
+      severity: pair.merged ? REASON_SEVERITY.scriptDefinitionMerge : REASON_SEVERITY.scriptDefinitionOverride,
+      identical: false,
+      crossFile: true,
+      kind: "script-override",
+      reason: pair.merged ? "scriptDefinitionMerge" : "scriptDefinitionOverride",
+      overlap: overlapOf("script-defs", pair.items),
+      files,
+      mods: [modRef(pair.a.entry), modRef(pair.b.entry)],
+      winner: modRef(pair.winner),
+    });
+    if (++emitted % 20 === 0) await yieldTick();
+  }
+  return { sameDefinitions, layeredAdditions };
+}
+
+// A global name defined by more mods than this is reported for the first ones
+// only, so one name every mod touches cannot explode into N² pairs.
+const LUA_GLOBAL_MAX_MODS = 64;
+
+// Global Lua names redefined from DIFFERENT files by different mods: whichever
+// file runs last replaces the other's function or table (possible clobbering;
+// chained hooks that keep the original are not counted, see
+// extractLuaGlobals). Two mod ids from the SAME Workshop item doing it are
+// usually variants meant to be picked one at a time (TombBodyTexNUDE /
+// TombBodyTexDOLL): high. Pairs that already clash on a same-path Lua file
+// are skipped (that file is the bigger problem).
+async function detectLuaGlobalClashes(fileIndex, existingConflicts, emitConflict, options = {}) {
+  const { shouldAbort, orderIndex = new Map() } = options;
   const coveredPairs = new Set();
   for (const c of existingConflicts) {
+    if (c.kind !== "lua-override") continue;
     const ids = [...new Set(c.mods.map((m) => m.modId))].sort();
     for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) {
-        coveredPairs.add(`${ids[i]}|${ids[j]}`);
-      }
+      for (let j = i + 1; j < ids.length; j++) coveredPairs.add(`${ids[i]}|${ids[j]}`);
     }
   }
-
-  // Group lua files by workshopId → modId.
-  // { wsId: { modId: [{relPath, absPath, modName}] } }
-  const wsModFiles = {};
-  for (const [relPath, mods] of Object.entries(fileIndex)) {
-    if (!LUA_CATEGORIES.has(classifyFile(relPath))) continue;
-    for (const m of mods) {
-      if (!wsModFiles[m.workshopId]) wsModFiles[m.workshopId] = {};
-      if (!wsModFiles[m.workshopId][m.modId])
-        wsModFiles[m.workshopId][m.modId] = [];
-      wsModFiles[m.workshopId][m.modId].push({
-        relPath,
-        absPath: m.absPath,
-        modName: m.modName,
-      });
-    }
-  }
-
-  const conflicts = [];
-  let scanned = 0;
+  // symbol -> Map(modId -> { entry, file })
+  const bySymbol = new Map();
   let parsed = 0;
-  for (const [wsId, modFilesMap] of Object.entries(wsModFiles)) {
+  for (const [relPath, entries] of Object.entries(fileIndex)) {
     if (shouldAbort && shouldAbort()) break;
-    const modIds = Object.keys(modFilesMap);
-    if (modIds.length < 2) continue;
-
-    // Build per-modId symbol union with first-seen file per symbol (for display).
-    // modId → Map<symbol, { relPath, modName }>
-    const symsByMod = {};
-    for (const modId of modIds) {
-      const symMap = new Map();
-      for (const f of modFilesMap[modId]) {
-        // Reads and parses are the expensive part of this pass, so yield here
-        // too — yielding only in the pair loop below left the event loop
-        // blocked for the whole extraction phase.
-        if (++parsed % 50 === 0) await yieldTick();
-        const syms = getLuaSymbols(f.absPath);
-        if (!syms || syms.size === 0) continue;
-        for (const s of syms) {
-          if (!symMap.has(s))
-            symMap.set(s, { relPath: f.relPath, modName: f.modName });
-        }
-      }
-      symsByMod[modId] = symMap;
-    }
-
-    // Pairwise overlap detection.
-    for (let i = 0; i < modIds.length; i++) {
-      for (let j = i + 1; j < modIds.length; j++) {
-        const idA = modIds[i],
-          idB = modIds[j];
-        const pairKey = [idA, idB].sort().join("|");
-        if (coveredPairs.has(pairKey)) continue;
-        const symsA = symsByMod[idA];
-        const symsB = symsByMod[idB];
-        if (!symsA || !symsB || symsA.size === 0 || symsB.size === 0) continue;
-
-        const overlap = [];
-        for (const s of symsA.keys()) {
-          if (symsB.has(s)) overlap.push(s);
-        }
-        if (overlap.length === 0) continue;
-
-        const firstSym = overlap[0];
-        const fileA = symsA.get(firstSym);
-        const fileB = symsB.get(firstSym);
-        const conflict = {
-          // Synthetic file label that shows BOTH source files so the UI
-          // makes the situation legible. groupIntoPairs treats this as one
-          // "file" entry for the pair.
-          file:
-            fileA.relPath === fileB.relPath
-              ? fileA.relPath
-              : `${fileA.relPath} ↔ ${fileB.relPath}`,
-          category: "lua-cross-file",
-          categoryLabel: CATEGORY_LABELS["lua-cross-file"],
-          severity: "high",
-          identical: false,
-          crossFile: true,
-          overlap: {
-            kind: "lua-symbols",
-            items: overlap.slice(0, 50),
-            total: overlap.length,
-          },
-          mods: [
-            { workshopId: wsId, modId: idA, modName: fileA.modName },
-            { workshopId: wsId, modId: idB, modName: fileB.modName },
-          ],
-        };
-        conflicts.push(conflict);
-        if (onConflictFound) onConflictFound(conflict);
-        if (++scanned % 20 === 0) await yieldTick();
+    if (!LUA_CATEGORIES.has(classifyFile(relPath)) || !relPath.endsWith(".lua")) continue;
+    const copy = loadedCopy(dedupeByModId(entries), orderIndex);
+    if (++parsed % 50 === 0) await yieldTick();
+    const globals = cachedParse("luaGlobals", copy.absPath, extractLuaGlobals);
+    if (!globals) continue;
+    for (const symbol of globals) {
+      if (!bySymbol.has(symbol)) bySymbol.set(symbol, new Map());
+      const byMod = bySymbol.get(symbol);
+      if (!byMod.has(copy.modId) && byMod.size < LUA_GLOBAL_MAX_MODS) {
+        byMod.set(copy.modId, { entry: copy, file: relPath });
       }
     }
   }
-  return conflicts;
+  const pairs = new Map();
+  for (const [symbol, byMod] of bySymbol) {
+    if (byMod.size < 2) continue;
+    const defs = [...byMod.values()];
+    for (let i = 0; i < defs.length; i++) {
+      for (let j = i + 1; j < defs.length; j++) {
+        const [a, b] = defs[i].entry.modId < defs[j].entry.modId ? [defs[i], defs[j]] : [defs[j], defs[i]];
+        const pairKey = `${a.entry.modId}|${b.entry.modId}`;
+        if (coveredPairs.has(pairKey)) continue;
+        if (!pairs.has(pairKey)) pairs.set(pairKey, { a, b, items: [] });
+        pairs.get(pairKey).items.push(symbol);
+      }
+    }
+  }
+  let emitted = 0;
+  for (const { a, b, items } of pairs.values()) {
+    if (shouldAbort && shouldAbort()) break;
+    const sameWorkshop = a.entry.workshopId === b.entry.workshopId;
+    emitConflict({
+      file: a.file === b.file ? a.file : `${a.file} ↔ ${b.file}`,
+      category: "lua-cross-file",
+      categoryLabel: CATEGORY_LABELS["lua-cross-file"],
+      severity: sameWorkshop ? "high" : "medium",
+      identical: false,
+      crossFile: true,
+      kind: "lua-global-clash",
+      reason: sameWorkshop ? "luaVariantClash" : "luaGlobalRedefined",
+      overlap: overlapOf("lua-symbols", items),
+      files: [
+        { modId: a.entry.modId, file: a.file },
+        { modId: b.entry.modId, file: b.file },
+      ],
+      mods: [modRef(a.entry), modRef(b.entry)],
+    });
+    if (++emitted % 20 === 0) await yieldTick();
+  }
+}
+
+// Mods that declare each other incompatible= and both load (the main menu
+// refuses the pair; the server loads both).
+function detectDeclaredIncompatibilities(effectiveOrder, modInfoMap, emitConflict) {
+  const refs = new Map();
+  const mods = [];
+  for (const [wsId, details] of Object.entries(modInfoMap)) {
+    for (const mod of details) {
+      if (refs.has(mod.id)) continue;
+      refs.set(mod.id, { workshopId: wsId, modId: mod.id, modName: mod.name || mod.id });
+      mods.push(mod);
+    }
+  }
+  for (const pair of findIncompatiblePairs(effectiveOrder, mods)) {
+    if (!refs.has(pair.a) || !refs.has(pair.b)) continue;
+    emitConflict({
+      file: "mod.info",
+      category: "mod-info",
+      categoryLabel: CATEGORY_LABELS["mod-info"],
+      severity: "high",
+      identical: false,
+      kind: "declared-incompatible",
+      reason: "declaredIncompatible",
+      declaredBy: pair.declaredBy,
+      mods: [refs.get(pair.a), refs.get(pair.b)],
+    });
+  }
 }
 
 // Group flat conflict list into mod pairs with a global output budget.
+// options.classifyPair(conflict, idA, idB) may re-rate one pair's entry
+// ({ severity, reason, intended } or null), e.g. an intended patch.
 export function groupIntoPairs(
   conflicts,
   maxFileEntries = CONFLICT_PAIR_FILE_MAX_ENTRIES,
+  options = {},
 ) {
+  const { classifyPair } = options;
   const pairConflicts = {};
   let groupedFileEntries = 0;
   let truncated = false;
@@ -7122,22 +8053,46 @@ export function groupIntoPairs(
             highCount: 0,
             mediumCount: 0,
             lowCount: 0,
+            infoCount: 0,
             aWins: 0,
             bWins: 0,
             thirdPartyWins: 0,
             unknownWins: 0,
           };
         }
-        pairConflicts[pairKey].files.push({
+        let severity = conflict.severity;
+        let reason = conflict.reason;
+        let intended = conflict.intended;
+        let baseReason = conflict.baseReason;
+        if (classifyPair && modIds.length > 2) {
+          const rated = classifyPair(conflict, modIds[i], modIds[j]);
+          if (rated) {
+            ({ severity, reason, intended } = rated);
+            baseReason = conflict.reason;
+          }
+        }
+        const fileEntry = {
           file: conflict.file,
           category: conflict.category,
           categoryLabel: conflict.categoryLabel,
-          severity: conflict.severity,
+          severity,
           winner: conflict.winner || null,
           overlap: conflict.overlap || null,
-        });
+        };
+        if (conflict.kind) fileEntry.kind = conflict.kind;
+        if (reason) fileEntry.reason = reason;
+        // The file-level reason a patch re-rating replaced (intendedPatch /
+        // patchLoadsBeforeTarget), e.g. luaFileOverride.
+        if (baseReason && baseReason !== reason) fileEntry.baseReason = baseReason;
+        if (intended != null) fileEntry.intended = intended;
+        if (conflict.files) {
+          fileEntry.files = conflict.files.filter(
+            (f) => f.modId === modIds[i] || f.modId === modIds[j],
+          );
+        }
+        pairConflicts[pairKey].files.push(fileEntry);
         groupedFileEntries++;
-        const severityKey = `${conflict.severity}Count`;
+        const severityKey = `${severity}Count`;
         if (severityKey in pairConflicts[pairKey])
           pairConflicts[pairKey][severityKey]++;
         // Per-file winner tally for the pair card
@@ -7162,31 +8117,176 @@ export function groupIntoPairs(
   };
 }
 
-// Annotate each conflict with the winning mod, based on the `Mods=` load order.
-// PZ loads mods left-to-right; later entries override earlier ones, so the highest
-// index in modLoadOrder wins. Conflicts where neither mod is in the list (rare,
-// e.g., the multi-mod-id workshop case) get `winner: null`.
-function annotateWinners(conflicts, modLoadOrder) {
-  const order = new Map(modLoadOrder.map((id, i) => [id, i]));
-  for (const c of conflicts) {
-    let bestIdx = -1;
-    let winner = null;
-    for (const m of c.mods) {
-      const idx = order.get(m.modId);
-      if (idx == null) continue;
-      if (idx > bestIdx) {
-        bestIdx = idx;
-        winner = m;
-      }
-    }
-    c.winner = winner
-      ? {
-          modId: winner.modId,
-          modName: winner.modName,
-          workshopId: winner.workshopId,
-        }
-      : null;
+// Winners of the last scan's pairs, as { winner, loser } for the "keep the
+// current winner" ordering rule; only while that scan matches the config.
+function cachedConflictWinners(workshopIds, modIds, serverPath) {
+  if (!lastScanResult || Date.now() - lastScanTimestamp > SCAN_CACHE_TTL_MS) return [];
+  const snapshot = createConflictScanSnapshots(workshopIds, modIds);
+  if (
+    snapshot.workshop !== lastScanWorkshopSnapshot ||
+    snapshot.mods !== lastScanModSnapshot ||
+    serverPath !== lastScanServerPath
+  ) {
+    return [];
   }
+  return conflictWinnersFromPairs(lastScanResult.pairs);
+}
+
+// The pairs of the last scan that share gameplay files (not only intended
+// overrides), as [modA, modB]; only while that scan matches the config. The
+// load-order planner keeps the later one of each pair later.
+export function cachedConflictPairs(workshopIds, modIds, serverPath) {
+  if (!lastScanResult || Date.now() - lastScanTimestamp > SCAN_CACHE_TTL_MS) return [];
+  const snapshot = createConflictScanSnapshots(workshopIds, modIds);
+  if (
+    snapshot.workshop !== lastScanWorkshopSnapshot ||
+    snapshot.mods !== lastScanModSnapshot ||
+    serverPath !== lastScanServerPath
+  ) {
+    return [];
+  }
+  const pairs = [];
+  for (const pair of lastScanResult.pairs || []) {
+    const a = pair.modA?.modId;
+    const b = pair.modB?.modId;
+    if (!a || !b || a === b) continue;
+    if (!pair.files.some((f) => f.severity !== "info" && f.kind !== "declared-incompatible")) continue;
+    pairs.push([a, b]);
+  }
+  return pairs;
+}
+
+export function conflictWinnersFromPairs(pairs) {
+  const winners = [];
+  for (const pair of pairs || []) {
+    const a = pair.modA?.modId;
+    const b = pair.modB?.modId;
+    if (!a || !b) continue;
+    const real = pair.files.filter((f) => f.severity !== "info");
+    const aWins = real.some((f) => f.winner?.modId === a);
+    const bWins = real.some((f) => f.winner?.modId === b);
+    if (aWins && !bWins) winners.push({ winner: a, loser: b });
+    else if (bWins && !aWins) winners.push({ winner: b, loser: a });
+  }
+  return winners;
+}
+
+// Everything a scan computes after the file index: the conflicts (per path,
+// across script files, across Lua files, declared incompatible), winners on
+// the effective order, intended patches re-rated, pairs. Shared by GET
+// /conflicts and /conflicts/stream.
+async function analyzeConflicts(fileIndex, modInfoMap, order, callbacks = {}) {
+  const { onConflictFound, onProgress, shouldAbort, onPhase } = callbacks;
+  const knownMods = Object.values(modInfoMap).flat();
+  const dependsOn = createDependencyRelation(knownMods);
+  const orderIndex = new Map(order.effectiveModOrder.map((id, i) => [id, i]));
+  const finalize = makeFinalizer(orderIndex, dependsOn);
+  const detected = await detectConflicts(fileIndex, onConflictFound, {
+    shouldAbort,
+    onProgress,
+    orderIndex,
+    dependsOn,
+  });
+  const { conflicts } = detected;
+  if (shouldAbort && shouldAbort()) {
+    return { ...detected, pairs: [], truncated: false, groupedFileEntries: 0, knownMods };
+  }
+  if (onPhase) onPhase("grouping");
+  const emit = (conflict) => {
+    finalize(conflict);
+    conflicts.push(conflict);
+    if (onConflictFound) onConflictFound(conflict);
+  };
+  const { sameDefinitions, layeredAdditions } = await detectScriptDefinitionConflicts(fileIndex, emit, {
+    shouldAbort,
+    orderIndex,
+  });
+  detected.benignSkipped.sameDefinitions += sameDefinitions;
+  detected.benignSkipped.layeredAdditions += layeredAdditions;
+  await detectLuaGlobalClashes(fileIndex, [...conflicts], emit, { shouldAbort, orderIndex });
+  detectDeclaredIncompatibilities(order.effectiveModOrder, modInfoMap, emit);
+  conflicts.sort(
+    (a, b) =>
+      (SEVERITY_RANK[a.severity] ?? 4) - (SEVERITY_RANK[b.severity] ?? 4) ||
+      a.file.localeCompare(b.file),
+  );
+  const grouped = groupIntoPairs(conflicts, CONFLICT_PAIR_FILE_MAX_ENTRIES, {
+    classifyPair: (conflict, idA, idB) =>
+      classifyConflictPair(conflict, idA, idB, dependsOn, orderIndex),
+  });
+  return { ...detected, ...grouped, knownMods };
+}
+
+// Reads every configured Workshop item's mod.info once and works out the
+// order the server really loads Mods= in. The scan covers every Mods= entry
+// plus the required mods the game loads although Mods= does not list them.
+function prepareScanOrder(workshopIds, modIdsFromIni, serverPath) {
+  const modDetailsByWorkshop = {};
+  const knownMods = [];
+  for (const wsId of workshopIds) {
+    if (!/^\d{1,15}$/.test(wsId)) continue;
+    const details = getModDetailsFromWorkshop(wsId, serverPath);
+    modDetailsByWorkshop[wsId] = details;
+    knownMods.push(...details);
+  }
+  const order = analyzeModOrder(modIdsFromIni, knownMods);
+  const activeModIds = [...new Set([...modIdsFromIni, ...order.effectiveModOrder])];
+  return { modDetailsByWorkshop, order, activeModIds };
+}
+
+// The scan response. Existing fields keep their meaning (modLoadOrder is
+// still the Mods= line); the rule fields are new:
+//   effectiveModOrder, orderWarnings, orderingConstraints (see
+//   utils/modLoadOrder.js analyzeModOrder), benignSkipped
+//   { nonGameplay, notLoaded, sameDefinitions }, severityCounts
+//   { high, medium, low, info } over all conflicts.
+function buildScanResult({
+  analysis,
+  modsScanned,
+  modsNotFound,
+  modsSkippedInactive,
+  workshopIds,
+  missingDeps,
+  steamDeps,
+  idCollisions,
+  modIdsFromIni,
+  order,
+  truncated,
+  warnings,
+  scanStart,
+}) {
+  const { conflicts, pairs } = analysis;
+  const severityCounts = { high: 0, medium: 0, low: 0, info: 0 };
+  for (const c of conflicts) {
+    if (c.severity in severityCounts) severityCounts[c.severity]++;
+  }
+  return {
+    totalConflicts: conflicts.length,
+    identicalSkipped: analysis.identicalSkipped,
+    additiveSkipped: analysis.additiveSkipped,
+    pzAdditiveSkipped: analysis.pzAdditiveSkipped,
+    pzAdditiveBreakdown: analysis.pzAdditiveBreakdown,
+    benignSkipped: analysis.benignSkipped,
+    severityCounts,
+    pairs,
+    totalPairs: pairs.length,
+    modsScanned,
+    modsNotFound,
+    modsSkippedInactive,
+    totalWorkshopIds: workshopIds.length,
+    missingDeps,
+    steamDeps,
+    idCollisions,
+    modLoadOrder: modIdsFromIni,
+    effectiveModOrder: order.effectiveModOrder,
+    orderWarnings: order.orderWarnings,
+    orderingConstraints: computeOrderingConstraints(analysis.knownMods, {
+      conflictWinners: conflictWinnersFromPairs(pairs),
+    }),
+    truncated,
+    warnings,
+    scanDurationMs: Date.now() - scanStart,
+  };
 }
 
 // Detect cases where multiple workshop items declare the same internal mod id.
@@ -7482,6 +8582,8 @@ router.get("/conflicts/cached", async (req, res) => {
   }
   // Check if config has changed since last scan
   try {
+    // Order rules added since the scan answer the pairs they decide.
+    await refreshConflictSuggestions(lastScanResult);
     const { workshopIds, modIdsFromIni } = await readIniModLists();
     const currentServerPath = await getServerPath();
     const currentSnapshot = createConflictScanSnapshots(
@@ -7551,6 +8653,11 @@ router.get("/conflicts", async (req, res) => {
         scanDurationMs: Date.now() - scanStart,
       });
     }
+    const { modDetailsByWorkshop, order, activeModIds } = prepareScanOrder(
+      workshopIds,
+      modIdsFromIni,
+      serverPath,
+    );
     const {
       fileIndex,
       modInfoMap,
@@ -7559,33 +8666,17 @@ router.get("/conflicts", async (req, res) => {
       modsSkippedInactive,
       truncated,
       warnings,
-    } = await buildFileIndex(workshopIds, serverPath, null, modIdsFromIni);
-    const {
-      conflicts,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-    } = await detectConflicts(fileIndex);
-    // Second pass: catch variant-bundle clashes (NUDE/DOLL/Tex etc.) where
-    // two mod IDs in the same workshop redefine the same Lua names from
-    // different filenames. These slip past the per-file pass.
-    const crossFileConflicts = await detectSameWorkshopLuaSymbolConflicts(
-      fileIndex,
-      conflicts,
+    } = await buildFileIndex(
+      workshopIds,
+      serverPath,
+      null,
+      activeModIds,
+      FILE_INDEX_MAX_ENTRIES,
+      modDetailsByWorkshop,
     );
-    if (crossFileConflicts.length > 0) conflicts.push(...crossFileConflicts);
-    annotateWinners(conflicts, modIdsFromIni);
+    const analysis = await analyzeConflicts(fileIndex, modInfoMap, order);
     const idCollisions = findIdCollisions(modInfoMap, modIdsFromIni);
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    conflicts.sort(
-      (a, b) =>
-        (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3) ||
-        a.file.localeCompare(b.file),
-    );
-    const { pairs, truncated: pairOutputTruncated } =
-      groupIntoPairs(conflicts);
-    if (pairOutputTruncated) {
+    if (analysis.truncated) {
       warnings.push(
         `Conflict output reached the global ${CONFLICT_PAIR_FILE_MAX_ENTRIES.toLocaleString()} pair-file limit — the conflict scan is incomplete. Scan fewer mods at once or remove unused ones and retry.`,
       );
@@ -7601,26 +8692,22 @@ router.get("/conflicts", async (req, res) => {
         `Steam deps lookup failed during batch scan (non-fatal): ${e.message}`,
       );
     }
-    const result = {
-      totalConflicts: conflicts.length,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-      pairs,
-      totalPairs: pairs.length,
+    const result = buildScanResult({
+      analysis,
       modsScanned,
       modsNotFound,
       modsSkippedInactive,
-      totalWorkshopIds: workshopIds.length,
+      workshopIds,
       missingDeps,
       steamDeps,
       idCollisions,
-      modLoadOrder: modIdsFromIni,
-      truncated: truncated || pairOutputTruncated,
+      modIdsFromIni,
+      order,
+      truncated: truncated || analysis.truncated,
       warnings,
-      scanDurationMs: Date.now() - scanStart,
-    };
+      scanStart,
+    });
+    await addConflictSuggestions(result, { fileIndex, modInfoMap, effectiveOrder: order.effectiveModOrder });
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
     lastScanWorkshopSnapshot = snapshots.workshop;
     lastScanModSnapshot = snapshots.mods;
@@ -7733,6 +8820,11 @@ router.get("/conflicts/stream", async (req, res) => {
     }
 
     // Phase 1: scan mods — emit progress per mod
+    const { modDetailsByWorkshop, order, activeModIds } = prepareScanOrder(
+      workshopIds,
+      modIdsFromIni,
+      serverPath,
+    );
     const {
       fileIndex,
       modInfoMap,
@@ -7756,7 +8848,9 @@ router.get("/conflicts/stream", async (req, res) => {
           progress: Math.round(((info.wsIdx + 1) / info.totalWorkshopIds) * 60), // 0-60%
         });
       },
-      modIdsFromIni,
+      activeModIds,
+      FILE_INDEX_MAX_ENTRIES,
+      modDetailsByWorkshop,
     );
 
     if (aborted) {
@@ -7765,17 +8859,11 @@ router.get("/conflicts/stream", async (req, res) => {
     }
     send("phase", { phase: "hashing", progress: 60 });
 
-    // Phase 2: detect conflicts (hashing happens here)
+    // Phase 2: detect conflicts (hashing happens here), then the passes
+    // across files and the grouping.
     let conflictCount = 0;
-    const {
-      conflicts,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-    } = await detectConflicts(
-      fileIndex,
-      (conflict) => {
+    const analysis = await analyzeConflicts(fileIndex, modInfoMap, order, {
+      onConflictFound: (conflict) => {
         if (aborted) return;
         conflictCount++;
         // Stream each conflict as it's found (every 3rd to avoid flooding, or always for high severity)
@@ -7790,62 +8878,33 @@ router.get("/conflicts/stream", async (req, res) => {
             categoryLabel: conflict.categoryLabel,
             mods: conflict.mods.map((m) => m.modName),
             conflictsSoFar: conflictCount,
+            kind: conflict.kind,
+            reason: conflict.reason,
           });
         }
       },
-      {
-        // Stop the scan when the client has gone: comparing files for a
-        // browser that closed the tab is pure wasted I/O.
-        shouldAbort: () => aborted,
-        // Comparison used to be a silent gap between 60% and 85%.
-        onProgress: ({ processed, total }) => {
-          if (aborted || total === 0) return;
-          send("phase", {
-            phase: "hashing",
-            progress: 60 + Math.round((processed / total) * 25),
-          });
-        },
+      // Stop the scan when the client has gone: comparing files for a
+      // browser that closed the tab is pure wasted I/O.
+      shouldAbort: () => aborted,
+      // Comparison used to be a silent gap between 60% and 85%.
+      onProgress: ({ processed, total }) => {
+        if (aborted || total === 0) return;
+        send("phase", {
+          phase: "hashing",
+          progress: 60 + Math.round((processed / total) * 25),
+        });
       },
-    );
+      onPhase: (phase) => {
+        if (!aborted) send("phase", { phase, progress: 85 });
+      },
+    });
 
     if (aborted) {
       res.end();
       return;
     }
-    send("phase", { phase: "grouping", progress: 85 });
-
-    // Second pass: catch variant-bundle clashes within the same workshop
-    // where mod IDs redefine the same Lua names from different filenames.
-    const crossFileConflicts = await detectSameWorkshopLuaSymbolConflicts(
-      fileIndex,
-      conflicts,
-      (conflict) => {
-        if (aborted) return;
-        conflictCount++;
-        send("conflict-found", {
-          file: conflict.file,
-          severity: conflict.severity,
-          categoryLabel: conflict.categoryLabel,
-          mods: conflict.mods.map((m) => m.modName),
-          conflictsSoFar: conflictCount,
-        });
-      },
-      { shouldAbort: () => aborted },
-    );
-    if (crossFileConflicts.length > 0) conflicts.push(...crossFileConflicts);
-
-    // Phase 3: group & sort
-    annotateWinners(conflicts, modIdsFromIni);
     const idCollisions = findIdCollisions(modInfoMap, modIdsFromIni);
-    const severityOrder = { high: 0, medium: 1, low: 2 };
-    conflicts.sort(
-      (a, b) =>
-        (severityOrder[a.severity] ?? 3) - (severityOrder[b.severity] ?? 3) ||
-        a.file.localeCompare(b.file),
-    );
-    const { pairs, truncated: pairOutputTruncated } =
-      groupIntoPairs(conflicts);
-    if (pairOutputTruncated) {
+    if (analysis.truncated) {
       warnings.push(
         `Conflict output reached the global ${CONFLICT_PAIR_FILE_MAX_ENTRIES.toLocaleString()} pair-file limit — the conflict scan is incomplete. Scan fewer mods at once or remove unused ones and retry.`,
       );
@@ -7867,26 +8926,22 @@ router.get("/conflicts/stream", async (req, res) => {
       );
     }
 
-    const result = {
-      totalConflicts: conflicts.length,
-      identicalSkipped,
-      additiveSkipped,
-      pzAdditiveSkipped,
-      pzAdditiveBreakdown,
-      pairs,
-      totalPairs: pairs.length,
+    const result = buildScanResult({
+      analysis,
       modsScanned,
       modsNotFound,
       modsSkippedInactive,
-      totalWorkshopIds: workshopIds.length,
+      workshopIds,
       missingDeps,
       steamDeps,
       idCollisions,
-      modLoadOrder: modIdsFromIni,
-      truncated: truncated || pairOutputTruncated,
+      modIdsFromIni,
+      order,
+      truncated: truncated || analysis.truncated,
       warnings,
-      scanDurationMs: Date.now() - scanStart,
-    };
+      scanStart,
+    });
+    await addConflictSuggestions(result, { fileIndex, modInfoMap, effectiveOrder: order.effectiveModOrder });
     lastScanResult = result;
     lastScanTimestamp = Date.now();
     const snapshots = createConflictScanSnapshots(workshopIds, modIdsFromIni);
@@ -7988,30 +9043,14 @@ router.get("/conflicts/diff", async (req, res) => {
 
       for (const modDir of modEntries) {
         if (!modDir.isDirectory()) continue;
-        const matchingMod = modDetails.find(
-          (m) => m.id === modDir.name || m.name === modDir.name,
-        );
+        const matchingMod = findModForFolder(modDetails, modDir.name);
         const modId = matchingMod?.id || modDir.name;
         const modDirPath = path.join(searchBase, modDir.name);
 
-        // Collect media paths: direct media/ + B42 versioned subfolders (42/, 42.X/, common/)
-        const mediaCandidates = [path.join(modDirPath, "media")];
-        if (!fs.existsSync(mediaCandidates[0])) {
-          mediaCandidates.length = 0;
-          try {
-            const subDirs = fs.readdirSync(modDirPath, { withFileTypes: true });
-            for (const sub of subDirs) {
-              if (
-                sub.isDirectory() &&
-                /^(42(\.\d+)?|common)$/i.test(sub.name)
-              ) {
-                mediaCandidates.push(path.join(modDirPath, sub.name, "media"));
-              }
-            }
-          } catch (e) {
-            /* skip unreadable */
-          }
-        }
+        // The media folders the game loads, in the order it applies them:
+        // a later folder's copy (the version folder's) replaces common/'s,
+        // exactly the copy the scan compared.
+        const mediaCandidates = gameMediaDirs(modDirPath).dirs;
 
         for (const mediaDir of mediaCandidates) {
           const candidate = path.join(mediaDir, normalizedFile);
@@ -8022,10 +9061,25 @@ router.get("/conflicts/diff", async (req, res) => {
             resolved !== mediaBase
           )
             continue;
-          if (modId === String(modA) && fs.existsSync(candidate))
-            pathA = candidate;
-          if (modId === String(modB) && fs.existsSync(candidate))
-            pathB = candidate;
+          if (modId !== modAStr && modId !== modBStr) continue;
+          if (!fs.existsSync(candidate)) continue;
+          // The lexical check above stays inside media/ only on paper: a
+          // symlink or junction on the way can lead anywhere. Same rule as
+          // the scan's walkDir(): the real file must be inside the real
+          // media folder, and a regular file.
+          const realMedia = safeRealpath(mediaDir);
+          const realCandidate = realMedia ? safeRealpath(candidate) : null;
+          if (!realCandidate || !isInsideRoot(realCandidate, realMedia)) {
+            log.warn(`Conflict diff: ${JSON.stringify(normalizedFile)} in ${JSON.stringify(modId)} leads outside its media folder -- not read`);
+            continue;
+          }
+          try {
+            if (!fs.statSync(realCandidate).isFile()) continue;
+          } catch {
+            continue;
+          }
+          if (modId === modAStr) pathA = realCandidate;
+          if (modId === modBStr) pathB = realCandidate;
         }
       }
       if (pathA && pathB) break;
@@ -8288,7 +9342,7 @@ router.get("/disk-only", async (req, res) => {
           // parsed as zero enabled items, so this route would show every
           // already-enabled downloaded mod as "installed but disabled".
           const m = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-          for (const id of m?.[1]?.split(";").filter(Boolean) || [])
+          for (const id of splitIniList(m?.[1]))
             inIni.add(id);
         }
       }
@@ -8392,30 +9446,29 @@ router.post("/enable-disk-mod", async (req, res) => {
       // (hunt-wave13, 783672aa) -- wsMatch/modsMatch double as the
       // exists-check for their replace below.
       const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
-      const wsList = wsMatch?.[1]?.split(";").filter(Boolean) || [];
+      const wsList = splitIniList(wsMatch?.[1]);
       if (!wsList.includes(wsId)) wsList.push(wsId);
       const wsLine = `WorkshopItems=${sanitizeIniList(wsList)}`;
       content = wsMatch
-        ? content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, wsLine)
+        ? content.replace(/^[ \t]*WorkshopItems[ \t]*=.*/m, () => wsLine)
         : content.trimEnd() + `\n${wsLine}\n`;
 
       // Mods
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-      const existing = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-      // Sanitize existing entries (strips mis-pasted workshop IDs), then
-      // union with mod.info-verified IDs — those are authoritative so they
-      // bypass the numeric-ID filter (some mods use their workshop ID as
-      // their mod ID, e.g. "Tear All Clothes" 3519629457).
-      const cleanedExisting = sanitizeModIdList(existing)
-        .split(";")
-        .filter(Boolean);
-      const modsList = [...cleanedExisting];
+      const existing = splitModIdList(modsMatch?.[1]);
+      // Keep every entry already on the line (the numeric-ID filter used to
+      // run over it and dropped a legitimate all-digit mod id belonging to
+      // another workshop item), then union with the mod.info-verified IDs --
+      // those are authoritative so they bypass the numeric-ID filter (some
+      // mods use their workshop ID as their mod ID, e.g. "Tear All Clothes"
+      // 3519629457).
+      const modsList = [...existing];
       for (const mid of modIdsToAdd) {
         if (!modsList.includes(mid)) modsList.push(mid);
       }
       const modsLine = `Mods=${sanitizeIniList(modsList)}`;
       content = modsMatch
-        ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, modsLine)
+        ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => modsLine)
         : content.trimEnd() + `\n${modsLine}\n`;
 
       backupWarning = backupWarningFor(
@@ -8486,36 +9539,32 @@ async function deleteModFromDiskAndIni(wsId) {
     // each match doubles as the exists-check for its replace below.
     const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
     if (wsMatch) {
-      const wsList = wsMatch[1]
-        .split(";")
-        .filter(Boolean)
+      const wsList = splitIniList(wsMatch[1])
         .filter((id) => id !== wsId);
       content = content.replace(
         /^[ \t]*WorkshopItems[ \t]*=.*/m,
-        `WorkshopItems=${sanitizeIniList(wsList)}`,
+        () => `WorkshopItems=${sanitizeIniList(wsList)}`,
       );
     }
     const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
     if (modsMatch && modIdsToStrip.length > 0) {
-      const modsList = modsMatch[1]
-        .split(";")
-        .filter(Boolean)
+      const modsList = splitModIdList(modsMatch[1])
         .filter((id) => !modIdsToStrip.includes(id));
+      // Only removing: every entry left is one the line already had, so just
+      // the character sanitising applies (no numeric-ID filter).
       content = content.replace(
         /^[ \t]*Mods[ \t]*=.*/m,
-        `Mods=${sanitizeModIdList(modsList)}`,
+        () => `Mods=${sanitizeIniList(modsList)}`,
       );
     }
     const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
     if (mapMatch && mapFoldersToStrip.length > 0) {
-      let mapList = mapMatch[1]
-        .split(";")
-        .filter(Boolean)
+      let mapList = splitIniList(mapMatch[1])
         .filter((m) => !mapFoldersToStrip.includes(m));
       if (mapList.length === 0) mapList = ["Muldraugh, KY"];
       content = content.replace(
         /^[ \t]*Map[ \t]*=.*/m,
-        `Map=${sanitizeIniList(mapList)}`,
+        () => `Map=${sanitizeIniList(mapList)}`,
       );
     }
     backupWarning = backupWarningFor(
@@ -8799,24 +9848,22 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       // each match doubles as the exists-check for its replace below.
       const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
       if (wsMatch) {
-        const wsList = wsMatch[1]
-          .split(";")
-          .filter(Boolean)
+        const wsList = splitIniList(wsMatch[1])
           .filter((id) => !cleaned.includes(id));
         content = content.replace(
           /^[ \t]*WorkshopItems[ \t]*=.*/m,
-          `WorkshopItems=${sanitizeIniList(wsList)}`,
+          () => `WorkshopItems=${sanitizeIniList(wsList)}`,
         );
       }
       const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
       if (modsMatch && allModIdsToStrip.size > 0) {
-        const modsList = modsMatch[1]
-          .split(";")
-          .filter(Boolean)
+        const modsList = splitModIdList(modsMatch[1])
           .filter((id) => !allModIdsToStrip.has(id));
+        // Only removing: every entry left is one the line already had, so
+        // just the character sanitising applies (no numeric-ID filter).
         content = content.replace(
           /^[ \t]*Mods[ \t]*=.*/m,
-          `Mods=${sanitizeModIdList(modsList)}`,
+          () => `Mods=${sanitizeIniList(modsList)}`,
         );
       }
       // continuous-bug-hunt, 2026-09-18 (mod-list-drift round): this route
@@ -8830,14 +9877,12 @@ router.post("/batch-delete-disk-mods", async (req, res) => {
       // Map= may never be empty, or PZ has nothing to boot into.
       const mapMatch = content.match(/^[ \t]*Map[ \t]*=[ \t]*(.*)$/m);
       if (mapMatch && allMapFoldersToStrip.size > 0) {
-        let mapList = mapMatch[1]
-          .split(";")
-          .filter(Boolean)
+        let mapList = splitIniList(mapMatch[1])
           .filter((m) => !allMapFoldersToStrip.has(m));
         if (mapList.length === 0) mapList = ["Muldraugh, KY"];
         content = content.replace(
           /^[ \t]*Map[ \t]*=.*/m,
-          `Map=${sanitizeIniList(mapList)}`,
+          () => `Map=${sanitizeIniList(mapList)}`,
         );
       }
       backupWarning = backupWarningFor(
@@ -9024,13 +10069,11 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
         // 783672aa) -- wsMatch is the exists-check for the replace below.
         const wsMatch = content.match(/^[ \t]*WorkshopItems[ \t]*=[ \t]*(.*)$/m);
         if (wsMatch) {
-          const wsList = wsMatch[1]
-            .split(";")
-            .filter(Boolean)
+          const wsList = splitIniList(wsMatch[1])
             .filter((id) => !wsToDrop.has(id));
           content = content.replace(
             /^[ \t]*WorkshopItems[ \t]*=.*/m,
-            `WorkshopItems=${sanitizeIniList(wsList)}`,
+            () => `WorkshopItems=${sanitizeIniList(wsList)}`,
           );
         }
       }
@@ -9039,22 +10082,20 @@ router.post("/resolve-orphan-workshop", async (req, res) => {
         // Widened to tolerate whitespace around "=" (hunt-wave13,
         // 783672aa) -- modsMatch is the exists-check for the replace below.
         const modsMatch = content.match(/^[ \t]*Mods[ \t]*=[ \t]*(.*)$/m);
-        const existing = modsMatch?.[1]?.split(";").filter(Boolean) || [];
-        // Sanitize the EXISTING list (strips mis-pasted workshop IDs that
-        // were polluting Mods=), then union with the IDs we just resolved
-        // from mod.info. Those are authoritative, so they bypass the
-        // numeric-ID filter — some mods legitimately use their workshop ID
-        // as their mod ID (e.g. "Tear All Clothes" 3519629457).
-        const cleanedExisting = sanitizeModIdList(existing)
-          .split(";")
-          .filter(Boolean);
-        const finalList = [...cleanedExisting];
+        const existing = splitModIdList(modsMatch?.[1]);
+        // Keep the EXISTING list as it is (the numeric-ID filter used to run
+        // over it and dropped a legitimate all-digit mod id of another
+        // workshop item), then union with the IDs we just resolved from
+        // mod.info. Those are authoritative, so they bypass the numeric-ID
+        // filter — some mods legitimately use their workshop ID as their mod
+        // ID (e.g. "Tear All Clothes" 3519629457).
+        const finalList = [...existing];
         for (const m of modIdsToAdd) {
           if (!finalList.includes(m)) finalList.push(m);
         }
         const newLine = `Mods=${sanitizeIniList(finalList)}`;
         content = modsMatch
-          ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, newLine)
+          ? content.replace(/^[ \t]*Mods[ \t]*=.*/m, () => newLine)
           : content.trimEnd() + `\n${newLine}\n`;
       }
 

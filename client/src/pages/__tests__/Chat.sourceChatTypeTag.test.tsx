@@ -92,7 +92,7 @@ describe('Chat.tsx: a non-public chat room is tagged, not shown as plain chat', 
     mockedGetPlayers.mockResolvedValue({ players: [] } as never)
 
     renderChat()
-    await screen.findByText('no players connected')
+    await screen.findByText('No players connected')
 
     await act(async () => {
       emitChatMessage({
@@ -115,7 +115,7 @@ describe('Chat.tsx: a non-public chat room is tagged, not shown as plain chat', 
     mockedGetPlayers.mockResolvedValue({ players: [] } as never)
 
     renderChat()
-    await screen.findByText('no players connected')
+    await screen.findByText('No players connected')
 
     await act(async () => {
       emitChatMessage({ id: 'f1', type: 'general', author: 'Bob', message: 'faction msg', timestamp: new Date().toISOString(), sourceChatType: 'Faction' })
@@ -134,7 +134,7 @@ describe('Chat.tsx: a non-public chat room is tagged, not shown as plain chat', 
     mockedGetPlayers.mockResolvedValue({ players: [] } as never)
 
     renderChat()
-    await screen.findByText('no players connected')
+    await screen.findByText('No players connected')
 
     await act(async () => {
       emitChatMessage({ id: 'g1', type: 'general', author: 'Eve', message: 'hi all', timestamp: new Date().toISOString(), sourceChatType: 'General' })

@@ -13,20 +13,21 @@
     "title": "Active server changed",
     "desc": "The active server changed while this page was open. The settings below are still from the previous server -- reload before saving, or the save would overwrite the new active server's config."
   },
-  "loading": "chargement de la configuration…",
+  "loading": "Chargement de la configuration…",
   "loadErrorTitle": "Les données de configuration n'ont pas pu être entièrement chargées",
   "retry": "Réessayer",
   "pageHeader": {
     "title": "Configuration du serveur",
     "description": "Modifiez les paramètres INI, sandbox, spawn et mods en direct pour ce serveur.",
-    "eyebrow": "config",
     "unsavedChanges": "Modifications non enregistrées",
-    "templates": "Configs enregistrées",
-    "backups": "Sauvegardes",
-    "refresh": "Actualiser"
+    "templates": "Instantanés de config",
+    "backups": "Sauvegardes des fichiers de config",
+    "refresh": "Actualiser",
+    "more": "Plus d'actions",
+    "templatesPage": "Modèles",
+    "openInFiles": "Ouvrir le dossier dans Fichiers du serveur"
   },
   "activeServerStrip": {
-    "label": "Serveur actif",
     "noServerSelected": "Aucun serveur sélectionné",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -55,7 +56,8 @@
     "removeConfirm": "Retirer « {{modId}} » de Mods= ? Ceci prépare seulement la modification ici — rien n'est écrit sur le disque avant l'enregistrement.",
     "removeConfirmButton": "Retirer",
     "removedTitle": "Entrée Mods= retirée",
-    "removedToast": "« {{modId}} » retiré de Mods=. Non enregistré — vérifiez et enregistrez ci-dessous."
+    "removedToast": "« {{modId}} » retiré de Mods=. Non enregistré — vérifiez et enregistrez ci-dessous.",
+    "openActiveMods": "Ouvrir les mods actifs"
   },
   "tabs": {
     "serverSettings": "Paramètres serveur",
@@ -64,7 +66,8 @@
     "spawnRegions": "Régions de spawn",
     "modSettings": "Paramètres des mods",
     "unsavedChangesAria": "modifications non enregistrées",
-    "fileMissingAria": "fichier manquant"
+    "fileMissingAria": "fichier manquant",
+    "listAria": "Fichiers de configuration"
   },
   "stopServerAlert": {
     "title": "Le serveur est en cours d'exécution",
@@ -80,17 +83,13 @@
     "form": "Formulaire",
     "raw": "Brut",
     "downloadIniAria": "Télécharger la sauvegarde INI",
-    "downloadIniTooltip": "Télécharger la sauvegarde INI",
     "downloadSandboxAria": "Télécharger la sauvegarde Sandbox",
-    "downloadSandboxTooltip": "Télécharger la sauvegarde Sandbox",
     "downloadSpawnPointsAria": "Télécharger la sauvegarde des points de spawn",
-    "downloadSpawnPointsTooltip": "Télécharger la sauvegarde des points de spawn",
     "downloadSpawnRegionsAria": "Télécharger la sauvegarde des régions de spawn",
-    "downloadSpawnRegionsTooltip": "Télécharger la sauvegarde des régions de spawn",
     "wiki": "Wiki",
-    "map": "carte",
+    "map": "Carte",
     "saveAndReload": "Enregistrer et recharger",
-    "save": "enregistrer",
+    "save": "Enregistrer",
     "copied": "Copié !",
     "copyToClipboard": "Copier dans le presse-papiers"
   },
@@ -99,30 +98,19 @@
     "sandboxPlaceholder": "Rechercher des paramètres sandbox…",
     "aria": "Rechercher des paramètres serveur",
     "sandboxAria": "Rechercher des paramètres sandbox",
-    "clearAria": "Effacer la recherche",
     "filterAria": "Filtrer les paramètres",
-    "filterAll": "tous",
-    "filterModified": "modifiés",
-    "filterUnsaved": "non enregistrés",
+    "filterAll": "Tout",
+    "filterModified": "Modifiés",
+    "filterUnsaved": "Non enregistrés",
     "noMatches": "Aucun paramètre ne correspond à « {{query}} »."
   },
   "categoriesNav": {
     "iniAria": "Catégories de paramètres serveur",
     "sandboxAria": "Catégories sandbox",
-    "categoriesLabel": "Catégories",
-    "expandAllAria": "Développer tous les groupes de catégories",
-    "collapseAllAria": "Réduire tous les groupes de catégories",
-    "expandAll": "Tout développer",
-    "collapseAll": "Tout réduire",
-    "modifiedCountTitle_one": "{{count}} modification non enregistrée",
-    "modifiedCountTitle_other": "{{count}} modifications non enregistrées",
     "matchCount_one": "{{count}} résultat",
     "matchCount_other": "{{count}} résultats",
     "uncategorizedIniLabel": "Non catégorisé / Inconnu",
-    "uncategorizedIniTitle": "Clés présentes dans votre fichier INI mais absentes du schéma (nouvelles clés vanilla, clés injectées par un mod, ou personnalisées)",
     "uncategorizedSandboxLabel": "Paramètres supplémentaires",
-    "uncategorizedSandboxTitle": "Paramètres sandbox pas encore regroupés par l'éditeur",
-    "modifiedCountTitle_many": "{{count}} modifications non enregistrées",
     "matchCount_many": "{{count}} résultats"
   },
   "uncategorizedIni": {
@@ -159,12 +147,10 @@
     "luaChecksumBody": "PanelBridge installé par le panneau ajoute côté serveur des fichiers Lua que les joueurs n'ont pas : avec <1>DoLuaChecksum</1> activé, ils ne peuvent pas se connecter. Désactivez-le, ou passez PanelBridge à la distribution via le Steam Workshop dans Paramètres › PanelBridge pour le garder actif.",
     "luaChecksumWorkshopNote": "PanelBridge provient du Steam Workshop, vous pouvez donc activer cette option. Paramètres › PanelBridge vous guide pas à pas.",
     "luaChecksumWorkshopUnconfirmed": "Si PanelBridge est encore chargé depuis le dossier du jeu, les joueurs ne peuvent pas se connecter avec cette option activée.",
-    "disableNow": "désactiver maintenant"
+    "disableNow": "Désactiver maintenant"
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "monde, zombies, survie",
-    "build42Title": "Optimisé pour le Build 42",
     "build42Body": "Les valeurs et le libellé des options sandbox de cet éditeur sont alignés sur les valeurs par défaut de Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -173,11 +159,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Points de spawn",
-    "sectionSublabel": "géré par des mods · emplacements de départ des joueurs",
-    "infoTab": "infos",
+    "sectionSublabel": "Emplacements de départ des joueurs, généralement gérés par un mod",
     "modManagedTitle": "Les points de spawn sont gérés par des mods",
     "modManagedBody": "Les emplacements de spawn sont généralement gérés par des mods comme « Spawn Select ». Passez en mode <1>brut</1> pour inspecter ou modifier le fichier directement.",
-    "openRawFile": "ouvrir le fichier brut"
+    "openRawFile": "Ouvrir le fichier brut"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Régions de spawn",
@@ -204,17 +189,16 @@
     "sectionLabel": "Options sandbox des mods",
     "sectionSublabelLoaded_one": "{{count}} mod · en direct depuis le bridge",
     "sectionSublabelLoaded_other": "{{count}} mods · en direct depuis le bridge",
-    "sectionSublabelIdle": "panelbridge · en direct",
+    "sectionSublabelIdle": "En direct via PanelBridge",
     "modifiedBadge": "{{count}} modifiées",
-    "refresh": "actualiser",
-    "load": "charger",
+    "refresh": "Actualiser",
+    "load": "Charger",
     "searchPlaceholder": "Rechercher des paramètres de mods…  (touche /)",
-    "clearSearchAria": "Effacer la recherche",
     "modifiedFilterNoneTitle": "Aucune option ne diffère de sa valeur par défaut",
     "modifiedFilterTitle": "Afficher uniquement les options modifiées par rapport à leur valeur par défaut",
-    "modifiedFilter": "modifiées",
+    "modifiedFilter": "Modifiées",
     "collapseAll": "Tout réduire",
-    "expandAll": "tout développer",
+    "expandAll": "Tout développer",
     "notLoadedTitle": "Paramètres des mods non chargés",
     "notLoadedDescPrefix": "Cliquez sur charger pour récupérer les options sandbox de tous les mods installés via PanelBridge",
     "notLoadedDescSuffix": ". Le serveur PZ doit être en cours d'exécution avec PanelBridge actif.",
@@ -239,7 +223,7 @@
     "offCaps": "DÉSACTIVÉ",
     "toggleAria": "{{label}} : {{state}}",
     "resetToDefaultTitle": "Réinitialiser à la valeur par défaut : {{value}}",
-    "resetToDefaultLabel": "défaut : {{value}}",
+    "resetToDefaultLabel": "Rétablir {{value}}",
     "resetToDefaultTooltip": "Réinitialiser à la valeur par défaut : {{value}}",
     "noModifiedOptions": "Aucune option n'a été modifiée par rapport à sa valeur par défaut.",
     "showAllOptions": "Afficher toutes les options",
@@ -252,21 +236,11 @@
     "enumLastChoiceItem": "Choix {{value}}",
     "enumTooManyChoices": "Trop de choix pour les lister. Saisissez le numéro du choix (1 pour le premier).",
     "sectionSublabelLoaded_many": "{{count}} mods · en direct depuis le bridge",
-    "groupModifiedTitle_many": "{{count}} options diffèrent de leur valeur par défaut"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} modification non enregistrée",
-    "unsavedChange_other": "{{count}} modifications non enregistrées",
-    "iniScope": "ini serveur",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s pour enregistrer · s'applique au rechargement",
-    "discard": "ignorer",
-    "save": "enregistrer",
-    "saveAndReload": "enregistrer et recharger",
-    "unsavedChange_many": "{{count}} modifications non enregistrées"
+    "groupModifiedTitle_many": "{{count}} options diffèrent de leur valeur par défaut",
+    "manageMods": "Gérer les mods"
   },
   "backupsDialog": {
-    "title": "Sauvegardes de configuration",
+    "title": "Sauvegardes des fichiers de config",
     "description": "Restaurez une version précédente de vos fichiers de configuration. Les sauvegardes sont créées automatiquement à chaque enregistrement.",
     "filterLabel": "Filtre :",
     "filterAll": "Tous les fichiers",
@@ -288,9 +262,9 @@
     "totalCount_many": "{{count}} sauvegardes au total"
   },
   "templatesDialog": {
-    "title": "Configs enregistrées",
+    "title": "Instantanés de config",
     "applyTip": "Appliquer une config enregistrée remplace TOUS vos paramètres actuels — elle ne les fusionne pas avec ceux déjà en place. Le panneau sauvegarde ce qui est actif avant l'application, donc Restaurer peut l'annuler, mais le serveur doit d'abord être arrêté.",
-    "description": "Enregistrez votre configuration actuelle, ou chargez-en une enregistrée plus tôt.",
+    "description": "Enregistrez les paramètres actuels comme instantané, ou appliquez-en un enregistré plus tôt.",
     "savedCount_one": "{{count}} config enregistrée",
     "savedCount_other": "{{count}} configs enregistrées",
     "saveCurrentAsTemplate": "Enregistrer la configuration actuelle",
@@ -332,7 +306,7 @@
   "applyTemplateConfirm": {
     "title": "Appliquer la config enregistrée « {{name}} » ?",
     "description": "Remplacer les paramètres actuels du serveur par cette config enregistrée ? Le panneau sauvegarde d'abord la configuration active, vous pourrez donc annuler avec Restaurer si besoin.",
-    "rconWarning": "Le mot de passe RCON n'est pas enregistré dans les configs enregistrées : appliquer celle-ci supprimera le mot de passe RCON de votre serveur, il faudra le ressaisir ensuite.",
+    "secretsKept": "Les configs enregistrées ne contiennent ni mots de passe ni jetons : appliquer celle-ci conserve le mot de passe RCON, le mot de passe du serveur et les jetons actuels de votre serveur.",
     "confirmLabel": "Appliquer"
   },
   "fileBrowserDialog": {
@@ -365,7 +339,7 @@
   "toasts": {
     "error": "Erreur",
     "loadConfigFailed": "Échec du chargement de la configuration du serveur.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "Le serveur actif a changé depuis le chargement de cette page. Rechargez avant d'enregistrer pour ne pas écraser le mauvais serveur.",
     "invalidIniTitle": "Paramètres serveur invalides",
     "invalidSandboxTitle": "Valeurs Sandbox invalides",
     "fixSettings": "À corriger : {{settings}}",
@@ -430,6 +404,14 @@
     "title": "Restaurer cette sauvegarde ?",
     "description": "Remplacer le fichier actuel par « {{filename}} » ? Les modifications non enregistrées de la config active seront perdues.",
     "confirmLabel": "Restaurer"
+  },
+  "switchEditorConfirm": {
+    "rawTitle": "Ignorer vos modifications brutes non enregistrées ?",
+    "rawDescription": "L'éditeur brut contient des modifications non enregistrées. Continuer les ignore et recharge le fichier depuis le disque.",
+    "rawConfirm": "Ignorer les modifications",
+    "formTitle": "Ouvrir l'éditeur brut sans vos modifications du formulaire ?",
+    "formDescription": "L'éditeur brut affiche le fichier tel qu'il est sur le disque, sans vos modifications non enregistrées du formulaire. Enregistrer depuis l'éditeur brut les remplace.",
+    "formConfirm": "Ouvrir l'éditeur brut"
   },
   "iniSettings": {
     "general": {
@@ -2044,7 +2026,7 @@
             "label": "Lente"
           },
           "5": {
-            "label": "Très lente"
+            "label": "Très Lente"
           }
         }
       },
@@ -2125,7 +2107,7 @@
         }
       },
       "EndRegen": {
-        "label": "Récupération d'endurance",
+        "label": "Régénération de l'endurance",
         "description": "Recovery from tiredness after actions.",
         "options": {
           "1": {
@@ -2365,7 +2347,7 @@
         }
       },
       "LockedHouses": {
-        "label": "Fréquence de verrouillage des maisons",
+        "label": "Fréquence de fermeture des maisons",
         "description": "Frequency of locked houses.",
         "options": {
           "1": {
@@ -2458,7 +2440,7 @@
         }
       },
       "FishAbundance": {
-        "label": "Abondance de poissons",
+        "label": "Abondance de la pêche",
         "description": "Governs abundance of fish.",
         "options": {
           "1": {
@@ -3149,23 +3131,23 @@
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Multiplicateur d'agriculture",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Vitesse de l'agriculture (Farming)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Très basse"
+            "label": "Très rapide"
           },
           "2": {
-            "label": "Basse"
+            "label": "Rapide"
           },
           "3": {
             "label": "Normale"
           },
           "4": {
-            "label": "Haute"
+            "label": "Lente"
           },
           "5": {
-            "label": "Très haute"
+            "label": "Très lente"
           }
         }
       },
@@ -3225,7 +3207,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Vitesse d'agriculture",
-        "description": "Growth speed multiplier. Lower = faster."
+        "description": "Plant growth speed multiplier. Higher = faster (2 = twice as fast)."
       },
       "FarmingAmountNew": {
         "label": "Abondance de l'agriculture",
@@ -3276,10 +3258,10 @@
             "label": "Jamais"
           },
           "2": {
-            "label": "Très rarement"
+            "label": "Très rare"
           },
           "3": {
-            "label": "Rarement"
+            "label": "Rare"
           },
           "4": {
             "label": "Parfois"
@@ -3303,10 +3285,10 @@
             "label": "Jamais"
           },
           "2": {
-            "label": "Très rarement"
+            "label": "Très rare"
           },
           "3": {
-            "label": "Rarement"
+            "label": "Rare"
           },
           "4": {
             "label": "Parfois"
@@ -3567,7 +3549,7 @@
         "description": "Whether zombies can die from falling."
       },
       "DisableFakeDead": {
-        "label": "Zombies qui se réaniment",
+        "label": "Réanimation des zombies feignant la mort",
         "description": "No zombies will pretend to be dead.",
         "options": {
           "1": {
@@ -3582,20 +3564,20 @@
         }
       },
       "PlayerSpawnZombieRemoval": {
-        "label": "Spawn Zone Clear",
+        "label": "Zone d'apparition du joueur",
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Dans le bâtiment et autour"
           },
           "2": {
-            "label": "Small"
+            "label": "Dans le bâtiment"
           },
           "3": {
-            "label": "Medium"
+            "label": "Dans la pièce"
           },
           "4": {
-            "label": "Large"
+            "label": "Les zombies peuvent apparaître partout"
           },
           "5": {
             "label": "Very Large"
@@ -3611,7 +3593,7 @@
         "description": "Multiplier for damage zombies do to fences."
       },
       "DoorOpeningPercentage": {
-        "label": "Random Door Opening Amount",
+        "label": "Taux aléatoire de Z qui ouvrent les portes",
         "description": "Percentage of zombies that can open doors when cognition allows it."
       },
       "CrawlUnderVehicle": {
@@ -3642,7 +3624,7 @@
         }
       },
       "SprinterPercentage": {
-        "label": "Random Sprinter Amount",
+        "label": "Taux aléatoire de sprinteurs",
         "description": "Percentage of sprinter zombies when Speed is set to Random."
       },
       "Reanimate": {
@@ -3802,7 +3784,7 @@
         "description": "XP multiplier for Cooking skill."
       },
       "Farming": {
-        "label": "Multiplicateur d'XP d'agriculture",
+        "label": "Multiplicateur d'agriculture",
         "description": "XP multiplier for Farming skill."
       },
       "Doctor": {
@@ -3902,29 +3884,29 @@
     },
     "basement": {
       "SpawnFrequency": {
-        "label": "Basement Spawn Frequency",
+        "label": "Fréquence d'apparition des sous-sols",
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Jamais"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extrêmement rare"
           },
           "3": {
             "label": "Rare"
           },
           "4": {
-            "label": "Sometimes"
+            "label": "Parfois"
           },
           "5": {
-            "label": "Often"
+            "label": "Souvent"
           },
           "6": {
-            "label": "Very Often"
+            "label": "Très souvent"
           },
           "7": {
-            "label": "Always"
+            "label": "Le plus possible"
           }
         }
       }

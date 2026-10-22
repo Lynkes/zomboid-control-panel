@@ -327,14 +327,46 @@ describe('Servers.tsx: capability gating', () => {
     expect(del).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: en.deleteDialog.cancel }))
 
-    // Open Steam dialog for server-a -- server.install on Start Verify, and
-    // the Clear Folder confirm dialog behind it on server.wipe.
-    await openSteamDialogForServerA()
-    const startUpdateButton = screen.getByRole('button', { name: en.steamDialog.startUpdate })
-    expect(startUpdateButton).toBeDisabled()
-    fireEvent.click(startUpdateButton)
+    // server.install -- Update Server and Verify Files are disabled in the
+    // card menu itself, with the reason under each (UX restructure: say the
+    // permission up front instead of only on the dialog's Start button), so
+    // the Steam dialog never opens for a role that can't run it.
+    const menu3 = await openCardMenu('server-a')
+    for (const label of [en.card.updateServer, en.card.verifyFiles]) {
+      const item = within(menu3).getByRole('menuitem', { name: new RegExp(label) })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      expect(item).toHaveTextContent(en.steamDialog.noPermission)
+      fireEvent.click(item)
+    }
+    expect(screen.queryByRole('heading', { name: en.steamDialog.updateTitle })).not.toBeInTheDocument()
     expect(steamUpdate).not.toHaveBeenCalled()
     expect(steamVerify).not.toHaveBeenCalled()
+    fireEvent.keyDown(menu3, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+    // The header's "Add server" choices say their permission up front too.
+    const addTrigger = screen.getByRole('button', { name: en.addServer.menu })
+    fireEvent.pointerDown(addTrigger, { button: 0, pointerId: 1 })
+    fireEvent.click(addTrigger)
+    const addMenu = await screen.findByRole('menu')
+    const install = within(addMenu).getByRole('menuitem', { name: new RegExp(en.addServer.fresh.label) })
+    expect(install).toHaveAttribute('aria-disabled', 'true')
+    expect(install).toHaveTextContent(en.pageHeader.installNoPermission)
+    for (const choice of ['existing', 'remote'] as const) {
+      const item = within(addMenu).getByRole('menuitem', { name: new RegExp(en.addServer[choice].label) })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      expect(item).toHaveTextContent(en.addDialog.noPermission)
+    }
+  })
+
+  it('server.install without server.wipe: the Steam dialog opens, but Clear Folder stays out of reach', async () => {
+    mockCan = (capability) => capability === 'server.install'
+    await setUpFixtures()
+    renderServers()
+    await screen.findByText('server-a')
+
+    await openSteamDialogForServerA()
+    expect(screen.getByRole('button', { name: en.steamDialog.startUpdate })).not.toBeDisabled()
 
     // Fixed 2026-08-27 (stock-role hunt): this button used to stay fully
     // clickable regardless of permission -- only the confirm dialog's own

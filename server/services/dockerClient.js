@@ -73,12 +73,23 @@ export function parseContainerStats(stats) {
   const cores = cpuCount(stats);
   const memoryUsed = stats?.memory_stats?.usage || 0;
   const memoryLimit = stats?.memory_stats?.limit || 0;
+  // Anonymous memory: application memory (heap, stacks, native) with the page
+  // cache Docker's usage figure includes taken out. cgroup v2 exposes `anon`,
+  // v1 `total_rss`; 0 when neither is present so callers can fall back to
+  // usage. The Docker page keeps reporting cache-inclusive usage (docker
+  // stats parity); telemetry plots this instead, because a game server's
+  // mmap'd files keep cache-inclusive usage pinned near the limit and make
+  // the row useless as a pressure signal -- page cache is reclaimed on
+  // demand and never gets a container OOM-killed.
+  const cgroupStats = stats?.memory_stats?.stats || {};
+  const memoryAnon = Number(cgroupStats.anon) || Number(cgroupStats.total_rss) || 0;
   return {
     cpuPercent: systemDelta > 0 && cpuDelta > 0
       ? Math.round((cpuDelta / systemDelta) * cores * 1000) / 10
       : 0,
     memoryUsed,
     memoryLimit,
+    memoryAnon,
     memoryPercent: memoryLimit > 0
       ? Math.round((memoryUsed / memoryLimit) * 1000) / 10
       : 0,
@@ -198,12 +209,22 @@ export class DockerClient {
     }
   }
 
+  // SECURITY (2026-10-20): same fail-closed contract as getContainerLogs()
+  // below. The active server's telemetry (utils/pzProcessMemory.js) asks for
+  // the container a server profile names, and a profile's container name is
+  // not proof the panel may look at it: only a container labelled
+  // zomboid-panel.managed=true is read, by the Id the label check saw.
   async getContainerStats(containerId) {
     if (!this.available) return null;
+    if (typeof containerId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(containerId)) {
+      return null;
+    }
     try {
+      const container = await this.inspectManagedContainer(containerId);
+      if (!container) return null;
       const raw = await this._requestJson(
         "GET",
-        `/containers/${encodeURIComponent(containerId)}/stats?stream=false`,
+        `/containers/${encodeURIComponent(container.Id || containerId)}/stats?stream=false`,
       );
       return parseContainerStats(raw);
     } catch (error) {

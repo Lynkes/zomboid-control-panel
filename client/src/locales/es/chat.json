@@ -2,14 +2,14 @@
   "pageHeader": {
     "title": "Chat en el juego",
     "description": "Difundir mensajes a todos los jugadores conectados y ver su chat en tiempo real.",
-    "refresh": "Actualizar"
+    "refresh": "Actualizar jugadores"
   },
   "chatWindow": {
-    "streamLabel": "flujo de chat",
+    "streamLabel": "Flujo de chat",
     "msgCount_one": "{{count}} mensaje",
     "msgCount_other": "{{count}} mensajes",
-    "live": "EN VIVO",
-    "offline": "SIN CONEXIÓN",
+    "live": "En vivo",
+    "offline": "Sin conexión",
     "messagesAria": "Mensajes de chat",
     "msgCount_many": "{{count}} mensajes"
   },
@@ -25,37 +25,44 @@
     "tip": "Difusión del servidor muestra un banner que todos los jugadores ven de inmediato. Chat de administración solo es visible para otros administradores — los jugadores nunca lo ven. Chat general publica un mensaje de aspecto normal de \"{{adminLabel}}\" en el chat habitual de todos, fácil de pasar por alto e indistinguible de un jugador real llamado {{adminLabel}}."
   },
   "deliveryStatus": {
-    "native": "entrega de chat: nativa",
-    "rconFallback": "entrega de chat: alternativa RCON (API de chat nativa no disponible)"
+    "native": "Entrega de chat: nativa",
+    "rconFallback": "Entrega de chat: alternativa RCON (API de chat nativa no disponible)"
   },
   "input": {
     "aria": "Mensaje de chat",
-    "placeholderAdmin": "solo administradores…",
-    "placeholderGeneral": "publicar como Administrador…",
-    "placeholderServer": "difundir a todos los jugadores…",
-    "sendButton": "enviar",
+    "placeholderAdmin": "Solo administradores…",
+    "placeholderGeneral": "Publicar como Administrador…",
+    "placeholderServer": "Difundir a todos los jugadores…",
+    "sendButton": "Enviar",
     "noPermission": "No tienes permiso para enviar mensajes de chat."
   },
   "footer": {
-    "adminOnly": "solo administradores — oculto para los jugadores normales",
-    "noPlayersOnline": "no hay jugadores en línea — solo registro del servidor",
-    "broadcastingTo_one": "difundiendo a {{count}} jugador",
-    "broadcastingTo_other": "difundiendo a {{count}} jugadores",
-    "broadcastingTo_many": "difundiendo a {{count}} jugadores"
+    "adminOnly": "Solo administradores — oculto para los jugadores normales",
+    "noPlayersOnline": "No hay jugadores en línea — solo registro del servidor",
+    "broadcastingTo_one": "Difundiendo a {{count}} jugador",
+    "broadcastingTo_other": "Difundiendo a {{count}} jugadores",
+    "broadcastingTo_many": "Difundiendo a {{count}} jugadores"
   },
   "playersPanel": {
-    "label": "jugadores",
+    "label": "Jugadores",
     "onlineCount": "{{count}} en línea",
-    "noPlayersConnected": "no hay jugadores conectados"
+    "noPlayersConnected": "No hay jugadores conectados",
+    "openPlayer": "Abrir {{name}} en Jugadores"
+  },
+  "bridgeOffline": {
+    "title": "PanelBridge no está en marcha",
+    "description": "Las difusiones del servidor siguen saliendo por RCON. El chat de administradores y el general también, como un mensaje normal que ven todos los jugadores.",
+    "action": "Ajustes de PanelBridge"
   },
   "quickBroadcasts": {
-    "label": "difusiones rápidas",
-    "edit": "editar",
-    "done": "listo",
+    "label": "Difusiones rápidas",
+    "description": "Una sola lista para todo el panel: todos los administradores ven las mismas difusiones. Elige una para ponerla en el cuadro de mensaje.",
+    "edit": "Editar",
+    "done": "Listo",
     "editAria": "Editar difusiones rápidas",
     "doneAria": "Terminar de editar difusiones rápidas",
-    "noPresets": "// sin difusiones rápidas — pulsar editar para añadir",
-    "addPlaceholder": "añadir una difusión rápida nueva…",
+    "noPresets": "No hay difusiones rápidas. Pulsa Editar para añadir una.",
+    "addPlaceholder": "Añadir una difusión rápida nueva…",
     "addAria": "Añadir difusión rápida",
     "saveAria": "Guardar",
     "cancelAria": "Cancelar",
@@ -70,6 +77,9 @@
     "adminSentDesc": "Visible solo para administradores en el juego.",
     "generalSentTitle": "Publicado en el chat",
     "generalSentDesc": "Publicado en el flujo de chat público.",
+    "rconFallbackTitle": "Enviado a todos los jugadores",
+    "adminRconFallbackDesc": "El chat de administradores no estaba disponible, así que salió por RCON como un mensaje [ADMIN] que ven todos los jugadores.",
+    "generalRconFallbackDesc": "El chat general no estaba disponible, así que salió por RCON como un mensaje del servidor que ven todos los jugadores.",
     "broadcastSentTitle": "Difusión enviada",
     "broadcastSentDesc": "Mensaje entregado a todos los jugadores conectados.",
     "errorTitle": "Error",

@@ -5,6 +5,7 @@
     "errorTitle": "Fehler",
     "noPermission": "Sie haben keine Berechtigung, die Discord-Integration zu verwalten.",
     "successTitle": "Erfolg",
+    "warningTitle": "Warnung",
     "unknownError": "unbekannter Fehler"
   },
   "events": {
@@ -181,11 +182,13 @@
     "stepLocked": "Schließe zuerst den aktuellen Schritt ab"
   },
   "management": {
-    "pageHeaderTitle": "Discord-Bot",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "Discord-Bot, Slash-Commands und Ereignisbenachrichtigungen verwalten",
     "statusRunning": "Läuft",
     "statusStopped": "Gestoppt",
     "refreshAria": "Status aktualisieren",
+    "setupGuide": "Einrichtungsanleitung",
+    "closeGuide": "Zurück zu den Bot-Einstellungen",
     "botStatus": {
       "title": "Bot-Status",
       "runtimeLabel": "Laufzeit",
@@ -234,6 +237,7 @@
         "players": {
           "desc": "Online-Spieler auflisten"
         },
+        "leaderboard": { "desc": "Die Statistik-Rangliste anzeigen" },
         "save": {
           "desc": "Welt speichern"
         },
@@ -259,6 +263,7 @@
       "save": "Berechtigungen speichern",
       "saving": "Wird gespeichert …",
       "savedMessage": "Befehlsberechtigungen gespeichert. Slash-Commands wurden neu registriert.",
+      "savedNotRegistered": "Befehlsberechtigungen gespeichert, aber die Slash-Commands konnten in Discord nicht aktualisiert werden. Sie werden beim nächsten Start des Bots oder beim nächsten Speichern aktualisiert.",
       "saveFailedFallback": "Berechtigungen konnten nicht gespeichert werden"
     },
     "configuration": {
@@ -332,6 +337,7 @@
     "invalidAdminRoleIdFormat": "Ungültiges Admin-Rollen-ID-Format (sollte eine 17-19-stellige Zahl sein)",
     "invalidModRoleIdFormat": "Ungültiges Moderator-Rollen-ID-Format (sollte eine 17-19-stellige Zahl sein)",
     "configSavedBotStartFailed": "Konfiguration gespeichert, aber der Bot konnte nicht gestartet werden: {{reason}}",
+    "configSavedBotReconnectFailed": "Konfiguration gespeichert, aber der Bot konnte sich damit nicht neu verbinden: {{reason}}",
     "configSavedAndStarted": "Konfiguration gespeichert und Bot gestartet!",
     "configSaved": "Discord-Konfiguration erfolgreich gespeichert",
     "saveConfigFailedFallback": "Konfiguration konnte nicht gespeichert werden",

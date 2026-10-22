@@ -304,23 +304,25 @@ describe('POST /api/rcon/connect -- overriding host/port/password requires serve
 
   it('allows the same host override for a caller who holds servers.manage (admin)', async () => {
     const res = createResponse();
-    const req = makeOverrideReq({ host: '10.0.0.5' }, 'admin');
+    // A new host is only used with a password typed for it (2026-10-20,
+    // serversRconRetargetAuthz.test.js): the stored one never follows it.
+    const req = makeOverrideReq({ host: '10.0.0.5', password: 'typed-for-it' }, 'admin');
     const rconService = req.app.get();
 
     await getConnectHandler()(req, res);
 
-    expect(rconService.updateConfig).toHaveBeenCalledWith('10.0.0.5', undefined, undefined);
+    expect(rconService.updateConfig).toHaveBeenCalledWith('10.0.0.5', undefined, 'typed-for-it');
     expect(res.body).toEqual({ success: true, message: 'Connected to RCON' });
   });
 
   it('a seeded technician (rcon.execute AND servers.manage by default) can also override -- the fix does not regress the common case', async () => {
     const res = createResponse();
-    const req = makeOverrideReq({ port: 27016 }, 'technician');
+    const req = makeOverrideReq({ port: 27016, password: 'typed-for-it' }, 'technician');
     const rconService = req.app.get();
 
     await getConnectHandler()(req, res);
 
-    expect(rconService.updateConfig).toHaveBeenCalledWith(undefined, 27016, undefined);
+    expect(rconService.updateConfig).toHaveBeenCalledWith(undefined, 27016, 'typed-for-it');
     expect(res.body).toEqual({ success: true, message: 'Connected to RCON' });
   });
 

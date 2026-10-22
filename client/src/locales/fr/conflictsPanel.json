@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "Les deux mods fournissent ce fichier ; seule la copie du mod chargé en dernier est utilisée.",
+    "mapFileOverride": "Les deux mods fournissent ce fichier de carte ; seule la copie du mod chargé en dernier est utilisée.",
+    "dataFileOverride": "Les deux mods fournissent ce fichier de données ; seule la copie du mod chargé en dernier est utilisée.",
+    "luaFileOverride": "Même fichier Lua : seule la copie du mod chargé en dernier s'exécute, l'autre ne s'exécute jamais.",
+    "scriptFileReplaced": "Même fichier de script : le jeu ne lit que la copie du dernier mod, donc les objets et recettes que seule l'autre copie définit sont perdus.",
+    "scriptFileOverride": "Même fichier de script : le mod chargé en dernier redéfinit ces entrées.",
+    "scriptDefinitionOverride": "Les deux mods définissent ces entrées ; la définition chargée en dernier remplace l'autre.",
+    "scriptDefinitionMerge": "Les deux mods modifient ces véhicules ou skins ; le jeu les superpose et les valeurs du dernier mod l'emportent.",
+    "translationKeyOverride": "Les deux mods traduisent ces textes différemment ; le mod chargé en dernier l'emporte.",
+    "translationUnreadable": "Un fichier de traduction n'a pas pu être lu, ses textes n'ont donc pas pu être comparés.",
+    "clothingOutfitOverride": "Les deux mods définissent ces tenues ; le mod chargé en dernier les remplace.",
+    "clothingItemOverride": "Les deux mods fournissent ce vêtement ; seule la copie du mod chargé en dernier est utilisée.",
+    "luaGlobalRedefined": "Les deux mods définissent ces noms Lua dans des fichiers différents ; celui qui s'exécute en dernier peut remplacer l'autre.",
+    "luaVariantClash": "Deux mods du même objet du Workshop redéfinissent les mêmes noms Lua ; ce sont généralement des variantes à utiliser une seule à la fois.",
+    "declaredIncompatible": "L'un de ces mods déclare l'autre incompatible.",
+    "intendedPatch": "Voulu : ce mod déclare s'appuyer sur l'autre et se charge après lui.",
+    "patchLoadsBeforeTarget": "Ce mod s'appuie sur l'autre mais se charge avant lui, donc ses modifications sont écrasées. Chargez-le après.",
+    "order": {
+      "requireCycle": "{{modId}} fait partie d'une boucle require= ; le jeu ne peut pas charger ces mods.",
+      "requireNotFound": "{{modId}} ne se charge pas : il nécessite {{missing}}, absent du serveur.",
+      "requireUnavailable": "{{modId}} ne se charge pas : le mod qu'il nécessite, {{missing}}, ne peut pas se charger.",
+      "requireEntryInvalid": "{{modId}} ne se charge pas : le jeu ne reconnaît pas l'entrée require= « {{entry}} » de son mod.info.",
+      "requireAutoLoaded": "{{dependency}} se charge même si Mods= ne le liste pas, car {{modId}} le nécessite.",
+      "requireReordered": "{{dependency}} se charge avant {{modId}}, qui le nécessite, quel que soit l'ordre dans Mods=.",
+      "loadAfterViolated": "{{modId}} demande à se charger après {{other}} mais se charge avant.",
+      "loadBeforeViolated": "{{modId}} demande à se charger avant {{other}} mais se charge après.",
+      "declaredIncompatible": "{{modId}} et {{other}} sont déclarés incompatibles mais se chargent tous les deux.",
+      "modInfoListIssue": "{{modId}} : le jeu ne reconnaît pas l'entrée « {{entry}} » de son mod.info.",
+      "modNotFound": "{{modId}} ne figure pas parmi les mods du Workshop téléchargés sur le serveur."
+    }
+  },
+  "severity": {
+    "high": "Élevé",
+    "medium": "Moyen",
+    "low": "Faible",
+    "info": "Voulu"
+  },
   "title": "Détecteur de conflits de mods",
   "subtitle": "Vérifie si plusieurs mods modifient les mêmes fichiers — quand c'est le cas, seul le dernier mod de votre ordre de chargement prend effet",
   "lastScan": "Dernière analyse {{time}}",
@@ -236,5 +274,8 @@
   "showMoreFiles_many": "Afficher {{count}} fichiers de plus",
   "possibleMatchesHint_many": "{{count}} correspondances possibles — choisissez la bonne et cliquez sur Ajouter. La recherche Steam est approximative, donc vérifiez le titre avant d'ajouter.",
   "subsCount_many": "{{formatted}} abonnés",
-  "filesCount_many": "{{count}} fichiers"
+  "filesCount_many": "{{count}} fichiers",
+  "subTabsAria": "Listes de conflits",
+  "focusChip": "Mods de {{name}}",
+  "focusClearAria": "Afficher de nouveau tous les conflits (ne plus filtrer sur {{name}})"
 }

@@ -177,6 +177,80 @@ function pathsOverlap(a, b) {
   return aContainsB || bContainsA;
 }
 
+// True when `child` is `parent` or inside it.
+function isWithinDir(parent, child) {
+  const rel = path.relative(normalizeForCompare(parent), normalizeForCompare(child));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+// The real path of `p`, or of its nearest existing ancestor with the rest
+// appended: a folder that does not exist yet still resolves through a link
+// (a junction or symlink) higher up.
+function realishPath(p) {
+  let current = path.resolve(p);
+  const rest = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...rest);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(p);
+      rest.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+// Secret files named by *_FILE environment variables (Docker secrets), as
+// fileManagerProtectedAreas.js counts them.
+function envSecretFiles() {
+  return Object.entries(process.env)
+    .filter(([name, value]) => name.endsWith('_FILE') && typeof value === 'string' && path.isAbsolute(value))
+    .slice(0, 8)
+    .map(([, value]) => value);
+}
+
+/**
+ * Why `logsDir` can't be the panel's logs folder, or null when it can.
+ *
+ * GET /api/debug/logs/download/:filename serves files from the logs folder to
+ * any role holding diagnostics.manage, so the logs folder must never be,
+ * hold, or sit inside the data folder (db.json, jwt.secret, server-secrets/),
+ * the program folder (the panel's own code and paths.config.json), or the
+ * folder of a secret file. The default <program>/logs is the one folder
+ * inside the program folder it may be. Compared both as typed and through
+ * links, so a junction to the data folder is refused too.
+ *
+ * @param {string} logsDir
+ * @param {{ dataDirs?: string[], secretPaths?: string[], checkProgramDir?: boolean }} [opts]
+ */
+export function logsDirRefusal(logsDir, { dataDirs = [], secretPaths = [], checkProgramDir = true } = {}) {
+  const forms = [path.resolve(logsDir), realishPath(logsDir)];
+  const both = (p) => [path.resolve(p), realishPath(p)];
+  const dataForms = dataDirs.filter((d) => typeof d === 'string' && d.trim()).flatMap(both);
+  const programForms = both(baseDir);
+  const defaultLogsForms = both(defaultLogsDir);
+  const secretFiles = [...secretPaths, ...envSecretFiles()]
+    .filter((p) => typeof p === 'string' && p.trim() && path.isAbsolute(p))
+    .flatMap(both);
+  for (const form of forms) {
+    if (dataForms.some((dataDir) => pathsOverlap(form, dataDir))) {
+      return "The logs folder can't be the panel's data folder, a folder inside it, or a folder that holds it";
+    }
+    if (
+      checkProgramDir &&
+      programForms.some((programDir) => pathsOverlap(form, programDir)) &&
+      !defaultLogsForms.some((defaultLogs) => isWithinDir(defaultLogs, form))
+    ) {
+      return "The logs folder can't be the panel's program folder, a folder inside it (other than its own logs folder), or a folder that holds it";
+    }
+    if (secretFiles.some((secret) => isWithinDir(form, secret))) {
+      return "The logs folder can't hold one of the panel's secret files";
+    }
+  }
+  return null;
+}
+
 /**
  * Update paths and optionally move files.
  *
@@ -246,6 +320,22 @@ export async function setDataPaths(newPaths, moveFiles = false, options = {}) {
     dataDir: newPaths.dataDir || current.dataDir,
     logsDir: newPaths.logsDir || current.logsDir
   };
+
+  // The logs folder is served file by file (see logsDirRefusal()). A new
+  // logs folder is checked against the data folder it will sit beside (and
+  // the current one, which keeps its files when they are not moved), the
+  // program folder and the secret files; a new data folder against the logs
+  // folder the panel keeps using.
+  if (newPaths.logsDir || newPaths.dataDir) {
+    const refusal = logsDirRefusal(updatedConfig.logsDir, {
+      dataDirs: newPaths.logsDir ? [updatedConfig.dataDir, current.dataDir] : [updatedConfig.dataDir],
+      secretPaths: Array.isArray(options.secretPaths) ? options.secretPaths : [],
+      checkProgramDir: Boolean(newPaths.logsDir),
+    });
+    if (refusal) {
+      return { success: false, error: refusal };
+    }
+  }
 
   // Validate paths — can they actually be created and written to. This is
   // the one check that can't be done without a real side effect (a

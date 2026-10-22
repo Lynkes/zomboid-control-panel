@@ -80,6 +80,40 @@ describe('DashboardPerformanceCharts', () => {
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
+  it('the players bar is a fraction of MaxPlayers when known: 3 of 4 renders "3 / 4" and a 75% green bar', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ playerCount: 3, maxPlayers: 4 })]}
+      />
+    )
+    const row = screen.getByText('Players').closest('div')!
+    expect(screen.getByText('3 / 4')).toBeInTheDocument()
+    const fill = row.querySelector('.bg-success')
+    expect(fill).toBeInTheDocument()
+    // the bar is the reading: its width IS the ratio, not decoration
+    expect(fill!.getAttribute('style')).toContain('75%')
+  })
+
+  it('without a known MaxPlayers (refused read, old snapshots) the players row is a bare count with NO bar -- a bare track reads as a broken bar, which is the bug this fixes', () => {
+    render(<DashboardPerformanceCharts performanceHistory={[point({ playerCount: 3 })]} />)
+    const row = screen.getByText('Players').closest('div')!
+    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(row.querySelector('.bg-success')).toBeNull()
+    expect(row.querySelector('.bg-warning')).toBeNull()
+    expect(row.querySelector('.bg-destructive')).toBeNull()
+  })
+
+  it('a full server is a full house, not a warning: 8 of 8 stays green', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ playerCount: 8, maxPlayers: 8 })]}
+      />
+    )
+    const row = screen.getByText('Players').closest('div')!
+    expect(row.querySelector('.bg-success')).toBeInTheDocument()
+    expect(row.querySelector('.bg-warning')).not.toBeInTheDocument()
+  })
+
   it('shows PZ memory against the real configured ceiling, not a hardcoded one', () => {
     render(
       <DashboardPerformanceCharts
@@ -88,6 +122,30 @@ describe('DashboardPerformanceCharts', () => {
       />
     )
     expect(screen.getByText('2.0 / 8')).toBeInTheDocument()
+  })
+
+  it("hides the PZ memory row when the game's memory is unknown, instead of showing the panel's own heap as PZ memory", () => {
+    // memoryMB (512) is the PANEL process; the server could not be measured
+    // (remote server, or its process is not visible to the panel).
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ memoryMB: 512 })]}
+        maxMemoryGB={8}
+      />
+    )
+    expect(screen.queryByText('PZ memory')).not.toBeInTheDocument()
+    expect(screen.queryByText(/0\.5 \/ 8/)).not.toBeInTheDocument()
+    expect(screen.getByText('Host CPU')).toBeInTheDocument()
+  })
+
+  it('still shows the PZ memory row once the game reports its memory', () => {
+    render(
+      <DashboardPerformanceCharts
+        performanceHistory={[point({ pzMemMB: 4096 })]}
+        maxMemoryGB={8}
+      />
+    )
+    expect(screen.getByText('PZ memory')).toBeInTheDocument()
   })
 })
 

@@ -118,8 +118,8 @@ describe('ServerConfig.tsx: mod tables are their own sections', () => {
 
     await waitFor(() => expect(saveSandbox).toHaveBeenCalledTimes(1))
     const sent = saveSandbox.mock.calls[0][0] as unknown as Record<string, unknown>
-    expect(sent.settings).toEqual({})
-    expect(sent.LootTweaks).toEqual({ Explosives: 1 })
-    expect(sent.Explosives).toEqual({ VanillaBallisticsEnabled: true })
+    // Only the changed value goes back, under its own table (the Save sends
+    // what the form changed, not the whole form).
+    expect(sent).toEqual({ Explosives: { VanillaBallisticsEnabled: true } })
   })
 })

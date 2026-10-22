@@ -1,5 +1,5 @@
 {
-  "loading": "carregando configuração…",
+  "loading": "Carregando configuração…",
   "loadErrorTitle": "Não foi possível carregar todos os dados de configuração",
   "retry": "Tentar novamente",
   "noAccess": {
@@ -19,14 +19,15 @@
   "pageHeader": {
     "title": "Configuração do servidor",
     "description": "Edite as opções de INI, sandbox, pontos de spawn e mods em uso neste servidor.",
-    "eyebrow": "config",
     "unsavedChanges": "Alterações não salvas",
-    "templates": "Configurações salvas",
-    "backups": "Backups",
-    "refresh": "Recarregar"
+    "templates": "Snapshots de configuração",
+    "backups": "Backups dos arquivos de configuração",
+    "refresh": "Recarregar",
+    "more": "Mais ações",
+    "templatesPage": "Modelos",
+    "openInFiles": "Abrir pasta em Arquivos do servidor"
   },
   "activeServerStrip": {
-    "label": "Servidor ativo",
     "noServerSelected": "Nenhum servidor selecionado",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -55,7 +56,8 @@
     "removeConfirm": "Remover \"{{modId}}\" de Mods=? Isso apenas prepara a alteração aqui — nada é gravado no disco até você salvar.",
     "removeConfirmButton": "Remover",
     "removedTitle": "Entrada de Mods= removida",
-    "removedToast": "Removido de Mods=: \"{{modId}}\". Não salvo — revise e salve abaixo."
+    "removedToast": "Removido de Mods=: \"{{modId}}\". Não salvo — revise e salve abaixo.",
+    "openActiveMods": "Abrir mods ativos"
   },
   "tabs": {
     "serverSettings": "Opções do servidor",
@@ -64,7 +66,8 @@
     "spawnRegions": "Regiões de spawn",
     "modSettings": "Opções de mods",
     "unsavedChangesAria": "alterações não salvas",
-    "fileMissingAria": "arquivo ausente"
+    "fileMissingAria": "arquivo ausente",
+    "listAria": "Arquivos de configuração"
   },
   "stopServerAlert": {
     "title": "O servidor está em execução",
@@ -80,17 +83,13 @@
     "form": "Formulário",
     "raw": "Texto",
     "downloadIniAria": "Baixar backup do INI",
-    "downloadIniTooltip": "Baixar backup do INI",
     "downloadSandboxAria": "Baixar backup do sandbox",
-    "downloadSandboxTooltip": "Baixar backup do sandbox",
     "downloadSpawnPointsAria": "Baixar backup dos pontos de spawn",
-    "downloadSpawnPointsTooltip": "Baixar backup dos pontos de spawn",
     "downloadSpawnRegionsAria": "Baixar backup das regiões de spawn",
-    "downloadSpawnRegionsTooltip": "Baixar backup das regiões de spawn",
     "wiki": "Wiki",
-    "map": "mapa",
+    "map": "Mapa",
     "saveAndReload": "Salvar e recarregar",
-    "save": "salvar",
+    "save": "Salvar",
     "copied": "Copiado!",
     "copyToClipboard": "Copiar para a área de transferência"
   },
@@ -99,30 +98,19 @@
     "sandboxPlaceholder": "Pesquisar opções do sandbox…",
     "aria": "Pesquisar opções do servidor",
     "sandboxAria": "Pesquisar opções do sandbox",
-    "clearAria": "Limpar pesquisa",
     "filterAria": "Filtrar opções",
-    "filterAll": "todas",
-    "filterModified": "modificadas",
-    "filterUnsaved": "não salvas",
+    "filterAll": "Todas",
+    "filterModified": "Modificadas",
+    "filterUnsaved": "Não salvas",
     "noMatches": "Nenhuma opção corresponde a “{{query}}”."
   },
   "categoriesNav": {
     "iniAria": "Categorias das opções do servidor",
     "sandboxAria": "Categorias do sandbox",
-    "categoriesLabel": "Categorias",
-    "expandAllAria": "Expandir todos os grupos de categorias",
-    "collapseAllAria": "Recolher todos os grupos de categorias",
-    "expandAll": "Expandir tudo",
-    "collapseAll": "Recolher tudo",
-    "modifiedCountTitle_one": "{{count}} alteração não salva",
-    "modifiedCountTitle_other": "{{count}} alterações não salvas",
     "matchCount_one": "{{count}} resultado",
     "matchCount_other": "{{count}} resultados",
     "uncategorizedIniLabel": "Sem categoria / desconhecidas",
-    "uncategorizedIniTitle": "Chaves presentes no seu arquivo INI, mas ausentes do esquema (chaves novas do jogo original, adicionadas por mods ou personalizadas)",
     "uncategorizedSandboxLabel": "Opções adicionais",
-    "uncategorizedSandboxTitle": "Opções do sandbox que o editor ainda não agrupou",
-    "modifiedCountTitle_many": "{{count}} alterações não salvas",
     "matchCount_many": "{{count}} resultados"
   },
   "uncategorizedIni": {
@@ -159,12 +147,10 @@
     "luaChecksumBody": "O PanelBridge instalado pelo painel adiciona ao servidor arquivos Lua que os jogadores não têm, então, com <1>DoLuaChecksum</1> ativado, eles não conseguem se conectar. Desative-o ou, para mantê-lo ativado, mude o PanelBridge para a entrega pela Workshop da Steam em Configurações › PanelBridge.",
     "luaChecksumWorkshopNote": "O PanelBridge vem da Workshop da Steam, então você pode ativar esta opção. Configurações › PanelBridge mostra o passo a passo.",
     "luaChecksumWorkshopUnconfirmed": "Se o PanelBridge ainda for carregado da pasta do jogo, os jogadores não conseguem entrar com esta opção ativada.",
-    "disableNow": "desativar agora"
+    "disableNow": "Desativar agora"
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "mundo, zumbis, sobrevivência",
-    "build42Title": "Otimizado para a Build 42",
     "build42Body": "Os valores do sandbox e os textos das opções neste editor seguem os padrões da Build 42 do Project Zomboid.",
     "liveRangesUnavailableTitle": "Mostrando intervalos predefinidos",
     "liveRangesUnavailableBody": "Não foi possível acessar um servidor em execução para confirmar o mínimo/máximo reais destas opções, então os intervalos mostrados vêm da tabela interna deste painel e podem estar desatualizados. Inicie o servidor e tente novamente para ver os limites exatos.",
@@ -173,11 +159,10 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "Pontos de spawn",
-    "sectionSublabel": "gerenciados por mods · locais de início dos jogadores",
-    "infoTab": "info",
+    "sectionSublabel": "Locais de início dos jogadores, normalmente gerenciados por um mod",
     "modManagedTitle": "Os pontos de spawn são gerenciados por mods",
     "modManagedBody": "Os locais de spawn normalmente são controlados por mods como “Spawn Select”. Mude para <1>texto</1> para inspecionar ou editar o arquivo diretamente.",
-    "openRawFile": "abrir arquivo em texto"
+    "openRawFile": "Abrir arquivo em texto"
   },
   "spawnRegionsTab": {
     "sectionLabel": "Regiões de spawn",
@@ -204,17 +189,16 @@
     "sectionLabel": "Opções do sandbox de mods",
     "sectionSublabelLoaded_one": "{{count}} mod · ao vivo pela ponte",
     "sectionSublabelLoaded_other": "{{count}} mods · ao vivo pela ponte",
-    "sectionSublabelIdle": "panelbridge · ao vivo",
+    "sectionSublabelIdle": "Ao vivo pelo PanelBridge",
     "modifiedBadge": "{{count}} modificada(s)",
-    "refresh": "recarregar",
-    "load": "carregar",
+    "refresh": "Recarregar",
+    "load": "Carregar",
     "searchPlaceholder": "Pesquisar opções de mods…  (pressione /)",
-    "clearSearchAria": "Limpar pesquisa",
     "modifiedFilterNoneTitle": "Nenhuma opção difere do padrão",
     "modifiedFilterTitle": "Mostrar só as opções alteradas em relação ao padrão",
-    "modifiedFilter": "modificadas",
+    "modifiedFilter": "Modificadas",
     "collapseAll": "Recolher tudo",
-    "expandAll": "expandir tudo",
+    "expandAll": "Expandir tudo",
     "notLoadedTitle": "Opções de mods não carregadas",
     "notLoadedDescPrefix": "Clique em carregar para buscar as opções do sandbox de todos os mods instalados via PanelBridge",
     "notLoadedDescSuffix": ". O servidor do PZ precisa estar em execução com o PanelBridge ativo.",
@@ -239,7 +223,7 @@
     "offCaps": "DESATIVADO",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "Restaurar padrão: {{value}}",
-    "resetToDefaultLabel": "padrão: {{value}}",
+    "resetToDefaultLabel": "Restaurar para {{value}}",
     "resetToDefaultTooltip": "Restaurar padrão: {{value}}",
     "noModifiedOptions": "Nenhuma opção foi alterada em relação ao padrão.",
     "showAllOptions": "Mostrar todas as opções",
@@ -252,21 +236,11 @@
     "enumLastChoiceItem": "Escolha {{value}}",
     "enumTooManyChoices": "Escolhas demais para listar. Digite o número da escolha (1 é a primeira).",
     "sectionSublabelLoaded_many": "{{count}} mods · ao vivo pela ponte",
-    "groupModifiedTitle_many": "{{count}} opções diferem do padrão"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} alteração não salva",
-    "unsavedChange_other": "{{count}} alterações não salvas",
-    "iniScope": "ini do servidor",
-    "sandboxScope": "lua do sandbox",
-    "hint": "ctrl+s para salvar · aplica ao recarregar",
-    "discard": "descartar",
-    "save": "salvar",
-    "saveAndReload": "salvar e recarregar",
-    "unsavedChange_many": "{{count}} alterações não salvas"
+    "groupModifiedTitle_many": "{{count}} opções diferem do padrão",
+    "manageMods": "Gerenciar mods"
   },
   "backupsDialog": {
-    "title": "Backups de configuração",
+    "title": "Backups dos arquivos de configuração",
     "description": "Restaure uma versão anterior dos seus arquivos de configuração. Os backups são criados automaticamente quando você salva.",
     "filterLabel": "Filtro:",
     "filterAll": "Todos os arquivos",
@@ -288,9 +262,9 @@
     "totalCount_many": "{{count}} backups no total"
   },
   "templatesDialog": {
-    "title": "Configurações salvas",
+    "title": "Snapshots de configuração",
     "applyTip": "Aplicar uma configuração salva substitui TODA a sua configuração atual — não mescla com o que já existe. O painel faz backup do que está em uso antes de aplicar, então Restaurar pode desfazer, mas o servidor precisa estar parado primeiro.",
-    "description": "Salve sua configuração atual ou carregue uma que você salvou antes.",
+    "description": "Salve as configurações atuais como snapshot ou aplique um que você salvou antes.",
     "savedCount_one": "{{count}} configuração salva",
     "savedCount_other": "{{count}} configurações salvas",
     "saveCurrentAsTemplate": "Salvar configuração atual",
@@ -332,13 +306,21 @@
   "applyTemplateConfirm": {
     "title": "Aplicar a configuração salva \"{{name}}\"?",
     "description": "Substituir as opções atuais do servidor por esta configuração salva? O painel faz backup do que está em uso antes, então Restaurar pode desfazer se necessário.",
-    "rconWarning": "A senha RCON não é armazenada nas configurações salvas, então aplicar esta vai remover a senha RCON do seu servidor — você precisará digitá-la novamente depois.",
+    "secretsKept": "As configurações salvas não armazenam senhas nem tokens, então aplicar esta mantém a senha RCON, a senha do servidor e os tokens atuais do seu servidor.",
     "confirmLabel": "Aplicar"
   },
   "restoreBackupConfirm": {
     "title": "Restaurar este backup?",
     "description": "Substituir o arquivo atual por \"{{filename}}\"? As alterações não salvas na configuração em uso serão perdidas.",
     "confirmLabel": "Restaurar"
+  },
+  "switchEditorConfirm": {
+    "rawTitle": "Descartar as alterações não salvas do texto?",
+    "rawDescription": "O editor de texto tem alterações não salvas. Se continuar, elas serão descartadas e o arquivo será carregado de novo do disco.",
+    "rawConfirm": "Descartar alterações",
+    "formTitle": "Abrir o editor de texto sem as alterações do formulário?",
+    "formDescription": "O editor de texto mostra o arquivo como está no disco, sem as alterações não salvas do formulário. Salvar pelo editor de texto as substitui.",
+    "formConfirm": "Abrir editor de texto"
   },
   "fileBrowserDialog": {
     "title": "Selecionar arquivo de imagem",
@@ -3225,7 +3207,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Velocidade de Cultivo",
-        "description": "Multiplicador da velocidade de crescimento. Menor = mais rápido."
+        "description": "Multiplicador da velocidade de crescimento das plantas. Maior = mais rápido (2 = duas vezes mais rápido)."
       },
       "FarmingAmountNew": {
         "label": "Abundância da Colheita",

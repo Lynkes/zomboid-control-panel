@@ -15,13 +15,17 @@ import {
   Check,
   X,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { SectionCard } from '@/components/ui/section-card'
+import { StatusPill } from '@/components/ui/status-pill'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
-import { panelBridgeApi, playersApi, configApi } from '@/lib/api'
+import { ApiError, panelBridgeApi, playersApi, configApi } from '@/lib/api'
 import { useSocket } from '@/contexts/SocketContext'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -74,6 +78,10 @@ type ChatChannel = 'server' | 'admin' | 'general'
 // all (server/routes/panelBridge.js), so that label is a purely internal,
 // correctly-translated panel concept, not a name PZ shows anyone.
 const GENERAL_CHAT_AUTHOR = 'Admin'
+
+function isBridgeNotRunning(error: unknown): boolean {
+  return error instanceof ApiError && (error.code === 'BRIDGE_NOT_RUNNING' || error.code === 'BRIDGE_NOT_RUNNING_BARE')
+}
 
 export default function Chat() {
   const { t, i18n } = useTranslation('chat')
@@ -146,16 +154,28 @@ export default function Chat() {
   // for this and inventing one for a single diagnostic call is not
   // proportionate.
   const [nativeChatAvailable, setNativeChatAvailable] = useState<boolean | null>(null)
+  // The same call says when PanelBridge isn't running at all (the route
+  // answers BRIDGE_NOT_RUNNING): all three channels then go out over RCON
+  // only, admin chat included, so the page says so and links to the fix.
+  const [bridgeOffline, setBridgeOffline] = useState(false)
+  // Re-read after an active-server switch: the new server's bridge can be in
+  // a different state, and a stale "not running" would send the operator to
+  // fix something that isn't broken.
+  const [chatInfoEpoch, setChatInfoEpoch] = useState(0)
   useEffect(() => {
     if (!canSendServerChat) return
     let active = true
     panelBridgeApi.getChatInfo()
       .then((res) => {
-        if (active && res.success && res.data) setNativeChatAvailable(res.data.chatServerAvailable)
+        if (!active) return
+        setBridgeOffline(false)
+        if (res.success && res.data) setNativeChatAvailable(res.data.chatServerAvailable)
       })
-      .catch(() => {})
+      .catch((error) => {
+        if (active) setBridgeOffline(isBridgeNotRunning(error))
+      })
     return () => { active = false }
-  }, [canSendServerChat])
+  }, [canSendServerChat, chatInfoEpoch])
 
   // Track whether the user is parked at (or near) the bottom of the
   // scroll viewport. We only auto-scroll on new messages when they are,
@@ -176,10 +196,15 @@ export default function Chat() {
     return () => root.removeEventListener('scroll', handleScroll)
   }, [handleScroll])
 
+  // Scrolls the message list only: scrollIntoView() also scrolled the page,
+  // so on a phone every new message pushed the message box and Send back
+  // below the fold.
   useEffect(() => {
-    if (stickToBottomRef.current) {
-      chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-    }
+    if (!stickToBottomRef.current) return
+    const viewport = scrollViewportRef.current
+    if (!viewport) return
+    if (typeof viewport.scrollTo === 'function') viewport.scrollTo({ top: viewport.scrollHeight, behavior: 'smooth' })
+    else viewport.scrollTop = viewport.scrollHeight
   }, [chatHistory])
 
   // bug-hunt-2026-09-18 (round 9, activeServerChanged race sweep): runs on a
@@ -217,15 +242,25 @@ export default function Chat() {
   // Dashboard.tsx before their own fixes -- the player roster (used to
   // target admin/general chat) is a read-only display with no unsaved-edit
   // risk, so this reloads unconditionally, matching the Console-shape
-  // precedent. chatHistory is deliberately left alone, same call Console.tsx
-  // made for its own liveLog: it's a display of past activity, and sending
-  // always goes through panelBridgeApi, which resolves against whichever
-  // server is active server-side regardless of what this array shows.
+  // precedent. chatHistory used to be left alone here (Console.tsx's liveLog
+  // was too, until it started clearing on a switch): the lines already shown
+  // came from the server that was active before, `chat:message` carries no
+  // server id, and they stayed under the new server's name next to its own
+  // lines. They are cleared now. There is no chat history endpoint to refetch
+  // from -- the page is a live view of the log tailer, which the switch
+  // repoints at the new server -- so what follows is that server's chat.
   useEffect(() => {
     if (!socket) return
-    socket.on('activeServerChanged', fetchPlayers)
+    const onActiveServerChanged = () => {
+      setChatHistory([])
+      setNativeChatAvailable(null)
+      setBridgeOffline(false)
+      setChatInfoEpoch((epoch) => epoch + 1)
+      fetchPlayers()
+    }
+    socket.on('activeServerChanged', onActiveServerChanged)
     return () => {
-      socket.off('activeServerChanged', fetchPlayers)
+      socket.off('activeServerChanged', onActiveServerChanged)
     }
   }, [socket, fetchPlayers])
 
@@ -297,12 +332,19 @@ export default function Chat() {
       // the catch below.
       let localType: ChatMessage['type'] = 'server'
       let localAuthor = t('labels.server')
+      // Admin and general chat fall back to an RCON servermsg when the game's
+      // chat API or PanelBridge isn't there (server/routes/panelBridge.js
+      // answers method "RCON"): every player then sees the message, so the
+      // toast must not say "admins only".
+      let sentOverRcon = false
       if (channel === 'admin') {
-        await panelBridgeApi.sendToAdminChat(message)
+        const res = await panelBridgeApi.sendToAdminChat(message)
+        sentOverRcon = res?.data?.method === 'RCON'
         localType = 'admin'
         localAuthor = t('labels.admin')
       } else if (channel === 'general') {
-        await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
+        const res = await panelBridgeApi.sendToGeneralChat(message, GENERAL_CHAT_AUTHOR)
+        sentOverRcon = res?.data?.method === 'RCON'
         localType = 'general'
         localAuthor = GENERAL_CHAT_AUTHOR
       } else {
@@ -321,18 +363,27 @@ export default function Chat() {
       // posted, so they want to see the result.
       stickToBottomRef.current = true
       setMessage('')
-      toast({
-        title:
-          channel === 'admin' ? t('toasts.adminSentTitle')
-          : channel === 'general' ? t('toasts.generalSentTitle')
-          : t('toasts.broadcastSentTitle'),
-        description:
-          channel === 'admin' ? t('toasts.adminSentDesc')
-          : channel === 'general' ? t('toasts.generalSentDesc')
-          : t('toasts.broadcastSentDesc'),
-        variant: 'success' as const,
-      })
+      if (sentOverRcon) {
+        toast({
+          title: t('toasts.rconFallbackTitle'),
+          description: channel === 'admin' ? t('toasts.adminRconFallbackDesc') : t('toasts.generalRconFallbackDesc'),
+          variant: 'warning' as const,
+        })
+      } else {
+        toast({
+          title:
+            channel === 'admin' ? t('toasts.adminSentTitle')
+            : channel === 'general' ? t('toasts.generalSentTitle')
+            : t('toasts.broadcastSentTitle'),
+          description:
+            channel === 'admin' ? t('toasts.adminSentDesc')
+            : channel === 'general' ? t('toasts.generalSentDesc')
+            : t('toasts.broadcastSentDesc'),
+          variant: 'success' as const,
+        })
+      }
     } catch (error) {
+      if (isBridgeNotRunning(error)) setBridgeOffline(true)
       toast({
         title: t('toasts.errorTitle'),
         description: getUserErrorMessage(error, t('toasts.sendFailedFallback')),
@@ -430,10 +481,12 @@ export default function Chat() {
     }
   }
 
+  // Each kind of line keeps its colour in a tint and its label, not in a
+  // thick side stripe.
   const getMessageStyle = (type: string) => {
-    if (type === 'server') return 'border-s-2 border-amber-400/70 bg-amber-400/5 ps-3 pe-3 py-2'
-    if (type === 'admin')  return 'border-s-2 border-destructive/70 bg-destructive/5 ps-3 pe-3 py-2'
-    return 'border-s-2 border-primary/55 bg-muted/15 ps-3 pe-3 py-2'
+    if (type === 'server') return 'rounded-md bg-warning/10 px-3 py-2'
+    if (type === 'admin')  return 'rounded-md bg-destructive/10 px-3 py-2'
+    return 'rounded-md bg-muted/30 px-3 py-2'
   }
 
   // Ground-truthed against the PZ server jar (zombie/network/chat/ChatType,
@@ -460,198 +513,214 @@ export default function Chat() {
   }
 
   const getMessageMeta = (msg: ChatMessage) => {
-    if (msg.type === 'server') return { icon: <Megaphone className="w-3 h-3" />, label: msg.author || t('labels.server'), labelClass: 'text-amber-400', dotClass: 'bg-amber-400/80' }
-    if (msg.type === 'admin')  return { icon: <Shield className="w-3 h-3" />,    label: msg.author || t('labels.admin'),  labelClass: 'text-destructive', dotClass: 'bg-destructive/80' }
+    if (msg.type === 'server') return { icon: <Megaphone className="h-3.5 w-3.5" aria-hidden="true" />, label: msg.author || t('labels.server'), labelClass: 'text-warning' }
+    if (msg.type === 'admin')  return { icon: <Shield className="h-3.5 w-3.5" aria-hidden="true" />,    label: msg.author || t('labels.admin'),  labelClass: 'text-destructive' }
     const channelTag = getChannelTag(msg.sourceChatType)
     const baseLabel = msg.author || t('labels.player')
-    return { icon: <MessageSquare className="w-3 h-3" />, label: channelTag ? `${channelTag} ${baseLabel}` : baseLabel, labelClass: 'text-primary', dotClass: 'bg-primary/80' }
+    return { icon: <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />, label: channelTag ? `${channelTag} ${baseLabel}` : baseLabel, labelClass: 'text-primary' }
   }
 
+  const alerts: PageAlert[] = bridgeOffline
+    ? [{
+        id: 'bridge-offline',
+        tone: 'warning',
+        title: t('bridgeOffline.title'),
+        description: t('bridgeOffline.description'),
+        action: { label: t('bridgeOffline.action'), to: '/settings?tab=bridge' },
+      }]
+    : []
+
   return (
-    <div className="space-y-6 page-transition">
+    // From lg up the page is exactly one screen tall (main's p-8 is the 4rem),
+    // so the chat log fills what the header leaves and scrolls on its own.
+    <div className="page-transition flex flex-col gap-6 lg:h-[calc(100dvh-4rem)] lg:min-h-[36rem]">
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        icon={<MessagesSquare className="w-5 h-5" />}
         actions={
-          <Button variant="outline" size="sm" onClick={fetchPlayers} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            {t('pageHeader.refresh')}
+          <Button variant="outline" size="sm" onClick={fetchPlayers} aria-label={t('pageHeader.refresh')} title={t('pageHeader.refresh')}>
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">{t('pageHeader.refresh')}</span>
           </Button>
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Chat Window */}
-        <div className="lg:col-span-2">
-          <div className="relative h-[calc(100vh-260px)] min-h-[420px] flex flex-col rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-lg overflow-hidden">
-            {/* header strip */}
-            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-muted/30 select-none shrink-0">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                <MessagesSquare className="w-3.5 h-3.5" />
-                <span>{t('chatWindow.streamLabel')}</span>
-                <span className="text-muted-foreground/50 normal-case tracking-normal font-normal">·</span>
-                <span className="text-muted-foreground/70 normal-case tracking-normal font-normal tabular-nums">{t('chatWindow.msgCount', { count: chatHistory.length })}</span>
-              </span>
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground normal-case tracking-normal font-normal">
-                <span className={cn('w-1.5 h-1.5 rounded-full', socket?.connected ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40')} />
-                <span>{socket?.connected ? t('chatWindow.live') : t('chatWindow.offline')}</span>
-              </span>
+      <PageAlerts alerts={alerts} />
+
+      <div className="grid grid-cols-1 gap-6 lg:min-h-0 lg:flex-1 lg:grid-cols-3 lg:grid-rows-[minmax(0,1fr)]">
+        {/* The chat log and the composer. SectionCard's body is its last
+            child: it becomes a flex column so the log takes the height. */}
+        <SectionCard
+          title={t('chatWindow.streamLabel')}
+          icon={MessagesSquare}
+          density="compact"
+          flush
+          status={
+            <>
+              <StatusPill
+                tone={socket?.connected ? 'ok' : 'idle'}
+                pulse={!!socket?.connected}
+                size="sm"
+                label={socket?.connected ? t('chatWindow.live') : t('chatWindow.offline')}
+              />
+              <span className="text-xs tabular-nums text-muted-foreground">{t('chatWindow.msgCount', { count: chatHistory.length })}</span>
+            </>
+          }
+          className="flex h-[calc(100dvh-9rem)] min-h-[26rem] flex-col overflow-hidden lg:col-span-2 lg:h-auto lg:min-h-0 [&>div:last-child]:flex [&>div:last-child]:min-h-0 [&>div:last-child]:flex-1 [&>div:last-child]:flex-col"
+        >
+          {/* Messages Area */}
+          <ScrollArea className="min-h-0 flex-1 px-4" role="log" aria-live="polite" aria-label={t('chatWindow.messagesAria')}>
+            <div className="space-y-2 py-3">
+              {chatHistory.length === 0 ? (
+                <EmptyState type="noMessages" title={t('emptyState.title')} description={t('emptyState.description')} compact />
+              ) : (
+                chatHistory.map((msg) => {
+                  const meta = getMessageMeta(msg)
+                  return (
+                    <div key={msg.id} className={getMessageStyle(msg.type)}>
+                      <div className="mb-0.5 flex items-center justify-between gap-3">
+                        <span className={cn('flex min-w-0 items-center gap-1.5 text-xs font-medium', meta.labelClass)}>
+                          {meta.icon}
+                          {meta.label}
+                        </span>
+                        <time dateTime={msg.timestamp.toISOString()} className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                          {formatTime(msg.timestamp, { seconds: true })}
+                        </time>
+                      </div>
+                      <p className="text-sm text-foreground [overflow-wrap:anywhere]">{msg.message}</p>
+                    </div>
+                  )
+                })
+              )}
+              <div ref={chatEndRef} />
             </div>
+          </ScrollArea>
 
-            <div className="flex-1 flex flex-col p-0 min-h-0">
-              {/* Messages Area */}
-              <ScrollArea className="flex-1 px-3" role="log" aria-live="polite" aria-label={t('chatWindow.messagesAria')}>
-                <div className="py-3 space-y-2">
-                  {chatHistory.length === 0 ? (
-                    <EmptyState type="noMessages" title={t('emptyState.title')} description={t('emptyState.description')} compact />
-                  ) : (
-                    chatHistory.map((msg) => {
-                      const meta = getMessageMeta(msg)
-                      return (
-                        <div key={msg.id} className={getMessageStyle(msg.type)}>
-                          <div className="flex items-center justify-between mb-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', meta.dotClass)} />
-                              <span className={cn('font-mono text-[10px] uppercase tracking-[0.18em] flex items-center gap-1', meta.labelClass)}>
-                                {meta.icon}
-                                {meta.label}
-                              </span>
-                            </div>
-                            <time dateTime={msg.timestamp.toISOString()} className="font-mono text-[10px] tabular-nums text-muted-foreground/60">
-                              {formatTime(msg.timestamp, { seconds: true })}
-                            </time>
-                          </div>
-                          <p className="text-sm text-foreground/90 [overflow-wrap:anywhere]">{msg.message}</p>
-                        </div>
-                      )
-                    })
-                  )}
-                  <div ref={chatEndRef} />
-                </div>
-              </ScrollArea>
-
-              {/* Message Input */}
-              <div className="p-3 border-t border-border/50 bg-muted/20">
-                {nativeChatAvailable !== null && (
-                  <div className="flex items-center gap-1.5 pb-2 text-[11px] text-muted-foreground/80">
-                    <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', nativeChatAvailable ? 'bg-emerald-400' : 'bg-amber-400')} />
-                    {nativeChatAvailable ? t('deliveryStatus.native') : t('deliveryStatus.rconFallback')}
-                  </div>
-                )}
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <div className="flex items-center gap-1.5">
-                    <Select value={channel} onValueChange={(v) => setChannel(v as ChatChannel)} disabled={sending}>
-                      <SelectTrigger className="h-10 sm:w-52 font-mono text-[11px] uppercase tracking-[0.16em] bg-card/70 border-border/55" aria-label={t('channel.aria')}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="server">
-                          <span className="flex items-center gap-2">
-                            <Megaphone className="w-3.5 h-3.5 text-amber-400" />
-                            {t('channel.server')}
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="admin">
-                          <span className="flex items-center gap-2">
-                            <Shield className="w-3.5 h-3.5 text-destructive" />
-                            {t('channel.admin')}
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="general">
-                          <span className="flex items-center gap-2">
-                            <MessageSquare className="w-3.5 h-3.5 text-primary" />
-                            {t('channel.general')}
-                          </span>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: GENERAL_CHAT_AUTHOR })}</HelpTip>
-                  </div>
-                  <Input
-                    ref={messageInputRef}
-                    placeholder={
-                      channel === 'admin'
-                        ? t('input.placeholderAdmin')
-                        : channel === 'general'
-                          ? t('input.placeholderGeneral')
-                          : t('input.placeholderServer')
-                    }
-                    aria-label={t('input.aria')}
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    disabled={sending}
-                    maxLength={500}
-                    className="h-10 flex-1 bg-card/70 border-border/55 focus-visible:border-primary/60 placeholder:text-sm"
-                  />
-                  <DisabledReason reason={!canSendChat ? t('input.noPermission') : null}>
-                    <Button
-                      onClick={sendMessage}
-                      disabled={sending || !message.trim() || !canSendChat}
-                      className="h-10 min-w-20 sm:min-w-24 gap-1.5 font-mono text-[11px] uppercase tracking-[0.18em] disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
-                    >
-                      {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Send className="w-3.5 h-3.5" />{t('input.sendButton')}</>}
-                    </Button>
-                  </DisabledReason>
-                </div>
-                <div className="mt-1.5 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/65">
-                  <span>
-                    {channel === 'admin'
-                      ? t('footer.adminOnly')
-                      : players.length === 0
-                        ? t('footer.noPlayersOnline')
-                        : t('footer.broadcastingTo', { count: players.length })}
-                  </span>
-                  <span className={cn('tabular-nums', message.length > 450 ? 'text-amber-400' : '')}>
-                    {message.length}/500
-                  </span>
-                </div>
+          {/* Message Input */}
+          <div className="shrink-0 border-t border-border/60 bg-muted/20 p-3 sm:p-4">
+            {nativeChatAvailable !== null && (
+              <p className="flex items-center gap-1.5 pb-2 text-xs text-muted-foreground">
+                <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', nativeChatAvailable ? 'bg-success' : 'bg-warning')} aria-hidden="true" />
+                {nativeChatAvailable ? t('deliveryStatus.native') : t('deliveryStatus.rconFallback')}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex items-center gap-1.5">
+                <Select value={channel} onValueChange={(v) => setChannel(v as ChatChannel)} disabled={sending}>
+                  <SelectTrigger className="h-10 sm:w-52" aria-label={t('channel.aria')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="server">
+                      <span className="flex items-center gap-2">
+                        <Megaphone className="h-3.5 w-3.5 text-warning" aria-hidden="true" />
+                        {t('channel.server')}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="admin">
+                      <span className="flex items-center gap-2">
+                        <Shield className="h-3.5 w-3.5 text-destructive" aria-hidden="true" />
+                        {t('channel.admin')}
+                      </span>
+                    </SelectItem>
+                    <SelectItem value="general">
+                      <span className="flex items-center gap-2">
+                        <MessageSquare className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                        {t('channel.general')}
+                      </span>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <HelpTip label={t('channel.aria')}>{t('channel.tip', { adminLabel: GENERAL_CHAT_AUTHOR })}</HelpTip>
               </div>
+              <Input
+                ref={messageInputRef}
+                placeholder={
+                  channel === 'admin'
+                    ? t('input.placeholderAdmin')
+                    : channel === 'general'
+                      ? t('input.placeholderGeneral')
+                      : t('input.placeholderServer')
+                }
+                aria-label={t('input.aria')}
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={sending}
+                maxLength={500}
+                className="h-10 flex-1"
+              />
+              <DisabledReason reason={!canSendChat ? t('input.noPermission') : null}>
+                <Button
+                  variant="command"
+                  onClick={sendMessage}
+                  disabled={sending || !message.trim() || !canSendChat}
+                  className="h-10 min-w-24 gap-1.5"
+                >
+                  {sending ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
+                  {t('input.sendButton')}
+                </Button>
+              </DisabledReason>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+              <span>
+                {channel === 'admin'
+                  ? t('footer.adminOnly')
+                  : players.length === 0
+                    ? t('footer.noPlayersOnline')
+                    : t('footer.broadcastingTo', { count: players.length })}
+              </span>
+              <span className={cn('shrink-0 tabular-nums', message.length > 450 && 'text-warning')}>
+                {message.length}/500
+              </span>
             </div>
           </div>
-        </div>
+        </SectionCard>
 
-        {/* Sidebar */}
-        <div className="space-y-4">
-          {/* Online Players */}
-          <div className="relative rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-md overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-muted/30 select-none">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                <Users className="w-3.5 h-3.5" />
-                <span>{t('playersPanel.label')}</span>
-              </span>
-              <span className="text-xs text-muted-foreground tabular-nums normal-case tracking-normal font-normal">{t('playersPanel.onlineCount', { count: players.length })}</span>
-            </div>
+        <div className="space-y-6 lg:min-h-0 lg:overflow-y-auto">
+          {/* Online players: each opens in Players. */}
+          <SectionCard
+            title={t('playersPanel.label')}
+            icon={Users}
+            density="compact"
+            flush
+            status={<span className="text-xs tabular-nums text-muted-foreground">{t('playersPanel.onlineCount', { count: players.length })}</span>}
+          >
             <div className="p-2">
               {players.length === 0 ? (
-                <div className="px-2 py-3 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60 italic">
+                <p className="px-2 py-2 text-sm text-muted-foreground">
                   {t('playersPanel.noPlayersConnected')}
-                </div>
+                </p>
               ) : (
-                <div className="space-y-1">
+                <ul className="space-y-0.5">
                   {players.map((player) => (
-                    <div key={player.name} className="flex items-center gap-2 px-2 py-1.5 rounded-sm hover:bg-muted/40 transition-colors min-w-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" aria-hidden="true" />
-                      <span className="text-xs font-medium text-foreground/90 truncate">{player.name}</span>
-                    </div>
+                    <li key={player.name}>
+                      <Link
+                        to={`/players?player=${encodeURIComponent(player.name)}`}
+                        title={t('playersPanel.openPlayer', { name: player.name })}
+                        className="flex min-h-9 min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                      >
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+                        <span className="truncate">{player.name}</span>
+                      </Link>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
-          </div>
+          </SectionCard>
 
-          {/* Quick Messages */}
-          <div className="relative rounded-md border border-border/55 bg-card/85 backdrop-blur-md shadow-md overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/50 bg-muted/30 select-none">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                <Megaphone className="w-3.5 h-3.5" />
-                <span>{t('quickBroadcasts.label')}</span>
-              </span>
+          {/* Quick broadcasts: the panel's one shared preset list. */}
+          <SectionCard
+            title={t('quickBroadcasts.label')}
+            description={t('quickBroadcasts.description')}
+            icon={Megaphone}
+            density="compact"
+            flush
+            actions={
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-6 px-1.5 -my-1 text-xs"
                 onClick={() => {
                   setPresetsEditing((v) => !v)
                   setEditingIdx(null)
@@ -660,12 +729,14 @@ export default function Chat() {
                 }}
                 aria-label={presetsEditing ? t('quickBroadcasts.doneAria') : t('quickBroadcasts.editAria')}
               >
-                {presetsEditing ? <><Check className="w-3 h-3 me-1" />{t('quickBroadcasts.done')}</> : <><Pencil className="w-3 h-3 me-1" />{t('quickBroadcasts.edit')}</>}
+                {presetsEditing ? <Check aria-hidden="true" /> : <Pencil aria-hidden="true" />}
+                {presetsEditing ? t('quickBroadcasts.done') : t('quickBroadcasts.edit')}
               </Button>
-            </div>
-            <div className="p-2 space-y-1.5">
+            }
+          >
+            <div className="space-y-1.5 p-2">
               {presets.length === 0 && !presetsEditing && (
-                <p className="px-2 py-2 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/60">{t('quickBroadcasts.noPresets')}</p>
+                <p className="px-2 py-2 text-sm text-muted-foreground">{t('quickBroadcasts.noPresets')}</p>
               )}
               {presets.map((quickMsg, idx) => {
                 const isEditing = presetsEditing && editingIdx === idx
@@ -685,11 +756,11 @@ export default function Chat() {
                       />
                       <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
                         <Button variant="ghost" size="icon" className="h-9 w-9" onClick={handleSaveEdit} disabled={!canManagePresets || !editingDraft.trim()} aria-label={t('quickBroadcasts.saveAria')}>
-                          <Check className="w-4 h-4" />
+                          <Check className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </DisabledReason>
                       <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => { setEditingIdx(null); setEditingDraft('') }} aria-label={t('quickBroadcasts.cancelAria')}>
-                        <X className="w-4 h-4" />
+                        <X className="h-4 w-4" aria-hidden="true" />
                       </Button>
                     </div>
                   )
@@ -698,7 +769,7 @@ export default function Chat() {
                   <div key={`preset-${idx}`} className="flex items-center gap-1">
                     <button
                       type="button"
-                      className="group flex-1 min-h-9 px-2 py-1.5 text-start rounded-sm bg-muted/15 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60 transition-colors text-xs text-foreground/85 whitespace-normal"
+                      className="min-h-9 flex-1 whitespace-normal rounded-md bg-muted/20 px-2.5 py-1.5 text-start text-sm text-foreground transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
                       onClick={() => {
                         if (presetsEditing) {
                           setEditingIdx(idx)
@@ -721,7 +792,7 @@ export default function Chat() {
                           disabled={!canManagePresets}
                           aria-label={t('quickBroadcasts.deleteAria', { index: idx + 1 })}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
                         </Button>
                       </DisabledReason>
                     )}
@@ -729,7 +800,7 @@ export default function Chat() {
                 )
               })}
               {presetsEditing && (
-                <div className="flex items-center gap-1 pt-2 mt-1 border-t border-border/40">
+                <div className="mt-1 flex items-center gap-1 border-t border-border/40 pt-2">
                   <Input
                     placeholder={t('quickBroadcasts.addPlaceholder')}
                     value={newPresetDraft}
@@ -738,7 +809,7 @@ export default function Chat() {
                       if (e.key === 'Enter') { e.preventDefault(); handleAddPreset() }
                     }}
                     maxLength={500}
-                    className="h-9 flex-1 text-sm bg-card/70 border-border/55"
+                    className="h-9 flex-1 text-sm"
                   />
                   <DisabledReason reason={!canManagePresets ? t('quickBroadcasts.noPermission') : null}>
                     <Button
@@ -749,13 +820,13 @@ export default function Chat() {
                       disabled={!newPresetDraft.trim() || !canManagePresets}
                       aria-label={t('quickBroadcasts.addAria')}
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="h-4 w-4" aria-hidden="true" />
                     </Button>
                   </DisabledReason>
                 </div>
               )}
             </div>
-          </div>
+          </SectionCard>
         </div>
       </div>
     </div>

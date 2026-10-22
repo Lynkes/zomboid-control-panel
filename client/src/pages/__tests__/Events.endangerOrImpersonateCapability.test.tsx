@@ -89,7 +89,7 @@ beforeEach(() => {
 })
 
 async function openQuickSoundsSection() {
-  const nav = await screen.findByText('Quick sounds')
+  const nav = await screen.findByRole('button', { name: 'Quick sounds' })
   fireEvent.click(nav)
   await screen.findByRole('button', { name: 'lightning' })
 }
@@ -121,7 +121,7 @@ describe('Events.tsx: targeted sound (gunshot at world coordinates) is gated on 
     mockCan = (capability) => capability !== 'players.endanger_or_impersonate'
     renderEvents()
 
-    const nav = await screen.findByText('Targeted sounds')
+    const nav = await screen.findByRole('button', { name: 'Targeted sounds' })
     fireEvent.click(nav)
 
     const xInput = await screen.findByLabelText('Sound world X coordinate')

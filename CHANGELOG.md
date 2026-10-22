@@ -10,16 +10,329 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose.
-- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
 - **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first.
 - **Start, stop and restart any server from the Dashboard's list:** the servers other than the active one get Start, or Stop and Restart, in their row, with the Dashboard's own rules: the world is saved before a stop, a stop that never finishes is forced after a minute, and a restart warns players 5 minutes ahead. The active server keeps its own controls.
 - **Restart if it goes down:** a checkbox per server (on the Dashboard's list, or beside auto-start with one server) has the panel start that server again when it stops without the panel asking, such as a crash or `/quit` in the game. It waits 15 seconds, and leaves a server down after 3 restarts in 30 minutes.
 - **Mods and game updates on every server:** the Dashboard's list of servers marks a server other than the active one whose Workshop mods are behind Steam (the ones its `.ini` lists) or whose game build is behind its branch. With the mod update restart on, a running server with mods behind is restarted to load them, once per set of updates, with the same warning to its players.
-- **Memory and disk per server:** each running server's RAM is on the Dashboard's list, with the total against what the machine (or its container) has, and a server whose data folder's disk is filling up is marked. The memory chart now follows the active server's own process; with two servers running it could show the other one.
+- **Memory and disk per server:** each running server's RAM is on the Dashboard's list, with the total against what the machine (or its container) has, and a server whose data folder's disk is filling up is marked.
 - **Servers that start together:** Settings › Connection and the Dashboard warn when the servers chosen to start with the panel may use more heap together than the machine has, or share game or RCON ports, and a new wait between servers spaces their launches so the worlds don't all load at once.
 - **Scheduled backups of every server:** each server's row on the Dashboard shows its last backup and a Scheduled backup checkbox; the schedule backs up every server checked, one after another, each in its own folder. Until one is checked it backs up the active server alone, as before. Schedule History records each backup, and each restart, under its own server.
 - **Play time on every server:** sessions and play time are recorded for the servers other than the active one too, from who is on every minute, for the Players page once that server is the active one.
 - **The panel watches every server, not only the active one:** a server other than the active one that stops on its own is recorded in its server events, and the Dashboard's list updates at once when any server starts or stops.
+- **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
+
+## [1.5.2] - 2026-10-21
+
+### Fixed
+
+- **Windows server detection, root cause:** the panel started one PowerShell check per caller (up to 57 a minute) and on a busy PC they starved each other until every check timed out; checks now share one run, so at most one runs at a time.
+
+## [1.5.1] - 2026-10-21
+
+### Fixed
+
+- **Windows server detection on slow PCs:** the process check asks Windows only for Java and Zomboid processes, waits longer after a timeout, and logs why it failed; on some PCs every check timed out, so Start stayed disabled and an auto-restart left the server stopped.
+- **Start and restart when Windows process detection fails:** a closed RCON port plus the game log's shutdown lines now count as proof the server stopped, Start offers "Start anyway" when nothing can tell, and Problems found explains the failing check.
+
+## [1.5.0] - 2026-10-20
+
+### Security
+
+- **SFTP password bound to its host:** the saved PanelBridge SFTP password is only used with the saved host, port and username; testing or saving another target asks for its password.
+- **Server .ini RCON and port keys:** a control character in front of RCONPassword, RCONPort, DefaultPort, UDPPort or UPnP no longer gets past the server.configure check in the raw editor, backup restore or template apply.
+- **Workshop map folder names:** a map folder whose name holds a line break, ";", "=" or a control character is no longer written to Map=, where it could add other server .ini lines.
+- **Character import:** a skill level outside 0 to 10 is refused, and PanelBridge clamps levels and item numbers, so an import file can no longer freeze the game server.
+- **Docker memory reading:** the dashboard reads memory only from a container labelled for panel management, like the Docker page, its logs and its actions.
+- **Support bundle:** the recent panel log lines in in-memory-log-buffer.json are redacted like combined.log.
+- **Demo site deploy:** the client build that publishes the demo runs without a write token; a separate job with no npm code publishes it.
+- **Docker `:latest` is the newest release:** main-branch builds now publish `:main`/`:edge` only; dependency updates wait 7 days, only npm patch/minor updates auto-merge, and release builds and images install exactly what the lockfiles pin.
+- **Steam Sync extension:** sends the panel password and Steam cookies over plain HTTP only to a panel on your own network (or one address you explicitly allow); anything else needs HTTPS, and a URL typed without a scheme defaults to HTTPS.
+- **Docker images:** base images are pinned by digest and the all-in-one image takes Node.js from the official Node image instead of running NodeSource's setup script as root.
+- **All-in-one installer:** the install command now fetches `bootstrap.sh` from the latest release (attached to it and listed in `checksums.txt`) instead of `main`, and the `.env` holding the updater token is created owner-only.
+- **PanelBridge ignores client commands:** the server-side bridge no longer stores the unused teleport acknowledgement any connected player could send.
+- **PanelBridge Workshop download check:** Settings › PanelBridge warns when the Workshop item a server downloaded holds server Lua other than the published file for its version.
+- **Character import recovery copies:** the panel keeps the newest ones per player (as many as the auto-export keeps, else 5) instead of one more on every import, forever.
+- **Diagnostics log downloads:** only the listed .log files can be downloaded, and the logs folder can no longer be set to the data or program folder (it exposed the panel's secrets to diagnostics roles).
+- **Backup "View snapshot":** a snapshot larger than 1 MB is refused instead of being inflated into memory (a small uploaded zip could take hundreds of MB).
+- **Backup restore and upload disk use:** a restore stops when an archive inflates past the sizes it records or would nearly fill the disk, and an upload is refused when it would leave less than 1 GB free.
+- **Mod conflict scan:** a crafted Workshop file can no longer freeze the panel for minutes while its clothing, translation, script or Lua definitions are read.
+- **Mod conflict file comparison:** it no longer follows a symlink or junction out of a mod's media folder (the scan already refused them).
+- **PanelBridge files on the panel's machine:** status, result and queue files over 16 MB are no longer read into memory (the SFTP transport already refused them); an oversized result is skipped instead of stalling the queue.
+- **Hostile Workshop mods can no longer freeze the panel:** a mod.info, Workshop description or console line built to make text matching slow is now read in milliseconds (panel start, update checks, diagnostics, Console page).
+- **Per-player data is bounded:** playtime stats (5,000 players per server), cached character sheets (5,000 / 256 MB per server) and login auto-export folders (2,000 players) now drop the longest-unseen entries instead of growing with every new name that joins; auto-export rotation no longer deletes pre-import snapshots.
+- **Server Finder address check:** only plain dotted-decimal IPv4 addresses are queried, so octal or other legacy spellings can no longer reach private addresses on Linux.
+- **Less work for signed-out requests:** the Server Files save's large body is read only after sign-in, Socket.IO connection attempts are rate limited per address, and map tiles the map host doesn't have are remembered for 10 minutes instead of fetched again on every request.
+- **In-game admin password hidden from logs:** the line where the game prints it on a world's first start is now redacted on the Console page for every role and in support bundles.
+- **RCON connection changes:** a server's RCON host, port and password now need the Edit server configuration permission, a new host or port needs the password typed again, and the per-server RCON status is limited to roles that manage servers or run RCON.
+- **Backups and the panel database:** only the backup setting decides whether a backup includes the panel database (a request can no longer add it), and the copy it includes leaves out password hashes, sessions and other secrets.
+- **Templates:** a template can no longer carry the Discord token, UPnP, ports, Mods, WorkshopItems, Map, DoLuaChecksum or any other secret-like setting, and comparing a template with the server needs the Manage server templates permission.
+- **Scheduled tasks:** changing the schedule or the target server of an enabled task now needs the permission its command needs (for example Start/stop for a restart task), not only Manage scheduled tasks.
+- **Accounts and roles while logins are off:** accounts, roles, recovery codes and the sign-in key can no longer be changed while panel logins are turned off, so nothing added then outlives the setting.
+- **Panel passwords:** a new password needs at least 10 characters, at most 72 bytes (the part the panel actually checks) and must not be one of the most common passwords; existing passwords keep working.
+- **Reads open to every role:** saved vehicle positions on the World Map now need View player info, pinging the bridge needs a PanelBridge permission, and the RCON host and port (Dashboard, Servers, server status) are shown only to roles that run RCON, manage servers or edit the server configuration.
+
+### Added
+
+- **Smart load order (server):** the panel plans a big mod list's load order, Workshop and local mods alike (requirements, mod.info hints, Steam Required items, patches, pinned rules, group order and first/last placement), explains each move, checks the list for problems with one-click fixes, and suggests conflict winners.
+- **Smart sort:** Auto-sort uses the server planner, shows every move with its reasons and confidence, can put libraries first and patches and translations last, and says what it could not do.
+- **Mod health check:** a Health view (and a Dashboard alert) lists what stops mods from loading, with one-click fixes and "Fix all safe issues".
+- **"Why is it here?" and pinned order:** each Load order row explains its place, "Always load after/before" rules can be pinned, and conflicts suggest a winner to apply in one click.
+- **Mod kinds:** Library, Map, Patch, Translation... chips with a Kind filter, "Needed by N mods" and each item's Steam required items.
+- **Mod Manager, mod groups:** group mods that must load in one fixed order (a vehicle pack's library, core, add-ons, then fixes, whoever made them) on the Load order tab; saving the load order keeps each group in order, "Apply group order" fixes a list that is already out of order, and a group can be exported and imported to share it with another admin.
+- **Mod groups from the Load order list:** tick mods on the Load order tab and "Create group from selection" opens a new group with them, in load order.
+- **Mod groups to organise big mod lists:** a group can have a colour and keep its mods together in the load order, be enabled or disabled in one step (mods another enabled group needs, and PanelBridge, stay on), and the panel suggests groups from shared libraries, multi-mod Workshop items and name prefixes; any Workshop item can carry a note.
+- **Mod Manager, "Not enabled" filter:** a chip on Active on server lists only the workshop items that have a mod ID which is not enabled (the gap in "170 of 186 IDs enabled"); a server with no multi-ID items no longer opens an empty list behind the Multi-ID filter.
+- **Load order the way the game sees it:** the Mods page data now includes loadModAfter=, loadModBefore= and incompatible= (read like Build 42 reads them), the order the server really loads, what keeps a mod from loading (an empty or spaced require= entry, a require= loop, a missing dependency) and every ordering rule for sorting.
+- **Mod Manager, Groups view:** Active on server can list mods by group with Enable all / Disable all per group, every mod row has colour dots and "Add to group" (also for a selection), group blocks on the Load order tab move as one, and a group's conflict badge opens Conflicts filtered to it.
+- **Group-aware Auto-sort:** Auto-sort keeps dependencies, each group's order, kept-together blocks and conflict winners, can put a group first or last, and shows why each mod moves before you apply it.
+- **Mod list filters and sorting:** filter by group, note, update or missing dependency, sort by name, load order or last update; the panel remembers your chips, and updated mods link to their Workshop change notes.
+- **Problems found (Diagnostics):** the server's latest log and the panel's errors read into grouped problems (Lua errors per mod, missing mods, Workshop, Steam, ports, RCON, memory, chunks, crashes), each with its fix and a "Fix all safe issues" with Undo.
+- **Fix everything (Mods → Conflicts and Health):** one preview of the safe health fixes, the suggested conflict winners as pinned rules and the smart sort, with what is left afterwards; applies them in one run with a single Undo.
+
+### Changed
+
+- **Mod Manager layout:** one page header and section menu (Library, On the server, Tools) with the view in the URL, a search toolbar (press /), and mod lists that stay fast with 600+ mods.
+- **Sidebar:** Panel Users, Roles & Permissions and Single Sign-On are no longer listed separately; they are the Access control tabs of Panel Settings, so there is one way to each.
+- **World and player pages:** World Map, Events & Weather, Backups, Map Cleanup, Players, Leaderboard and Chat share one header, alert stack and save bar; each player action has one home, and links such as `/players?player=`, `/world-map?player=`, `/events?section=` and `/backups?panel=schedule` open the right view.
+- **Settings, Diagnostics, Discord, sign-in and first-run setup:** one section rail with links that open the right tab, one save bar that asks before unsaved edits are lost, Settings › Backups points to World Backups instead of a second backup list, and Diagnostics' fixes open the Settings tab that holds them.
+- **Scheduler redesign:** tasks read as plain schedules ("Every day at 06:00") with next and last run at a glance, one-click presets and Duplicate; the task dialog asks what to run first and previews the next runs instead of showing raw cron.
+
+### Fixed
+
+- **Connect RCON needs RCON permission:** the Dashboard no longer offers Connect RCON to roles that can't run RCON commands, which only got a permission error.
+- **RCON input with Chinese input methods:** pressing Enter to pick a character no longer sends the half-typed command.
+- **Public Servers needs install permission:** roles without "Install servers" no longer see a Public Servers entry that only opened a permission error.
+- **Server Configuration raw editor after a server switch:** the raw editor now reloads the file after a server switch, Refresh or restore, so saving no longer writes the previous server's text over the new server's file.
+- **Mod Settings after a server switch:** the tab now loads the new server's mod options instead of listing the previous server's.
+- **Sandbox Save keeps Mod Settings edits:** saving the Sandbox tab now writes only the values you changed, so it no longer undoes a Mod Settings change made earlier in the same visit.
+- **Mod Manager "Needs attention":** enabled mod IDs that are on no Workshop item on disk are listed again (and counted) under the filter.
+- **Playtime across a server switch:** players online when you switch servers now have their session closed on the server they were playing on; before, their playtime was lost and they showed up on the new server's roster.
+- **Login auto-exports kept:** a player's pre-import recovery copies no longer count toward the auto-export limit, so a login export is no longer deleted right after it is written, and recovery copies are never rotated out.
+- **Player notes and activity ignore letter case:** "bob" now shows and edits the note saved for "Bob" instead of overwriting it from an empty box, and the activity filter finds a player whatever the case.
+- **PanelBridge newer than the panel's:** a PanelBridge.lua in the game folder newer than the one the panel ships now reads "Newer than this panel's" instead of an "Update now" that never did anything.
+- **World Map dialogs after a server switch:** an open Remove vehicle confirm, spawn-vehicle or custom-drop dialog now closes when the active server changes, so it can't act on the new server; the old server's airdrop markers are cleared too.
+- **World Map player card stays live:** the selected player's HP, position and stats now follow the game (Heal shows the new HP), a player who logs off reads as offline with the actions turned off, and the cursor coordinates show whole squares instead of long decimals.
+- **PanelBridge dialogs after a server switch:** an open delivery-switch or Lua-checksum dialog now closes (with a short notice) when the active server changes, instead of reopening by itself for the new server.
+- **Character import recovery copy in Saved Exports:** the Import/Export dialog now reloads Saved Exports when it opens and after an import, so the pre-import copy it promises (and recent login exports) show up.
+- **Update / Verify on an inactive server:** the branch picker now starts on that server's own branch (or public), not on the active server's.
+- **Closing the Add mod dialog:** it now stops the SteamCMD download it started; a reopened dialog takes a new URL and no longer fills in with the old mod.
+- **Workshop collection chip on the Mods page:** it now counts and syncs the mods on the server (WorkshopItems=), like Settings; a deactivated mod no longer reads as out of sync or gets pushed into the collection, and the count refreshes after a partial sync.
+- **Saving the load order with conflicting mod groups:** the warning now names the groups instead of listing their internal IDs.
+- **Unsaved load order kept:** Load order moves are no longer thrown away when the Mods page reloads (an update check, a restart, a mod removed) or by "Make X win", and Save no longer undoes mods enabled or disabled elsewhere meanwhile.
+- **Mods page after a server switch:** an open Auto-sort proposal and the previous server's conflict scan are cleared, so the old server's mod list can no longer be applied and saved into the new one.
+- **Mod conflict list:** added and removed lines in a file comparison are tinted again, and screen readers hear each conflict's severity in your language.
+- **Support bundle logs:** accented and other non-English text no longer turns into "��" where the log is read in pieces.
+- **Restart and Apply after a re-download:** after a failed update asked you to download it again, the button is enabled once the new download is ready.
+- **Failed panel update download:** the Updates card no longer stays on "Downloading".
+- **Panel update checksum:** an update check landing during a download no longer fails a valid download as corrupted or tampered with.
+- **Waiting for the panel to restart:** the page now waits for the new panel process, so it no longer reloads onto the old one while it is still stopping, and an update that was rolled back is reported at once instead of "the panel isn't responding" after three minutes.
+- **Untranslated messages:** Diagnostics fix results, the data-folder change confirmation, the update preflight blocker and the update-downloaded message now appear in your language.
+- **All-in-one updater:** an update that fails before its download (an unwritable build folder) now reports "failed" instead of crashing the updater or staying "running", and two quick update requests no longer start two updates.
+- **Docker health check on a custom port:** both images now check the port the panel really listens on (`PORT` or the port set in Settings) instead of always 3001, so such a panel no longer reads as unhealthy and the all-in-one updater no longer rolls back its updates.
+- **Restoring a zip made by Windows PowerShell on a Linux panel:** backslash-separated archives (Compress-Archive) now restore into their world folder instead of failing with "no world save folder".
+- **Restore of an archive without world files:** a backup whose server-named folder holds no world (only a readme, say) is refused instead of replacing the live world; a real world elsewhere in the archive is used instead.
+- **Leftover upload temp files:** a backup upload cut off by a panel crash or restart no longer leaves its temporary file in the backups folder forever; the next backup removes it.
+- **Mod added by URL not enabled after a reboot:** a mod the server does not have yet is now downloaded with SteamCMD when you add it, so its mod IDs are read from its files and written to Mods= with it; before, a mod whose description does not state its mod ID was only added to WorkshopItems=, so the server downloaded it after it had read Mods= and it stayed off.
+- **Farming Speed description:** it now says higher is faster (2 = twice as fast) in every language; it used to say the opposite.
+- **Servers sharing a game folder:** Delete files, Clear Folder, Update and Quick Setup now refuse while any server using the same game folder runs, and deleting a shared folder lists the other servers first; before, deleting a stopped server's files could wipe a running one's.
+- **Restart during a mod download:** the server now starts again instead of staying down because a Workshop item was still downloading.
+- **Install SteamCMD automatically:** with the path field left empty it now installs to the default folder instead of failing with "Invalid installation path".
+- **Second Update click while an update runs:** it is refused without resetting the running update's Steam manifest.
+- **Quick Setup UPnP switch:** it is now written to the new server's config (UPnP=) as the full install already did; it used to have no effect.
+- **Setup wizard RCON host:** a server created by the wizard now gets the panel's RCON host (RCON_HOST in a two-container Docker setup) instead of always 127.0.0.1.
+- **Discovered server without a config:** a found install whose save folder has no server .ini yet now says so and offers Review & Add, instead of an Add dialog with nothing to pick and a disabled button.
+- **Adding a discovered server:** when only making it active fails, the panel now says it was added but is not active yet and refreshes the list, instead of "Failed to create server" (a retry then said it already exists).
+- **Non-Latin chat and player names:** a Cyrillic, Chinese or other multi-byte character the game was still writing when the panel read the log no longer turns into garbled characters in chat relays and death notices.
+- **Mod conflict scan follows what Build 42 loads:** it compares only common/ and the newest 42.x folder (not a B41 media/ or older version folders), and winners follow the order the server really loads, required mods first, including ones missing from Mods=.
+- **Fewer false mod conflicts:** readme, license and Workshop art files, B41 .txt translations and script files that define the same things are no longer conflicts; a translation conflicts only on the same text key with a different value.
+- **Missed mod conflicts now found:** a shared script file that drops another mod's items, an item or recipe redefined from another file, a Lua global redefined by another mod, and mods declared incompatible; a patch overriding the mod it require=s shows as intended.
+- **Changing a user's role from an allowed remote origin:** the panel's CORS settings now allow PATCH, so that request's preflight no longer fails.
+- **Editing the active server:** saving it no longer drops and reconnects RCON unless the RCON connection itself changed, and the reconnect warning is translated.
+- **Panel Users for a role that only manages users:** the page loads the role list instead of showing an empty page.
+- **SteamCMD detection:** detecting SteamCMD, which saves the folder it finds as the SteamCMD setting, now needs the Install & update permission instead of Run world events; the Update dialog uses the typed folder for other roles.
+- **Run world events permission description:** it now also lists the alarm, gunshot and helicopter events, releasing safehouses, the live server console log and the game update check, in every language.
+- **SSO link confirmation:** after you link a sign-in identity to a panel account, Settings › Users now says which address was linked; the message never appeared.
+- **Single Sign-On edits kept across Settings tabs:** unsaved Single Sign-On fields no longer vanish when you open another Settings tab before saving.
+- **Single Sign-On display name help:** it now shows the button text ("Continue with Keycloak") instead of a raw `{{name}}`.
+- **Skip to content in the demo:** the keyboard skip link now moves to the page content instead of opening "Page Not Found".
+- **Discord Start, Stop and Refresh keep your edits:** unsaved bot settings, event notifications and command permissions no longer snap back to the saved values when you start, stop or refresh the bot.
+- **Switching servers without the permission:** for a role without servers.manage, the active-server menu now lists the other servers greyed out and says why, instead of ending in "Switch failed".
+- **Manage roles link on Panel Users:** it is shown only to a role that can open Roles & Permissions; others were sent to the General tab.
+- **Old panel addresses:** bookmarks such as `/serverconfig?tab=sandbox` or `/users` keep the rest of the address when they open the page's new home, and "Page Not Found" is in your language.
+- **Phone menu in Arabic:** the navigation drawer now slides in from the right, next to the menu button, instead of from the left.
+- **Confirmation dialogs dim the page again:** the page behind an "Are you sure?" dialog is darkened, primary buttons show their hover state, and the sidebar's connection notice has its coloured border.
+- **PanelBridge read as offline for Moderators:** Players, Events & Weather, World Map and Leaderboard now see a running bridge for roles without a PanelBridge permission, so God mode, weather, the clock and the other bridge controls are no longer greyed out for them.
+- **Admin chat that went out over RCON:** when the game's chat or PanelBridge isn't available and an admin or general chat message is sent over RCON, the Chat page now warns that every player saw it instead of saying "Visible only to admins in-game".
+- **Map Cleanup keys and switches:** 1 and 2 switch the tool again instead of opening the Dashboard or Console (and losing the selection); after a server switch the new server's save opens, not the first one in the folder; "Save as default" is disabled with the reason for roles without Edit server configuration; the switches have names for screen readers.
+- **Backups: a switch to include the panel database (without passwords):** World Backups › Schedule & retention can turn it on again; backups from the Dashboard and Diagnostics used to carry it, but since only this setting decides it was off on upgraded installs with no way to change it.
+- **Backup download and Create Backup:** a refused or failed download now says why instead of doing nothing, and a double click on Create Backup no longer starts a second backup over the first.
+- **Events & Weather RCON actions:** time speed, teleport and vehicle spawn are disabled with the reason for roles without Run RCON commands, instead of ending in a permission error.
+
+## [1.4.17] - 2026-10-18
+
+### Fixed
+
+- **Stop and Force stop during a restart:** they now cancel the restart and turn the server off instead of being refused with "A 'restart' operation is already in progress"; a cancelled restart ends at once (countdown, save, stop, start or RCON wait) and starts nothing.
+- **Sandbox labels match the game:** settings showing another setting's text (Stats Decrease and Endurance as food spoilage, Locked Houses as house alarms, Fish/Nature Abundance as farming, zombie Strength as the XP multiplier, half-English Animal Aging) now use the game's own wording in every language. Legacy Farming reads as farming speed (1 = Very Fast), and Spawn Zone Clear's options no longer run backwards.
+
+## [1.4.16] - 2026-10-16
+
+### Added
+
+- **Leaderboard diagnostics now include a bounded, SteamID-redacted audit of kill-counter baselines, jumps, resets, deaths, and new lives, with totals before and after each recorded change.**
+
+## [1.4.15] - 2026-10-15
+
+### Fixed
+
+- **Server Configuration raw editor:** duplicate tab-change events no longer trigger duplicate raw-file reloads.
+
+## [1.4.14] - 2026-10-13
+
+### Fixed
+
+- **PZ Memory row reads "always full":** the dashboard now plots the game container's anonymous memory (heap and native -- the figure that predicts an OOM kill) instead of Docker's cache-inclusive usage. A game server mmaps gigabytes of textures and map files, so usage sat at 4-5 GB of a 6 GB limit while only ~1.5 GB was actually in use; page cache is reclaimed on demand and never gets a container killed. The Docker page still reports cache-inclusive usage, matching `docker stats`.
+- **Docker updater stuck on a stalled download:** the updater now gives up on a silent or stalled release download (30 s connect, 60 s below 1 KB/s, 30 min total), so the next update is accepted instead of answered "already in progress" until its container is restarted.
+- **Paused or crash-looping Docker game container:** it no longer reads as "running" (the dashboard says it is paused or restarting), Start on a paused container tells you to unpause it instead of "already running", and Stop works on both.
+- **Docker update stopped the server for nothing:** the panel now checks that the update is still available and that the update controller is reachable, accepts its token and is idle before it saves and stops the game server, instead of leaving the server down after a refused update.
+- **Docker container Start/Stop/Restart on the Servers page:** the page now waits up to 3 minutes for Docker (it gave up at 15 s and showed a failed toast while the stop was still running), so a heavy world no longer looks like a failure or invites a second click.
+- **Restart Panel in the Docker image:** the panel now exits non-zero when restarted from the dashboard, so a container with `restart: on-failure` comes back instead of staying stopped.
+- **Restart Panel on Windows:** the Start.bat window no longer closes after a plain restart (the panel exits for Start.bat to relaunch it instead of starting a copy of itself), so a later Restart and Apply has a supervisor to apply the update.
+- **All-in-one Docker stop:** `docker stop`, a reboot, an image update or Restart Panel now saves and quits the running game servers first (up to 90 s) instead of killing them mid-run; Docker gets a 120 s stop timeout from the compose file.
+- **PanelBridge updates from the Steam Workshop (#235):** a new bridge version now triggers the same warned auto-restart as any other mod update; Steam's public API never lists the bridge item, so the panel read its update time from the item's change notes instead.
+- **Discord "Server Stopped/Started" after switching servers:** activating a different server no longer posts a false stop or start notice for it.
+- **Discord join/leave flood after a restart:** restarting the panel or the PanelBridge, or switching servers, no longer posts a "joined"/"left" message for every player who was already online.
+- **"Server Started" posted twice:** starting the server from the panel posts one Discord notice instead of two (the second used to arrive when RCON came up).
+- **Discord /start on a remote server:** it now says the panel cannot start a remote server (like /restart and the Start button) instead of launching a local process from its settings.
+- **Discord "Send test message" after a failure:** it now goes out even while the bot has paused posting to the channel after repeated errors, and a successful test (or saving another channel, server or token) resumes notifications at once instead of after up to 30 minutes.
+- **Discord notifications with odd player names:** a name containing line breaks or a very long name can no longer add lines to, or fill, a join/death/leave message (names are flattened and cut at 64 characters).
+- **Discord /players with link-like names:** a player named like a link ("[x](https://...)") is shown as plain text instead of a clickable link.
+- **Discord setup saved a placeholder as the bot token:** saving the Discord settings with the token field left alone when no token was saved yet now asks for the token, instead of storing the word "KEEP_EXISTING" and trying to log in with it.
+- **Discord slash commands re-registered on every save:** saving the Discord settings with the admin or mod role left empty no longer re-sends the slash commands to Discord each time.
+- **Discord command permissions "failed" after saving:** if Discord is unreachable when the slash commands are updated, the save now succeeds and the page warns that the commands will update later, instead of reporting an error for tiers that were stored.
+- **"Scheduled restart cancelled" with the event switched off:** the Discord cancellation notice now follows the Scheduled restart toggle instead of posting about a restart Discord was never told about.
+- **Discord /kick reason and history:** the reply shows the reason the server actually received (accents are folded, unsupported characters dropped), and the kick now appears in the player action history like a kick from the Players page.
+- **Discord settings saved but the bot could not reconnect:** changing the token or server ID now shows a warning with the reason when the bot fails to reconnect, instead of "saved successfully".
+- **Discord event messages cut at 500 characters:** the template box stops at 500 characters, the length the server keeps, instead of silently dropping the rest on save.
+- **Discord bot not coming up after a reboot:** when Discord or the network is unreachable as the panel starts, the bot now keeps retrying in the background (15 s up to 10 min) instead of staying down until you start it by hand; a bad token still isn't retried.
+- **Switching to a server with no RCON password:** the panel no longer keeps talking to the previous server's RCON (kicks, bans, Stop and the player list went to the wrong server); it repoints and just stays disconnected until a password is set.
+- **Old chat reposted after switching servers or saving the active server:** the log watcher no longer re-reads the whole current chat and death log from the top, so Discord, the Chat page and death notices don't repeat old messages.
+- **Console log load:** opening the Console page no longer pulls the whole `server-console.txt` (hundreds of MB on an old server) in one go; the stream sends at most the last 256 KB and the pane keeps its 500 lines.
+- **Console log that appears later:** if the game's log did not exist when you opened the Console page, the log pane now shows up as soon as the file is created instead of staying on "not found".
+- **Console log after a game restart:** every open Console tab now resyncs when the game recreates its log, not just the first one to poll.
+- **Stopping the server over RCON:** Stop no longer answers "failed" when the game closes the RCON connection as it shuts down, and a dropped RCON connection is now noticed (and retried) on the very command that hit it.
+- **Passwords in the debug log:** an `adduser "name" "password"` run over RCON no longer shows the password in the panel's debug log lines (the reply and "command skipped" lines were not redacted).
+- **Dashboard PZ memory:** the memory row now reads the active server's own game process (not the first Project Zomboid process on the machine), and a remote server, or one the panel can't see, shows no PZ memory row instead of the panel's own memory.
+- **After switching or stopping a server:** the Dashboard telemetry no longer shows the previous server's last sample for up to a minute, the sidebar Players badge no longer keeps the old count after a stop or a switch, and the Chat page drops the previous server's messages.
+- **Kill Player (PanelBridge update):** the Kill button now kills the player; it always failed with "not dead" (and had already removed godmode) because the bridge dropped the one argument the game needs.
+- **Events Clock day (PanelBridge update):** the Clock card shows the real day of the month (it showed one less) and Set Time sets the day you typed (it set one more), including the 1st, which it used to refuse.
+- **Frozen server on a damaged bridge file (PanelBridge update):** a truncated or hand-edited command or queue file in the bridge folder no longer hangs the game forever (and again after every restart); it is reported as unreadable.
+- **Bridge memory growth (PanelBridge update):** the bridge forgets old command ids again; the list of already-run commands grew with every command until the server restarted.
+- **Commands run after a timeout:** a bridge command that waited behind a long task is skipped once the panel has reported it timed out (it used to run 15-30 s later anyway, so a retry doubled hordes, airdrops and item gifts).
+- **Templates hidden built-ins:** hiding a built-in template now shows it in the Hidden section (with its Restore button) right away instead of after a page reload.
+- **Server Finder version filter:** "Clear all filters" now resets the version filter too, and a refresh that drops the filtered version falls back to all versions instead of leaving an empty list.
+- **Leaderboard after a server switch:** the board now clears and reloads for the new server at once instead of showing the old server's players for up to 30 seconds, and a slow answer for the old server can no longer overwrite it.
+- **Game clock edits reverted by the poll:** a picked hour, day or month on the Events page's Game clock now stays put until you apply it, instead of being reset to the game's time within 10 seconds.
+- **Events Bridge tools without bridge.command:** roles without the permission (Technician, Moderator by default) no longer see the section or poll safehouse/faction lists into endless 403s with a permanent "could not refresh lists" message.
+- **Server Config after switching to a never-started server:** the Server Settings, Spawn Points and Spawn Regions tabs now empty instead of showing the previous server's values (and saving them into the new server).
+- **Server Config unsaved edits:** switching tabs or between Form and Raw with unsaved edits now asks first (raw edits used to be dropped silently), and the leave-page warning also covers raw Spawn Points and Spawn Regions edits.
+- **RCON password ending in a space or tab:** a password pasted with a trailing blank is now refused when saving (the game trims the end of each server.ini line, so its password differed from the panel's and every RCON login failed).
+- **Backups on a nearly full disk:** with a backup count of 1 the only backup is no longer deleted to make room for its replacement (the backup is refused for lack of space instead), so a failed new archive can never leave you with none.
+- **RCON reconnect interval:** Settings, the API and the RCON service now all use 5-600 s (1-4 used to save fine but silently run at 5), and a never-saved interval shows and saves as the old 60 s instead of 5.
+- **Mods= backslash prefixes:** adding a mod to the server no longer strips the `\` prefix from the other entries on the Mods= line (the game ignores it, but your file keeps it).
+
+## [1.4.13] - 2026-10-11
+
+### Added
+
+- **Discord /leaderboard:** anyone in your Discord server can see the top 10 by kills, longest survival or deaths (who can use it is set under Commands, like /players).
+
+### Fixed
+
+- **Mod Manager ignored list (#232):** tick several ignored mods and remove them in one go, or clear the whole list from a toolbar above the list (it asks first); the per-row button is now called Un-ignore with a tooltip, and the trash tooltip says the entry stays on the list.
+- **Dashboard memory of a Docker-managed server:** the PZ Memory row shows the game container's real memory use now (it used to show the panel's own memory, ~0.1 GB, because the game runs in its own container and the panel could not see its process).
+- **Empty players bar:** the dashboard's players row fills its bar against MaxPlayers from the server's own INI now (`3 / 4` online), instead of rendering an empty track next to the count. The count itself now prefers the PanelBridge's live roster while its heartbeat is alive — the RCON-poll fallback froze at the last known roster through RCON outages (exactly the window in which players disconnect), so the row could keep showing the pre-outage count.
+- **Similar server names:** a server called "Survival" no longer claims the running process of "Survival Hard", so Force Stop no longer kills both.
+- **Backups of the wrong world:** when a server's own world folder is missing, a backup or restore no longer uses another server's folder in its place, and a server whose world folder is spelled a little differently is no longer refused a start.
+- **PanelBridge with a spaced server name:** a server whose name has spaces (e.g. "AU-NZ Auckland PvE") now auto-connects to the bridge folder the mod actually creates, instead of never finding it.
+- **Start scripts changed your values:** a data folder like "D:\Games (x86)\PZ Data" or an admin password like P@ss%w0rd!&x$y is now written to the start script exactly as saved (special characters used to be deleted, so the game used another folder or password); a double quote or line break in either is refused when saving.
+- **Data folder with a trailing backslash:** "D:\Zomboid Data\" no longer breaks the game's -cachedir argument, and the panel stores and uses the folder without it.
+- **Spaces around the server name:** Install and Quick Setup no longer create "MyServer .ini" and similar files when the name was typed with spaces around it.
+- **Stopped server shown as running:** a `tail`/`less` on the server log or the start-server script is no longer mistaken for the server process, so Start and Stop act on the real Java server.
+- **RCON log noise and cut-off replies:** the panel log no longer warns "Orphaned RCON response" for every RCON connection and every 30 s Servers-page check, and long replies such as `showoptions` are shown in full instead of cut at 4086 bytes.
+- **Backups and times:** the hour keeps two digits in the languages that write it that way (German, French, Ukrainian, Portuguese, Chinese, Haitian Creole), so `20:00` is no longer followed by `8:00`.
+- **Blocked browser storage:** the sidebar and the update banner no longer crash the whole panel in a browser that blocks site data; they just forget the collapsed state and dismissal between visits.
+- **Live-updates notice:** the red "Live Updates Unavailable" box no longer flashes on every page load, and no longer stays on the public demo; it only appears once a connection has actually failed.
+- **Reconnecting notice:** the first retry after a failed connection reads "Attempt 1/10" instead of "Attempt 0/10".
+- **Connection messages:** the Reconnected and Connection Lost toasts and the connection-error details in the status popover are translated in every language instead of always English.
+- **Public demo Leaderboard:** the demo shows a sample scoreboard (with a "Not read yet" row and the diagnostics line) instead of "Leaderboard unavailable".
+- **Leaderboard in Arabic and other languages:** the table headers and number columns follow the reading direction, and the days unit after the best days is translated instead of always "d".
+- **Scheduler timezone picker (Arabic):** the search icon and the dropdown arrow no longer overlap in right-to-left layouts.
+- **Collapsed sidebar:** the icon rail has a Sign out button (with the signed-in name in its tooltip), so you can sign out without expanding the sidebar.
+- **Discord /kick:** a long reason no longer makes the reply fail after the player was already kicked; the game and the reply both use the first 100 characters.
+- **Discord command access:** a permission change saved while the bot was still registering its commands now reaches Discord instead of waiting for the next restart.
+- **Leaderboard, accounts sharing a SteamID:** a split-screen guest or an alt account on the same Steam account gets its own row instead of adding the other account's kills every time the two switch or the minute sweep runs (PanelBridge update; rows that already merged keep their totals).
+- **Player deaths on the same tile:** a second death on the same tile within 5 minutes (a fixed spawn tile) is no longer dropped from the Discord notice, the player history and the live death event.
+- **RCON password with `$`:** `Pa$$w0rd` and similar are now written to the server's .ini exactly as typed (characters were lost or duplicated, so RCON login failed after every start).
+- **RCON password with `=` or `;`:** a password with `=` or a line break is now refused (the game reads server.ini only up to the first `=`) instead of being saved as a different one than the game uses, and `;` is written as typed.
+- **Raw editor, backup restore and saved configs:** changing the RCON password or the game/RCON ports there now needs the `server.configure` permission, as the structured editor already did.
+- **Applying a saved config:** it no longer deletes your server's RCON password, server password and tokens.
+- **Network and server errors:** "Unable to reach the server", request timeouts, the stock "not found / no permission / server unavailable" texts and the "Try again in N seconds" wait are translated in every language instead of always English.
+- **Sign-in and first-run errors:** the wrong-password, blocked-origin and "could not create the admin account" messages are translated in every language instead of always English, and a login that times out says so instead of "check your password".
+- **Show/hide-password buttons (Arabic):** the eye button in Setup, Settings and Server Setup no longer sits on top of the typed text in right-to-left layouts.
+- **Restart Panel behind a proxy, in Docker or on HTTPS:** Restart Panel and Restart and Apply Update now wait for the panel at the address you are already on instead of `hostname:<saved port>`, so they no longer spin for three minutes and report a failure when the panel is back; only a real port change redirects to the new port.
+- **Settings saved with warnings:** when the server could not reload part of a saved change (server manager, RCON or CORS), Settings now shows a warning listing it instead of a plain green "Settings Saved".
+- **First-run setup that was already completed:** if an admin account already exists when you submit the setup form, the panel now moves on to the sign-in screen instead of leaving "Setup already completed. Use login instead." on a form with no way to log in.
+- **Untranslated defaults:** the confirm dialog's "Are you sure?" title and buttons, the page-loading skeleton, the "frontend and backend versions do not match" screen and the Server Setup version descriptions are translated in every language instead of English.
+- **Old bans missing from the activity log:** kicks, bans and access-level changes are now kept separately (up to 5000) from the connect, disconnect and death rows, so a busy server's join/leave traffic no longer pushes a ban out of the history within days.
+- **Kick and ban reasons:** a reason such as "cheating [RDM]", "RDM / KOS" or one in another alphabet is no longer refused with "Invalid reason format"; it is shortened to what the game can carry (as the form already said), and the SteamID-ban note takes any text.
+- **Players with a space at the start or end of their name:** Kick, Ban, Unban, Access Level and the other player actions now act on "Bob " or " Bob" exactly as listed instead of on the different account "Bob".
+- **Player notes and tags after a reload:** the notes and tags you saved on the Players page show again after reloading the page (the notes tab was empty, so saving again replaced the stored note).
+- **Player dialogs kept the last player's input:** after cancelling Teleport for one player, the next player's Teleport dialog no longer teleports the first one; Access Level no longer opens pre-set to the level just granted; the Voice Ban name and the character export (and its downloaded file name) follow the selected player.
+- **Switching the active server on the Players page:** the selected player, the God mode / Invisible badges of a same-named player, the vitals, playtime, SteamID bans, whitelist and the activity log of the previous server are cleared (the open log reloads), and a slow answer for the old server can no longer overwrite the new server's data.
+- **Map Cleanup, vehicles of a whole cell:** selecting a cell's top-left chunk with Delete vehicles on no longer deletes the vehicles of the cell's other chunks; the whole cell is cleared only when no chunk of it is left.
+- **Map Cleanup, file names:** deleting chunks only accepts the file names the scan lists, so a role with Map Cleanup access can no longer delete players.db, vehicles.db or other save files.
+- **Map Cleanup, live vehicles:** cancelling the force-delete dialog or a refused delete no longer removes the live vehicles; they are removed only after the chunks were deleted.
+- **World map tiles stalling:** when the map service blocks its description files, tiles no longer wait up to 8 s for them on every request, and an expired map-build lookup no longer holds up every tile; the last known build is served while it refreshes in the background.
+- **Scheduled restart of a remote server:** a restart task, the auto-restart job, the mod-update restart and Discord /restart no longer shut a remote server down and then fail to start it; they refuse up front, and a restart task can't be saved for a remote server.
+- **False "Scheduled backup failing":** a scheduled backup tick that arrives while an earlier scheduled or a manual backup is still running is skipped instead of logged as a failed "Backup already in progress" (real failures still show).
+- **Sidebar status dot:** a scheduled restart of a server that isn't the active one no longer turns the active server's dot (and Dashboard/Servers status) to "stopped"; the restart's status updates now name their server.
+- **RESTART_WARNING_MINUTES=0:** the automatic restart countdown honours 0 (restart at once) instead of using 5, and a value above 60 is held to 60 with a log line.
+- **Scheduler DST warnings:** zones that change the clock only around Ramadan (Africa/Casablanca) are now recognised as observing DST, and the spring-forward check is cached so starting with many schedules no longer spends a second or more on it.
+- **Backup on a full disk:** a backup that fails part-way no longer leaves a truncated .zip, deletes your last good backup through retention or tells Discord "backup complete"; a locked final rename is retried.
+- **Restore and wipe with the server in another container:** Restore Backup and Wipe now refuse while RCON shows the server up (or when its state cannot be checked) instead of trusting a process scan that cannot see another container.
+- **Failed restore left a copy of the world behind:** when a restore fails part-way (disk full, write error) it now stops extracting and removes its staging folder, which used to be re-created and filled with the rest of the archive; leftover `.restore-staging-*` folders are cleaned up at start-up and before the next restore.
+- **Backup taken before a restore or wipe is kept:** it is now named `pre-restore-…` / `pre-wipe-…` and the automatic backup limit no longer deletes it (the newest 3 are kept); with "Maximum Backups to Keep" at 1 the next scheduled backup used to delete the only copy of the replaced world.
+- **Backups on a nearly full disk:** a backup, restore or pre-wipe backup is now refused up front with the sizes needed and free (instead of failing part-way and filling the disk the server saves to), and a backup that has reached its count first deletes the oldest backup it would delete anyway when that frees enough.
+- **RCON auto-reconnect setting:** "Auto-reconnect" and "Reconnect interval" in Settings now work (they were saved but ignored and the panel always retried every 60 s); off stops the background retries, the interval is applied at once (5-600 s).
+- **Editing a server undid UPnP:** saving the edit dialog (a rename, say) no longer rewrites UPnP in the server config from an old value or shows a "Warning" toast; only an actual UPnP change is applied.
+- **Update Server dialog:** picking a branch no longer restarts the SteamCMD lookup, and typing the SteamCMD path no longer runs it on every keystroke or saves half-typed paths as the SteamCMD setting (only a folder that holds SteamCMD is saved).
+- **Minimum memory above maximum:** adding or editing a server (and the legacy memory setting) now refuses a minimum above the maximum with a clear message, instead of saving a server whose start script the Java VM rejects.
+- **Install wizard:** the memory sliders now show the saved values instead of always resetting to 4 and 8 GB, and the suggested RCON password is generated with the browser's secure random source.
+- **Add Server when activation is busy:** if the new server was created but could not be made active right away (another action was running), the dialog now closes with a clear "added, not active yet" notice instead of reporting a failed add, so a retry no longer creates a duplicate; adding the same name in the same data folder twice is refused.
+- **Mod IDs with `$` in them:** adding, removing or reordering mods no longer mangles the server .ini when a mod ID or map folder name contains `$&`, `$'` or `$$`.
+- **Hand-edited Mods= lines:** a padded list such as `Mods=A; B;C ` no longer makes Remove, Disable or Delete silently do nothing for B and C, and the Collection Sync page reads a `WorkshopItems = ...` line with spaces around the `=` like every other page.
+- **Mods with an all-digit ID:** adding, removing, deduplicating, deleting or syncing an unrelated mod no longer drops a mod whose ID is a number (such as 3519629457) from the Mods= line.
+- **Which mod ID gets enabled:** Add mod and Sync Mod IDs now enable the ID the game really loads (the last `id=` line of the newest mod.info) instead of the first, and no longer list the other `id=` lines or older version folders as extra mods.
+- **Conflict scanner, odd folder names:** a mod whose folder is not named after its ID or title is now scanned for conflicts instead of being skipped as inactive.
+- **Missing-dependency resolver:** resolving the dependencies of a long mod list no longer re-reads every downloaded mod once per dependency (so the panel stays responsive), and a request with more than 200 dependencies is refused with a clear message.
+- **Importing a collection keeps your backup:** importing or re-enabling many mods now writes the server .ini once (one backup of the config as it was before) instead of once per mod, which pushed the pre-import backup out of the 10 kept.
+- **Importing mods that are not downloaded yet:** the import looks up their mod IDs on Steam like Add Mod does, and when an ID is still unknown it says the mod was added to WorkshopItems only (start the server to download it, then Sync Mod IDs) instead of "Restart the server to load the new mods".
+- **Server name with spaces:** a running server whose name contains spaces is detected again, so the panel no longer shows it stopped and then refuses a second start with "RCON port already in use" (#223).
+
+## [1.4.11] - 2026-10-10
+
+### Changed
+
+- **Leaderboard diagnostics:** the panel log and the support bundle now say how many leaderboard rows exist, which online players have none, and how many were never read.
+
+## [1.4.10] - 2026-10-09
+
+### Fixed
+
+- **Zomboid data folder refused:** a data folder that also holds files or folders the panel does not know (beside Saves, Lua, db, Server...) is accepted again; v1.4.9 refused it with "the panel won't list or read it".
+
+## [1.4.9] - 2026-10-08
 
 ### Security
 

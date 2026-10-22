@@ -5,6 +5,7 @@
     "errorTitle": "错误",
     "noPermission": "您没有权限管理 Discord 集成。",
     "successTitle": "成功",
+    "warningTitle": "警告",
     "unknownError": "未知错误"
   },
   "events": {
@@ -181,11 +182,13 @@
     "stepLocked": "请先完成当前步骤"
   },
   "management": {
-    "pageHeaderTitle": "Discord 机器人",
+    "pageHeaderTitle": "Discord",
     "pageHeaderDescription": "管理 Discord 机器人、斜杠命令和事件通知",
     "statusRunning": "运行中",
     "statusStopped": "已停止",
     "refreshAria": "刷新状态",
+    "setupGuide": "设置指南",
+    "closeGuide": "返回机器人设置",
     "botStatus": {
       "title": "机器人状态",
       "runtimeLabel": "运行时间",
@@ -234,6 +237,7 @@
         "players": {
           "desc": "列出在线玩家"
         },
+        "leaderboard": { "desc": "显示统计排行榜" },
         "save": {
           "desc": "保存世界"
         },
@@ -259,6 +263,7 @@
       "save": "保存权限",
       "saving": "保存中…",
       "savedMessage": "命令权限已保存，斜杠命令已重新注册。",
+      "savedNotRegistered": "命令权限已保存，但在 Discord 中更新斜杠命令失败。下次机器人启动或再次保存时会更新。",
       "saveFailedFallback": "保存权限失败"
     },
     "configuration": {
@@ -332,6 +337,7 @@
     "invalidAdminRoleIdFormat": "管理员角色 ID 格式无效（应为 17-19 位数字）",
     "invalidModRoleIdFormat": "协管员角色 ID 格式无效（应为 17-19 位数字）",
     "configSavedBotStartFailed": "配置已保存，但机器人启动失败：{{reason}}",
+    "configSavedBotReconnectFailed": "配置已保存，但机器人无法使用新配置重新连接：{{reason}}",
     "configSavedAndStarted": "配置已保存，机器人已启动！",
     "configSaved": "Discord 配置保存成功",
     "saveConfigFailedFallback": "保存配置失败",

@@ -1,0 +1,175 @@
+{
+  "title": "發現的問題",
+  "description": "來自伺服器最新日誌和面板的錯誤，每則都附有處理方式。",
+  "rescan": "重新掃描",
+  "scanning": "掃描中…",
+  "scanDone": "掃描完成",
+  "scanDoneCount": "發現的問題：{{n}}",
+  "scanFailed": "無法掃描問題：{{message}}",
+  "scanFailedFallback": "面板沒有回應",
+  "scannedAt": "掃描於 {{time}}",
+  "times": "出現 {{n}} 次",
+  "lastSeen": "最近 {{time}}",
+  "lastSeenLog": "{{time}} 的日誌",
+  "modLine": "模組：{{mod}}",
+  "workshopLine": "工作坊物品",
+  "showLines": "顯示日誌行（{{n}}）",
+  "hideLines": "隱藏日誌行",
+  "fixedNote": "已修正。伺服器下次啟動後，這筆記錄會從日誌中消失。",
+  "noPermission": "你的角色可以看到這個問題，但無法套用它的修正。",
+  "partialLog": "日誌很長：已讀取開頭和結尾。",
+  "undo": "復原",
+  "undoneToast": "已復原",
+  "severity": {
+    "critical": "嚴重",
+    "warning": "警告",
+    "info": "資訊"
+  },
+  "category": {
+    "mods": "模組",
+    "server": "伺服器",
+    "network": "網路",
+    "panel": "面板"
+  },
+  "empty": {
+    "title": "未發現問題",
+    "checked": "已檢查 {{file}} 的 {{lines}} 行（寫入於 {{time}}）、{{panel}} 筆面板錯誤和 {{mods}} 個已安裝模組。",
+    "noLog": "在伺服器的資料資料夾中找不到它的日誌，所以只檢查了面板本身的錯誤（{{panel}}）。"
+  },
+  "kinds": {
+    "luaError": {
+      "title": "{{mod}} 中的 Lua 錯誤",
+      "titleVanilla": "遊戲內建腳本中的 Lua 錯誤",
+      "why": "某個腳本出錯。該腳本其餘部分不再執行，所以模組的一部分無法運作。停用該模組可停止此錯誤；模組作者可以修正它。"
+    },
+    "luaFileError": {
+      "title": "無法載入一個 Lua 檔案",
+      "why": "遊戲在 {{file}} 中發現錯誤並略過了它。這通常是為其他遊戲版本製作的模組。"
+    },
+    "modRequiredMissing": {
+      "title": "缺少必要的模組 {{mod}}",
+      "why": "某個模組需要「{{mod}}」，但沒有已安裝的工作坊物品提供它，因此需要它的模組被略過。"
+    },
+    "modInfoMissing": {
+      "title": "某個模組資料夾沒有 mod.info",
+      "why": "遊戲無法讀取這個模組：下載不完整，或它不是為 Build 42 製作的。"
+    },
+    "workshopDownload": {
+      "title": "工作坊物品 {{id}} 沒有下載",
+      "why": "伺服器無法下載它（已移除、私人或被 Steam 拒絕），並在啟動時停止。"
+    },
+    "workshopOutdated": {
+      "title": "有工作坊模組已更新",
+      "why": "伺服器仍在執行舊版本。玩家會取得新版本，在伺服器重新啟動前無法加入（「Workshop item version is different than the server's」）。"
+    },
+    "steamUnreachable": {
+      "title": "伺服器無法連線到 Steam",
+      "why": "它在啟動時停止了。請檢查這台電腦的網路、防火牆或代理伺服器，然後再次啟動。"
+    },
+    "steamOff": {
+      "title": "伺服器在沒有 Steam 的情況下執行",
+      "why": "它沒有啟用 Steam 就啟動了，所以 {{n}} 個工作坊物品都不會載入。請在伺服器設定中關閉「無 Steam」。"
+    },
+    "portInUse": {
+      "title": "無法開啟遊戲連接埠",
+      "why": "無法開啟連接埠 {{port}}（代碼 {{code}}）。另一個程式（通常是這個伺服器的第二個副本）正在使用它。請停止它或選擇其他連接埠。"
+    },
+    "rconPortInUse": {
+      "title": "RCON 連接埠 {{port}} 已被占用",
+      "why": "RCON 無法運作，所以面板無法向伺服器傳送指令。請選擇其他 RCON 連接埠。"
+    },
+    "rconAuth": {
+      "title": "RCON 密碼遭拒",
+      "why": "有一個 RCON 連線使用了錯誤的密碼。如果是面板，請在這裡填入與伺服器 .ini 檔案中相同的 RCON 密碼。"
+    },
+    "outOfMemory": {
+      "title": "伺服器記憶體不足",
+      "why": "Java 記憶體不足（{{detail}}）。伺服器會凍結或停止。請給它更多記憶體。",
+      "whyPlain": "Java 記憶體不足。伺服器會凍結或停止。請給它更多記憶體。"
+    },
+    "chunkLoad": {
+      "title": "無法載入地圖區塊",
+      "why": "部分區塊無法讀取（{{chunks}}）。它們可能已損壞；區塊重設可以重設它們。"
+    },
+    "startupCrash": {
+      "title": "伺服器在啟動時當機",
+      "why": "它在「SERVER STARTED」之前停止了。下方日誌的最後幾行說明了原因。"
+    },
+    "javaException": {
+      "title": "遊戲錯誤：{{exception}}",
+      "why": "遊戲回報了一個非預期的錯誤。如果反覆出現，它的日誌行有助於找出原因。"
+    },
+    "other": {
+      "title": "已記錄的錯誤",
+      "why": "遊戲記錄了這個錯誤。很多是無害的；如果有功能不正常，請查看它。"
+    },
+    "panelBridge": {
+      "title": "PanelBridge 錯誤",
+      "why": "面板的遊戲內助手 PanelBridge 回報了一個錯誤。部分即時功能可能無法運作。"
+    },
+    "panelError": {
+      "title": "面板錯誤（{{source}}）",
+      "why": "這個錯誤是面板本身回報的。"
+    },
+    "processScanFailing": {
+      "title": "Windows 處理程序偵測一直失敗",
+      "why": "面板對伺服器處理程序的檢查最近失敗了 {{n}} 次，通常是因為這台電腦較慢，或防毒軟體會掃描每次 PowerShell 檢查。面板現在會等待更久；啟動和重新啟動也會把 RCON 連接埠已關閉加上遊戲記錄中的關閉訊息視為伺服器已停止的證據。如果仍無法判斷，按下「啟動」時會請你確認。"
+    }
+  },
+  "fix": {
+    "disableMod": "停用 {{mod}}",
+    "modsHealthFix": "套用健康檢查的修正",
+    "raiseMemory": "提高最大記憶體：{{current}} GB → {{next}} GB",
+    "restartServer": "重新啟動伺服器",
+    "startServer": "啟動伺服器",
+    "open": "開啟",
+    "openModsHealth": "開啟 模組 › 健康檢查",
+    "openMods": "開啟 模組",
+    "openServers": "開啟 伺服器列表",
+    "openBridge": "開啟 PanelBridge 設定",
+    "openChunks": "開啟 區塊重設",
+    "openLogs": "開啟 日誌",
+    "openConsole": "開啟 主控台"
+  },
+  "confirm": {
+    "title": "你確定嗎？",
+    "disableMod": "{{mod}} 會從 Mods= 中移除。從下次重新啟動起，它的物品和建築可能會從世界中消失。復原可以把它放回去。",
+    "healthFix": "這會修改模組清單：{{label}}。復原可以恢復原狀。",
+    "restart": "伺服器會立即重新啟動，玩家會被中斷連線。",
+    "start": "伺服器會以目前的設定啟動。"
+  },
+  "toast": {
+    "applied": "已套用修正",
+    "modDisabled": "已停用 {{mod}}",
+    "nextRestart": "將在伺服器下次重新啟動時生效。",
+    "memory": "最大記憶體已設為 {{next}} GB",
+    "nextStart": "將在伺服器下次啟動時生效。",
+    "healthGone": "模組健康檢查已沒有需要修正的內容。",
+    "restarting": "已要求重新啟動",
+    "starting": "已要求啟動",
+    "fixFailed": "無法套用修正：{{message}}"
+  },
+  "fixAll": {
+    "button": "修正所有安全問題",
+    "title": "修正所有安全問題",
+    "description": "這些修正只變更列出的內容，不會重新啟動任何東西，復原可以還原全部。",
+    "reason": "在模組清單中修正「{{title}}」。",
+    "memoryReason": "修正「{{title}}」。在下次啟動時生效。",
+    "needsDecision": "還有 {{n}} 個問題需要你決定：請使用它們各自的按鈕。",
+    "nothing": "這裡沒有問題有安全的自動修正。請使用每個問題上的按鈕。",
+    "apply": "套用 {{n}} 項修正",
+    "cancel": "取消",
+    "close": "關閉",
+    "snapshotStep": "保存模組清單以便復原",
+    "running": "正在修正 {{current}}/{{total}}：{{label}}",
+    "undoing": "正在復原…",
+    "doneTitle": "修正已套用",
+    "doneDesc": "已套用：{{applied}}。已解決：{{skipped}}。將在伺服器下次啟動時生效。",
+    "failedTitle": "停在：{{label}}",
+    "failedDesc": "{{message}}。之前的修正仍然保留（{{applied}}）；復原會移除它們。",
+    "failedFallback": "面板沒有回應",
+    "undoneTitle": "已復原",
+    "undoneDesc": "這次執行變更的所有內容都已恢復原狀。",
+    "undoFailed": "無法復原：{{message}}"
+  }
+}

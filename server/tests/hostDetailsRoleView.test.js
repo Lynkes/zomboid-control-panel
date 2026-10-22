@@ -16,7 +16,7 @@ import path from "path";
 //   - GET /api/server/console-log (and /stream): server.world_events, which
 //     the moderator role holds, and the game's console log is full of host
 //     folders;
-//   - GET /api/panel-bridge/ping, which any signed-in role may call, and
+//   - GET /api/panel-bridge/ping, which any signed-in role could call, and
 //     whose failure quotes the bridge folder.
 // The roles that can act on those folders keep them.
 //
@@ -226,7 +226,10 @@ describe("a failed rollback's message (GET /api/backup/status's lastRestore, POS
   });
 });
 
-describe("GET /api/server/steamcmd/detect", () => {
+// 2026-10-20 (access-control audit): detection saves the steamcmdPath
+// setting, so it is now POST and server.install's; the host-path rule above
+// still decides who sees the folder.
+describe("POST /api/server/steamcmd/detect", () => {
   const steamcmdDir = path.join(os.tmpdir(), MARKER, "steamcmd");
   const exeName = process.platform === "win32" ? "steamcmd.exe" : "steamcmd.sh";
   let previousEnv;
@@ -244,21 +247,33 @@ describe("GET /api/server/steamcmd/detect", () => {
     else process.env.STEAMCMD_PATH = previousEnv;
   });
 
-  it("tells a moderator (server.world_events) only that SteamCMD was found, and saves nothing", async () => {
-    currentRole = "moderator";
-    const body = await getJson("/api/server/steamcmd/detect");
-    expect(body).toEqual({ found: true, message: "SteamCMD found automatically" });
-    expectNoHostPath(body);
+  async function detect() {
+    const res = await fetch(`${baseUrl}/api/server/steamcmd/detect`, { method: "POST" });
+    return { status: res.status, body: await res.json() };
+  }
+
+  it("refuses a moderator (server.world_events) and a settings-only role, and saves nothing", async () => {
+    for (const role of ["moderator", "h4-settings"]) {
+      currentRole = role;
+      const { status, body } = await detect();
+      expect(status, role).toBe(403);
+      expectNoHostPath(body);
+    }
     expect(await init.getSetting("steamcmdPath")).toBeFalsy();
   });
 
-  it("shows the folder to a role that sets folders up but saves it only for server.install", async () => {
-    currentRole = "h4-settings";
-    expect(await getJson("/api/server/steamcmd/detect")).toMatchObject({ found: true, path: steamcmdDir });
-    expect(await init.getSetting("steamcmdPath")).toBeFalsy();
-
+  it("is no longer a GET (a GET must not save a setting)", async () => {
     currentRole = "technician";
-    expect(await getJson("/api/server/steamcmd/detect")).toEqual({
+    const res = await fetch(`${baseUrl}/api/server/steamcmd/detect`);
+    expect(res.status).toBe(404);
+    expect(await init.getSetting("steamcmdPath")).toBeFalsy();
+  });
+
+  it("finds, shows and saves the folder for server.install", async () => {
+    currentRole = "technician";
+    const { status, body } = await detect();
+    expect(status).toBe(200);
+    expect(body).toEqual({
       found: true,
       path: steamcmdDir,
       executable: path.join(steamcmdDir, exeName),
@@ -292,7 +307,9 @@ describe("GET /api/server/console-log", () => {
 
 describe("GET /api/panel-bridge/ping", () => {
   it("redacts the bridge folder from a failed ping", async () => {
-    currentRole = "moderator";
+    // A ping takes a bridge capability since 2026-10-20 (moderators hold
+    // none); the redaction applies to every role that may ping.
+    currentRole = "technician";
     const previousPath = bridge.bridgePath;
     bridge.bridgePath = path.join(DATA_DIR, "Lua", "ZCPB");
     const ping = vi.spyOn(bridge, "ping").mockResolvedValue({

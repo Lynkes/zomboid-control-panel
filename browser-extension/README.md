@@ -14,6 +14,8 @@ The extension talks to **two places only**:
 
 It does **not** phone home, ship telemetry, or talk to any other origin. Your panel credentials are stored in this browser's local extension storage and never leave your machine except to the panel URL you typed in.
 
+The panel password and the Steam cookies are only sent over `https://`, or over plain `http://` to a panel on your own network: `localhost`, a private or link-local address (`10.x`, `172.16-31.x`, `192.168.x`, `169.254.x`, `fc00::/7`, `fe80::/10`) or a `.local`, `.lan`, `.home.arpa` or `.internal` name. Any other `http://` address is refused unless you tick **Allow plain HTTP** for that exact address (scheme, host and port) in the popup. Typed without a scheme, a local address gets `http://` and anything else `https://`.
+
 ## Install — Firefox
 
 1. Type `about:debugging#/runtime/this-firefox` in the address bar.
@@ -33,7 +35,7 @@ Or, for permanent install, use the signed `.xpi` from the panel's GitHub release
 
 1. Open the extension popup.
 2. Fill in:
-   - **Panel URL** — e.g. `http://garage:3001`
+   - **Panel URL** — e.g. `https://panel.example.com`, or `192.168.1.20:3001` for a panel on your own network
    - **Username** — your panel admin username
    - **Password** — your panel admin password
 3. Click **Test login** once. If it says "Login OK", you're done with setup.

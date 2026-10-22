@@ -17,7 +17,7 @@
   },
   "pageHeader": {
     "title": "خريطة العالم",
-    "description": "مواقع اللاعبين المباشرة على خريطة Knox County. انقر بالزر الأيمن لعرض الإجراءات."
+    "description": "مواقع اللاعبين المباشرة. انقر بالزر الأيمن على الخريطة أو اضغط عليها مطولًا لعرض الإجراءات."
   },
   "refresh": "تحديث",
   "errorTitle": "خطأ",
@@ -33,7 +33,7 @@
     "floorDown": "طابق للأسفل",
     "currentFloorAria": "الطابق الحالي: {{floor}}",
     "currentFloorTitle": "{{floor}} — انقر للعودة إلى الطابق الأرضي",
-    "layersHeader": "الطبقات",
+    "layersHeader": "طبقات الخريطة",
     "vehiclesHideAria": "إخفاء المركبات ({{count}} محمّلة)",
     "vehiclesShowAria": "إظهار المركبات ({{count}} محمّلة)",
     "vehiclesHideTitle": "إخفاء المركبات ({{count}}) — تظهر فقط المركبات القريبة من اللاعبين",
@@ -49,8 +49,6 @@
     "basementN": "قبو {{n}}"
   },
   "tileFailure": {
-    "signalLost": "signal.lost",
-    "tilesOffline": "البلاطات غير متصلة",
     "coverageTitle": "لا توجد بلاطات خريطة عند هذا التقريب",
     "coverageDesc": "يمكن الوصول إلى <1>tiles.pzmap.org</1> لكنه لم يرسم هذه المنطقة عند مستوى التفصيل هذا. صغّر العرض، أو جرّب التحديث لاحقًا.",
     "networkTitle": "بلاطات الخريطة لا تُحمَّل",
@@ -73,24 +71,37 @@
     "unrecognizedTitle": "وصلت بلاطة الخريطة كبيانات غير معروفة",
     "unrecognizedDesc": "بيانات هذه البلاطة لا تطابق أي صيغة معروفة لدى اللوحة. البايتات الخام: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge غير متصل",
+    "bridgeOfflineDesc": "تحتاج المواقع المباشرة والمركبات وإجراءات الخريطة إلى تشغيل تعديل PanelBridge على هذا الخادم.",
+    "bridgeOfflineAction": "إعداد PanelBridge",
+    "noServerTitle": "لا يوجد خادم نشط",
+    "noServerDesc": "اختر خادمًا أو أضفه لرؤية لاعبيه على الخريطة.",
+    "noServerAction": "فتح الخوادم",
+    "playerNotOnlineTitle": "{{name}} ليس على الخريطة",
+    "playerNotOnlineDesc": "هذا اللاعب غير متصل، أو لم يُبلغ PanelBridge عنه بعد.",
+    "openInPlayers": "فتح في اللاعبين"
+  },
   "roster": {
-    "label": "القائمة",
+    "label": "اللاعبون",
     "live": "مباشر",
     "offline": "غير متصل",
     "panToAria": "التحريك إلى {{name}}",
     "panToAriaWithHealth": "التحريك إلى {{name}}، الصحة {{health}}%",
     "loading": "جارٍ التحميل…",
     "noPlayersOnline": "لا يوجد لاعبون متصلون",
-    "bridgeOffline": "الجسر غير متصل",
+    "bridgeOffline": "PanelBridge غير متصل",
     "collapseAria": "طيّ القائمة",
-    "expandAria": "توسيع القائمة"
+    "expandAria": "توسيع القائمة",
+    "toggleAria": "اللاعبون على الخريطة: {{count}}",
+    "closeSheet": "إغلاق قائمة اللاعبين"
   },
   "hud": {
-    "hoverForCoords": "مرّر المؤشر لعرض الإحداثيات"
+    "hoverForCoords": "مرّر المؤشر على الخريطة لعرض الإحداثيات",
+    "zoomTitle": "مستوى التكبير"
   },
   "dossier": {
-    "label": "الملف",
-    "targetAcquired": "target.acquired",
+    "targetAcquired": "متصل",
     "closeAria": "إغلاق الملف",
     "pos": "الموقع",
     "floor": "الطابق",
@@ -102,12 +113,11 @@
     "status": "الحالة",
     "infected": "مصاب",
     "heal": "شفاء",
-    "god": "God",
-    "godTip": "يفعّل دائمًا وضع God Mode لهذا اللاعب — وهو ليس مفتاح تبديل. أعِد إيقافه من صفحة اللاعبين بدلًا من ذلك.",
     "openPlayerControls": "فتح عناصر التحكم باللاعب",
     "healedTitle": "تم الشفاء",
     "healedDesc": "تم شفاء {{username}}",
-    "godModeEnabled": "تم تفعيل وضع God Mode"
+    "offline": "غير متصل",
+    "offlineReason": "لم يعد هذا اللاعب متصلًا."
   },
   "contextMenu": {
     "ariaLabel": "إجراءات الخريطة",

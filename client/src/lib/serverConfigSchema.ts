@@ -3717,15 +3717,24 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
   },
   {
     key: 'Farming',
-    label: 'Agriculture Multiplier',
-    description: 'Rate at which Agriculture skill levels up.',
+    label: 'Farming Speed (Legacy)',
+    description: 'Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.',
     type: 'select',
+    // 2026-09-28: B42.20.4 bytecode reads
+    // `newEnumOption("Farming", 5, 3).setTranslation("FarmingSpeed")`, i.e.
+    // the game labels it Sandbox_FarmingSpeed ("Farming Speed", 1 = Very
+    // Fast .. 5 = Very Slow). The old "Agriculture Multiplier"/"Very Low..Very
+    // High" text was Sandbox_Farming, which belongs to the XP multiplier
+    // MultiplierConfig.Farming. Nothing in B42 reads this value any more (the
+    // SandboxVars.Farming branches in farming_vegetableconf.lua are commented
+    // out, no Java class touches the field, and ServerSettingsScreen.lua lists
+    // FarmingSpeedNew, not Farming), hence "(Legacy)".
     options: [
-      { value: 1, label: 'Very Low' },
-      { value: 2, label: 'Low' },
+      { value: 1, label: 'Very Fast' },
+      { value: 2, label: 'Fast' },
       { value: 3, label: 'Normal' },
-      { value: 4, label: 'High' },
-      { value: 5, label: 'Very High' }
+      { value: 4, label: 'Slow' },
+      { value: 5, label: 'Very Slow' }
     ],
     default: 3,
     category: 'animals',
@@ -3793,7 +3802,7 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
   {
     key: 'FarmingSpeedNew',
     label: 'Farming Speed',
-    description: 'Growth speed multiplier. Lower = faster.',
+    description: 'Plant growth speed multiplier. Higher = faster (2 = twice as fast).',
     type: 'number',
     // 2026-09-18, round 15: bytecode-confirmed
     // `newDoubleOption("FarmingSpeedNew", 0.1, 100.0, 1.0)` -- min was
@@ -4193,15 +4202,16 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     type: 'select',
     // 2026-09-18, round 15: bytecode-confirmed
     // `newEnumOption("ZombieLore.PlayerSpawnZombieRemoval", 4, 1)` -- real
-    // range is 1-4. "Very Large" (5) doesn't exist in the real game; this
-    // field had no resolvable translation-group match for the earlier
-    // (2026-08-26) translation-based audit either, so it was left
-    // unresolved/unverified there -- the bytecode read here is definitive.
+    // range is 1-4. "Very Large" (5) doesn't exist in the real game.
+    // 2026-09-28: the same constructor chains setTranslation("ZSpawnRemoval"),
+    // so the options are Sandbox_ZSpawnRemoval_option1..4. The earlier
+    // None/Small/Medium/Large labels were invented (no translation match back
+    // then) and ran backwards: 1, the default, clears the most.
     options: [
-      { value: 1, label: 'None' },
-      { value: 2, label: 'Small' },
-      { value: 3, label: 'Medium' },
-      { value: 4, label: 'Large' }
+      { value: 1, label: 'Inside the building and around it' },
+      { value: 2, label: 'Inside the building' },
+      { value: 3, label: 'Inside the room' },
+      { value: 4, label: 'Zombies can spawn anywhere' }
     ],
     default: 1,
     category: 'zombieLore',
@@ -4824,9 +4834,10 @@ export const SANDBOX_SCHEMA: SandboxSetting[] = [
     label: 'Basement Spawn Frequency',
     description: 'How often basements appear in buildings.',
     type: 'select',
+    // Sandbox_BasementSpawnFrequency_option1..7 (bytecode: setTranslation("BasementSpawnFrequency")).
     options: [
-      { value: 1, label: 'None' },
-      { value: 2, label: 'Very Rare' },
+      { value: 1, label: 'Never' },
+      { value: 2, label: 'Extremely Rare' },
       { value: 3, label: 'Rare' },
       { value: 4, label: 'Sometimes' },
       { value: 5, label: 'Often' },
@@ -4846,7 +4857,7 @@ export function getIniSetting(key: string): IniSetting | undefined {
 
 // `key` alone is ambiguous for a handful of entries: PZ's own SandboxVars.lua
 // genuinely reuses the same key across two unrelated top-level tables (e.g.
-// `Farming` is both `settings.Farming`, a 1-5 Agriculture-skill-growth
+// `Farming` is both `settings.Farming`, a 1-5 legacy plant-growth-speed
 // select, and `MultiplierConfig.Farming`, a 0.001-1000 XP multiplier;
 // `Strength` collides the same way between `zombieLore` and `xpMultipliers`
 // categories -- see this file's own note above translatedSandboxLabel).

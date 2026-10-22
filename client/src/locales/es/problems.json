@@ -1,0 +1,175 @@
+{
+  "title": "Problemas encontrados",
+  "description": "Errores del último registro del servidor y del panel, cada uno con lo que hay que hacer.",
+  "rescan": "Volver a analizar",
+  "scanning": "Analizando…",
+  "scanDone": "Análisis terminado",
+  "scanDoneCount": "Problemas encontrados: {{n}}",
+  "scanFailed": "No se pudieron buscar problemas: {{message}}",
+  "scanFailedFallback": "el panel no respondió",
+  "scannedAt": "Analizado {{time}}",
+  "times": "Visto {{n}}×",
+  "lastSeen": "Última vez {{time}}",
+  "lastSeenLog": "Registro del {{time}}",
+  "modLine": "Mod: {{mod}}",
+  "workshopLine": "Elemento del Workshop",
+  "showLines": "Mostrar líneas del registro ({{n}})",
+  "hideLines": "Ocultar líneas del registro",
+  "fixedNote": "Corregido. Esta entrada sale del registro en el próximo arranque del servidor.",
+  "noPermission": "Tu rol puede ver este problema pero no aplicar sus correcciones.",
+  "partialLog": "El registro es largo: se leyeron su inicio y su final.",
+  "undo": "Deshacer",
+  "undoneToast": "Deshecho",
+  "severity": {
+    "critical": "Críticos",
+    "warning": "Advertencias",
+    "info": "Información"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Servidor",
+    "network": "Red",
+    "panel": "Panel"
+  },
+  "empty": {
+    "title": "No se encontraron problemas",
+    "checked": "Revisado: {{lines}} líneas de {{file}} (escrito {{time}}), {{panel}} errores del panel y {{mods}} mods instalados.",
+    "noLog": "No se encontró el registro del servidor en su carpeta de datos, así que solo se revisaron los errores del propio panel ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Error de Lua en {{mod}}",
+      "titleVanilla": "Error de Lua en los scripts del juego",
+      "why": "Un script falló. El resto de ese script se detiene, así que parte del mod no funciona. Desactivar el mod detiene el error; su autor puede corregirlo."
+    },
+    "luaFileError": {
+      "title": "No se pudo cargar un archivo Lua",
+      "why": "El juego encontró un error en {{file}} y lo omitió. Suele ser un mod hecho para otra versión del juego."
+    },
+    "modRequiredMissing": {
+      "title": "Falta el mod requerido {{mod}}",
+      "why": "Un mod necesita «{{mod}}», pero ningún elemento del Workshop instalado lo incluye, así que el mod que lo necesita se omite."
+    },
+    "modInfoMissing": {
+      "title": "Una carpeta de mod no tiene mod.info",
+      "why": "El juego no puede leer este mod: la descarga está incompleta o no está hecho para la Build 42."
+    },
+    "workshopDownload": {
+      "title": "El elemento del Workshop {{id}} no se descargó",
+      "why": "El servidor no pudo descargarlo (eliminado, privado o rechazado por Steam) y se detiene al arrancar."
+    },
+    "workshopOutdated": {
+      "title": "Se actualizó un mod del Workshop",
+      "why": "El servidor sigue con la versión antigua. Los jugadores reciben la nueva y no pueden entrar («Workshop item version is different than the server's») hasta que el servidor se reinicie."
+    },
+    "steamUnreachable": {
+      "title": "El servidor no pudo conectar con Steam",
+      "why": "Se detuvo al arrancar. Revisa la red, el cortafuegos o el proxy de esta máquina y vuelve a iniciarlo."
+    },
+    "steamOff": {
+      "title": "El servidor funciona sin Steam",
+      "why": "Arrancó sin Steam, así que no carga ninguno de sus {{n}} elementos del Workshop. Desactiva «Sin Steam» en los ajustes del servidor."
+    },
+    "portInUse": {
+      "title": "No se pudo abrir el puerto del juego",
+      "why": "No se pudo abrir el puerto {{port}} (código {{code}}). Otro programa, a menudo una segunda copia de este servidor, lo está usando. Deténlo o elige otro puerto."
+    },
+    "rconPortInUse": {
+      "title": "El puerto RCON {{port}} ya está en uso",
+      "why": "RCON no funciona, así que el panel no puede enviar comandos al servidor. Elige otro puerto RCON."
+    },
+    "rconAuth": {
+      "title": "Contraseña de RCON rechazada",
+      "why": "Una conexión a RCON usó una contraseña incorrecta. Si fue el panel, pon aquí la misma contraseña de RCON que en el archivo .ini del servidor."
+    },
+    "outOfMemory": {
+      "title": "El servidor se quedó sin memoria",
+      "why": "Java se quedó sin memoria ({{detail}}). El servidor se congela o se detiene. Dale más memoria.",
+      "whyPlain": "Java se quedó sin memoria. El servidor se congela o se detiene. Dale más memoria."
+    },
+    "chunkLoad": {
+      "title": "No se pudieron cargar chunks del mapa",
+      "why": "Algunos chunks no se pudieron leer ({{chunks}}). Pueden estar dañados; Limpieza del mapa puede restablecerlos."
+    },
+    "startupCrash": {
+      "title": "El servidor falló al arrancar",
+      "why": "Se detuvo antes de «SERVER STARTED». Las últimas líneas de su registro, abajo, dicen por qué."
+    },
+    "javaException": {
+      "title": "Error del juego: {{exception}}",
+      "why": "El juego informó de un error inesperado. Si se repite, sus líneas del registro ayudan a encontrar la causa."
+    },
+    "other": {
+      "title": "Error registrado",
+      "why": "El juego registró este error. Muchos son inofensivos; míralo si algo no funciona."
+    },
+    "panelBridge": {
+      "title": "Error de PanelBridge",
+      "why": "PanelBridge, el ayudante del panel dentro del juego, informó de un error. Algunas funciones en vivo pueden no funcionar."
+    },
+    "panelError": {
+      "title": "Error del panel ({{source}})",
+      "why": "El propio panel informó de este error."
+    },
+    "processScanFailing": {
+      "title": "La detección de procesos de Windows falla una y otra vez",
+      "why": "La comprobación del proceso del servidor que hace el panel falló {{n}} veces recientemente, casi siempre porque este PC es lento o un antivirus analiza cada comprobación de PowerShell. El panel ahora la espera más tiempo, y el inicio y los reinicios también aceptan el puerto RCON cerrado junto con las líneas de apagado del registro del juego como prueba de que el servidor se detuvo. Si aun así no puede saberlo, Iniciar te pide confirmación."
+    }
+  },
+  "fix": {
+    "disableMod": "Desactivar {{mod}}",
+    "modsHealthFix": "Aplicar la corrección de la revisión de salud",
+    "raiseMemory": "Subir la memoria máxima: {{current}} GB → {{next}} GB",
+    "restartServer": "Reiniciar servidor",
+    "startServer": "Iniciar servidor",
+    "open": "Abrir",
+    "openModsHealth": "Abrir Mods › Revisión de salud",
+    "openMods": "Abrir Mods",
+    "openServers": "Abrir Servidores",
+    "openBridge": "Abrir los ajustes de PanelBridge",
+    "openChunks": "Abrir Limpieza del mapa",
+    "openLogs": "Abrir Registros",
+    "openConsole": "Abrir Consola"
+  },
+  "confirm": {
+    "title": "¿Estás completamente seguro?",
+    "disableMod": "{{mod}} se quita de Mods=. Desde el próximo reinicio, sus objetos y edificios pueden desaparecer del mundo. Deshacer lo vuelve a poner.",
+    "healthFix": "Esto cambia la lista de mods: {{label}}. Deshacer la deja como estaba.",
+    "restart": "El servidor se reinicia ahora y los jugadores se desconectan.",
+    "start": "El servidor arranca con sus ajustes actuales."
+  },
+  "toast": {
+    "applied": "Corrección aplicada",
+    "modDisabled": "{{mod}} desactivado",
+    "nextRestart": "Se aplica en el próximo reinicio del servidor.",
+    "memory": "Memoria máxima fijada en {{next}} GB",
+    "nextStart": "Se aplica en el próximo arranque del servidor.",
+    "healthGone": "La revisión de salud de mods ya no tiene nada que corregir aquí.",
+    "restarting": "Reinicio solicitado",
+    "starting": "Arranque solicitado",
+    "fixFailed": "No se pudo aplicar la corrección: {{message}}"
+  },
+  "fixAll": {
+    "button": "Corregir todos los problemas seguros",
+    "title": "Corregir todos los problemas seguros",
+    "description": "Estas correcciones solo cambian lo que se lista, nada se reinicia y Deshacer lo devuelve todo como estaba.",
+    "reason": "Corrige «{{title}}» en la lista de mods.",
+    "memoryReason": "Corrige «{{title}}». Se aplica en el próximo arranque.",
+    "needsDecision": "{{n}} problemas más necesitan tu decisión: usa sus propios botones.",
+    "nothing": "Ningún problema de aquí tiene una corrección automática segura. Usa los botones de cada problema.",
+    "apply": "Aplicar {{n}} correcciones",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "snapshotStep": "Guardando la lista de mods para Deshacer",
+    "running": "Corrigiendo {{current}} de {{total}}: {{label}}",
+    "undoing": "Deshaciendo…",
+    "doneTitle": "Correcciones aplicadas",
+    "doneDesc": "Aplicadas: {{applied}}. Ya resueltas: {{skipped}}. Se aplican en el próximo arranque del servidor.",
+    "failedTitle": "Detenido en: {{label}}",
+    "failedDesc": "{{message}}. Las correcciones anteriores siguen aplicadas ({{applied}}); Deshacer las quita.",
+    "failedFallback": "el panel no respondió",
+    "undoneTitle": "Deshecho",
+    "undoneDesc": "Todo lo que cambió esta ejecución volvió a como estaba.",
+    "undoFailed": "No se pudo deshacer: {{message}}"
+  }
+}

@@ -50,7 +50,15 @@ need `sudo` in front of the commands below).
 
 3. Run:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh
+   curl -fsSL https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh | sh
+   ```
+   That is the installer attached to the latest release, not whatever is on
+   `main` right now. To check it before it runs, download it and the
+   release's checksums first:
+   ```sh
+   curl -fsSLO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh
+   curl -fsSLO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/checksums.txt
+   sha256sum --ignore-missing -c checksums.txt && sh bootstrap.sh
    ```
    This resolves the latest release, creates its state under
    `~/.local/state/zomboid-panel/` (override with the `PANEL_HOME` or
@@ -61,7 +69,7 @@ need `sudo` in front of the commands below).
    To install a specific version instead of the latest release, pass it as
    an argument:
    ```sh
-   curl -fsSL https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker/all-in-one/bootstrap.sh | sh -s -- 1.2.6
+   curl -fsSL https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/bootstrap.sh | sh -s -- 1.2.6
    ```
 
    For the panel and updater images, it pulls the exact release-tagged image
@@ -314,10 +322,13 @@ RCON shows connected.
   `docker compose up -d` tries to pull `ghcr.io/fpsacha/zomboid-panel:latest`
   first; if that fails (no tagged release yet, or a private fork without
   GHCR access), it builds from source automatically and tags the result the
-  same, so later `up -d` runs won't try to pull again. Each tagged release
-  also publishes a version-pinned image with a matching name (for example
-  `ghcr.io/fpsacha/zomboid-panel:1.2.4` — no `v` prefix, unlike the git tag
-  it's built from), if you'd rather pin a version than track `:latest`.
+  same, so later `up -d` runs won't try to pull again. `:latest` is the
+  newest release. Each tagged release also publishes a version-pinned image
+  with a matching name (for example `ghcr.io/fpsacha/zomboid-panel:1.2.4` —
+  no `v` prefix, unlike the git tag it's built from), if you'd rather pin a
+  version than track `:latest`. `:edge` (also published as `:main`)
+  follows every commit on `main` before it is released: use it only to test
+  a fix that isn't in a release yet.
 - **PanelBridge:** with the PZ install and data folders mounted, both
   install methods can work without editing files yourself. The panel
   copies `PanelBridge.lua` into the mounted install, or, for Steam
@@ -333,9 +344,10 @@ RCON shows connected.
   write PZ's files and PanelBridge goes on by hand, as in Path C.
 
 Maintainer invariant: the root and client package manifests and both lockfiles
-must carry the same version. The Docker workflows build `:latest` from
-`main`, so they reject a `main` version older than the latest GitHub release
-and require an exact match for `v*` tag builds. Check the local files with:
+must carry the same version. The Docker workflows build `:main`/`:edge`
+from `main` and `:latest` only from `v*` release tags, so they reject a
+`main` version older than the latest GitHub release and require an exact
+match for `v*` tag builds. Check the local files with:
 
 ```sh
 npm run check:package-version
@@ -343,7 +355,7 @@ npm run check:package-version
 
 Release source-of-truth: create release tags from `main` only. Do not tag a
 feature branch and then repair `main` by changing package metadata; that can
-produce a correct versioned image and a different, stale `:latest` image. A
+produce a correct versioned image and a different, stale `:main` image. A
 tag that is not an ancestor of `main` requires reconciling the histories and
 the changelog before publishing another image.
 
@@ -364,7 +376,7 @@ panel before committing to a full setup.
 ### Phase 2 — Start it
 
 2. ```sh
-   curl -O https://raw.githubusercontent.com/fpsacha/zomboid-control-panel/main/docker-compose.install.yml
+   curl -LO https://github.com/fpsacha/zomboid-control-panel/releases/latest/download/docker-compose.install.yml
    docker compose -f docker-compose.install.yml up -d
    ```
    `pull_policy: always` means every `up -d` you run later fetches the
@@ -576,14 +588,14 @@ same user-defined Docker network, then use PZ's Compose **service name**
 [Path D, Phase 2, step 5](#phase-2--import-and-configure) above for exactly
 where to set it for your path.
 
-One creation path already gets this right by itself: adding a server
-through Discover's confirmed match (the plain **Add** button, not
-**Review & Add** — see [below](#adding-more-servers-later)) reads the RCON
-host straight out of your `RCON_HOST` setting instead of assuming
-`127.0.0.1`, provided you set `RCON_HOST` correctly *before* clicking it.
-**Quick Setup, the full install wizard, and a server added or edited by
-hand do not** — they still need the manual Settings fix above regardless
-of `RCON_HOST`.
+Three creation paths get this right by themselves: Quick Setup, the full
+install wizard, and adding a server through Discover's confirmed match (the
+plain **Add** button, not **Review & Add** — see
+[below](#adding-more-servers-later)). They read the RCON host from your
+`RCON_HOST` setting instead of assuming `127.0.0.1`, provided you set
+`RCON_HOST` correctly *before* using them.
+**A server added or edited by hand does not** — it still needs the manual
+Settings fix above regardless of `RCON_HOST`.
 
 ### "Server files not found" from Quick Setup
 

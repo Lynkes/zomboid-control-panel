@@ -7,6 +7,7 @@ import { promisify } from "util";
 import { createLogger } from "../utils/logger.js";
 import { getDataPaths } from "../utils/paths.js";
 import { getActiveServer } from "../database/init.js";
+import { requirePermission } from "../services/permissions.js";
 import { listPersistedVehicles } from "../utils/vehiclesDb.js";
 import { parseBoundedInteger } from "../utils/queryNumbers.js";
 const log = createLogger("API:MapProxy");
@@ -680,7 +681,13 @@ const TOP_CONTENT_TYPES = {
   jpeg: "image/jpeg",
   png: "image/png",
 };
-const _topFormatCache = new Map(); // directory -> format
+const _topFormatCache = new Map(); // directory -> format read from the build's own descriptor
+// When the descriptor can't be read (blocked host, 404), the fallback format is
+// remembered for a while instead of asking upstream again on every request:
+// every /toptiles request needs the format first, even one answered from the
+// disk cache, and a blocked curl takes up to CURL_TIMEOUT_S.
+const TOP_FORMAT_FALLBACK_TTL_MS = 10 * 60 * 1000;
+const _topFormatFallbackUntil = new Map(); // directory -> time the fallback is asked about again
 // Same coalescing problem and fix as _b42ResolvePromise above: a cold cache
 // means every concurrent toptiles request independently curls the same
 // base_top/layer0.dzi descriptor instead of sharing the one in flight.
@@ -689,13 +696,27 @@ const _topFormatInflight = new Map(); // directory -> Promise<format>
 async function getB42TopFormat(directory) {
   const cached = _topFormatCache.get(directory);
   if (cached) return cached;
-  const pending = _topFormatInflight.get(directory);
-  if (pending) return pending;
-  const resolvePromise = resolveB42TopFormat(directory).finally(() => {
-    _topFormatInflight.delete(directory);
-  });
-  _topFormatInflight.set(directory, resolvePromise);
-  return resolvePromise;
+  const fallbackUntil = _topFormatFallbackUntil.get(directory);
+  if (fallbackUntil !== undefined) {
+    // Descriptor unreadable last time: answer with the fallback right away,
+    // and once the interval is up look again in the background so this
+    // request isn't the one that waits for it.
+    if (Date.now() >= fallbackUntil) startTopFormatResolve(directory);
+    return TOP_FORMAT_FALLBACK;
+  }
+  return startTopFormatResolve(directory);
+}
+
+// One descriptor request per directory at a time, whoever asks. Never rejects.
+function startTopFormatResolve(directory) {
+  let pending = _topFormatInflight.get(directory);
+  if (!pending) {
+    pending = resolveB42TopFormat(directory).finally(() => {
+      _topFormatInflight.delete(directory);
+    });
+    _topFormatInflight.set(directory, pending);
+  }
+  return pending;
 }
 
 async function resolveB42TopFormat(directory) {
@@ -709,12 +730,14 @@ async function resolveB42TopFormat(directory) {
       const format = xml.match(/Format="(\w+)"/)?.[1]?.toLowerCase();
       if (format && TOP_CONTENT_TYPES[format]) {
         _topFormatCache.set(directory, format);
+        _topFormatFallbackUntil.delete(directory);
         return format;
       }
     }
   } catch {
     // Fall through to the default below.
   }
+  _topFormatFallbackUntil.set(directory, Date.now() + TOP_FORMAT_FALLBACK_TTL_MS);
   return TOP_FORMAT_FALLBACK;
 }
 
@@ -765,6 +788,22 @@ async function getB42Map() {
   if (_b42Map && now - _b42DirFetchedAt < B42_DIR_TTL_MS) {
     return _b42Map;
   }
+  if (_b42Map) {
+    // Expired, but there is a map to serve (the last resolved build, or the
+    // fallback after a failed attempt): every tile request goes through here,
+    // so none of them waits for discovery (two tiers of curl calls, ~16 s when
+    // the hosts drop packets). One refresh runs in the background.
+    if (!_b42ResolvePromise) {
+      _b42ResolvePromise = resolveB42Map(now).finally(() => {
+        _b42ResolvePromise = null;
+      });
+      _b42ResolvePromise.catch((err) => {
+        log.warn(`B42 map refresh failed: ${err.message}`);
+      });
+    }
+    return _b42Map;
+  }
+  // Cold: nothing to serve yet, so wait (all callers share the one attempt).
   if (_b42ResolvePromise) return _b42ResolvePromise;
   _b42ResolvePromise = resolveB42Map(now).finally(() => {
     _b42ResolvePromise = null;
@@ -1029,9 +1068,47 @@ function requestIsVersioned(req) {
   return typeof v === "string" && v.length > 0;
 }
 
+// ─── Negative cache: tiles upstream answered 404 for ─────────────────────
+// SECURITY (2026-10-20): a 404 (a tile outside the map, or a level the
+// build doesn't render) was never remembered, so every request for it --
+// these routes are auth-exempt -- was a fresh upstream fetch. Remembered
+// for a while per tile, in a bounded map (oldest dropped first).
+const tileNotFoundLimits = {
+  ttlMs: 10 * 60 * 1000,
+  maxEntries: 20_000,
+};
+const tileNotFound = new Map(); // relPath -> expiry time, oldest first
+
+export function _setTileNotFoundLimitsForTests(overrides = {}) {
+  Object.assign(tileNotFoundLimits, overrides);
+  tileNotFound.clear();
+}
+
+function isKnownMissingTile(relPath) {
+  const expiresAt = tileNotFound.get(relPath);
+  if (expiresAt === undefined) return false;
+  if (Date.now() < expiresAt) return true;
+  tileNotFound.delete(relPath);
+  return false;
+}
+
+function rememberMissingTile(relPath) {
+  tileNotFound.delete(relPath);
+  while (tileNotFound.size >= tileNotFoundLimits.maxEntries) {
+    tileNotFound.delete(tileNotFound.keys().next().value);
+  }
+  tileNotFound.set(relPath, Date.now() + tileNotFoundLimits.ttlMs);
+}
+
 async function serveTile(req, res, url, contentType, relPath, cacheControl) {
   // Starts the one-time disk index scan (and trim) on the first tile served.
   ensureDiskIndex();
+
+  // Tier 0: upstream said 404 for this tile a moment ago.
+  if (isKnownMissingTile(relPath)) {
+    res.set("X-Tile-Cache", "hit-404");
+    return res.status(404).end();
+  }
 
   // Tier 1: in-memory LRU — fastest, no I/O at all.
   const hot = memCacheGet(relPath);
@@ -1073,6 +1150,7 @@ async function serveTile(req, res, url, contentType, relPath, cacheControl) {
       // where upstream was never contacted at all. See WorldMap.tsx's
       // loadViaProxy: it only names tiles.pzmap.org in the failure banner
       // when this header confirms upstream actually participated.
+      if (response.status === 404) rememberMissingTile(relPath);
       res.set("X-Tile-Cache", "miss");
       return res.status(status).end();
     }
@@ -1127,7 +1205,12 @@ router.get("/resolve", async (req, res) => {
 
 let persistedVehicleCache = { key: null, expiresAt: 0, vehicles: [] };
 
-router.get("/vehicles", async (req, res) => {
+// SECURITY (2026-10-20, access-control audit): where every vehicle in the
+// world sits, read from the save -- the same kind of world-position data
+// as the players' own positions, so players.view's like those (it answered
+// any signed-in role). The World Map leaves the saved vehicles out for a
+// role without it.
+router.get("/vehicles", requirePermission("players.view"), async (req, res) => {
   try {
     const activeServer = await getActiveServer();
     if (!activeServer || activeServer.isRemote || !activeServer.zomboidDataPath) {

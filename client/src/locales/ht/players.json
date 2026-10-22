@@ -1,9 +1,22 @@
 {
   "pageHeader": {
     "title": "Jwè",
-    "description": "Jere jwè konekte yo ak otorizasyon yo",
+    "description": "Modere jwè yo, modifye pèsonaj yo, epi jere baniman ak lis blan an.",
     "updated": "Mete ajou {{time}}",
+    "moreActions": "Plis aksyon",
     "refresh": "Rafrechi"
+  },
+  "headerMenu": {
+    "addWhitelistUser": "Ajoute itilizatè nan lis blan…",
+    "unban": "Retire baniman yon jwè…",
+    "unbanSteamId": "Retire baniman SteamID…",
+    "voiceBan": "Bani vwa…",
+    "banSteamId": "Bani SteamID…"
+  },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge pa konekte",
+    "bridgeOfflineDesc": "Pouvwa yo, enpòtasyon ak ekspòtasyon pèsonaj ak sante nan lis la bezwen l. Mete deyò, bani ak lis blan an toujou mache.",
+    "bridgeOfflineAction": "Konfigire PanelBridge"
   },
   "permissions": {
     "noModerate": "Pou aksyon sa a, ou bezwen pèmisyon players.moderate, e wòl sa a pa genyen li.",
@@ -28,6 +41,7 @@
     "onlineCaption_one": "jwè",
     "onlineCaption_other": "jwè",
     "onlineCaption_many": "jwè",
+    "rosterDetail": "Te wè yo deja, kounye a òfliy",
     "peakToday": "Pik Jodi a",
     "roster": "Lis Jwè",
     "rosterCaption": "wè",
@@ -37,11 +51,15 @@
     "bannedAria": "Gade {{count}} SteamID bani"
   },
   "roster": {
-    "headerLabel": "lis jwè",
+    "headerLabel": "Jwè",
     "subheaderLive": "an dirèk",
     "subheaderHistory": "istwa",
     "subheaderBans": "baniman",
     "subheaderAccounts": "kont",
+    "listsAria": "Lis jwè yo",
+    "tabActivity": "Aktivite",
+    "activityReload": "Rechaje",
+    "activitySearchAll": "Chèche nan tout jounal la",
     "tabOnline": "Anliy",
     "tabRoster": "Lis",
     "tabBanned": "Bani",
@@ -104,8 +122,8 @@
     "subheaderLabel": "dosye",
     "targetAcquired": "sib.jwenn",
     "standby": "an tann",
-    "online": "anliy",
-    "offline": "òfliy",
+    "online": "Anliy",
+    "offline": "Òfliy",
     "connected": "konekte",
     "lastSeen": "dènye wè",
     "played": "jwe",
@@ -120,6 +138,9 @@
     "kickButton": "Mete Deyò",
     "banTitle": "Bani jwè a",
     "banButton": "Bani",
+    "teleport": "Teleporte…",
+    "showOnMap": "Montre sou kat la",
+    "showOnMapOffline": "{{player}} òfliy, kidonk li pa sou kat la.",
     "moreActionsAria": "Plis aksyon jwè",
     "enableGodMode": "Aktive Mòd Bondye",
     "disableGodMode": "Dezaktive Mòd Bondye",
@@ -131,10 +152,12 @@
     "removeFromWhitelist": "Retire nan Lis Blan",
     "notOnWhitelistReason": "{{player}} pa sou lis blan an — pa gen anyen pou retire.",
     "importExportCharacter": "Enpòte/Ekspòte Pèsonaj",
-    "noTargetTitle": "pa gen sib chwazi",
-    "noTargetDesc": "Chwazi yon jwè nan lis la pou wè dosye yo, oswa tape yon non itilizatè anba <1>› Sib manyèl</1>."
+    "noTargetTitle": "Chwazi yon jwè",
+    "noTargetDesc": "Chwazi yon moun nan lis la, oswa tape yon non itilizatè anba Sib manyèl pou aji sou yon jwè ki òfliy."
   },
   "tabs": {
+    "notes": "Nòt",
+    "listAria": "Zouti pou {{player}}",
     "character": "Pèsonaj",
     "moderation": "Moderasyon",
     "spawn": "Fè Parèt",
@@ -366,6 +389,8 @@
     }
   },
   "actionTiles": {
+    "addToWhitelistDesc": "Kreye kont li sou yon sèvè ki gen lis blan",
+    "removeFromWhitelistDesc": "Li pa ka antre ankò sou yon sèvè ki gen lis blan",
     "kickDesc": "Mete jwè a deyò ak yon rezon",
     "banDesc": "Pèmanan · de etap",
     "accessLevelLabel": "Nivo Aksè",
@@ -564,7 +589,7 @@
     "tableAction": "Aksyon",
     "tableDetails": "Detay",
     "loadingRow": "N ap chaje...",
-    "noLogsRow": "Poko gen jounal aktivite — aksyon moderasyon ki fèt sou jwè sa a (ban, kick, chanjman whitelist) ap parèt isit la.",
+    "noLogsRow": "Poko gen aktivite. Koneksyon, lanmò ak aksyon moderasyon (mete deyò, baniman, chanjman nan lis blan) parèt isit la.",
     "detailsFallback": "-"
   },
   "importExport": {

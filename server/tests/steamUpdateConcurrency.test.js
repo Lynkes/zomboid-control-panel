@@ -197,3 +197,48 @@ describe("POST /api/server/steam-update concurrency guard", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
   });
 });
+
+// The manifest recovery (a branch mounted from an earlier run, or a manifest
+// stuck in the access-denied state) used to run BEFORE the concurrency check:
+// a second request, refused with 409, had already deleted the manifest of
+// the update that was still running.
+describe("POST /api/server/steam-update refused by the concurrency guard leaves the manifest alone", () => {
+  const manifests = {
+    "a branch mismatch": '"AppState"\n{\n\t"StateFlags"\t\t"4"\n\t"MountedConfig"\n\t{\n\t\t"BetaKey"\t\t"unstable"\n\t}\n}\n',
+    "the access-denied state": '"AppState"\n{\n\t"StateFlags"\t\t"6"\n}\n',
+  };
+
+  it.each(Object.entries(manifests))("with %s", async (_label, manifest) => {
+    const { getActiveSteamOperations, clearActiveSteamOperation } = await import(
+      "../services/activeSteamOperations.js"
+    );
+    const io = { emit: vi.fn(), to: vi.fn() };
+    io.to.mockReturnValue(io);
+    const app = { get: (key) => (key === "io" ? io : undefined) };
+    getSettingMock.mockImplementation(async (key) => (key === "steamcmdPath" ? steamcmdPath : null));
+
+    const manifestPath = path.join(installPath, "steamapps", "appmanifest_380870.acf");
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
+    fs.writeFileSync(manifestPath, manifest);
+
+    const normalizedPath = path.normalize(installPath).toLowerCase();
+    getActiveSteamOperations().set(normalizedPath, { type: "update", pid: process.pid });
+    try {
+      const response = createResponse();
+      await getSteamUpdateHandler()(
+        { app, body: { steamcmdPath, installPath, branch: "stable" } },
+        response,
+      );
+
+      expect(response.status).toHaveBeenCalledWith(409);
+      expect(response.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: "STEAM_OPERATION_IN_PROGRESS_SERVER" }),
+      );
+      expect(fs.existsSync(manifestPath)).toBe(true);
+      expect(fs.readFileSync(manifestPath, "utf-8")).toBe(manifest);
+      expect(fs.readdirSync(path.dirname(manifestPath))).toEqual(["appmanifest_380870.acf"]);
+    } finally {
+      clearActiveSteamOperation(normalizedPath);
+    }
+  });
+});

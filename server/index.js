@@ -16,6 +16,11 @@ import { permissionsPolicy } from "./middleware/permissionsPolicy.js";
 import { logSetupTokenIfNeeded } from "./utils/setupToken.js";
 import { computeInlineScriptCspHash } from "./utils/cspScriptHash.js";
 import { parseTrustProxySetting, trustProxyHopCountWarning } from "./utils/trustProxy.js";
+import {
+  createHandshakeRateLimiter,
+  handshakeClientKey,
+  SOCKET_HANDSHAKE_RATE_MESSAGE,
+} from "./utils/handshakeRateLimit.js";
 import { isUncompressedBinaryProxyPath, isEventStreamResponse } from "./utils/compressionFilter.js";
 import { createServer, STATUS_CODES } from "http";
 import { createServer as createHttpsServer } from "https";
@@ -57,6 +62,7 @@ import {
 import { RconService } from "./services/rcon.js";
 import { findOtherRunningServers, ServerManager } from "./services/serverManager.js";
 import { DockerClient } from "./services/dockerClient.js";
+import { readConfiguredMaxPlayers } from "./services/serverCapacity.js";
 import {
   runManagedLifecycle,
   setDockerClient,
@@ -119,7 +125,11 @@ import {
 import { resolveObservedServerRunning, resolveServerPhase } from "./utils/serverStatus.js";
 import { discoverMounts } from "./services/mountDiscovery.js";
 import { shouldAutoOpenBrowser } from "./utils/browserLaunch.js";
-import { isLinuxPanelSupervisor } from "./utils/restartSupervisor.js";
+import {
+  isLinuxPanelSupervisor,
+  isOrchestratedProcess,
+  isWindowsPanelSupervisor,
+} from "./utils/restartSupervisor.js";
 import {
   acquireLifecycleLock,
   setBeforeLaunchHook,
@@ -225,6 +235,18 @@ process.on("unhandledRejection", (reason) => {
 // Graceful shutdown handling
 let isShuttingDown = false;
 
+// Save and quit the game servers running in this (all-in-one) container; see
+// services/containerShutdown.js.
+function stopGameServersBeforeContainerExit() {
+  return saveAndStopLocalServers({
+    rconService,
+    serverManager,
+    getActiveServer,
+    findOtherRunningServers,
+    scanHost: () => new ServerManager().scanHostForServerProcesses(),
+  });
+}
+
 async function gracefulShutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -281,6 +303,15 @@ async function gracefulShutdown(signal) {
     stopLeaderboardSampler();
     closeFileManagerSftpPool().catch(() => {});
 
+    // All-in-one container: the game servers live in this container, so when
+    // it stops (docker stop/down, a host reboot, a Watchtower recreate) they
+    // are SIGKILLed the moment this process exits. Save and quit them first,
+    // while RCON is still connected. Anywhere else the panel does not stop
+    // servers it merely supervises. Bounded (~90 s) and never throws.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
+
     // Stop PanelBridge
     if (panelBridge?.isRunning) {
       panelBridge.stop();
@@ -324,6 +355,7 @@ async function gracefulShutdown(signal) {
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+export { gracefulShutdown };
 
 // Routes
 import serverRoutes, {
@@ -332,7 +364,6 @@ import serverRoutes, {
 } from "./routes/server.js";
 import discoveryRoutes from "./routes/discovery.js";
 import serversRoutes, { readServerStatuses } from "./routes/servers.js";
-import { readProcessesMemory } from "./utils/processMemory.js";
 import serverStatusRoutes from "./routes/serverStatus.js";
 import serverFilesRoutes from "./routes/serverFiles.js";
 import playerRoutes from "./routes/players.js";
@@ -340,6 +371,7 @@ import rconRoutes from "./routes/rcon.js";
 import configRoutes from "./routes/config.js";
 import schedulerRoutes from "./routes/scheduler.js";
 import modsRoutes, { pruneModThumbnailCache } from "./routes/mods.js";
+import modsSmartRoutes from "./routes/modsSmart.js";
 import chunksRoutes from "./routes/chunks.js";
 import discordRoutes from "./routes/discord.js";
 import debugRoutes, { addLogToBuffer } from "./routes/debug.js";
@@ -358,6 +390,7 @@ import filesRoutes from "./routes/files.js";
 import { PANEL_SERVER_TIMEOUTS, installRequestBodyDeadline } from "./utils/requestBodyDeadline.js";
 import playerCharacterRoutes from "./routes/playerCharacter.js";
 import panelBridge from "./services/panelBridge.js";
+import { bridgeFolderName } from "./utils/bridgeFolderName.js";
 import {
   startFileManagerJanitor,
   stopFileManagerJanitor,
@@ -370,6 +403,12 @@ import {
 import { startLeaderboardSampler, stopLeaderboardSampler } from "./services/leaderboardSampler.js";
 import { pruneCharacterStore } from "./services/characterStore.js";
 import { waitForProcessExit } from "./utils/processScanRetry.js";
+import { resolvePzMemoryBytes } from "./utils/pzProcessMemory.js";
+import { recordPanelPort } from "./utils/panelPortFile.js";
+import {
+  isAllInOneContainer,
+  saveAndStopLocalServers,
+} from "./services/containerShutdown.js";
 
 dotenv.config();
 
@@ -770,6 +809,25 @@ export async function isRequestHostAllowed(hostHeader) {
 const HOST_DENY_MESSAGE =
   "This panel only answers to its own addresses while panel logins are off. Open it by its IP address or localhost, or add this address under Settings > Remote Access (CORS).";
 
+// Per-address Socket.IO handshake limit (utils/handshakeRateLimit.js).
+// The address is the one Express would give req.ip, so TRUST_PROXY applies
+// the same way it does to the /api/ limiter.
+const socketHandshakeLimiter = createHandshakeRateLimiter();
+export function _resetSocketHandshakeLimiterForTests() {
+  socketHandshakeLimiter.reset();
+}
+function socketHandshakeAddress(req) {
+  try {
+    return Object.create(app.request, {
+      headers: { value: req.headers },
+      socket: { value: req.socket },
+      connection: { value: req.socket },
+    }).ip;
+  } catch {
+    return req.socket?.remoteAddress;
+  }
+}
+
 const io = new Server(httpServer, {
   cors: {
     origin: (origin, callback) => {
@@ -786,7 +844,12 @@ const io = new Server(httpServer, {
   // Same Host-header guard as the /api middleware below (a rebinding page
   // can open a socket to the panel too). Runs on every handshake, polling
   // or WebSocket; io.attach() for HTTPS reuses these options.
+  // A new connection only: polls and upgrades of an open one skip this.
   allowRequest: (req, callback) => {
+    if (!socketHandshakeLimiter.allow(handshakeClientKey(socketHandshakeAddress(req)))) {
+      callback(SOCKET_HANDSHAKE_RATE_MESSAGE, false);
+      return;
+    }
     isRequestHostAllowed(req.headers.host).then(
       (allowed) => callback(allowed ? null : HOST_DENY_MESSAGE, allowed),
       () => callback(HOST_DENY_MESSAGE, false),
@@ -1050,7 +1113,9 @@ app.use(
     }
     callback(null, {
       origin: true,
-      methods: ["GET", "POST", "PUT", "DELETE"],
+      // PATCH: PATCH /api/auth/users/:id/role. Without it a cross-origin
+      // client the operator allowed (Remote Access) failed its preflight.
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
       credentials: access === "credentialed" || isSameOriginRequest(req, origin),
     });
   }),
@@ -1067,13 +1132,22 @@ app.use(
 app.use("/api/debug/client-errors", express.json({ limit: "16kb" }));
 
 // Server Files text saves carry a whole file (up to 2 MiB) as a JSON
-// string; 6mb covers the worst-case JSON escaping of that. Same ordering
-// rule as the client-errors parser above: it must run before the app-wide
-// 1mb parser below, or that one reads the body first and refuses it.
-app.put("/api/files/profiles/:profileId/text", express.json({ limit: "6mb" }));
+// string; 6mb covers the worst-case JSON escaping of that. The app-wide
+// 1mb parser below must not read that body first (it would refuse it), so
+// this route is only marked here, and its own 6mb parser runs after the
+// login check (FILES_TEXT_SAVE_ROUTE below).
+// SECURITY (2026-10-20): that parser used to be registered here, before
+// authService.middleware(), so anyone who could reach the panel had up to
+// 6 MB of JSON parsed per request without signing in.
+const FILES_TEXT_SAVE_ROUTE = "/api/files/profiles/:profileId/text";
+app.put(FILES_TEXT_SAVE_ROUTE, (req, _res, next) => {
+  req.deferLargeJsonBody = true;
+  next();
+});
 
 // Body parser with explicit size limit
-app.use(express.json({ limit: "1mb" }));
+const appJsonParser = express.json({ limit: "1mb" });
+app.use((req, res, next) => (req.deferLargeJsonBody ? next() : appJsonParser(req, res, next)));
 app.use(cookieParser());
 
 // Compress all HTTP responses (gzip/deflate) EXCEPT the <img>-tag-loaded
@@ -1238,6 +1312,13 @@ app.post("/api/files/profiles/:profileId/upload", fmUploadLimiter);
 app.post("/api/files/profiles/:profileId/upload/preflight", fmTransferLimiter);
 app.get("/api/files/profiles/:profileId/download", fmTransferLimiter);
 app.post("/api/files/profiles/:profileId/zip", fmTransferLimiter);
+// The Server Files text save's own body parser (see FILES_TEXT_SAVE_ROUTE
+// above): after the login check and the route's rate limit, and only for a
+// request the app-wide parser left alone.
+const filesTextSaveJsonParser = express.json({ limit: "6mb" });
+app.put(FILES_TEXT_SAVE_ROUTE, (req, res, next) =>
+  req.deferLargeJsonBody ? filesTextSaveJsonParser(req, res, next) : next(),
+);
 
 // Per-item collection mutations are cheap to the panel, but each one writes
 // to Steam. Do not share their bucket with cookie extraction: a normal sync
@@ -1330,6 +1411,8 @@ const discordBot = new DiscordBot(
   scheduler,
   logTailer,
 );
+// /leaderboard reads the stats PanelBridge keeps.
+discordBot.panelBridge = panelBridge;
 const backupService = new BackupService();
 
 // Connect services for cross-communication
@@ -1365,6 +1448,9 @@ async function findPanelBridgePath() {
   if (!serverName) {
     return { error: "Server name not configured" };
   }
+  // The mod's folder is named after the server with its path-hostile characters
+  // and whitespace replaced (utils/bridgeFolderName.js), not after the name as typed.
+  const bridgeFolder = bridgeFolderName(serverName);
 
   // Check if db.json has a saved bridgePath that exists and has files
   const settings = await getAllSettings();
@@ -1396,7 +1482,7 @@ async function findPanelBridgePath() {
         activeServer.zomboidDataPath,
         "Lua",
         "panelbridge",
-        serverName,
+        bridgeFolder,
       ),
       source: "zomboidDataPath/Lua (cachedir)",
       priority: 1,
@@ -1411,7 +1497,7 @@ async function findPanelBridgePath() {
     for (const item of parentContents) {
       if (item.startsWith("Server_files") || item.match(/Server.*files/i)) {
         possiblePaths.push({
-          p: path.join(parentDir, item, "Lua", "panelbridge", serverName),
+          p: path.join(parentDir, item, "Lua", "panelbridge", bridgeFolder),
           source: `${item}/Lua`,
           priority: 2,
         });
@@ -1422,7 +1508,7 @@ async function findPanelBridgePath() {
   // PRIORITY 3: Lua folder directly in install path (fallback)
   if (activeServer.installPath) {
     possiblePaths.push({
-      p: path.join(activeServer.installPath, "Lua", "panelbridge", serverName),
+      p: path.join(activeServer.installPath, "Lua", "panelbridge", bridgeFolder),
       source: "installPath/Lua",
       priority: 3,
     });
@@ -1665,7 +1751,13 @@ panelBridge.on("modStatus", (status) => {
 // and auto-export through ITS connect/disconnect events instead of RCON's —
 // see the corresponding guard in startPlayerPolling() below that skips these
 // same side effects while the bridge is alive, so they fire exactly once.
-panelBridge.on("playerConnect", (playerName) => {
+//
+// A `silent` event is the panel's own bookkeeping, not a player arriving or
+// leaving: the first status read after a panel/bridge restart or a server
+// switch lists everyone already online, and stop() closes their sessions.
+// Neither is announced to Discord or queued for auto-export.
+panelBridge.on("playerConnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerJoin", { player: playerName })
     .catch((err) =>
@@ -1680,7 +1772,8 @@ panelBridge.on("playerConnect", (playerName) => {
     .catch(() => {});
 });
 
-panelBridge.on("playerDisconnect", (playerName) => {
+panelBridge.on("playerDisconnect", (playerName, { silent = false } = {}) => {
+  if (silent) return;
   discordBot
     .sendEventNotification("playerLeave", { player: playerName })
     .catch((err) =>
@@ -1700,11 +1793,13 @@ app.set("rconService", rconService);
 app.set("serverManager", serverManager);
 app.set("resyncPanelBridgeForActiveServer", resyncPanelBridgeForActiveServer);
 app.set("resetPlayerPollingBaseline", resetPlayerPollingBaseline);
+app.set("resetStatusWatchdogBaseline", resetStatusWatchdogBaseline);
 app.set("dockerClient", dockerClient);
 app.set("modChecker", modChecker);
 app.set("scheduler", scheduler);
 app.set("discordBot", discordBot);
 backupService.setServerManager(serverManager);
+backupService.setRconService(rconService);
 app.set("backupService", backupService);
 app.set("io", io);
 app.set("refreshCorsConfig", refreshCorsConfig);
@@ -1760,6 +1855,9 @@ app.use("/api/rcon", rconRoutes);
 app.use("/api/config", configRoutes);
 app.use("/api/scheduler", schedulerRoutes);
 app.use("/api/mods", modsRoutes);
+// Smart load order, health check and insights (same /api/mods prefix; after
+// routes/mods.js so its /thumbnail carve-out answers first).
+app.use("/api/mods", modsSmartRoutes);
 app.use("/api/chunks", chunksRoutes);
 app.use("/api/discord", discordRoutes);
 app.use("/api/debug", debugRoutes);
@@ -1959,11 +2057,19 @@ export function recoverFromStartupInspectionFailure(error, journalPath) {
     );
   }
 }
+// New for every process. A page waiting for a restart compares it with the
+// one the restart request answered with: the version alone can't tell the
+// old process (still up while it saves and stops game servers in the
+// all-in-one container) from the new one, nor a rolled-back update (same
+// version as before) from the old process.
+const PANEL_BOOT_ID = randomUUID();
+
 app.get("/api/health", (req, res) => {
   res.json({
     status: "ok",
     version: _pkgVersion,
     ..._buildMetadata,
+    bootId: PANEL_BOOT_ID,
     timestamp: new Date().toISOString(),
   });
 });
@@ -2061,6 +2167,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
           message: "Stopping panel for supervisor to apply update...",
           applyingUpdate: true,
           supervisor: true,
+          bootId: PANEL_BOOT_ID,
         });
         // Same gap gracefulShutdown() (SIGTERM/SIGINT) already closes for a
         // signal-triggered shutdown: this handler exits the process directly
@@ -2206,7 +2313,12 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     }
   }
 
-  res.json({ success: true, message: "Panel is restarting..." });
+  res.json({
+    success: true,
+    message: "Panel is restarting...",
+    // The process that is going away; see PANEL_BOOT_ID.
+    bootId: PANEL_BOOT_ID,
+  });
 
   // Short delay so the response can be sent before exit
   setTimeout(async () => {
@@ -2223,29 +2335,32 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     } catch {
       /* best effort */
     }
+    // All-in-one container: the container restarting ends every game server
+    // in it, same as `docker stop` (see gracefulShutdown()). Save and quit
+    // them first rather than have them SIGKILLed.
+    if (isAllInOneContainer()) {
+      await stopGameServersBeforeContainerExit();
+    }
     // Detect if we're running under an orchestrator that will restart us.
     // - systemd sets INVOCATION_ID (service unit) or NOTIFY_SOCKET
     // - Docker creates /.dockerenv at root (or /run/.containerenv on podman)
     // In those cases we don't self-respawn — the orchestrator handles respawn.
     // Respawning ourselves under systemd causes a duplicate process; under
     // Docker (PID 1) the detached child dies with the container anyway.
-    let orchestrated = false;
+    // Decided for an unpackaged panel too: the Docker image runs
+    // `node server/index.js`, and exiting 0 there left a `restart: on-failure`
+    // (or no policy) container stopped for good after the Restart button.
+    const orchestrated = isOrchestratedProcess({
+      existsSync: (target) => fs.existsSync(target),
+    });
     const linuxSupervisor = isLinuxPanelSupervisor();
+    // Start.bat (supervisor v2) relaunches on exit 75 and treats exit 0 as an
+    // operator stop: self-respawning here left the supervisor quitting
+    // ("Panel exited cleanly") while the new panel still claimed to be
+    // supervised, so a later restart-and-apply exited 75 with nobody to apply.
+    const windowsSupervisor = isWindowsPanelSupervisor();
     if (isPackaged) {
-      try {
-        if (process.env.INVOCATION_ID || process.env.NOTIFY_SOCKET)
-          orchestrated = true;
-        if (
-          fs.existsSync("/.dockerenv") ||
-          fs.existsSync("/run/.containerenv")
-        ) {
-          orchestrated = true;
-        }
-      } catch {
-        /* best effort */
-      }
-
-      if (!orchestrated && !linuxSupervisor) {
+      if (!orchestrated && !linuxSupervisor && !windowsSupervisor) {
         // Running as packaged exe standalone — spawn self, then exit.
         // On Linux, prefer the freshly-applied binary path (linuxRespawnPath)
         // since process.execPath may point at a .new slot we just renamed away.
@@ -2257,11 +2372,19 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
         log.info(
           "Running under orchestrator (systemd/Docker) — exiting for external restart",
         );
+      } else if (windowsSupervisor) {
+        log.info(
+          "Running under the Windows supervisor — exiting for Start.bat to relaunch",
+        );
       } else {
         log.info(
           "Running under the Linux supervisor — exiting for start.sh to relaunch",
         );
       }
+    } else if (orchestrated) {
+      log.info(
+        "Running under orchestrator (systemd/Docker) — exiting for external restart",
+      );
     }
     // Exit code matters under an orchestrator. The shipped systemd unit uses
     // `Restart=on-failure` (zomboid-panel.service), which treats exit 0 as a
@@ -2270,7 +2393,7 @@ app.post("/api/panel/restart", requireRole("admin"), async (req, res) => {
     // non-zero so `on-failure`/`always` units respawn us; Docker
     // `restart: unless-stopped`/`always` restart regardless of code, so this is
     // safe there too. Standalone (already self-respawned) exits 0 as normal.
-    process.exit(linuxSupervisor ? 75 : orchestrated ? 1 : 0);
+    process.exit(linuxSupervisor || windowsSupervisor ? 75 : orchestrated ? 1 : 0);
   }, 1000);
 });
 
@@ -2381,6 +2504,33 @@ export async function handlePanelUpdateDownload(req, res) {
             error:
               "Confirm the Docker update before recreating the all-in-one container.",
             code: "confirmation_required",
+          });
+        }
+
+        // downloadUpdate() below can still refuse (the update is no longer
+        // known, a download or apply is already under way) and the update
+        // controller can be unreachable, reject the token or be busy. Ask
+        // all of that first: past this point the world is saved and the
+        // server stopped, and a refusal after that leaves it down for
+        // nothing.
+        const refusal =
+          typeof checker.getDownloadRefusal === "function"
+            ? checker.getDownloadRefusal()
+            : null;
+        if (refusal) {
+          return res
+            .status(refusal.code === "already_downloading" ? 409 : 400)
+            .json(refusal);
+        }
+        const controller =
+          typeof checker.dockerUpdateProxy.checkReady === "function"
+            ? await checker.dockerUpdateProxy.checkReady()
+            : { ok: true };
+        if (!controller.ok) {
+          return res.status(400).json({
+            success: false,
+            error: controller.error,
+            ...(controller.code ? { code: controller.code } : {}),
           });
         }
 
@@ -3090,6 +3240,10 @@ onLog((logEntry) => {
 // ============================================
 import { getDataPaths } from "./utils/paths.js";
 import { encodeExportFolderName, legacyExportFolderName } from "./utils/exportFolderName.js";
+import {
+  enforceAutoExportFolderCap,
+  MAX_AUTO_EXPORT_PLAYER_FOLDERS,
+} from "./utils/autoExportFolders.js";
 
 // Exported so tests can call it directly against real fs/database state
 // without needing a live PanelBridge mod connection -- see
@@ -3121,7 +3275,9 @@ export async function autoExportPlayer(username) {
       return;
     }
     const { dataDir } = getDataPaths();
-    const exportDir = path.join(dataDir, "exports", exportFolder);
+    const exportsRoot = path.join(dataDir, "exports");
+    const exportDir = path.join(exportsRoot, exportFolder);
+    const newFolder = !fs.existsSync(exportDir);
     fs.mkdirSync(exportDir, { recursive: true });
 
     // Write timestamped export file. toISOString() is millisecond-resolution
@@ -3148,17 +3304,26 @@ export async function autoExportPlayer(username) {
     // sortBackupFilenamesNewestFirst(): a raw string sort would put
     // "-2.json" before ".json" ('-' < '.'), treating a collision's later
     // duplicate as older than the original it collided with.
+    //
+    // Only this function's own <name>_<timestamp>[-n].json files rotate.
+    // The import route's pre-import recovery copies (<name>_pre-import_<ts>)
+    // share this folder: counted here, "Bob_pre-import_..." sorted above
+    // every "Bob_2026-..." ('p' > '2'), so after a few imports each login's
+    // export was deleted in the same pass that wrote it, and recovery copies
+    // were deleted as if they were old auto-exports.
     const maxExports = Number(await getSetting("autoExportMaxPerPlayer")) || 3;
+    const autoExportFileName = new RegExp(
+      `^${safeUsername.replace(/[^a-zA-Z0-9_]/g, "\\$&")}_(\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z)(?:-(\\d+))?\\.json$`,
+    );
     const files = fs
       .readdirSync(exportDir)
-      .filter((f) => f.endsWith(".json"))
       .map((name) => {
-        const withoutExt = name.slice(0, -".json".length);
-        const match = withoutExt.match(/^(.*)-(\d+)$/);
+        const match = name.match(autoExportFileName);
         return match
-          ? { name, key: match[1], suffix: parseInt(match[2], 10) }
-          : { name, key: withoutExt, suffix: 1 };
+          ? { name, key: match[1], suffix: match[2] ? parseInt(match[2], 10) : 1 }
+          : null;
       })
+      .filter(Boolean)
       .sort((a, b) => {
         if (a.key !== b.key) return a.key < b.key ? 1 : -1; // newest first
         return b.suffix - a.suffix; // higher collision suffix = created later
@@ -3168,6 +3333,15 @@ export async function autoExportPlayer(username) {
     if (files.length > maxExports) {
       for (const old of files.slice(maxExports)) {
         fs.unlinkSync(path.join(exportDir, old));
+      }
+    }
+
+    // A new player's folder: keep the number of player folders bounded
+    // (utils/autoExportFolders.js).
+    if (newFolder) {
+      const removed = enforceAutoExportFolderCap(exportsRoot, exportFolder);
+      if (removed.length > 0) {
+        log.info(`Removed the auto-exports of ${removed.length} player(s) exported longest ago (at most ${MAX_AUTO_EXPORT_PLAYER_FOLDERS} players keep them)`);
       }
     }
 
@@ -3394,26 +3568,56 @@ async function getSwapSnapshot() {
   return lastSwapSample.value;
 }
 
-// The ACTIVE server's resident memory, for the performance charts. It was
-// the first PZ server process the OS listed (`ps | grep`, or the first
-// java.exe on Windows): with two servers running, the chart could follow the
-// other one. Now it is the process the active server's own detection
-// attributes to it (its pidfile, or the scored scan); null without one.
-export async function getPzProcessMemory({
-  manager = serverManager,
-  readMemory = readProcessesMemory,
-} = {}) {
+// MaxPlayers for the dashboard's players telemetry bar ("3 / 4" online of
+// capacity). The INI value only changes when someone edits the config (and
+// restarts the server), so it is cached instead of re-read on every tick; a
+// read that fails or is refused caches as null for the same window rather
+// than hammering the disk or the log -- the refusal itself is warned once
+// per folder by the reader (services/serverCapacity.js).
+// The cache is keyed by the active server: switching servers must not show the
+// previous server's capacity for the rest of the window.
+let lastMaxPlayersSample = { at: 0, key: null, value: null };
+const MAX_PLAYERS_SAMPLE_INTERVAL_MS = 300000;
+
+async function getMaxPlayersSample() {
+  const now = Date.now();
+  let key = null;
   try {
-    const details = await manager.getServerProcessDetails();
-    if (!details?.running || details.scanFailed) return null;
-    const pid = details.owned?.[0]?.pid ?? details.matched?.[0]?.pid ?? details.mainPid ?? null;
-    if (!pid) return null;
-    const usage = await readMemory([pid]);
-    return usage.get(Number(pid)) ?? null;
-  } catch (error) {
-    log.debug(`PZ process memory read failed: ${error.message}`);
-    return null;
+    const activeServer = await getActiveServer();
+    key = `${activeServer?.id ?? ""}|${activeServer?.serverName ?? ""}`;
+  } catch {
+    // unkeyed: re-read below
   }
+  if (
+    key !== null &&
+    key === lastMaxPlayersSample.key &&
+    now - lastMaxPlayersSample.at < MAX_PLAYERS_SAMPLE_INTERVAL_MS
+  ) {
+    return lastMaxPlayersSample.value;
+  }
+  lastMaxPlayersSample.at = now;
+  lastMaxPlayersSample.key = key;
+  try {
+    lastMaxPlayersSample.value = await readConfiguredMaxPlayers();
+  } catch {
+    lastMaxPlayersSample.value = null;
+  }
+  return lastMaxPlayersSample.value;
+}
+
+// Memory of the ACTIVE server's own game process (null when there is no
+// reading: a remote server, a stopped one, a process the panel cannot see). See
+// utils/pzProcessMemory.js for why this is no longer "the first PZ java process
+// on the host" -- and for the Docker-managed path, which reads the container's
+// stats.
+async function getPzProcessMemory() {
+  let activeServer = null;
+  try {
+    activeServer = await getActiveServer();
+  } catch {
+    // resolved without it: the process lookup still names the active server
+  }
+  return resolvePzMemoryBytes({ activeServer, serverManager, dockerClient });
 }
 
 async function startPerfPolling() {
@@ -3491,7 +3695,22 @@ async function startPerfPolling() {
         // performance-history chart's running/stopped annotation, nothing
         // gates on it), but it perpetuated the same wrong answer those other
         // sites were fixed to stop giving.
-        playerCount: lastPlayerList.length,
+        // Player count: prefer the PanelBridge's event-driven roster while its
+        // heartbeat is alive. The RCON-poll fallback (lastPlayerList) freezes
+        // at the last known roster whenever RCON is unreachable -- which is
+        // exactly the window in which players disconnect (server restarts, RCON
+        // blips) -- so the telemetry row kept insisting "2/4" through an outage
+        // the bridge was reporting truthfully. The status watchdog already
+        // expires stale bridge state to alive:false, so the fallback engages
+        // on its own.
+        playerCount: panelBridge.modStatus?.alive
+          ? panelBridge.modStatus.playerCount
+          : lastPlayerList.length,
+        // MaxPlayers from the server's own INI, so the telemetry players bar
+        // can be a fraction of capacity ("3 / 4"). Null when unknown (read
+        // refused, INI missing) -- the client then hides the bar and keeps
+        // the count, same reader the Discord presence uses.
+        maxPlayers: await getMaxPlayersSample(),
         serverRunning: Boolean(await getObservedServerRunning()),
       };
 
@@ -3532,6 +3751,23 @@ let lastKnownPhase = null;
 // observed anything yet"). See checkServerStatusNow()'s own comment on the
 // `running === null` branch for why a THIRD state is needed here.
 let lastObservationWasUnknown = false;
+
+// Switching the active server (or deleting the active one) repoints the
+// singletons this watchdog observes at a DIFFERENT server, so the three
+// baselines above describe a server that is no longer being watched. Left in
+// place, the next tick compared server B's state to server A's and posted a
+// false "Server Stopped"/"Server Started" to Discord. Called by
+// routes/servers.js's reloadServicesForNewActiveServer() through
+// app.get("resetStatusWatchdogBaseline"), the same pattern as
+// resetPlayerPollingBaseline(). The first observation afterwards seeds the
+// baseline silently (no Discord post). `lastObservationWasUnknown` is set so
+// that observation is still pushed over the socket once, which corrects
+// clients that kept showing the previous server's dot.
+export function resetStatusWatchdogBaseline() {
+  lastKnownRunning = null;
+  lastKnownPhase = null;
+  lastObservationWasUnknown = true;
+}
 
 // Thin, no-arg wrapper over utils/serverStatus.js's shared
 // resolveObservedServerRunning() -- see that function's own doc comment for
@@ -4377,6 +4613,11 @@ async function start() {
     await refreshCorsConfig();
     log.info("Database ready");
 
+    // Settings > Connection "Auto-reconnect" / "Reconnect interval" for the
+    // RCON loop started at module load above (it re-arms if they differ from
+    // the built-in 60 s default). PUT /app-settings applies later changes.
+    await rconService.loadReconnectSettings();
+
     // Rehydrate any Steam operation (install/update/auto-update) that was
     // still recorded as in-flight when this process last exited -- if that
     // was a genuine crash (not a clean shutdown, which never leaves one
@@ -4422,16 +4663,13 @@ async function start() {
       console.log("  ║     Password Reset (CLI Mode)        ║");
       console.log("  ╚══════════════════════════════════════╝");
       console.log(`\n  Admin account: ${users[0].username}`);
-      const newPassword = await ask("  Enter new password (min 6 chars): ");
+      // The same rules as every new panel password (services/passwordPolicy.js).
+      const { PASSWORD_MIN_LENGTH, newPasswordProblem } = await import("./services/passwordPolicy.js");
+      const newPassword = await ask(`  Enter new password (min ${PASSWORD_MIN_LENGTH} chars): `);
 
-      if (!newPassword || newPassword.length < 6) {
-        console.log("  ERROR: Password must be at least 6 characters.\n");
-        rl.close();
-        process.exit(1);
-      }
-
-      if (newPassword.length > 128) {
-        console.log("  ERROR: Password must be 128 characters or fewer.\n");
+      const passwordProblem = newPasswordProblem(newPassword || "");
+      if (passwordProblem) {
+        console.log(`  ERROR: ${passwordProblem.message}.\n`);
         rl.close();
         process.exit(1);
       }
@@ -4555,7 +4793,17 @@ async function start() {
     await discordBot.loadConfig();
     const discordAutoStart = await getSetting("discordAutoStart");
     if (discordBot.token && discordBot.guildId && discordAutoStart !== false) {
-      await discordBot.start();
+      const discordStarted = await discordBot.start();
+      // The network is often not up yet when the panel starts with the
+      // machine. A failure that is Discord's or the network's (not a bad token
+      // or missing intents) is retried in the background, with backoff, rather
+      // than leaving the bot down until someone notices.
+      if (discordStarted === false && discordBot.lastStartError?.transient) {
+        log.warn(
+          `Discord bot could not start (${discordBot.lastStartError.message}); retrying in the background`,
+        );
+        discordBot.scheduleAutoStartRetry();
+      }
     } else if (
       discordBot.token &&
       discordBot.guildId &&
@@ -4859,6 +5107,8 @@ async function start() {
         const address = httpServer.address();
         const boundPort = address && typeof address === "object" ? address.port : listenPort;
         activePanelPort = boundPort;
+        // For the container HEALTHCHECK (docker/healthcheck.cjs).
+        recordPanelPort(boundPort, { log });
         if (listenPort === 0 && !process.env.PORT && boundPort !== PORT) {
           await setSetting("panelPort", boundPort);
           await flushWrites();
@@ -4981,6 +5231,11 @@ async function start() {
         }
         await logExposureWarningIfNeeded({ needsSetup, boundPort, localIp });
         await logSetupTokenIfNeeded(needsSetup);
+
+        // A restore that failed hard, or was cut off by the panel stopping,
+        // leaves its .restore-staging-* folder (a whole world's worth of
+        // files) in Saves/Multiplayer; nothing else removes it.
+        void backupService.sweepRestoreStaging();
 
         // If PZ server files were bind-mounted in but no server profile has
         // been created yet, point the user at Settings instead of leaving

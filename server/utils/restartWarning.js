@@ -143,3 +143,37 @@ export function getRestartWarningPresetTemplates() {
     ]),
   );
 }
+// The countdown, in minutes, of a restart whose caller names none (the
+// AUTO_RESTART_CRON job, a scheduled `restart` task): the RESTART_WARNING_MINUTES
+// environment variable, 5 when it is unset. 0 is a real answer -- performRestart()
+// restarts at once, after one "restarting" notice -- and must not turn into 5
+// (`parseInt(...) || 5` did that). A value above POST /restart-now's own
+// 60-minute cap is held to it, as is anything the restart-overlap warning and
+// the deferred-backup wait budget would otherwise be sized against. Anything
+// that is not a whole non-negative number falls back to 5. `note` says what was
+// changed, for the log, and is null when the value was used as given.
+export const DEFAULT_RESTART_WARNING_MINUTES = 5;
+export const MAX_RESTART_WARNING_MINUTES = 60;
+
+export function parseDefaultRestartWarningMinutes(raw) {
+  const text = raw === undefined || raw === null ? "" : String(raw).trim();
+  if (text === "") return { minutes: DEFAULT_RESTART_WARNING_MINUTES, note: null };
+  if (!/^\+?\d+$/.test(text)) {
+    return {
+      minutes: DEFAULT_RESTART_WARNING_MINUTES,
+      note:
+        `RESTART_WARNING_MINUTES=${JSON.stringify(text.slice(0, 40))} is not a whole number of minutes ` +
+        `(0-${MAX_RESTART_WARNING_MINUTES}) -- using ${DEFAULT_RESTART_WARNING_MINUTES}`,
+    };
+  }
+  const value = Number(text); // Infinity for an absurdly long digit string: still above the cap
+  if (value > MAX_RESTART_WARNING_MINUTES) {
+    return {
+      minutes: MAX_RESTART_WARNING_MINUTES,
+      note:
+        `RESTART_WARNING_MINUTES=${text.slice(0, 40)} is above the ${MAX_RESTART_WARNING_MINUTES}-minute maximum -- ` +
+        `using ${MAX_RESTART_WARNING_MINUTES}`,
+    };
+  }
+  return { minutes: value, note: null };
+}

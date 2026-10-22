@@ -86,8 +86,13 @@ describe('Files: the server state callout', () => {
   it('warns while the server runs, and "Check again" asks for a fresh state', async () => {
     server.profiles = [makeProfile({ serverState: 'running' })]
     renderFiles()
-    const alert = (await screen.findByText(enFiles.serverState.running.title)).closest('[role="alert"]') as HTMLElement
+    // A page-level note: in the PageAlerts stack right under the header,
+    // with the warning treatment (DESIGN.md callouts).
+    const alert = (await screen.findByText(enFiles.serverState.running.title)).closest('[role="status"]') as HTMLElement
     expect(alert.className).toContain('border-warning/40')
+    const header = screen.getByRole('heading', { level: 1, name: enFiles.page.title }).closest('section') as HTMLElement
+    expect(header.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alert.compareDocumentPosition(await screen.findByRole('table')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(within(alert).getByText(enFiles.serverState.running.body)).toBeInTheDocument()
 
     fireEvent.click(within(alert).getByRole('button', { name: enFiles.serverState.checkAgain }))
@@ -107,7 +112,7 @@ describe('Files: the server state callout', () => {
     server.profiles = [makeProfile({ serverState: 'unknown', remote: { host: 'vps.example', port: 2222, username: 'pz' }, roots: [makeRoot('data', { backend: 'sftp' })] })]
     renderFiles()
     const note = await screen.findByText(enFiles.serverState.remoteUnknown)
-    expect(note.closest('[role="alert"]')?.className).toContain('bg-muted/40')
+    expect(note.closest('[role="status"]')?.className).toContain('bg-muted/40')
     expect(screen.queryByText(enFiles.serverState.unknown.title)).not.toBeInTheDocument()
     expect(screen.getByText('Connected over SFTP to vps.example:2222 as pz')).toBeInTheDocument()
   })
@@ -184,5 +189,30 @@ describe('Files: list failures', () => {
     expect(await screen.findByText('Nothing matches “zzz”')).toBeInTheDocument()
     fireEvent.click(screen.getAllByRole('button', { name: enFiles.list.clearFilter }).at(-1)!)
     expect(await screen.findByRole('button', { name: 'console.txt' })).toBeInTheDocument()
+  })
+})
+
+// Bug pass: the redesign dropped the header Refresh, and the toolbar Refresh
+// only shows for a readable folder, so a folder fixed elsewhere (mounted,
+// created) could only be re-checked by reloading the browser.
+describe('Files: re-checking a folder that could not be opened', () => {
+  it('Try again asks the server for a fresh look at the folder', async () => {
+    const profile = makeProfile({
+      roots: [makeRoot('data', { available: false, unavailableReason: 'notMounted', writable: null, displayPath: null })],
+    })
+    server.profiles = [profile]
+    renderFiles()
+
+    const message = (enFiles.roots.unavailable as Record<string, string>).notMounted
+    const main = await screen.findByText(message, { selector: 'p' })
+    const emptyState = main.closest('div.flex.flex-col') as HTMLElement
+    const before = server.callsTo('GET', `/profiles/${profile.id}`).length
+
+    fireEvent.click(within(emptyState).getByRole('button', { name: enFiles.actions.retry }))
+    await waitFor(() => {
+      const calls = server.callsTo('GET', `/profiles/${profile.id}`)
+      expect(calls.length).toBe(before + 1)
+      expect(calls.at(-1)!.url.searchParams.get('fresh')).toBeTruthy()
+    })
   })
 })

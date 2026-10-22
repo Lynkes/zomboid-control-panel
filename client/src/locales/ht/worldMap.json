@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "Kat Mond",
-    "description": "Pozisyon jwè an dirèk sou kat Konte Knox la. Klike-dwat pou aksyon."
+    "description": "Pozisyon jwè an dirèk. Klike-dwat oswa peze lontan sou kat la pou aksyon."
   },
   "refresh": "Rafrechi",
   "errorTitle": "Erè",
@@ -18,12 +18,12 @@
     "zoomIn": "Zoume pi pre",
     "zoomOut": "Zoume pi lwen",
     "fitToPlayers": "Ajiste sou jwè yo",
-    "floorHeader": "etaj",
+    "floorHeader": "Etaj",
     "floorUp": "Etaj anwo",
     "floorDown": "Etaj anba",
     "currentFloorAria": "Etaj aktyèl: {{floor}}",
     "currentFloorTitle": "{{floor}} — klike pou tounen nan tè a",
-    "layersHeader": "kouch",
+    "layersHeader": "Kouch kat la",
     "vehiclesHideAria": "Kache machin ({{count}} chaje)",
     "vehiclesShowAria": "Montre machin ({{count}} chaje)",
     "vehiclesHideTitle": "Kache machin ({{count}}) — se sèlman machin ki tou pre jwè ki vizib",
@@ -39,8 +39,6 @@
     "basementN": "S{{n}}"
   },
   "tileFailure": {
-    "signalLost": "sinyal.pèdi",
-    "tilesOffline": "kawo yo òfliy",
     "coverageTitle": "Pa gen kawo kat nan nivo zoum sa a",
     "coverageDesc": "<1>tiles.pzmap.org</1> reyachab men li poko fè rann zòn sa a nan nivo detay sa a. Zoume pi lwen, oswa eseye Rafrechi pita.",
     "networkTitle": "Kawo kat yo pa chaje",
@@ -63,41 +61,53 @@
     "unrecognizedTitle": "Kawo kat la rive kòm done ki pa rekonèt",
     "unrecognizedDesc": "Done kawo sa a pa matche ak okenn fòma panèl la rekonèt. Bytes bri: {{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge òfliy",
+    "bridgeOfflineDesc": "Pozisyon an dirèk, machin ak aksyon sou kat la bezwen mod PanelBridge la ap mache sou sèvè sa a.",
+    "bridgeOfflineAction": "Konfigire PanelBridge",
+    "noServerTitle": "Pa gen sèvè aktif",
+    "noServerDesc": "Chwazi oswa ajoute yon sèvè pou wè jwè li yo sou kat la.",
+    "noServerAction": "Louvri Sèvè yo",
+    "playerNotOnlineTitle": "{{name}} pa sou kat la",
+    "playerNotOnlineDesc": "Jwè sa a dekonekte, oswa PanelBridge poko voye enfòmasyon sou li.",
+    "openInPlayers": "Louvri nan Jwè"
+  },
   "roster": {
-    "label": "lis jwè",
-    "live": "an dirèk",
-    "offline": "òfliy",
+    "label": "Jwè",
+    "live": "An dirèk",
+    "offline": "Òfliy",
     "panToAria": "Deplase kat la sou {{name}}",
     "panToAriaWithHealth": "Deplase kat la sou {{name}}, sante {{health}}%",
-    "loading": "n ap chaje…",
-    "noPlayersOnline": "pa gen jwè anliy",
-    "bridgeOffline": "pon òfliy",
+    "loading": "N ap chaje…",
+    "noPlayersOnline": "Pa gen jwè anliy",
+    "bridgeOffline": "PanelBridge òfliy",
     "collapseAria": "Fèmen lis jwè a",
-    "expandAria": "Louvri lis jwè a"
+    "expandAria": "Louvri lis jwè a",
+    "toggleAria": "Jwè sou kat la: {{count}}",
+    "closeSheet": "Fèmen lis jwè yo"
   },
   "hud": {
-    "hoverForCoords": "pase sou li pou wè kowòdone"
+    "hoverForCoords": "Pase sourit la sou kat la pou wè kowòdone",
+    "zoomTitle": "Nivo zoum"
   },
   "dossier": {
-    "label": "dosye",
-    "targetAcquired": "sib.jwenn",
+    "targetAcquired": "Anliy",
     "closeAria": "Fèmen dosye a",
-    "pos": "pozisyon",
-    "floor": "etaj",
-    "hp": "hp",
-    "hunger": "grangou",
-    "thirst": "swaf",
-    "fatigue": "fatig",
-    "role": "wòl",
-    "status": "estati",
-    "infected": "enfekte",
+    "pos": "Pozisyon",
+    "floor": "Etaj",
+    "hp": "Sante",
+    "hunger": "Grangou",
+    "thirst": "Swaf",
+    "fatigue": "Fatig",
+    "role": "Wòl",
+    "status": "Estati",
+    "infected": "Enfekte",
     "heal": "Geri",
-    "god": "Bondye",
-    "godTip": "Toujou aktive Mòd Bondye pou jwè sa a — li pa yon switch. Dezaktive li nan Jwè yo.",
     "openPlayerControls": "Louvri kontwòl jwè a",
     "healedTitle": "Geri",
     "healedDesc": "{{username}} geri",
-    "godModeEnabled": "Mòd Bondye aktive"
+    "offline": "Dekonekte",
+    "offlineReason": "Jwè sa a pa konekte ankò."
   },
   "contextMenu": {
     "ariaLabel": "Aksyon kat",

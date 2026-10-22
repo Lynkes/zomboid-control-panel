@@ -33,6 +33,30 @@ export function getDockerClient() {
   return sharedDockerClient;
 }
 
+/**
+ * What a container's inspect State says, without trusting State.Running alone:
+ * Docker keeps Running === true for a paused container and for one waiting out
+ * a restart policy between crashes ("restarting"), so a crash-looping
+ * `restart: always` container and a paused one both read as running.
+ *
+ *  - running: up and serving, Running and neither paused nor restarting.
+ *  - alive: has something to stop (Running, however it is doing) -- a stop
+ *    still has work to do for a paused or restarting container.
+ *  - state: "paused" or "restarting" when that is why it is not running,
+ *    otherwise null.
+ */
+export function describeContainerState(container) {
+  const state = container?.State || {};
+  const alive = state.Running === true;
+  const paused = alive && (state.Paused === true || state.Status === "paused");
+  const restarting = alive && !paused && (state.Restarting === true || state.Status === "restarting");
+  return {
+    running: alive && !paused && !restarting,
+    alive,
+    state: paused ? "paused" : restarting ? "restarting" : null,
+  };
+}
+
 async function acquireContainerLifecycleLock(dockerClient, ref) {
   let queues = containerLifecycleQueues.get(dockerClient);
   if (!queues) {
@@ -95,11 +119,14 @@ export async function resolveManagedContainer({
     };
   }
 
+  const { running, alive, state } = describeContainerState(container);
   return {
     handled: true,
     ref,
     container,
-    running: container.State?.Running === true,
+    running,
+    alive,
+    ...(state ? { containerState: state } : {}),
   };
 }
 
@@ -173,11 +200,14 @@ export async function resolveDockerHostSignal(
 // the status model validates it (see resolveHostStartedAt() in
 // serverStatusModel.js).
 function runningContainerSignal(container) {
-  const running = container?.State?.Running === true;
+  const { running, state } = describeContainerState(container);
   const startedAt = running ? container.State.StartedAt : null;
   return {
     running,
     scanFailed: false,
+    // Why a container that Docker still calls running is not serving: shown
+    // as the host detail instead of a plain "Container running" (or nothing).
+    ...(state ? { containerState: state } : {}),
     ...(typeof startedAt === "string" && startedAt ? { startedAt } : {}),
   };
 }
@@ -208,8 +238,19 @@ export async function runManagedLifecycle(
       return { handled: true, success: false, error: current.error };
     }
 
-    if (action === "stop" && !current.running) {
+    // A paused or restarting container still has a process for `docker stop`
+    // to end, so only one that is not running at all counts as stopped.
+    if (action === "stop" && !current.alive) {
       return { handled: true, success: true, message: "Container is already stopped" };
+    }
+    if (action === "start" && current.containerState === "paused") {
+      // `docker start` refuses a paused container, and answering "already
+      // running" for one that is frozen would hide that.
+      return {
+        handled: true,
+        success: false,
+        error: `Container "${current.ref}" is paused. Unpause it (docker unpause ${current.ref}) or stop it, then start it again.`,
+      };
     }
     if (action === "start" && current.running) {
       return {

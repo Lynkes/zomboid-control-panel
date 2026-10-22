@@ -7,7 +7,7 @@
   },
   "pageHeader": {
     "title": "世界地图",
-    "description": "诺克斯郡地图上的玩家实时位置。右键点击以执行操作。"
+    "description": "玩家实时位置。在地图上右键点击或长按以执行操作。"
   },
   "refresh": "刷新",
   "errorTitle": "错误",
@@ -23,7 +23,7 @@
     "floorDown": "下一层",
     "currentFloorAria": "当前楼层：{{floor}}",
     "currentFloorTitle": "{{floor}}——点击重置为地面层",
-    "layersHeader": "图层",
+    "layersHeader": "地图图层",
     "vehiclesHideAria": "隐藏载具（已加载 {{count}} 辆）",
     "vehiclesShowAria": "显示载具（已加载 {{count}} 辆）",
     "vehiclesHideTitle": "隐藏载具（{{count}}）——仅显示玩家附近的载具",
@@ -39,8 +39,6 @@
     "basementN": "B{{n}}"
   },
   "tileFailure": {
-    "signalLost": "信号丢失",
-    "tilesOffline": "图块离线",
     "coverageTitle": "此缩放级别下没有地图图块",
     "coverageDesc": "<1>tiles.pzmap.org</1> 可以访问，但尚未在此细节级别渲染此区域。请缩小视图，或稍后重试刷新。",
     "networkTitle": "地图图块无法加载",
@@ -63,24 +61,37 @@
     "unrecognizedTitle": "地图图块到达时为无法识别的数据",
     "unrecognizedDesc": "此图块的数据不符合面板识别的任何已知格式。原始字节：{{hex}}"
   },
+  "alerts": {
+    "bridgeOfflineTitle": "PanelBridge 已离线",
+    "bridgeOfflineDesc": "实时位置、载具和地图操作需要此服务器运行 PanelBridge 模组。",
+    "bridgeOfflineAction": "设置 PanelBridge",
+    "noServerTitle": "没有活动服务器",
+    "noServerDesc": "选择或添加服务器，以在地图上查看其玩家。",
+    "noServerAction": "打开服务器列表",
+    "playerNotOnlineTitle": "{{name}} 不在地图上",
+    "playerNotOnlineDesc": "该玩家已离线，或 PanelBridge 尚未报告其位置。",
+    "openInPlayers": "在玩家中打开"
+  },
   "roster": {
-    "label": "花名册",
+    "label": "玩家",
     "live": "在线",
     "offline": "离线",
     "panToAria": "平移至 {{name}}",
     "panToAriaWithHealth": "平移至 {{name}}，生命值 {{health}}%",
     "loading": "加载中……",
     "noPlayersOnline": "没有玩家在线",
-    "bridgeOffline": "桥接离线",
+    "bridgeOffline": "PanelBridge 离线",
     "collapseAria": "收起花名册",
-    "expandAria": "展开花名册"
+    "expandAria": "展开花名册",
+    "toggleAria": "地图上的玩家：{{count}}",
+    "closeSheet": "关闭玩家列表"
   },
   "hud": {
-    "hoverForCoords": "悬停查看坐标"
+    "hoverForCoords": "将鼠标悬停在地图上查看坐标",
+    "zoomTitle": "缩放级别"
   },
   "dossier": {
-    "label": "档案",
-    "targetAcquired": "目标锁定",
+    "targetAcquired": "在线",
     "closeAria": "关闭档案",
     "pos": "坐标",
     "floor": "楼层",
@@ -92,12 +103,11 @@
     "status": "状态",
     "infected": "感染",
     "heal": "治疗",
-    "god": "无敌",
-    "godTip": "始终为该玩家开启无敌模式——不是切换开关。请改到「玩家」页面关闭它。",
     "openPlayerControls": "打开玩家控制",
     "healedTitle": "已治疗",
     "healedDesc": "{{username}} 已被治疗",
-    "godModeEnabled": "已启用无敌模式"
+    "offline": "离线",
+    "offlineReason": "该玩家已不在线。"
   },
   "contextMenu": {
     "ariaLabel": "地图操作",

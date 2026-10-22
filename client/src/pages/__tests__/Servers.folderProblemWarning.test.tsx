@@ -83,7 +83,7 @@ const FINE = {
 } as never
 
 function cardFor(serverName: string): HTMLElement {
-  const card = screen.getByText(serverName).closest('.overflow-hidden.transition-colors')
+  const card = screen.getByText(serverName).closest('article')
   if (!card) throw new Error(`could not find card container for ${serverName}`)
   return card as HTMLElement
 }

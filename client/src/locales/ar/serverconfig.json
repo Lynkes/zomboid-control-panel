@@ -76,14 +76,15 @@
   "pageHeader": {
     "title": "تهيئة الخادم",
     "description": "عدّل الإعدادات الفعّالة لهذا الخادم: INI، Sandbox، نقاط الظهور، والمودات.",
-    "eyebrow": "تهيئة",
     "unsavedChanges": "تغييرات غير محفوظة",
-    "templates": "التهيئات المحفوظة",
-    "backups": "النسخ الاحتياطية",
-    "refresh": "تحديث"
+    "templates": "لقطات التهيئة",
+    "backups": "نسخ احتياطية لملفات التهيئة",
+    "refresh": "تحديث",
+    "more": "إجراءات أخرى",
+    "templatesPage": "القوالب",
+    "openInFiles": "فتح المجلد في ملفات الخادم"
   },
   "activeServerStrip": {
-    "label": "الخادم النشط",
     "noServerSelected": "لم يتم اختيار خادم",
     "iniLabel": "INI",
     "sandboxLabel": "Sandbox",
@@ -115,7 +116,8 @@
     "removeConfirm": "إزالة \"{{modId}}\" من Mods=؟ هذا يجهّز التغيير هنا فقط — لا يُكتب شيء على القرص حتى تحفظ.",
     "removeConfirmButton": "إزالة",
     "removedTitle": "تمت إزالة إدخال Mods=",
-    "removedToast": "تمت إزالة \"{{modId}}\" من Mods=. غير محفوظ — راجِع التغيير واحفظه أدناه."
+    "removedToast": "تمت إزالة \"{{modId}}\" من Mods=. غير محفوظ — راجِع التغيير واحفظه أدناه.",
+    "openActiveMods": "فتح المودات النشطة"
   },
   "tabs": {
     "serverSettings": "إعدادات الخادم",
@@ -124,7 +126,8 @@
     "spawnRegions": "مناطق الظهور",
     "modSettings": "إعدادات المودات",
     "unsavedChangesAria": "تغييرات غير محفوظة",
-    "fileMissingAria": "ملف مفقود"
+    "fileMissingAria": "ملف مفقود",
+    "listAria": "ملفات التهيئة"
   },
   "stopServerAlert": {
     "title": "الخادم قيد التشغيل",
@@ -140,13 +143,9 @@
     "form": "نموذج",
     "raw": "خام",
     "downloadIniAria": "تنزيل نسخة INI الاحتياطية",
-    "downloadIniTooltip": "تنزيل نسخة INI الاحتياطية",
     "downloadSandboxAria": "تنزيل نسخة Sandbox الاحتياطية",
-    "downloadSandboxTooltip": "تنزيل نسخة Sandbox الاحتياطية",
     "downloadSpawnPointsAria": "تنزيل نسخة نقاط الظهور الاحتياطية",
-    "downloadSpawnPointsTooltip": "تنزيل نسخة نقاط الظهور الاحتياطية",
     "downloadSpawnRegionsAria": "تنزيل نسخة مناطق الظهور الاحتياطية",
-    "downloadSpawnRegionsTooltip": "تنزيل نسخة مناطق الظهور الاحتياطية",
     "wiki": "Wiki",
     "map": "الخريطة",
     "saveAndReload": "حفظ وإعادة تحميل",
@@ -159,7 +158,6 @@
     "sandboxPlaceholder": "ابحث في إعدادات Sandbox…",
     "aria": "البحث في إعدادات الخادم",
     "sandboxAria": "البحث في إعدادات Sandbox",
-    "clearAria": "مسح البحث",
     "filterAria": "تصفية الإعدادات",
     "filterAll": "الكل",
     "filterModified": "المعدَّلة",
@@ -169,23 +167,10 @@
   "categoriesNav": {
     "iniAria": "فئات إعدادات الخادم",
     "sandboxAria": "فئات Sandbox",
-    "categoriesLabel": "الفئات",
-    "expandAllAria": "توسيع كل مجموعات الفئات",
-    "collapseAllAria": "طي كل مجموعات الفئات",
-    "expandAll": "توسيع الكل",
-    "collapseAll": "طي الكل",
-    "modifiedCountTitle_one": "{{count}} تغيير غير محفوظ",
-    "modifiedCountTitle_other": "تغييرات غير محفوظة: {{count}}",
     "matchCount_one": "{{count}} نتيجة",
     "matchCount_other": "النتائج: {{count}}",
     "uncategorizedIniLabel": "غير مصنَّف / غير معروف",
-    "uncategorizedIniTitle": "مفاتيح موجودة في ملف INI لديك لكنها غير موجودة في المخطط (مفاتيح أحدث من اللعبة الأصلية، أو مفاتيح أضافها مود، أو مفاتيح مخصصة)",
     "uncategorizedSandboxLabel": "إعدادات إضافية",
-    "uncategorizedSandboxTitle": "إعدادات Sandbox التي لم يجمّعها المحرر في فئات بعد",
-    "modifiedCountTitle_zero": "تغييرات غير محفوظة: {{count}}",
-    "modifiedCountTitle_two": "تغييرات غير محفوظة: {{count}}",
-    "modifiedCountTitle_few": "تغييرات غير محفوظة: {{count}}",
-    "modifiedCountTitle_many": "تغييرات غير محفوظة: {{count}}",
     "matchCount_zero": "النتائج: {{count}}",
     "matchCount_two": "النتائج: {{count}}",
     "matchCount_few": "النتائج: {{count}}",
@@ -238,8 +223,6 @@
   },
   "sandboxTab": {
     "sectionLabel": "Sandbox",
-    "sectionSublabel": "العالم والزومبي والنجاة",
-    "build42Title": "مُحسَّن لـ Build 42",
     "build42Body": "قيم Sandbox وصياغة الخيارات في هذا المحرر مطابقة للقيم الافتراضية في Project Zomboid Build 42.",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -248,8 +231,7 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "نقاط الظهور",
-    "sectionSublabel": "تديرها المودات · مواقع بدء اللاعبين",
-    "infoTab": "معلومات",
+    "sectionSublabel": "مواقع بدء اللاعبين، وتديرها عادةً المودات",
     "modManagedTitle": "نقاط الظهور تديرها المودات",
     "modManagedBody": "تتولى مودات مثل “Spawn Select” عادةً إدارة مواقع الظهور. انتقل إلى الوضع <1>خام</1> لفحص الملف أو تعديله مباشرةً.",
     "openRawFile": "فتح الملف الخام"
@@ -282,12 +264,11 @@
     "sectionLabel": "خيارات Sandbox للمودات",
     "sectionSublabelLoaded_one": "{{count}} مود · مباشر من الجسر",
     "sectionSublabelLoaded_other": "المودات: {{count}} · مباشر من الجسر",
-    "sectionSublabelIdle": "panelbridge · مباشر",
+    "sectionSublabelIdle": "مباشرة من PanelBridge",
     "modifiedBadge": "المعدَّلة: {{count}}",
     "refresh": "تحديث",
     "load": "تحميل",
     "searchPlaceholder": "ابحث في إعدادات المودات…  (اضغط /)",
-    "clearSearchAria": "مسح البحث",
     "modifiedFilterNoneTitle": "لا يختلف أي خيار عن القيمة الافتراضية",
     "modifiedFilterTitle": "عرض الخيارات المختلفة عن القيمة الافتراضية فقط",
     "modifiedFilter": "المعدَّلة",
@@ -317,7 +298,7 @@
     "offCaps": "مُعطَّل",
     "toggleAria": "{{label}}: {{state}}",
     "resetToDefaultTitle": "إعادة التعيين إلى الافتراضي: {{value}}",
-    "resetToDefaultLabel": "افتراضي: {{value}}",
+    "resetToDefaultLabel": "إعادة إلى {{value}}",
     "resetToDefaultTooltip": "إعادة التعيين إلى الافتراضي: {{value}}",
     "noModifiedOptions": "لم يُعدَّل أي خيار عن قيمته الافتراضية.",
     "showAllOptions": "عرض جميع الخيارات",
@@ -336,24 +317,11 @@
     "groupModifiedTitle_zero": "خيارات تختلف عن القيمة الافتراضية: {{count}}",
     "groupModifiedTitle_two": "خيارات تختلف عن القيمة الافتراضية: {{count}}",
     "groupModifiedTitle_few": "خيارات تختلف عن القيمة الافتراضية: {{count}}",
-    "groupModifiedTitle_many": "خيارات تختلف عن القيمة الافتراضية: {{count}}"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} تغيير غير محفوظ",
-    "unsavedChange_other": "تغييرات غير محفوظة: {{count}}",
-    "iniScope": "server ini",
-    "sandboxScope": "sandbox lua",
-    "hint": "ctrl+s للحفظ · يُطبَّق عند إعادة التحميل",
-    "discard": "تجاهل",
-    "save": "حفظ",
-    "saveAndReload": "حفظ وإعادة تحميل",
-    "unsavedChange_zero": "تغييرات غير محفوظة: {{count}}",
-    "unsavedChange_two": "تغييرات غير محفوظة: {{count}}",
-    "unsavedChange_few": "تغييرات غير محفوظة: {{count}}",
-    "unsavedChange_many": "تغييرات غير محفوظة: {{count}}"
+    "groupModifiedTitle_many": "خيارات تختلف عن القيمة الافتراضية: {{count}}",
+    "manageMods": "إدارة المودات"
   },
   "backupsDialog": {
-    "title": "النسخ الاحتياطية للتهيئة",
+    "title": "نسخ احتياطية لملفات التهيئة",
     "description": "استعِد نسخة سابقة من ملفات التهيئة. تُنشأ النسخ الاحتياطية تلقائيًا عند الحفظ.",
     "filterLabel": "التصفية:",
     "filterAll": "كل الملفات",
@@ -378,9 +346,9 @@
     "totalCount_many": "إجمالي النسخ الاحتياطية: {{count}}"
   },
   "templatesDialog": {
-    "title": "التهيئات المحفوظة",
+    "title": "لقطات التهيئة",
     "applyTip": "تطبيق تهيئة محفوظة يستبدل كل إعداداتك الحالية — فهو لا يدمجها مع الموجود الآن. تأخذ اللوحة نسخة احتياطية مما هو فعّال قبل التطبيق، فيمكن للاستعادة التراجع عنه، لكن يجب إيقاف الخادم أولًا.",
-    "description": "احفظ تهيئتك الحالية، أو حمّل واحدة حفظتها سابقًا.",
+    "description": "احفظ الإعدادات الحالية كلقطة، أو طبّق لقطة حفظتها سابقًا.",
     "savedCount_one": "{{count}} تهيئة محفوظة",
     "savedCount_other": "عدد التهيئات المحفوظة: {{count}}",
     "saveCurrentAsTemplate": "حفظ التهيئة الحالية",
@@ -425,13 +393,21 @@
   "applyTemplateConfirm": {
     "title": "تطبيق التهيئة المحفوظة \"{{name}}\"؟",
     "description": "استبدال إعدادات خادمك الحالية بهذه التهيئة المحفوظة؟ تأخذ اللوحة نسخة احتياطية مما هو فعّال أولًا، فيمكن للاستعادة التراجع عنه عند الحاجة.",
-    "rconWarning": "كلمة مرور RCON غير مخزَّنة ضمن التهيئات المحفوظة، لذا سيؤدي تطبيق هذه التهيئة إلى إزالة كلمة مرور RCON من خادمك — وستحتاج إلى إدخالها من جديد بعد ذلك.",
+    "secretsKept": "لا تحفظ التهيئات المحفوظة كلمات المرور ولا الرموز المميزة، لذا يُبقي تطبيق هذه التهيئة كلمة مرور RCON وكلمة مرور الخادم والرموز المميزة الحالية لخادمك كما هي.",
     "confirmLabel": "تطبيق"
   },
   "restoreBackupConfirm": {
     "title": "استعادة هذه النسخة الاحتياطية؟",
     "description": "استبدال الملف الحالي بـ \"{{filename}}\"؟ ستُفقد التغييرات غير المحفوظة على التهيئة الفعّالة.",
     "confirmLabel": "استعادة"
+  },
+  "switchEditorConfirm": {
+    "rawTitle": "تجاهل تعديلاتك غير المحفوظة في المحرر الخام؟",
+    "rawDescription": "يحتوي المحرر الخام على تغييرات غير محفوظة. سيؤدي المتابعة إلى تجاهلها وإعادة تحميل الملف من القرص.",
+    "rawConfirm": "تجاهل التعديلات",
+    "formTitle": "فتح المحرر الخام بدون تغييرات النموذج؟",
+    "formDescription": "يعرض المحرر الخام الملف كما هو على القرص، بدون تغييرات النموذج غير المحفوظة. سيؤدي الحفظ من المحرر الخام إلى استبدالها.",
+    "formConfirm": "فتح المحرر الخام"
   },
   "fileBrowserDialog": {
     "title": "اختيار ملف صورة",
@@ -463,7 +439,7 @@
   "toasts": {
     "error": "خطأ",
     "loadConfigFailed": "فشل تحميل تهيئة الخادم.",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "تغيّر الخادم النشط منذ تحميل هذه الصفحة. أعد التحميل قبل الحفظ حتى لا تكتب فوق الخادم الخطأ.",
     "invalidIniTitle": "إعدادات خادم غير صالحة",
     "invalidSandboxTitle": "قيم Sandbox غير صالحة",
     "fixSettings": "صحّح: {{settings}}",
@@ -3242,23 +3218,23 @@
         "description": "عدد الأيام حتى تبلغ أعداد الفئران ذروتها."
       },
       "Farming": {
-        "label": "مضاعف الزراعة",
-        "description": "معدّل ارتقاء مهارة الزراعة.",
+        "label": "سرعة نمو المزروعات (Farming)",
+        "description": "سرعة نمو النباتات القديمة. يُخفي Build 42 هذا الخيار داخل اللعبة ويعتمد بدلًا منه على سرعة الزراعة (FarmingSpeedNew).",
         "options": {
           "1": {
-            "label": "منخفض جدًا"
+            "label": "سريع جدًا"
           },
           "2": {
-            "label": "منخفض"
+            "label": "سريع"
           },
           "3": {
             "label": "عادي"
           },
           "4": {
-            "label": "مرتفع"
+            "label": "بطيء"
           },
           "5": {
-            "label": "مرتفع جدًا"
+            "label": "بطيء جدًا"
           }
         }
       },
@@ -3318,7 +3294,7 @@
       },
       "FarmingSpeedNew": {
         "label": "سرعة الزراعة",
-        "description": "مضاعف سرعة النمو. القيم الأقل تعني نموًا أسرع."
+        "description": "مضاعف سرعة نمو النباتات. القيم الأعلى تعني نموًا أسرع (2 = أسرع بمرتين)."
       },
       "FarmingAmountNew": {
         "label": "كمية المحصول",
@@ -3679,16 +3655,16 @@
         "description": "المسافة حول نقاط الظهور التي تُخلى من الزومبي.",
         "options": {
           "1": {
-            "label": "بلا"
+            "label": "داخل المبنى وحوله"
           },
           "2": {
-            "label": "صغيرة"
+            "label": "داخل المبنى"
           },
           "3": {
-            "label": "متوسطة"
+            "label": "داخل الغرفة"
           },
           "4": {
-            "label": "كبيرة"
+            "label": "يمكن أن يظهر الزومبي في أي مكان"
           },
           "5": {
             "label": "كبيرة جدًا"
@@ -4002,7 +3978,7 @@
             "label": "بلا"
           },
           "2": {
-            "label": "نادر جدًا"
+            "label": "نادر للغاية"
           },
           "3": {
             "label": "نادر"

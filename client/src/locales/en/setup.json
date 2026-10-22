@@ -32,7 +32,7 @@
     "capsLockOn": "Caps Lock is on",
     "showPassword": "Show password",
     "hidePassword": "Hide password",
-    "hint": "Use at least 6 characters.",
+    "hint": "Use at least 10 characters.",
     "strength": {
       "tooShort": "Too short",
       "weak": "Weak",
@@ -55,13 +55,14 @@
     "setupTokenRequired": "Enter the setup token printed to the panel's startup log or console output.",
     "invalidSetupToken": "Invalid or missing setup token. Check the panel's startup log or console output for the one-time token.",
     "invalidUsername": "Username must be 3-32 characters (letters, numbers, _ or -)",
-    "passwordTooShort": "Password must be at least 6 characters",
+    "passwordTooShort": "Password must be at least 10 characters",
     "passwordsDontMatch": "Passwords do not match",
     "invalidPort": "Panel port must be a whole number between 1024 and 65535",
     "setupFailed": "Setup failed"
   },
   "afterThisStep": {
     "heading": "After this step",
+    "nextHeading": "What happens next",
     "previewBadge": "Preview",
     "step1Title": "Bring a server into the panel",
     "step1Desc": "Add an existing install or run the guided setup to create one.",

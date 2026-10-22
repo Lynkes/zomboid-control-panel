@@ -1,7 +1,6 @@
 {
   "page": {
     "title": "伺服器檔案",
-    "eyebrow": "檔案",
     "description": "瀏覽並修改每個伺服器的遊戲安裝資料夾和 Zomboid 資料夾中的檔案。",
     "serverPicker": "伺服器",
     "activeBadge": "作用中",
@@ -30,13 +29,13 @@
       "permissions": "面板的帳號無法在此寫入。"
     },
     "unavailable": {
-      "missing": "此資料夾不存在。請在「我的伺服器」中檢查路徑。",
-      "notConfigured": "此伺服器尚未設定資料夾。請在「我的伺服器」中新增。",
+      "missing": "此資料夾不存在。請在「伺服器列表」中檢查路徑。",
+      "notConfigured": "此伺服器尚未設定資料夾。請在「伺服器列表」中新增。",
       "notMounted": "面板的容器看不到此資料夾。請在 Docker 設定中掛載它，然後重新啟動面板。",
       "remoteNotActive": "切換到此伺服器後，即可透過 SFTP 瀏覽其檔案。",
       "remoteNotConfigured": "請先在「設定 › PanelBridge」中新增此伺服器的 SFTP 登入資訊和 Server 資料夾。",
       "remoteInstallNotSet": "設定遠端遊戲安裝資料夾後即可瀏覽。",
-      "tooBroad": "這是磁碟機根目錄、系統資料夾或家目錄，檔案管理員不會開啟它。請在「我的伺服器」中將伺服器指向它自己的資料夾。",
+      "tooBroad": "這是磁碟機根目錄、系統資料夾或家目錄，檔案管理員不會開啟它。請在「伺服器列表」中將伺服器指向它自己的資料夾。",
       "overlapsPanel": "此資料夾位於面板本身的資料夾內，檔案管理員不會開啟它。",
       "unreadable": "面板無法讀取此資料夾（{{detail}}）。",
       "sftpUnreachable": "面板無法透過 SFTP 連線到此伺服器。"
@@ -135,7 +134,7 @@
       "panelBackups": "世界備份。請在「伺服器備份」頁面下載、還原或刪除它們。",
       "bridgeIo": "PanelBridge 的命令資料夾。只有面板和遊戲會寫入此處。",
       "bridgeManaged": "PanelBridge 本身的檔案。請在「設定 › PanelBridge」中變更其安裝方式。",
-      "launchScripts": "面板會在每次啟動前重寫此啟動腳本。請在「我的伺服器」中變更記憶體、連接埠和密碼。"
+      "launchScripts": "面板會在每次啟動前重寫此啟動腳本。請在「伺服器列表」中變更記憶體、連接埠和密碼。"
     },
     "containsProtected": "此資料夾包含受面板保護的內容，因此無法整個移動、重新命名或刪除。",
     "openBackups": "開啟伺服器備份",
@@ -257,6 +256,7 @@
     "previousVersion": "上一個版本在資源回收筒中",
     "wrap": "自動換行",
     "escHint": "按 Esc，再按 Tab，即可離開編輯器。",
+    "editWithForm": "在「伺服器設定」中用表單編輯",
     "lineCount_one": "{{count}} 行",
     "lineCount_other": "{{count}} 行",
     "bom": "BOM",
@@ -272,7 +272,7 @@
     },
     "hints": {
       "restartToApply": "伺服器在啟動時讀取此檔案。重新啟動伺服器以套用你的變更。",
-      "panelRewritesKeys": "面板會在每次啟動前重寫此檔案中的 RCONPassword 和 RCONPort。請改為在「我的伺服器」中修改。",
+      "panelRewritesKeys": "面板會在每次啟動前重寫此檔案中的 RCONPassword 和 RCONPort。請改為在「伺服器列表」中修改。",
       "luaChecksum": "修改遊戲 Lua 檔案會使其與玩家的副本不一致。啟用 DoLuaChecksum=true 時，玩家將無法加入。",
       "steamUpdateOverwrites": "Steam 更新和檔案校驗會取代在此修改過的遊戲檔案。",
       "bridgeWorkshopEntries": "請保留 Mods= 中的 ZCPB 以及 WorkshopItems= 中對應的創意工坊項目。面板會在下次啟動時將其補回。",

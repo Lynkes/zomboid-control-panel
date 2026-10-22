@@ -82,6 +82,21 @@ export function hasActiveSteamOperation(normalizedPath) {
   return true;
 }
 
+// The operation type workshopDownload.js registers while SteamCMD fetches one
+// Workshop item. That download writes only under
+// <install>/steamapps/workshop, never the game files, so it must not hold a
+// server down: a restart during a mod download used to be refused and left
+// the server stopped.
+export const WORKSHOP_DOWNLOAD_OPERATION_TYPE = "workshop-download";
+
+// hasActiveSteamOperation() for the "may this server start" question: an
+// install/update/verify (or anything else that writes the game files) still
+// blocks, a Workshop item download does not.
+export function hasStartBlockingSteamOperation(normalizedPath) {
+  if (!hasActiveSteamOperation(normalizedPath)) return false;
+  return activeSteamOperations.get(normalizedPath)?.type !== WORKSHOP_DOWNLOAD_OPERATION_TYPE;
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Crash-survival mirror. The Map above only guards for as long as THIS
 // PROCESS lives -- if the panel itself crashes (not the update failing,

@@ -1,0 +1,175 @@
+{
+  "title": "Problems found",
+  "description": "Errors from the server's latest log and from the panel, each with what to do about it.",
+  "rescan": "Re-scan",
+  "scanning": "Scanning…",
+  "scanDone": "Scan finished",
+  "scanDoneCount": "Problems found: {{n}}",
+  "scanFailed": "Couldn't scan for problems: {{message}}",
+  "scanFailedFallback": "the panel didn't answer",
+  "scannedAt": "Scanned {{time}}",
+  "times": "Seen {{n}}×",
+  "lastSeen": "Last {{time}}",
+  "lastSeenLog": "Log of {{time}}",
+  "modLine": "Mod: {{mod}}",
+  "workshopLine": "Workshop item",
+  "showLines": "Show log lines ({{n}})",
+  "hideLines": "Hide log lines",
+  "fixedNote": "Fixed. This entry leaves the log after the server's next start.",
+  "noPermission": "Your role can see this problem but can't apply its fixes.",
+  "partialLog": "The log is long: its start and its end were read.",
+  "undo": "Undo",
+  "undoneToast": "Undone",
+  "severity": {
+    "critical": "Critical",
+    "warning": "Warnings",
+    "info": "Info"
+  },
+  "category": {
+    "mods": "Mods",
+    "server": "Server",
+    "network": "Network",
+    "panel": "Panel"
+  },
+  "empty": {
+    "title": "No problems found",
+    "checked": "Checked {{lines}} lines of {{file}} (written {{time}}), {{panel}} panel errors and {{mods}} installed mods.",
+    "noLog": "The server's log wasn't found in its data folder, so only the panel's own errors were checked ({{panel}})."
+  },
+  "kinds": {
+    "luaError": {
+      "title": "Lua error in {{mod}}",
+      "titleVanilla": "Lua error in the game's own scripts",
+      "why": "A script failed. The rest of that script stops, so part of the mod doesn't work. Disabling the mod stops the error; its author can fix it."
+    },
+    "luaFileError": {
+      "title": "A Lua file couldn't be loaded",
+      "why": "The game found an error in {{file}} and skipped it. This is usually a mod made for another game version."
+    },
+    "modRequiredMissing": {
+      "title": "Required mod {{mod}} is missing",
+      "why": "A mod needs \"{{mod}}\", but no installed Workshop item ships it, so the mod that needs it is skipped."
+    },
+    "modInfoMissing": {
+      "title": "A mod folder has no mod.info",
+      "why": "The game can't read this mod: its download is incomplete, or it isn't made for Build 42."
+    },
+    "workshopDownload": {
+      "title": "Workshop item {{id}} didn't download",
+      "why": "The server couldn't download it (removed, private, or refused by Steam) and stops while starting."
+    },
+    "workshopOutdated": {
+      "title": "A Workshop mod was updated",
+      "why": "The server still runs the old version. Players get the new one and can't join (\"Workshop item version is different than the server's\") until the server restarts."
+    },
+    "steamUnreachable": {
+      "title": "The server couldn't reach Steam",
+      "why": "It stopped while starting. Check this machine's network, firewall or proxy, then start it again."
+    },
+    "steamOff": {
+      "title": "The server runs without Steam",
+      "why": "It started without Steam, so none of its {{n}} Workshop items load. Turn off \"No Steam\" in the server's settings."
+    },
+    "portInUse": {
+      "title": "The game port couldn't be opened",
+      "why": "Port {{port}} couldn't be opened (code {{code}}). Another program, often a second copy of this server, is using it. Stop it or choose another port."
+    },
+    "rconPortInUse": {
+      "title": "RCON port {{port}} is already in use",
+      "why": "RCON doesn't work, so the panel can't send commands to the server. Choose another RCON port."
+    },
+    "rconAuth": {
+      "title": "RCON password rejected",
+      "why": "A connection to RCON used the wrong password. If it was the panel, give the server the same RCON password here as in its .ini file."
+    },
+    "outOfMemory": {
+      "title": "The server ran out of memory",
+      "why": "Java ran out of memory ({{detail}}). The server freezes or stops. Give it more memory.",
+      "whyPlain": "Java ran out of memory. The server freezes or stops. Give it more memory."
+    },
+    "chunkLoad": {
+      "title": "Map chunks couldn't be loaded",
+      "why": "Some chunks couldn't be read ({{chunks}}). They may be damaged; Map Cleanup can reset them."
+    },
+    "startupCrash": {
+      "title": "The server crashed while starting",
+      "why": "It stopped before \"SERVER STARTED\". The last lines of its log, below, say why."
+    },
+    "javaException": {
+      "title": "Game error: {{exception}}",
+      "why": "The game reported an unexpected error. If it keeps coming back, its log lines help find the cause."
+    },
+    "other": {
+      "title": "Logged error",
+      "why": "The game logged this error. Many are harmless; look at it if something doesn't work."
+    },
+    "panelBridge": {
+      "title": "PanelBridge error",
+      "why": "PanelBridge, the panel's in-game helper, reported an error. Some live features may not work."
+    },
+    "panelError": {
+      "title": "Panel error ({{source}})",
+      "why": "The panel itself reported this error."
+    },
+    "processScanFailing": {
+      "title": "Windows process detection keeps failing",
+      "why": "The panel's check for the server process failed {{n}} times recently, usually because this PC is slow or antivirus software scans each PowerShell check. The panel now waits longer for it, and Start and restarts also accept the RCON port closing plus the game log's shutdown lines as proof the server stopped. If it still can't tell, Start asks you to confirm."
+    }
+  },
+  "fix": {
+    "disableMod": "Disable {{mod}}",
+    "modsHealthFix": "Apply the Health check fix",
+    "raiseMemory": "Raise max memory: {{current}} GB → {{next}} GB",
+    "restartServer": "Restart server",
+    "startServer": "Start server",
+    "open": "Open",
+    "openModsHealth": "Open Mods › Health check",
+    "openMods": "Open Mods",
+    "openServers": "Open Servers",
+    "openBridge": "Open PanelBridge settings",
+    "openChunks": "Open Map Cleanup",
+    "openLogs": "Open Logs",
+    "openConsole": "Open Console"
+  },
+  "confirm": {
+    "title": "Are you absolutely sure?",
+    "disableMod": "{{mod}} is removed from Mods=. From the next restart, its items and buildings may vanish from the world. Undo puts it back.",
+    "healthFix": "This changes the mod list: {{label}}. Undo puts it back.",
+    "restart": "The server restarts now and players are disconnected.",
+    "start": "The server starts with its current settings."
+  },
+  "toast": {
+    "applied": "Fix applied",
+    "modDisabled": "{{mod}} disabled",
+    "nextRestart": "It takes effect at the server's next restart.",
+    "memory": "Max memory set to {{next}} GB",
+    "nextStart": "It takes effect at the server's next start.",
+    "healthGone": "The Mods health check has nothing left to fix for this.",
+    "restarting": "Restart requested",
+    "starting": "Start requested",
+    "fixFailed": "Couldn't apply the fix: {{message}}"
+  },
+  "fixAll": {
+    "button": "Fix all safe issues",
+    "title": "Fix all safe issues",
+    "description": "These fixes change only what's listed, nothing restarts, and Undo puts everything back.",
+    "reason": "Fixes \"{{title}}\" in the mod list.",
+    "memoryReason": "Fixes \"{{title}}\". Takes effect at the next start.",
+    "needsDecision": "{{n}} more problems need your decision: use their own buttons.",
+    "nothing": "No problem here has a safe automatic fix. Use the buttons on each problem.",
+    "apply": "Apply {{n}} fixes",
+    "cancel": "Cancel",
+    "close": "Close",
+    "snapshotStep": "Keeping the mod list for Undo",
+    "running": "Fixing {{current}} of {{total}}: {{label}}",
+    "undoing": "Undoing…",
+    "doneTitle": "Fixes applied",
+    "doneDesc": "Applied: {{applied}}. Already solved: {{skipped}}. They take effect at the server's next start.",
+    "failedTitle": "Stopped at: {{label}}",
+    "failedDesc": "{{message}}. The fixes before it stay applied ({{applied}}); Undo puts them back.",
+    "failedFallback": "the panel didn't answer",
+    "undoneTitle": "Undone",
+    "undoneDesc": "Everything this run changed is back as it was.",
+    "undoFailed": "Couldn't undo: {{message}}"
+  }
+}

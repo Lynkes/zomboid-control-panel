@@ -140,7 +140,7 @@ function renderEvents() {
 }
 
 async function openHordeSection() {
-  fireEvent.click(await screen.findByText(enEvents.sections.horde.label))
+  fireEvent.click(await screen.findByRole('button', { name: enEvents.sections.horde.label }))
 }
 
 function pickSpecificPlayerTarget() {

@@ -87,6 +87,22 @@ async function renderAndOpen(trigger: RegExp) {
   return screen.findByRole('dialog')
 }
 
+// Config file backups sit in the header's "More" menu (UX plan §4).
+async function renderAndOpenBackups() {
+  mockLoads()
+  render(
+    <MemoryRouter initialEntries={['/server-config']}>
+      <TooltipProvider>
+        <ServerConfig />
+      </TooltipProvider>
+    </MemoryRouter>,
+  )
+  await waitFor(() => expect(getIni).toHaveBeenCalled())
+  fireEvent.pointerDown(await screen.findByRole('button', { name: en.pageHeader.more }), { button: 0, ctrlKey: false })
+  fireEvent.click(await screen.findByRole('menuitem', { name: en.pageHeader.backups }))
+  return screen.findByRole('dialog')
+}
+
 function expectListShrinksAndFooterStaysOut(dialog: HTMLElement, rowText: string, pinned: HTMLElement[]) {
   // flex-col replaces DialogContent's grid, in which the list could not shrink.
   expect(dialog.className).toMatch(/(^|\s)flex(\s|$)/)
@@ -112,7 +128,7 @@ function expectListShrinksAndFooterStaysOut(dialog: HTMLElement, rowText: string
 
 describe('ServerConfig -- list dialogs keep their footer out of the shrinking list', () => {
   it('Backups: the filter row, title and Close stay outside the backup list', async () => {
-    const dialog = await renderAndOpen(/^backups$/i)
+    const dialog = await renderAndOpenBackups()
     await within(dialog).findByText('ini-backup-0.zip')
     // DialogContent's dvh bound, not the old 85vh/80vh cap: in a flex
     // column a lower cap only takes rows away from the list.
@@ -138,8 +154,8 @@ describe('ServerConfig -- list dialogs keep their footer out of the shrinking li
     expect(allFiles.parentElement!.className).toMatch(/(^|\s)flex-wrap(\s|$)/)
   })
 
-  it('Saved Configs: the Save Current Config row, title and Close stay outside the template list', async () => {
-    const dialog = await renderAndOpen(/saved configs/i)
+  it('Config snapshots: the Save Current Config row, title and Close stay outside the template list', async () => {
+    const dialog = await renderAndOpen(/^config snapshots$/i)
     await within(dialog).findByText('Template 0')
     expect(dialog.className).toContain('max-h-[calc(100dvh-2rem)]')
 
@@ -154,15 +170,15 @@ describe('ServerConfig -- list dialogs keep their footer out of the shrinking li
   // tabbable element, so its tooltip opened over the description on every
   // open (see HelpTip.test.tsx for the fix); and Save Current Config's form
   // scrolled as a whole, taking Save Config below the fold at 1280x620.
-  it('Saved Configs opens without its title tooltip over the description', async () => {
-    const dialog = await renderAndOpen(/saved configs/i)
+  it('Config snapshots opens without its title tooltip over the description', async () => {
+    const dialog = await renderAndOpen(/^config snapshots$/i)
     await within(dialog).findByText('Template 0')
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('Save Current Config: the fields scroll in a body; Save Config and Cancel stay out of it', async () => {
-    const templates = await renderAndOpen(/saved configs/i)
+    const templates = await renderAndOpen(/^config snapshots$/i)
     fireEvent.click(within(templates).getByRole('button', { name: en.templatesDialog.saveCurrentAsTemplate }))
     const dialog = (await screen.findAllByRole('dialog')).find((d) => within(d).queryByText(en.saveTemplateDialog.title))!
     const body = dialog.querySelector<HTMLElement>(':scope > [data-dialog-body]')

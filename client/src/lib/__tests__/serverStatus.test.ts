@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { deriveDashboardStatus, resolveClientProvider, resolveServerCardRunning, resolveServerRunning, waitForServerState } from '../serverStatus'
+import { deriveDashboardStatus, isStatusEventForServer, resolveClientProvider, resolveServerCardRunning, resolveServerRunning, waitForServerState } from '../serverStatus'
 
 describe('resolveClientProvider', () => {
   it('returns null for no server', () => {
@@ -494,5 +494,34 @@ describe('waitForServerState', () => {
     await expect(waitForServerState(fetchStatus, 7, true, undefined, { pollMs: 0 }))
       .resolves.toBe(true)
     expect(fetchStatus).toHaveBeenCalledTimes(2)
+  })
+})
+
+// scheduler.js names the server a restart is about in the server:status
+// pushes it sends (serverId); every other emit site names none and means the
+// active server.
+describe('isStatusEventForServer', () => {
+  it('treats a push that names no server as being about the active one', () => {
+    expect(isStatusEventForServer({ running: false } as never, 1)).toBe(true)
+    expect(isStatusEventForServer({ serverId: null }, 1)).toBe(true)
+    expect(isStatusEventForServer(undefined, 1)).toBe(true)
+    expect(isStatusEventForServer(null, null)).toBe(true)
+  })
+
+  it('applies a push naming the active server, whether the ids are strings or numbers', () => {
+    expect(isStatusEventForServer({ serverId: 1 }, 1)).toBe(true)
+    expect(isStatusEventForServer({ serverId: '1' }, 1)).toBe(true)
+    expect(isStatusEventForServer({ serverId: 1 }, '1')).toBe(true)
+    expect(isStatusEventForServer({ serverId: 'srv-a' }, 'srv-a')).toBe(true)
+  })
+
+  it('does not apply a push naming another server', () => {
+    expect(isStatusEventForServer({ serverId: 2 }, 1)).toBe(false)
+    expect(isStatusEventForServer({ serverId: 'srv-b' }, 'srv-a')).toBe(false)
+  })
+
+  it('does not apply a push naming a server while no active server is known yet', () => {
+    expect(isStatusEventForServer({ serverId: 2 }, null)).toBe(false)
+    expect(isStatusEventForServer({ serverId: 2 }, undefined)).toBe(false)
   })
 })

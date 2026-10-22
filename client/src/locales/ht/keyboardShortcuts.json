@@ -7,17 +7,6 @@
     "pageActions": "Aksyon Paj",
     "general": "Jeneral"
   },
-  "nav": {
-    "dashboard": "Tablo",
-    "console": "Konsòl",
-    "players": "Jwè",
-    "chat": "Chat",
-    "events": "Evènman",
-    "mods": "Mods",
-    "backups": "Kopi sovgad",
-    "serverConfig": "Konfigirasyon Sèvè",
-    "settings": "Paramèt"
-  },
   "page": {
     "save": "Sove",
     "focusSearch": "Fokis rechèch",
@@ -25,5 +14,6 @@
     "switchConsoleTab": "Chanje onglè konsòl",
     "toggleAutoScroll": "Bakile defile otomatik (Konsòl)"
   },
+  "openPalette": "Ouvri palèt kòmand lan",
   "showShortcuts": "Montre rakousi klavye"
 }

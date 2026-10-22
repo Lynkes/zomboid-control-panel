@@ -4,6 +4,9 @@ const getActiveServer = vi.fn();
 
 vi.mock("../database/init.js", () => ({
   getActiveServer,
+  // The RCON signal's host:port detail goes only to a role that works with
+  // RCON (utils/rconTargetView.js; rconTargetRedaction.test.js covers it).
+  getRoleByName: async (name) => (name === "admin" ? { name, capabilities: ["servers.manage"] } : null),
 }));
 
 const fakeBridge = {
@@ -239,6 +242,7 @@ describe("GET /api/servers/active/status", () => {
 
     await getStatusHandler()(
       {
+        user: { id: "u1", username: "admin", role: "admin" },
         app: fakeApp({
           serverManager: {
             getServerProcessDetails: async () => ({ running: false, scanFailed: false }),

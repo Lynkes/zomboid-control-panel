@@ -98,7 +98,10 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
+    // Save sits in the SaveBar once there is an edit; a still out-of-range
+    // one keeps it disabled.
+    fireEvent.change(await screen.findByDisplayValue('6000'), { target: { value: '6001' } })
+    expect(await screen.findByRole('button', { name: /^save$/i })).toBeDisabled()
     // The warn-only banner is toggle-gated and must not appear while off.
     expect(screen.queryByText(/will still be saved/i)).not.toBeInTheDocument()
   })
@@ -122,7 +125,8 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
     expect(screen.getByText(/fix invalid values before saving/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
+    fireEvent.change(await screen.findByDisplayValue('not-a-number'), { target: { value: 'still-not-a-number' } })
+    expect(await screen.findByRole('button', { name: /^save$/i })).toBeDisabled()
   })
 
   it('turning it back OFF does not strand the out-of-range field: it stays editable and Save re-enables once fixed', async () => {
@@ -131,7 +135,8 @@ describe('ServerConfig.tsx: sandboxRangeOverride toggle (client/src/pages/Settin
     renderServerConfigSearchingZombieDeleteCount()
 
     await waitFor(() => expect(getSandbox).toHaveBeenCalled())
-    expect(screen.getAllByRole('button', { name: /^save$/i })[0]).toBeDisabled()
+    // No edit yet: nothing to save, so no Save at all (the SaveBar is hidden).
+    expect(screen.queryByRole('button', { name: /^save$/i })).not.toBeInTheDocument()
 
     // The field itself must remain a live, editable input (not disabled) --
     // fix it back within the fallback schema range.

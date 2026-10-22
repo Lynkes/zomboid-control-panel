@@ -1,7 +1,7 @@
 {
   "time": {
     "DayLength": {
-      "label": "Tageslänge:",
+      "label": "Tageslänge (in echter Zeit)",
       "options": {
         "1": {
           "label": "15 Minuten"
@@ -28,58 +28,58 @@
           "label": "5 Stunden"
         },
         "9": {
-          "label": "12 Stunden"
+          "label": "6 Stunden"
         },
         "10": {
-          "label": "Echtzeit"
+          "label": "7 Stunden"
         },
         "11": {
-          "label": "8 stunden"
+          "label": "8 Stunden"
         },
         "12": {
-          "label": "9 stunden"
+          "label": "9 Stunden"
         },
         "13": {
-          "label": "10 stunden"
+          "label": "10 Stunden"
         },
         "14": {
-          "label": "11 stunden"
+          "label": "11 Stunden"
         },
         "15": {
-          "label": "12 stunden"
+          "label": "12 Stunden"
         },
         "16": {
-          "label": "13 stunden"
+          "label": "13 Stunden"
         },
         "17": {
-          "label": "14 stunden"
+          "label": "14 Stunden"
         },
         "18": {
-          "label": "15 stunden"
+          "label": "15 Stunden"
         },
         "19": {
-          "label": "16 stunden"
+          "label": "16 Stunden"
         },
         "20": {
-          "label": "17 stunden"
+          "label": "17 Stunden"
         },
         "21": {
-          "label": "18 stunden"
+          "label": "18 Stunden"
         },
         "22": {
-          "label": "19 stunden"
+          "label": "19 Stunden"
         },
         "23": {
-          "label": "20 stunden"
+          "label": "20 Stunden"
         },
         "24": {
-          "label": "21 stunden"
+          "label": "21 Stunden"
         },
         "25": {
-          "label": "22 stunden"
+          "label": "22 Stunden"
         },
         "26": {
-          "label": "23 stunden"
+          "label": "23 Stunden"
         },
         "27": {
           "label": "Echtzeit"
@@ -87,10 +87,10 @@
       }
     },
     "StartYear": {
-      "label": "Startjahr:"
+      "label": "Startjahr"
     },
     "StartMonth": {
-      "label": "Startmonat:",
+      "label": "Startmonat",
       "options": {
         "1": {
           "label": "Januar"
@@ -131,10 +131,10 @@
       }
     },
     "StartDay": {
-      "label": "Starttag:"
+      "label": "Starttag"
     },
     "StartTime": {
-      "label": "Startzeit:",
+      "label": "Startstunde",
       "options": {
         "1": {
           "label": "7 Uhr"
@@ -168,7 +168,7 @@
   },
   "population": {
     "Zombies": {
-      "label": "Zombie Anzahl:",
+      "label": "Zombie-Anzahl",
       "options": {
         "1": {
           "label": "Verrückt"
@@ -191,7 +191,7 @@
       }
     },
     "Distribution": {
-      "label": "Zombie Verteilung:",
+      "label": "Zombie-Verteilung",
       "options": {
         "1": {
           "label": "Mehr in Städten"
@@ -202,10 +202,10 @@
       }
     },
     "ZombieVoronoiNoise": {
-      "label": "Randomize Distribution"
+      "label": "Ungleichmäßige Zombieverteilung"
     },
     "ZombieRespawn": {
-      "label": "Zombie Rückkehr Zeitraum:",
+      "label": "Zombie-Respawn-Zeitraum",
       "options": {
         "1": {
           "label": "Oft"
@@ -236,13 +236,13 @@
       "label": "Nicht verderbliche Lebensmittel"
     },
     "LiteratureLootNew": {
-      "label": "Literatur"
+      "label": "Andere Literatur"
     },
     "SkillBookLoot": {
-      "label": "Skill Book Loot"
+      "label": "Fähigkeiten-Bücher"
     },
     "RecipeResourceLoot": {
-      "label": "Recipe Loot"
+      "label": "Rezeptressourcen"
     },
     "MedicalLootNew": {
       "label": "Medizin"
@@ -293,7 +293,7 @@
       "label": "Andere"
     },
     "RollsMultiplier": {
-      "label": "Wurf-Multiplikator [!]"
+      "label": "Wurf-Multiplikator"
     },
     "RemoveStoryLoot": {
       "label": "Ungewollte Geschichten-Beute entfernen"
@@ -314,12 +314,12 @@
       "label": "Bau verhindert Beute-Respawn"
     },
     "SeenHoursPreventLootRespawn": {
-      "label": "Beute-Gesehen-Verhinderungszeit:"
+      "label": "\"Beute gesehen\"-Sperrzeit"
     }
   },
   "lootRarity": {
     "InsaneLootFactor": {
-      "label": "Beutefaktor unfassbar selten"
+      "label": "Beutefaktor Absurd Selten"
     },
     "ExtremeLootFactor": {
       "label": "Beutefaktor extrem selten"
@@ -357,76 +357,108 @@
   },
   "environment": {
     "DayNightCycle": {
-      "label": "Day/Night Cycle",
+      "label": "Tag-Nacht-Zyklus",
       "options": {
         "1": {
           "label": "Normal"
         },
         "2": {
-          "label": "Endless Day"
+          "label": "Immer Tag"
         },
         "3": {
-          "label": "Endless Night"
+          "label": "Immer Nacht"
         }
       }
     },
     "ClimateCycle": {
-      "label": "Weather Cycle",
+      "label": "Klimazyklus",
       "options": {
         "1": {
           "label": "Normal"
         },
         "2": {
-          "label": "No Weather"
+          "label": "Kein Wetter"
         },
         "3": {
-          "label": "Endless Rain"
+          "label": "Immer Regen"
         },
         "4": {
-          "label": "Endless Storm"
+          "label": "Immer Sturm"
         },
         "5": {
-          "label": "Endless Snow"
+          "label": "Immer Schnee"
         },
         "6": {
-          "label": "Endless Blizzard"
+          "label": "Immer Schneesturm"
         }
       }
     },
     "FogCycle": {
-      "label": "Fog Cycle",
+      "label": "Nebelzyklus",
       "options": {
         "1": {
           "label": "Normal"
         },
         "2": {
-          "label": "No Fog"
+          "label": "Kein Nebel"
         },
         "3": {
-          "label": "Endless Fog"
+          "label": "Immer Nebel"
         }
       }
     },
     "WaterShut": {
-      "label": "Wasserausfall:",
+      "label": "Wasserausfall",
       "options": {
         "1": {
           "label": "Sofort"
         },
         "2": {
-          "label": "0-30 Tage"
+          "label": "0 - 30 Tage"
         },
         "3": {
-          "label": "0-2 Monate"
+          "label": "0 - 2 Monate"
         },
         "4": {
-          "label": "0-6 Monate"
+          "label": "0 - 6 Monate"
         },
         "5": {
-          "label": "0-1 Jahr"
+          "label": "0 - 1 Jahr"
         },
         "6": {
-          "label": "0-5 Jahre"
+          "label": "0 - 5 Jahre"
+        },
+        "7": {
+          "label": "2 - 6 Monate"
+        },
+        "8": {
+          "label": "6 - 12 Monate"
+        },
+        "9": {
+          "label": "Deaktiviert"
+        }
+      }
+    },
+    "ElecShut": {
+      "label": "Stromausfall",
+      "options": {
+        "1": {
+          "label": "Sofort"
+        },
+        "2": {
+          "label": "14-30 Tage"
+        },
+        "3": {
+          "label": "14 Tage - 2 Monate"
+        },
+        "4": {
+          "label": "14 Tage - 6 Monate"
+        },
+        "5": {
+          "label": "14 Tage - 1 Jahr"
+        },
+        "6": {
+          "label": "14 Tage - 5 Jahre"
         },
         "7": {
           "label": "2-6 Monate"
@@ -436,38 +468,6 @@
         },
         "9": {
           "label": "Deaktiviert"
-        }
-      }
-    },
-    "ElecShut": {
-      "label": "Stromausfall:",
-      "options": {
-        "1": {
-          "label": "Instant"
-        },
-        "2": {
-          "label": "14 - 30 Days"
-        },
-        "3": {
-          "label": "14 Days - 2 Months"
-        },
-        "4": {
-          "label": "14 Days - 6 Months"
-        },
-        "5": {
-          "label": "14 Days - 1 Year"
-        },
-        "6": {
-          "label": "14 Days - 5 Years"
-        },
-        "7": {
-          "label": "2 - 6 Months"
-        },
-        "8": {
-          "label": "6 - 12 Months"
-        },
-        "9": {
-          "label": "Disabled"
         }
       }
     },
@@ -478,42 +478,33 @@
           "label": "Sofort"
         },
         "2": {
-          "label": "0-30 Tage"
+          "label": "0 - 30 Tage"
         },
         "3": {
-          "label": "0-2 Monate"
+          "label": "0 - 2 Monate"
         },
         "4": {
-          "label": "0-6 Monate"
+          "label": "0 - 6 Monate"
         },
         "5": {
-          "label": "0-1 Jahr"
+          "label": "0 - 1 Jahr"
         },
         "6": {
-          "label": "0-5 Jahre"
-        },
-        "7": {
-          "label": "2-6 Monate"
-        },
-        "8": {
-          "label": "6-12 Monate"
-        },
-        "9": {
-          "label": "Deaktiviert"
+          "label": "0 - 5 Jahre"
         }
       }
     },
     "WaterShutModifier": {
-      "label": "Water Shutoff Modifier"
+      "label": "Wasserabschaltung-Modifikator"
     },
     "ElecShutModifier": {
-      "label": "Electricity Shutoff Modifier"
+      "label": "Stromabschaltung-Modifikator"
     },
     "AlarmDecayModifier": {
       "label": "Alarm Decay Modifier"
     },
     "Temperature": {
-      "label": "Temperatur:",
+      "label": "Temperatur",
       "options": {
         "1": {
           "label": "Sehr kalt"
@@ -533,7 +524,7 @@
       }
     },
     "Rain": {
-      "label": "Regen:",
+      "label": "Regen",
       "options": {
         "1": {
           "label": "Sehr trocken"
@@ -553,7 +544,7 @@
       }
     },
     "ErosionSpeed": {
-      "label": "Erosionsgeschwindigkeit:",
+      "label": "Erosionsgeschwindigkeit",
       "options": {
         "1": {
           "label": "Sehr schnell (20 Tage)"
@@ -573,10 +564,10 @@
       }
     },
     "ErosionDays": {
-      "label": "Erosionstage:"
+      "label": "Erosionstage"
     },
     "MaxFogIntensity": {
-      "label": "Maximale Nebelintensität:",
+      "label": "Maximale Nebelintensität",
       "options": {
         "1": {
           "label": "Normal"
@@ -593,7 +584,7 @@
       }
     },
     "MaxRainFxIntensity": {
-      "label": "Maximale Regeneffekt Intensität:",
+      "label": "Maximale Regeneffekt-Intensität",
       "options": {
         "1": {
           "label": "Normal"
@@ -607,10 +598,10 @@
       }
     },
     "EnableSnowOnGround": {
-      "label": "Schnee auf dem Boden:"
+      "label": "Schnee auf dem Boden"
     },
     "NightDarkness": {
-      "label": "Dunkelheit während der Nacht:",
+      "label": "Dunkelheit während der Nacht",
       "options": {
         "1": {
           "label": "Pechschwarz"
@@ -647,7 +638,7 @@
       }
     },
     "TimeSinceApo": {
-      "label": "Vergangene Monate seit Beginn der Apokalypse:",
+      "label": "Vergangene Monate seit Beginn der Apokalypse",
       "options": {
         "1": {
           "label": "0"
@@ -696,7 +687,7 @@
   },
   "survival": {
     "StatsDecrease": {
-      "label": "Lebensmittelverderb:",
+      "label": "Statusrückgang",
       "options": {
         "1": {
           "label": "Sehr schnell"
@@ -716,10 +707,10 @@
       }
     },
     "Nutrition": {
-      "label": "Ernährung:"
+      "label": "Ernährung"
     },
     "FoodRotSpeed": {
-      "label": "Lebensmittelverderb:",
+      "label": "Lebensmittel verderben",
       "options": {
         "1": {
           "label": "Sehr schnell"
@@ -739,7 +730,7 @@
       }
     },
     "FridgeFactor": {
-      "label": "Kühlwirkung:",
+      "label": "Kühlwirkung",
       "options": {
         "1": {
           "label": "Sehr wenig"
@@ -762,16 +753,16 @@
       }
     },
     "StarterKit": {
-      "label": "Startausrüstung:"
+      "label": "Startausrüstung"
     },
     "CharacterFreePoints": {
-      "label": "Freie Eigenschaftspunkte:"
+      "label": "Freie Eigenschaftspunkte"
     },
     "BoneFracture": {
-      "label": "Knochenbruch:"
+      "label": "Knochenbruch"
     },
     "InjurySeverity": {
-      "label": "Verletzungsgrad:",
+      "label": "Verletzungsgrad",
       "options": {
         "1": {
           "label": "Niedrig"
@@ -785,7 +776,7 @@
       }
     },
     "EndRegen": {
-      "label": "Lebensmittelverderb:",
+      "label": "Ausdauer-Regeneration",
       "options": {
         "1": {
           "label": "Sehr schnell"
@@ -805,10 +796,10 @@
       }
     },
     "HoursForCorpseRemoval": {
-      "label": "Entfernungszeit der Leichen:"
+      "label": "Zeit bis zum Verschwinden der Leichen"
     },
     "DecayingCorpseHealthImpact": {
-      "label": "Gesundheitswirkung verfaulender Leichen:",
+      "label": "Gesundheitsauswirkung von verfaulenden Leichen",
       "options": {
         "1": {
           "label": "Keine"
@@ -823,7 +814,7 @@
           "label": "Hoch"
         },
         "5": {
-          "label": "Verrückt"
+          "label": "Absurd hoch"
         }
       }
     },
@@ -868,22 +859,22 @@
       }
     },
     "DaysForRottenFoodRemoval": {
-      "label": "Verdorbene-Nahrungsmittel-Entfernung:"
+      "label": "Verdorbene Nahrungsmittel entfernen"
     },
     "AllClothesUnlocked": {
       "label": "Alle Kleidungsstücke freigeschaltet"
     },
     "EnableTaintedWaterText": {
-      "label": "Aktivieren Sie den Tooltip „Verdorbenes Wasser“."
+      "label": "Tooltip \"Verunreinigtes Wasser\" aktivieren"
     },
     "EnablePoisoning": {
       "label": "Vergiftung aktivieren",
       "options": {
         "1": {
-          "label": "Richtig"
+          "label": "Ja"
         },
         "2": {
-          "label": "Falsch"
+          "label": "Nein"
         },
         "3": {
           "label": "Nur die Bleichmittelvergiftung ist deaktiviert"
@@ -975,7 +966,7 @@
       "label": "Maximale Menge an Brennstoff"
     },
     "Alarm": {
-      "label": "Hausalarm:",
+      "label": "Häufigkeit von Hausalarmen",
       "options": {
         "1": {
           "label": "Nie"
@@ -998,7 +989,7 @@
       }
     },
     "LockedHouses": {
-      "label": "Hausalarm:",
+      "label": "Häufigkeit von verschlossenen Häusern",
       "options": {
         "1": {
           "label": "Nie"
@@ -1021,7 +1012,7 @@
       }
     },
     "Helicopter": {
-      "label": "Helikopter:",
+      "label": "Helikopter",
       "options": {
         "1": {
           "label": "Nie"
@@ -1038,7 +1029,7 @@
       }
     },
     "MetaEvent": {
-      "label": "Meta-Event:",
+      "label": "Meta-Event",
       "options": {
         "1": {
           "label": "Nie"
@@ -1052,7 +1043,7 @@
       }
     },
     "SleepingEvent": {
-      "label": "Schlaf-Event:",
+      "label": "Schlaf-Event",
       "options": {
         "1": {
           "label": "Nie"
@@ -1066,7 +1057,7 @@
       }
     },
     "NatureAbundance": {
-      "label": "Ernteertrag",
+      "label": "Natur Ausbeute",
       "options": {
         "1": {
           "label": "Sehr schlecht"
@@ -1086,7 +1077,7 @@
       }
     },
     "FishAbundance": {
-      "label": "Ernteertrag",
+      "label": "Fischreichtum",
       "options": {
         "1": {
           "label": "Sehr schlecht"
@@ -1106,7 +1097,7 @@
       }
     },
     "AnnotatedMapChance": {
-      "label": "Kommentierte Karten:",
+      "label": "Chance auf Karten mit Anmerkungen",
       "options": {
         "1": {
           "label": "Nie"
@@ -1129,25 +1120,25 @@
       }
     },
     "ConstructionBonusPoints": {
-      "label": "Spieler-Baukonstruktions-Stärke:"
+      "label": "Spieler-Baukonstruktions-Stärke"
     },
     "GeneratorSpawning": {
-      "label": "Generator-Spawn:",
+      "label": "Generatoren",
       "options": {
         "1": {
-          "label": "Extrem selten"
+          "label": "Nie (nicht empfohlen)"
         },
         "2": {
-          "label": "Selten"
+          "label": "Absurd Selten"
         },
         "3": {
           "label": "Manchmal"
         },
         "4": {
-          "label": "Oft"
+          "label": "Selten"
         },
         "5": {
-          "label": "Sehr oft"
+          "label": "Normal"
         },
         "6": {
           "label": "Häufig"
@@ -1158,19 +1149,19 @@
       }
     },
     "GeneratorFuelConsumption": {
-      "label": "Generator-Krafstoffverbrauch:"
+      "label": "Generator-Krafstoffverbrauch"
     },
     "AllowExteriorGenerator": {
-      "label": "Generatoren im Außenbereich:"
+      "label": "Generatoren funktionieren im Außenbereich"
     },
     "GeneratorTileRange": {
-      "label": "Generator Tile Range"
+      "label": "Generator-Reichweite (in Kacheln)"
     },
     "GeneratorVerticalPowerRange": {
-      "label": "Generator Vertical Range"
+      "label": "Generator-Reichweite (vertikal)"
     },
     "CompostTime": {
-      "label": "Kompostzeit:",
+      "label": "Kompostzeit",
       "options": {
         "1": {
           "label": "1 Woche"
@@ -1199,7 +1190,7 @@
       }
     },
     "AttackBlockMovements": {
-      "label": "Nahkampf Bewegungsunterbrechung:"
+      "label": "Nahkampf-Bewegungsunterbrechung"
     },
     "WorldItemRemovalList": {
       "label": "Lösch-Liste für Items in Spielwelt"
@@ -1213,10 +1204,10 @@
   },
   "combat": {
     "MultiHitZombies": {
-      "label": "Waffen Mehrfachtreffer:"
+      "label": "Waffen Mehrfachtreffer"
     },
     "RearVulnerability": {
-      "label": "Rückseiten Verwundbarkeit:",
+      "label": "Verwundbarkeit im Rückenbereich",
       "options": {
         "1": {
           "label": "Niedrig"
@@ -1250,10 +1241,10 @@
   },
   "vehicles": {
     "EnableVehicles": {
-      "label": "Fahrzeuge aktivieren:"
+      "label": "Fahrzeuge aktivieren"
     },
     "CarSpawnRate": {
-      "label": "Fahrzeug-Spawn Rate:",
+      "label": "Fahrzeug-Spawn-Rate",
       "options": {
         "1": {
           "label": "Keine"
@@ -1276,7 +1267,7 @@
       "label": "Einfache Fahrzeugbedienung"
     },
     "InitialGas": {
-      "label": "Start-Tankfüllung:",
+      "label": "Start-Tankfüllung",
       "options": {
         "1": {
           "label": "Sehr niedrig"
@@ -1311,7 +1302,7 @@
       "label": "Wahrscheinlichkeit, dass eine Zapfsäule beim Start leer ist"
     },
     "LockedCar": {
-      "label": "Abgesperrte Fahrzeuge:",
+      "label": "Verschlossene Fahrzeuge",
       "options": {
         "1": {
           "label": "Nie"
@@ -1334,10 +1325,10 @@
       }
     },
     "CarGasConsumption": {
-      "label": "Benzinverbrauch:"
+      "label": "Benzinverbrauch"
     },
     "CarGeneralCondition": {
-      "label": "Allgemeinzustand:",
+      "label": "Allgemeinzustand",
       "options": {
         "1": {
           "label": "Sehr niedrig"
@@ -1357,7 +1348,7 @@
       }
     },
     "CarDamageOnImpact": {
-      "label": "Beschädigungen bei Aufprall:",
+      "label": "Fahrzeug-Beschädigungen beim Aufprall",
       "options": {
         "1": {
           "label": "Sehr niedrig"
@@ -1377,7 +1368,7 @@
       }
     },
     "DamageToPlayerFromHitByACar": {
-      "label": "Schaden am Spieler durch einen Autounfall:",
+      "label": "Schaden am Spieler durch einen Autounfall",
       "options": {
         "1": {
           "label": "Keine"
@@ -1397,10 +1388,10 @@
       }
     },
     "TrafficJam": {
-      "label": "Fahrzeugwracks:"
+      "label": "Fahrzeugwracks"
     },
     "CarAlarm": {
-      "label": "Autoalarm:",
+      "label": "Fahrzeugalarm-Häufigkeit",
       "options": {
         "1": {
           "label": "Nie"
@@ -1423,13 +1414,13 @@
       }
     },
     "PlayerDamageFromCrash": {
-      "label": "Spielerschaden durch Unfall:"
+      "label": "Spielerschaden durch Unfall"
     },
     "SirenShutoffHours": {
-      "label": "Sirenenabschaltzeit:"
+      "label": "Sirenenabschaltzeit"
     },
     "ChanceHasGas": {
-      "label": "Kraftstoff-Chance:",
+      "label": "Kraftstoff-Chance",
       "options": {
         "1": {
           "label": "Niedrig"
@@ -1540,22 +1531,22 @@
       "label": "Alterungsmodifikator",
       "options": {
         "1": {
-          "label": "Sehr schnell"
+          "label": "Ultra schnell"
         },
         "2": {
-          "label": "Schnell"
+          "label": "Sehr schnell"
         },
         "3": {
-          "label": "Normal"
+          "label": "Schnell"
         },
         "4": {
           "label": "Normal"
         },
         "5": {
-          "label": "Slow"
+          "label": "Langsam"
         },
         "6": {
-          "label": "Very Slow"
+          "label": "Sehr langsam"
         }
       }
     },
@@ -1667,7 +1658,7 @@
       "label": "Tiere ziehen Zombies an"
     },
     "AnimalTrackChance": {
-      "label": "Animal Track Chance",
+      "label": "Chance für Tierspuren",
       "options": {
         "1": {
           "label": "Nie"
@@ -1690,7 +1681,7 @@
       }
     },
     "AnimalPathChance": {
-      "label": "Animal Path Chance",
+      "label": "Chance für Tierpfade",
       "options": {
         "1": {
           "label": "Nie"
@@ -1719,27 +1710,27 @@
       "label": "Tage bis zur maximalen Ungezieferdichte"
     },
     "Farming": {
-      "label": "Landwirtschaft-Multiplikator",
+      "label": "Wachstumsrate (Farming)",
       "options": {
         "1": {
-          "label": "Sehr niedrig"
+          "label": "Sehr schnell"
         },
         "2": {
-          "label": "Niedrig"
+          "label": "Schnell"
         },
         "3": {
           "label": "Normal"
         },
         "4": {
-          "label": "Hoch"
+          "label": "Langsam"
         },
         "5": {
-          "label": "Sehr hoch"
+          "label": "Sehr langsam"
         }
       }
     },
     "PlantResilience": {
-      "label": "Pflanzen Belastbarkeit:",
+      "label": "Pflanzen-Widerstandsfähigkeit",
       "options": {
         "1": {
           "label": "Sehr hoch"
@@ -1785,7 +1776,7 @@
       "label": "Nutzpflanzen Jahreszeit"
     },
     "PlaceDirtAboveground": {
-      "label": "Farmen nicht auf Bodenebene [!]"
+      "label": "Farmen nicht auf Bodenebene"
     },
     "FarmingSpeedNew": {
       "label": "Wachstumsrate"
@@ -1794,15 +1785,15 @@
       "label": "Ernteertrag"
     },
     "ClayLakeChance": {
-      "label": "Clay Lake Chance"
+      "label": "Chance für Lehmvorkommen bei Seen"
     },
     "ClayRiverChance": {
-      "label": "Clay River Chance"
+      "label": "Chance für Lehmvorkommen bei Flüssen"
     }
   },
   "world": {
     "SurvivorHouseChance": {
-      "label": "Generierte Häuser:",
+      "label": "Chance für Generierte Häuser",
       "options": {
         "1": {
           "label": "Nie"
@@ -1828,7 +1819,7 @@
       }
     },
     "VehicleStoryChance": {
-      "label": "Zufällige Fahrzeug Geschichten Chance:",
+      "label": "Wahrscheinlichkeit für Straßenereignisse",
       "options": {
         "1": {
           "label": "Nie"
@@ -1882,7 +1873,7 @@
   },
   "zombieLore": {
     "Speed": {
-      "label": "Geschwindigkeit:",
+      "label": "Geschwindigkeit",
       "options": {
         "1": {
           "label": "Sprinter"
@@ -1899,7 +1890,7 @@
       }
     },
     "Strength": {
-      "label": "Stärke-Multiplikator",
+      "label": "Stärke",
       "options": {
         "1": {
           "label": "Übermenschlich"
@@ -1916,7 +1907,7 @@
       }
     },
     "Toughness": {
-      "label": "Härte:",
+      "label": "Härte",
       "options": {
         "1": {
           "label": "Zäh"
@@ -1933,7 +1924,7 @@
       }
     },
     "Transmission": {
-      "label": "Übertragungswege:",
+      "label": "Übertragungswege",
       "options": {
         "1": {
           "label": "Blut + Speichel"
@@ -1950,7 +1941,7 @@
       }
     },
     "Mortality": {
-      "label": "Infektions-Sterblichkeit:",
+      "label": "Infektions-Sterblichkeit",
       "options": {
         "1": {
           "label": "Sofort"
@@ -1976,7 +1967,7 @@
       }
     },
     "Cognition": {
-      "label": "Kenntnisse:",
+      "label": "Kenntnisse",
       "options": {
         "1": {
           "label": "Navigieren + Verwendung von Türen"
@@ -1993,7 +1984,7 @@
       }
     },
     "Memory": {
-      "label": "Gedächtnis:",
+      "label": "Gedächtnis",
       "options": {
         "1": {
           "label": "Lang"
@@ -2016,7 +2007,7 @@
       }
     },
     "Sight": {
-      "label": "Sicht:",
+      "label": "Sehvermögen",
       "options": {
         "1": {
           "label": "Adleraugen"
@@ -2036,7 +2027,7 @@
       }
     },
     "Hearing": {
-      "label": "Hören:",
+      "label": "Hörvermögen",
       "options": {
         "1": {
           "label": "Sehr gut"
@@ -2062,10 +2053,10 @@
       "label": "Angriff auf Umwelt"
     },
     "ThumpOnConstruction": {
-      "label": "Schaden an Konstruktionen:"
+      "label": "Schaden an Konstruktionen"
     },
     "ActiveOnly": {
-      "label": "Tag/Nacht Aktivität:",
+      "label": "Tag/Nacht-Aktivität der Zombies",
       "options": {
         "1": {
           "label": "Beides"
@@ -2079,10 +2070,10 @@
       }
     },
     "TriggerHouseAlarm": {
-      "label": "Zombie-Hausalarm-Auslösen:"
+      "label": "Zombie-Hausalarm-Auslösen"
     },
     "ZombiesDragDown": {
-      "label": "Herunterziehen:"
+      "label": "Herunterziehen"
     },
     "ZombiesCrawlersDragDown": {
       "label": "Herunterziehen (Kriecher)"
@@ -2117,33 +2108,30 @@
       }
     },
     "PlayerSpawnZombieRemoval": {
-      "label": "Spawn Zone Clear",
+      "label": "Spieler-Spawnbereich",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Im Gebäude und drumherum"
         },
         "2": {
-          "label": "Small"
+          "label": "Im Gebäude"
         },
         "3": {
-          "label": "Medium"
+          "label": "Im Raum"
         },
         "4": {
-          "label": "Large"
-        },
-        "5": {
-          "label": "Very Large"
+          "label": "Zombies können überall spawnen"
         }
       }
     },
     "FenceThumpersRequired": {
-      "label": "Zombies To Damage Fences"
+      "label": "Zombies die Zäune beschädigen"
     },
     "FenceDamageMultiplier": {
-      "label": "Fence Damage Multiplier"
+      "label": "Zaunschaden-Multiplikator"
     },
     "DoorOpeningPercentage": {
-      "label": "Random Door Opening Amount"
+      "label": "Rate zufälliger Türöffnung"
     },
     "CrawlUnderVehicle": {
       "label": "Unter Fahrzeuge durchkriechen",
@@ -2172,10 +2160,10 @@
       }
     },
     "SprinterPercentage": {
-      "label": "Random Sprinter Amount"
+      "label": "Zufällige Sprinter-Anzahl"
     },
     "Reanimate": {
-      "label": "Reanimierungszeit:",
+      "label": "Reanimierungszeit",
       "options": {
         "1": {
           "label": "Sofort"
@@ -2322,13 +2310,13 @@
       "label": "Nahrungssuche-Multiplikator"
     },
     "Fitness": {
-      "label": "Fitness-Multiplikator:"
+      "label": "Fitness-Multiplikator"
     },
     "Strength": {
       "label": "Stärke-Multiplikator"
     },
     "FlintKnapping": {
-      "label": "Feuersteinbearbeitung-Multiplikator"
+      "label": "Steinbearbeitung-Multiplikator"
     },
     "Carving": {
       "label": "Schnitzen-Multiplikator"
@@ -2340,7 +2328,7 @@
       "label": "Schlachtung-Multiplikator"
     },
     "Glassmaking": {
-      "label": "Glassmaking XP"
+      "label": "Glasherstellungs-Multiplikator"
     },
     "Husbandry": {
       "label": "Tierpflege-Multiplikator"
@@ -2349,7 +2337,7 @@
       "label": "Speer-Multiplikator"
     },
     "Masonry": {
-      "label": "Maurerei-Multiplikator"
+      "label": "Maurerhandwerk-Multiplikator"
     },
     "Pottery": {
       "label": "Töpferei-Multiplikator"
@@ -2374,28 +2362,28 @@
   },
   "basement": {
     "SpawnFrequency": {
-      "label": "Basement Spawn Frequency",
+      "label": "Häufigkeit von Kellern",
       "options": {
         "1": {
-          "label": "None"
+          "label": "Nie"
         },
         "2": {
-          "label": "Very Rare"
+          "label": "Extrem selten"
         },
         "3": {
-          "label": "Rare"
+          "label": "Selten"
         },
         "4": {
-          "label": "Sometimes"
+          "label": "Manchmal"
         },
         "5": {
-          "label": "Often"
+          "label": "Oft"
         },
         "6": {
-          "label": "Very Often"
+          "label": "Sehr oft"
         },
         "7": {
-          "label": "Always"
+          "label": "Immer"
         }
       }
     }

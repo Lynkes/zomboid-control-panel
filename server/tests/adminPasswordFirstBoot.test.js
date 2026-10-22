@@ -65,7 +65,8 @@ describe("generateStartupScripts() -- the launch args regression pin", () => {
       serverPort: 16261,
     });
     expect(scripts.bat).toContain('-adminpassword "hunter2"');
-    expect(scripts.sh).toContain('-adminpassword "hunter2"');
+    // A .sh single-quotes its values (utils/startScriptQuoting.js).
+    expect(scripts.sh).toContain("-adminpassword 'hunter2'");
   });
 
   it("omits -adminpassword entirely when the password is empty -- this is the exact shape that used to crash silently, now caught by the guard below instead of shipped unnoticed", () => {

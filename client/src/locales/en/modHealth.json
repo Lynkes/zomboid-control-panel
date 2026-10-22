@@ -1,0 +1,196 @@
+{
+  "title": "Health check",
+  "description": "What keeps a mod from loading, and the fixes the panel can make for you.",
+  "checkedAt": "Checked {{time}}",
+  "recheck": "Check again",
+  "loading": "Checking the mod list…",
+  "loadFailed": "The health check could not run.",
+  "reloadFailed": "Checking again failed; this is the last result.",
+  "retry": "Retry",
+  "emptyTitle": "No problems found",
+  "emptyDesc": "Every enabled mod is installed, its requirements are met and the load order follows its rules.",
+  "noPermission": "Your role does not have permission to manage mods.",
+  "showMod": "Show {{name}}",
+  "showItem": "Show Workshop item {{name}}",
+  "andMore_one": "{{count}} more",
+  "andMore_other": "{{count}} more",
+  "issueCount_one": "{{count}} problem",
+  "issueCount_other": "{{count}} problems",
+  "stats": {
+    "critical": "Critical",
+    "warning": "Warnings",
+    "info": "Good to know"
+  },
+  "severity": {
+    "critical": "Stops mods from loading",
+    "warning": "Needs attention",
+    "info": "Good to know"
+  },
+  "entryIssue": {
+    "emptyEntry": "empty (two commas in a row, or nothing after require=)",
+    "blankEntry": "only spaces",
+    "whitespace": "padded with spaces, which the game does not trim",
+    "semicolon": "separated with “;” instead of a comma",
+    "unknown": "not something the game can read"
+  },
+  "reason": {
+    "require": "required",
+    "rule": "pinned order",
+    "groupOrder": "group order",
+    "keepTogether": "kept together",
+    "groupPlacement": "group placement",
+    "loadAfter": "mod.info load order",
+    "loadBefore": "mod.info load order",
+    "steamRequired": "Steam required item",
+    "patch": "patch",
+    "conflictWinner": "conflict winner",
+    "tier": "kind of mod",
+    "displaced": "made room"
+  },
+  "kind": {
+    "requireLoop": {
+      "title": "Required mods form a loop",
+      "body": "{{mods}} require each other in a circle. The server crashes while loading them. Remove one of them, or ask its author to fix its mod.info."
+    },
+    "modInfoBroken": {
+      "title": "A broken require= line in mod.info",
+      "body": "In the mod.info of {{mod}}, the require= entry “{{entry}}” is {{problem}}. The game cannot read it and skips {{mod}}.",
+      "affected": "Also skipped, because they need it: {{mods}}.",
+      "hint": "Only the mod's author can fix its mod.info. Until then, keep the mod off or remove it."
+    },
+    "requiredNotInstalled": {
+      "title": "A required mod is not installed",
+      "body": "{{missing}} is required by {{requiredBy}}, but no installed Workshop item ships it. The game skips {{affected}}.",
+      "caseMatch": "An installed mod is called {{match}}: the ID differs only in upper or lower case, and the game needs an exact match.",
+      "b41Only": "{{missing}} exists only as a Build 41 mod (Workshop item {{item}}), so it never loads on Build 42."
+    },
+    "requiredWorkshopItemMissing": {
+      "title": "A required Workshop item is missing",
+      "body": "{{target}} is listed under Required items on Steam by {{items}}, but it is not in WorkshopItems=.",
+      "downloaded": "It is already downloaded on this server.",
+      "notDownloaded": "Once it is added, the server downloads it on its next start."
+    },
+    "notInstalled": {
+      "title": "A mod in the list is not installed",
+      "body": "{{mod}} is in Mods=, but no Workshop item in WorkshopItems= ships it, so the game skips it.",
+      "foundIn": "Workshop item {{item}}, already on disk, ships it: add that item.",
+      "notDownloaded_one": "{{count}} Workshop item is not downloaded yet and may ship it: start the server once to download it.",
+      "notDownloaded_other": "{{count}} Workshop items are not downloaded yet and may ship it: start the server once to download them."
+    },
+    "b41Only": {
+      "title": "A Build 41 mod is in the list",
+      "body": "{{mod}} (Workshop item {{item}}) has no Build 42 version, so the game never loads it on this server."
+    },
+    "incompatibleEnabled": {
+      "title": "Two incompatible mods are both enabled",
+      "body": "{{a}} and {{b}} both load, but the mod.info of {{declaredBy}} says they do not work together. Keep only one of them."
+    },
+    "duplicateModId": {
+      "title": "The same mods are installed twice"
+    },
+    "mapNotInMapLine": {
+      "title": "A map is missing from Map=",
+      "body": "{{mod}} ships the map {{folders}}, but Map= does not list it, so it never appears in the world."
+    },
+    "mapFolderWithoutMod": {
+      "title": "Map= names a map no enabled mod ships",
+      "body": "Map= lists {{folder}}, but no loaded mod provides it.",
+      "shippedBy": "{{items}} has it: enable its mod, or take the folder out of Map=.",
+      "nobody": "No installed Workshop item has it either."
+    },
+    "orderProblems": {
+      "title": "The load order breaks some of its rules",
+      "changesLoading_one": "Smart sort would move {{count}} mod for a requirement, a pinned rule or a group. The game does not load it the way its rules ask.",
+      "changesLoading_other": "Smart sort would move {{count}} mods for a requirement, a pinned rule or a group. The game does not load them the way their rules ask.",
+      "tidyOnly_one": "Smart sort would move {{count}} mod for its rules. The game already loads it correctly, so this only tidies the list.",
+      "tidyOnly_other": "Smart sort would move {{count}} mods for their rules. The game already loads them correctly, so this only tidies the list.",
+      "move": "{{mod}}: from #{{from}} to #{{to}} ({{reasons}})"
+    },
+    "requiredLoadedImplicitly": {
+      "title": "A required mod is not in the list",
+      "body": "{{mod}} is required by {{requiredBy}} but not listed in Mods=. The game loads it first anyway; adding it makes the order visible and editable."
+    },
+    "unusedWorkshopItem": {
+      "title": "A Workshop item is not used",
+      "body": "{{item}} is in WorkshopItems=, but none of its mods ({{mods}}) is enabled and none of its maps is in Map=. The server still downloads and updates it."
+    },
+    "updatesAvailable": {
+      "title": "Mod updates are available",
+      "body_one": "{{count}} Workshop item has an update. Restart the server to install it; players get it when they join.",
+      "body_other": "{{count}} Workshop items have updates. Restart the server to install them; players get them when they join."
+    }
+  },
+  "duplicates": {
+    "pair": "2 Workshop items ship the same mods ({{mods}}): {{items}}. The server loads only one copy of each, and which one isn't defined. Keep one of the two items.",
+    "many": "Several Workshop items ship the same mods ({{mods}}): {{items}}. The server loads only one copy of each, and which one isn't defined. Keep one of them.",
+    "defined": "More than one copy of {{mods}} is installed. The server loads the one from {{from}} and ignores the others.",
+    "local": "The server's mods folder has more than one copy of {{mods}}. The server loads only one, and which one isn't defined. Keep one copy.",
+    "sourceLocal": "the server's mods folder",
+    "sourceStaged": "a staged Workshop upload",
+    "keep": "Keep {{item}}",
+    "confirmKeep": "{{item}} stays. A backup of the server ini is made, then this is removed from it:",
+    "removedItem": "From WorkshopItems=: {{item}}",
+    "removedMod": "From Mods=: {{mod}}",
+    "removedRepeat": "From Mods=: the extra entry of {{mod}}"
+  },
+  "fix": {
+    "removeMods": "Remove {{mods}} from the mod list",
+    "addMods": "Add {{mods}} to the mod list",
+    "addWorkshopItems_one": "Add Workshop item {{items}}",
+    "addWorkshopItems_other": "Add Workshop items {{items}}",
+    "addWorkshopItemsAndMods_one": "Add Workshop item {{items}} and enable {{mods}}",
+    "addWorkshopItemsAndMods_other": "Add Workshop items {{items}} and enable {{mods}}",
+    "removeWorkshopItems_one": "Remove Workshop item {{items}}",
+    "removeWorkshopItems_other": "Remove Workshop items {{items}}",
+    "addMapFolders": "Add {{folders}} to Map=",
+    "removeMapFolders": "Remove {{folders}} from Map=",
+    "applyPlan": "Apply the suggested load order"
+  },
+  "confirm": {
+    "title": "Are you absolutely sure?",
+    "removeMods": "These mods are taken out of Mods= in the server ini. Their Workshop items stay installed, and a backup of the ini is made first.",
+    "removeWorkshopItems": "These Workshop items are taken out of WorkshopItems=: the server stops downloading and updating them. A backup of the ini is made first.",
+    "removeMapFolders": "These map folders are taken out of Map= in the server ini. A backup of the ini is made first.",
+    "remove": "Remove"
+  },
+  "fixAll": {
+    "button": "Fix all safe issues",
+    "noneReason": "None of these problems has a fix that only adds to the mod list.",
+    "confirmTitle_one": "Apply {{count}} safe fix?",
+    "confirmTitle_other": "Apply {{count}} safe fixes?",
+    "confirmDesc": "These fixes only add to the server ini or apply the suggested load order: nothing is removed. They run one by one and stop at the first error.",
+    "confirmLabel": "Apply fixes",
+    "progress": "Fixing {{current}} of {{total}}: {{label}}",
+    "doneTitle": "Safe fixes applied",
+    "doneDesc_one": "{{count}} fix applied.",
+    "doneDesc_other": "{{count}} fixes applied.",
+    "skipped_one": "{{count}} problem was already gone.",
+    "skipped_other": "{{count}} problems were already gone.",
+    "stoppedTitle": "Stopped at a fix that failed",
+    "stoppedDesc": "“{{label}}”: {{message}}"
+  },
+  "toast": {
+    "fixedTitle": "Mod list updated",
+    "unchangedTitle": "Nothing needed changing",
+    "unchangedDesc": "The server ini already matched this fix.",
+    "failedTitle": "The fix could not be applied",
+    "failedFallback": "The server did not apply the fix.",
+    "goneTitle": "This problem has changed",
+    "goneDesc": "The mod list was checked again."
+  },
+  "summary": {
+    "critical_one": "{{count}} problem will stop mods from loading",
+    "critical_other": "{{count}} problems will stop mods from loading",
+    "warning_one": "{{count}} warning",
+    "warning_other": "{{count}} warnings",
+    "warningOnly_one": "{{count}} problem needs attention",
+    "warningOnly_other": "{{count}} problems need attention",
+    "review": "Review",
+    "reviewAria": "Review the mod health check"
+  },
+  "dashboard": {
+    "label": "Mod health",
+    "critical_one": "{{count}} critical problem",
+    "critical_other": "{{count}} critical problems"
+  }
+}

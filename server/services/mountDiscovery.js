@@ -251,6 +251,8 @@ export function discoverMounts() {
 const CANDIDATE_STATUS_REASON = {
   ready:
     "Found a complete Project Zomboid server here -- server files and save data both present.",
+  "no-config":
+    "Server files and save data found here, but no server configuration (Server/<name>.ini) yet -- start the server once to create it, or use Review & Add to enter the details yourself.",
   "install-only":
     "Server files found here, but no matching save-data folder yet -- it may still be initializing, or the save-data mount is missing.",
   "data-only":
@@ -294,6 +296,7 @@ const GENUINELY_EMPTY_MOUNT_REASON =
 // server-side guarantee, not a client-side judgment call.
 const STATUS_RANK = [
   "ready",
+  "no-config",
   "install-only",
   "data-only",
   "permission-denied",
@@ -342,6 +345,16 @@ function classifyCandidate(candidate) {
   }
 
   if (dataResult?.valid) {
+    // "ready" means create-from-discovery can finish on its own, which
+    // needs a Server/<name>.ini to take the name and RCON settings from.
+    // A data folder valid only through Saves/ or Lua/ used to count as
+    // ready and opened an Add dialog with no config and a disabled button.
+    const serverNames = dataResult.serverNames.length
+      ? dataResult.serverNames
+      : installResult.serverNames;
+    if (serverNames.length === 0) {
+      return { status: "no-config", installResult, dataPath, dataResult };
+    }
     return { status: "ready", installResult, dataPath, dataResult };
   }
   if (dataPath && classifyDir(dataPath) === "inaccessible") {

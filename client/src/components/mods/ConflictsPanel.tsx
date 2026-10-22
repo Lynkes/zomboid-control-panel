@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState, type Dispatch, type SetStateAction, type MutableRefObject } from 'react'
+import { useEffect, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction, type MutableRefObject } from 'react'
 import { Trans, useTranslation } from 'react-i18next'
-import { RefreshCw, Plus, Trash2, ExternalLink, AlertTriangle, CheckCircle, Search, ChevronRight, Check, Info, Layers, Loader2, Shield, ShieldAlert, FileWarning, Wrench, Network, GitBranch, PlusCircle, ArrowRight } from 'lucide-react'
+import { RefreshCw, Plus, Trash2, ExternalLink, AlertTriangle, CheckCircle, Search, ChevronRight, Check, Info, Layers, Loader2, Shield, ShieldAlert, FileWarning, Wrench, GitBranch, PlusCircle, ArrowRight, X } from 'lucide-react'
 import type { ConflictScanResult, ScanStreamConflictFound } from '@/types'
 import { modsApi } from '@/lib/api'
 import { reportClientError } from '@/lib/client-errors'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { SectionCard } from '@/components/ui/section-card'
+import { Segmented } from '@/components/ui/segmented'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { FileDiffViewer } from '@/components/FileDiffViewer'
@@ -15,8 +16,21 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { DisabledReason } from '@/components/DisabledReason'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { CONFLICT_FILE_LIMIT, useLocalStorageState, type DepSearchState } from '@/lib/modsShared'
+import { ConflictSuggestion, ConflictSuggestionChip } from './ConflictSuggestion'
+import type { ConflictsSmart } from './conflictSuggestions'
+import { ConflictSuggestionsBar } from './ConflictSuggestionsBar'
+
+/** The pairs list narrowed to some mods (a mod group's conflict badge). */
+export interface ConflictsFocus {
+  /** What the filter is, for its chip ("KI5 Vehicles"). */
+  label: string
+  modIds: string[]
+}
 
 export interface ConflictsPanelProps {
+  /** Show only the pairs involving these mods; null shows every pair. */
+  focus?: ConflictsFocus | null
+  onClearFocus?: () => void
   /* scan lifecycle — owned by the Mods page because the rail and the Active
      view both read scan results */
   conflicts: ConflictScanResult | null
@@ -49,16 +63,29 @@ export interface ConflictsPanelProps {
   setDepAdding: Dispatch<SetStateAction<string[]>>
   depAddResults: Record<string, 'added' | 'error'>
   setDepAddResults: Dispatch<SetStateAction<Record<string, 'added' | 'error'>>>
+
+  /** Smart sort: each pair's suggested winner, one click to pin it (ConflictSuggestion.tsx). */
+  smart?: ConflictsSmart
+  /** The page's "Fix everything" button: the view's primary. */
+  fixEverything?: ReactNode
 }
 
 export function ConflictsPanel({
-  conflicts, conflictsLoading, conflictsError, conflictsStale, lastScanTime, scanConflicts,
+  conflicts: scanResult, conflictsLoading, conflictsError, conflictsStale, lastScanTime, scanConflicts,
   scanProgress, scanCurrentMod, scanModsScanned, scanTotalMods, streamConflicts, focusDependencies,
   fetchData, busyRef, savingModOrder, promoteModOverOpponent, toast,
   depSearchOpen, setDepSearchOpen, depSearchData, setDepSearchData,
   depAdding, setDepAdding, depAddResults, setDepAddResults,
+  focus, onClearFocus, smart, fixEverything,
 }: ConflictsPanelProps) {
   const { t, i18n } = useTranslation('conflictsPanel')
+  // A group's badge narrows every pair count, list and ranking below to the
+  // pairs touching its mods; the chip above the list clears it.
+  const conflicts = useMemo(() => {
+    if (!scanResult || !focus) return scanResult
+    const ids = new Set(focus.modIds)
+    return { ...scanResult, pairs: (scanResult.pairs ?? []).filter((p) => ids.has(p.modA.modId) || ids.has(p.modB.modId)) }
+  }, [scanResult, focus])
   const { formatTime } = useDateFormat()
   const [openPairs, setOpenPairs] = useState<string[]>([])
   const [conflictSubTab, setConflictSubTab] = useLocalStorageState<'network' | 'dependencies'>('zcp:mods:conflicts:subTab', 'network')
@@ -82,6 +109,15 @@ export function ConflictsPanel({
     if (focusDependencies) setConflictSubTab('dependencies')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusDependencies])
+
+  // A group's conflict badge opens the file conflicts, on every severity.
+  useEffect(() => {
+    if (!focus) return
+    setConflictSubTab('network')
+    setPairSeverityFilter('all')
+    setGraphFilterMod(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus])
 
   // ── Severity filter: memoized conflict pair counts ──
   const severityCounts = useMemo(() => {
@@ -252,34 +288,31 @@ export function ConflictsPanel({
 
   return (
   <div className="space-y-4">
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="w-4 h-4" aria-hidden="true" />
-              {t('title')}
-            </CardTitle>
-            <CardDescription className="mt-1">
-              {t('subtitle')}
-            </CardDescription>
-          </div>
-          {conflicts && !conflictsLoading && (
-            <div className="flex items-center gap-2 shrink-0">
-              {lastScanTime && (
-                <span className="text-[11px] tabular-nums text-muted-foreground/70 hidden sm:inline">
-                  {t('lastScan', { time: formatTime(lastScanTime, { seconds: true }) })}
-                </span>
-              )}
-              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-muted-foreground" onClick={scanConflicts} disabled={conflictsLoading}>
-                <RefreshCw className="w-3.5 h-3.5 me-1.5" />
-                {t('rescan')}
-              </Button>
-            </div>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
+    <SectionCard
+      title={t('title')}
+      description={t('subtitle')}
+      icon={Shield}
+      actions={
+        (conflicts && !conflictsLoading) || fixEverything ? (
+          <>
+            {conflicts && !conflictsLoading && (
+              <>
+                {lastScanTime && (
+                  <span className="hidden text-xs tabular-nums text-muted-foreground sm:inline">
+                    {t('lastScan', { time: formatTime(lastScanTime, { seconds: true }) })}
+                  </span>
+                )}
+                <Button variant="outline" size="sm" onClick={scanConflicts} disabled={conflictsLoading}>
+                  <RefreshCw aria-hidden="true" />
+                  {t('rescan')}
+                </Button>
+              </>
+            )}
+            {fixEverything}
+          </>
+        ) : undefined
+      }
+    >
         {/* Loading state — streaming scan */}
         {conflictsLoading && !conflicts ? (
           <div className="py-6">
@@ -319,7 +352,7 @@ export function ConflictsPanel({
                         <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                           c.severity === 'high' ? 'bg-destructive severity-pulse' : c.severity === 'medium' ? 'bg-warning' : 'bg-primary/50'
                         }`} aria-hidden="true" />
-                        <span className="sr-only">{t('severityPrefix', { severity: c.severity })}</span>
+                        <span className="sr-only">{t('severityPrefix', { severity: t(`severity.${c.severity}`) })}</span>
                         <span className="font-mono text-foreground/70 truncate flex-1">{c.file}</span>
                         <span className="text-muted-foreground/70 shrink-0">{t('inNMods', { count: c.mods.length })}</span>
                       </div>
@@ -520,19 +553,17 @@ export function ConflictsPanel({
             conflicts.modsScanned > 0 ? (
               <div
                 className={`relative rounded-lg border overflow-hidden ${
-                  isWarn ? 'border-warning/30 bg-warning/[0.04]'
-                    : isSuccess ? 'border-success/30 bg-success/[0.04]'
-                    : 'border-border/40 bg-muted/[0.04]'
+                  isWarn ? 'border-warning/40 bg-warning/5'
+                    : isSuccess ? 'border-success/30 bg-success/5'
+                    : 'border-border/50 bg-muted/20'
                 }`}
                 role="status"
                 aria-live="polite"
               >
-                {/* Severity stripe — left edge accent */}
-                <div className={`absolute inset-y-0 left-0 w-1 ${isWarn ? 'bg-warning/60' : isSuccess ? 'bg-success/60' : 'bg-muted-foreground/40'}`} aria-hidden="true" />
-
-                <div className="flex items-stretch">
+                <div className="flex flex-wrap items-stretch">
                   {/* Headline — big number + label */}
-                  <div className="flex items-center gap-3.5 px-4 py-3 flex-1 min-w-0">
+                  {/* At least 16rem: on a phone the stats wrap under it instead of squeezing it. */}
+                  <div className="flex min-w-0 flex-[1_1_16rem] items-center gap-3.5 px-4 py-3">
                     {isWarn ? (
                       <FileWarning className="w-5 h-5 text-warning shrink-0" aria-hidden="true" />
                     ) : isSuccess ? (
@@ -587,7 +618,7 @@ export function ConflictsPanel({
                   </div>
 
                   {/* Scan stats strip — right side */}
-                  <div className="flex items-center gap-4 border-s border-border/30 px-4 py-3 text-[11px] bg-background/30">
+                  <div className="flex w-full items-center gap-4 border-t border-border/30 bg-background/30 px-4 py-3 text-[11px] sm:w-auto sm:border-s sm:border-t-0">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <div className="text-center cursor-help">
@@ -704,36 +735,33 @@ export function ConflictsPanel({
             {/* ─── Inner sub-tabs: Network / Dependencies ─── */}
             {(conflicts.totalConflicts > 0 || dedupedDepCount > 0) && (
               <div>
-                {/* Sub-tab bar */}
-                <div className="flex items-center gap-1 border-b border-border/30 mb-3">
-                  <button
-                    onClick={() => setConflictSubTab('network')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
-                      conflictSubTab === 'network'
-                        ? 'border-accent text-accent-foreground'
-                        : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/50'
-                    }`}
-                  >
-                    <Network className="w-3.5 h-3.5" />
-                    {t('fileConflictsTab')}
-                    {conflicts.totalPairs > 0 && (
-                      <Badge variant="secondary" className="text-[11px] h-4 px-1 ms-0.5">{conflicts.totalPairs}</Badge>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setConflictSubTab('dependencies')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-colors -mb-px ${
-                      conflictSubTab === 'dependencies'
-                        ? 'border-accent text-accent-foreground'
-                        : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border/50'
-                    }`}
-                  >
-                    <GitBranch className="w-3.5 h-3.5" />
-                    {t('missingDepsTab')}
-                    {dedupedDepCount > 0 && (
-                      <Badge variant="destructive" className="text-[11px] h-4 px-1 ms-0.5">{dedupedDepCount}</Badge>
-                    )}
-                  </button>
+                {/* File conflicts / missing dependencies */}
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Segmented<'network' | 'dependencies'>
+                    value={conflictSubTab}
+                    onValueChange={setConflictSubTab}
+                    ariaLabel={t('subTabsAria')}
+                    size="md"
+                    items={[
+                      { value: 'network', label: t('fileConflictsTab'), count: (conflicts.pairs?.length ?? 0) > 0 ? conflicts.pairs.length : undefined },
+                      { value: 'dependencies', label: t('missingDepsTab'), count: dedupedDepCount > 0 ? dedupedDepCount : undefined },
+                    ]}
+                  />
+                  {focus && (
+                    <span className="inline-flex h-8 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 pe-0.5 ps-3 text-xs text-foreground">
+                      {t('focusChip', { name: focus.label })}
+                      {onClearFocus && (
+                        <button
+                          type="button"
+                          onClick={onClearFocus}
+                          aria-label={t('focusClearAria', { name: focus.label })}
+                          className="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-primary/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
+                        >
+                          <X className="h-3.5 w-3.5" aria-hidden="true" />
+                        </button>
+                      )}
+                    </span>
+                  )}
                 </div>
 
                 {/* ═══ NETWORK SUB-TAB ═══ */}
@@ -885,6 +913,8 @@ export function ConflictsPanel({
                           </details>
                           </div>
 
+                          {smart && <ConflictSuggestionsBar pairs={conflicts?.pairs ?? []} smart={smart} />}
+
                           {/* Pairs list */}
                           {filteredPairs.length > 0 ? (
                             <div className="max-h-[min(calc(100vh-420px),70vh)] min-h-[200px] overflow-y-auto rounded-lg border border-border/20 pe-1">
@@ -912,7 +942,8 @@ export function ConflictsPanel({
                                   const showAll = expandedFilePairs.has(pairKey)
                                   const visibleFiles = showAll ? pair.files : pair.files.slice(0, CONFLICT_FILE_LIMIT)
                                   const hiddenCount = showAll ? 0 : totalFiles - Math.min(totalFiles, CONFLICT_FILE_LIMIT)
-                                  const maxSeverity = pair.highCount > 0 ? 'high' : pair.mediumCount > 0 ? 'medium' : 'low'
+                                  // A pair of intended overrides only (a declared patch over its target) reads as such.
+                                  const maxSeverity = pair.highCount > 0 ? 'high' : pair.mediumCount > 0 ? 'medium' : pair.lowCount > 0 || !(pair.infoCount ?? 0) ? 'low' : 'info'
                                   const posA = loadOrderMap.get(pair.modA.modId)
                                   const posB = loadOrderMap.get(pair.modB.modId)
                                   const winner = posA != null && posB != null ? (posA > posB ? 'A' : posB > posA ? 'B' : null) : null
@@ -923,9 +954,9 @@ export function ConflictsPanel({
                                       <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-muted/20 [&[data-state=open]]:bg-muted/15 transition-colors">
                                         <div className="flex min-w-0 flex-1 flex-col gap-2 text-start sm:flex-row sm:items-center sm:gap-3">
                                           <div className={`w-2 h-2 rounded-full shrink-0 ${
-                                            maxSeverity === 'high' ? 'bg-destructive severity-pulse' : maxSeverity === 'medium' ? 'bg-warning' : 'bg-primary/60'
+                                            maxSeverity === 'high' ? 'bg-destructive severity-pulse' : maxSeverity === 'medium' ? 'bg-warning' : maxSeverity === 'info' ? 'bg-muted-foreground/50' : 'bg-primary/60'
                                           }`} aria-hidden="true" />
-                                          <span className="sr-only">{maxSeverity} severity conflict:</span>
+                                          <span className="sr-only">{t('severityPrefix', { severity: t(`severity.${maxSeverity}`) })}</span>
 
                                           {(() => {
                                             const aw = pair.aWins ?? 0
@@ -966,6 +997,7 @@ export function ConflictsPanel({
 
                                                 {/* Verdict pill on the right */}
                                                 <div className="flex shrink-0 flex-wrap items-center gap-2 sm:ms-auto sm:flex-nowrap">
+                                                  {smart && <ConflictSuggestionChip pair={pair} />}
                                                   {/* File count + severity dots */}
                                                   <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted/30 border border-border/30">
                                                     <span className="text-[11px] tabular-nums font-medium text-foreground/80">
@@ -1049,6 +1081,7 @@ export function ConflictsPanel({
                                       </AccordionTrigger>
                                       <AccordionContent>
                                         <div className="px-4 pb-3 pt-1 space-y-1">
+                                          {smart && pair.suggestion && <div className="mb-2"><ConflictSuggestion pair={pair} smart={smart} /></div>}
                                           {/* Severity breakdown — shown in expanded detail */}
                                           <div className="flex items-center gap-2 mb-2 flex-wrap">
                                             {pair.highCount > 0 && (
@@ -1059,6 +1092,9 @@ export function ConflictsPanel({
                                             )}
                                             {pair.lowCount > 0 && (
                                               <Badge variant="secondary" className="text-[11px] leading-none h-[18px] px-1.5 border-primary/20 text-primary">{t('severityLowBadge', { count: pair.lowCount })}</Badge>
+                                            )}
+                                            {(pair.infoCount ?? 0) > 0 && (
+                                              <Badge variant="outline" className="text-[11px] leading-none h-[18px] px-1.5">{t('severity.info')}</Badge>
                                             )}
                                             <span className="text-[11px] text-muted-foreground/70">{t('shownCount', { count: visibleFiles.length })}{hiddenCount > 0 ? ` · ${t('hiddenCount', { count: hiddenCount })}` : ''}</span>
 
@@ -1131,6 +1167,11 @@ export function ConflictsPanel({
                                               : winnerName === pair.modA.modName
                                               ? pair.modB.modName
                                               : pair.modA.modName
+                                            // Each mod's own file: a clash across files (or one
+                                            // declared in mod.info) has no single file to diff.
+                                            const fileA = f.files?.find((x) => x.modId === pair.modA.modId)?.file ?? f.file
+                                            const fileB = f.files?.find((x) => x.modId === pair.modB.modId)?.file ?? f.file
+                                            const comparable = f.kind !== 'declared-incompatible' && f.category !== 'mod-info' && fileA === fileB
                                             return (
                                               <FileDiffViewer
                                                 key={`${pair.modA.modId}--${pair.modB.modId}--${f.file}`}
@@ -1141,6 +1182,11 @@ export function ConflictsPanel({
                                                 modBName={pair.modB.modName}
                                                 severity={f.severity}
                                                 categoryLabel={f.categoryLabel}
+                                                reason={f.reason ? t(`reasons.${f.reason}`, { defaultValue: '' }) || null : null}
+                                                badge={f.severity === 'info' ? t('severity.info') : null}
+                                                comparable={comparable}
+                                                fileA={comparable ? undefined : fileA}
+                                                fileB={comparable ? undefined : fileB}
                                                 winnerName={winnerName}
                                                 loserName={loserName}
                                                 overlap={f.overlap}
@@ -1561,8 +1607,7 @@ export function ConflictsPanel({
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </SectionCard>
 
     {/* ─── Per-mod conflict details drawer ─── */}
     {/* 2026-09 dialog sweep: with many pairs this scrolled as a whole under

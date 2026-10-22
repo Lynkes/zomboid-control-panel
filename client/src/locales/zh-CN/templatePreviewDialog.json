@@ -8,6 +8,8 @@
   "remoteServerTitle": "远程服务器",
   "remoteServerDesc": "远程服务器暂不支持应用模板。",
   "previewFailedTitle": "预览失败",
+  "previewNoAccessTitle": "无法比较",
+  "previewNoAccessDesc": "将模板与服务器当前设置进行比较需要“管理服务器模板”权限，而该角色没有此权限。",
   "applyConfirmTitle": "应用「{{name}}」？",
   "applyConfirmDescription": "这将用此模板的 {{count}} 项更改覆盖服务器当前的配置。玩家要到服务器下次重启才会看到变化，你可以通过应用其他模板来撤销此更改。",
   "applyConfirmButton": "应用模板"

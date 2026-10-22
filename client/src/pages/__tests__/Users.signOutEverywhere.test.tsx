@@ -57,11 +57,18 @@ beforeEach(() => {
   revokeSessions.mockReset().mockResolvedValue({ success: true, user: { id: 'u2', username: 'bob' } })
 })
 
+
+// A row's actions sit behind its "…" button (RowActions).
+async function openRowMenu(username: string) {
+  fireEvent.pointerDown(await screen.findByRole('button', { name: `Actions for ${username}` }), { button: 0, ctrlKey: false })
+  return screen.findByRole('menu')
+}
+
 describe('Users -- sign an account out everywhere', () => {
   it('asks first, then signs that account out', async () => {
     renderUsers()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign bob out everywhere' }))
+    fireEvent.click(within(await openRowMenu('bob')).getByRole('menuitem', { name: 'Sign bob out everywhere' }))
     const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText('Sign bob out everywhere?')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out everywhere' }))
@@ -72,7 +79,7 @@ describe('Users -- sign an account out everywhere', () => {
   it('does nothing when the confirmation is cancelled', async () => {
     renderUsers()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Sign bob out everywhere' }))
+    fireEvent.click(within(await openRowMenu('bob')).getByRole('menuitem', { name: 'Sign bob out everywhere' }))
     const dialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
 
@@ -83,7 +90,11 @@ describe('Users -- sign an account out everywhere', () => {
   it('offers no such button on your own row (Settings > Security has it)', async () => {
     renderUsers()
 
-    await screen.findByRole('button', { name: 'Sign bob out everywhere' })
-    expect(screen.queryByRole('button', { name: 'Sign admin out everywhere' })).not.toBeInTheDocument()
+    expect(within(await openRowMenu('bob')).getByRole('menuitem', { name: 'Sign bob out everywhere' })).toBeInTheDocument()
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+    const ownMenu = await openRowMenu('admin')
+    expect(within(ownMenu).queryByRole('menuitem', { name: 'Sign admin out everywhere' })).not.toBeInTheDocument()
+    expect(within(ownMenu).queryByRole('menuitem', { name: 'Remove admin' })).not.toBeInTheDocument()
   })
 })

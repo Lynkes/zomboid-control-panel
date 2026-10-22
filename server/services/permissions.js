@@ -122,7 +122,7 @@ export const CAPABILITIES = [
     group: "Server Lifecycle",
     label: "Run world events",
     description:
-      "Weather, climate, time of day, ambient sound, zombie hordes (clearing them, not spawning them at anyone), utilities, visual settings and server-attributed broadcast messages -- world-wide effects, not aimed at a specific player. Spawning zombies or sound effects at a named player, targeted lightning/thunder, and impersonating a player in chat are a separate capability, players.endanger_or_impersonate.",
+      "Weather, climate, time of day, ambient sound, world-wide alarms, gunshots and helicopter events, zombie hordes (clearing them, not spawning them at anyone), releasing safehouses, utilities, visual settings and server-attributed broadcast messages -- world-wide effects, not aimed at a specific player. It also reads the live server console log (and its error count) and the game's update check. Spawning zombies or sound effects at a named player, targeted lightning/thunder, and impersonating a player in chat are a separate capability, players.endanger_or_impersonate.",
   },
 
   // --- RCON ---

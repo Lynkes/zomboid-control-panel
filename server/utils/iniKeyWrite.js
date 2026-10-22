@@ -41,11 +41,18 @@ export function hasIniKeyValue(content, key, value) {
   ).test(content);
 }
 
-/** Sets `key`'s assignment line to `value`, replacing the first (and only expected) real assignment line if one exists, else appending a new one. Never touches `key`'s substring anywhere else in the file. */
+/**
+ * Sets `key`'s assignment line to `value`, replacing the first (and only expected) real assignment line if one exists, else appending a new one. Never touches `key`'s substring anywhere else in the file.
+ *
+ * The replacement is a function, not a string: a string is a template, so a
+ * value holding "$$", "$&", "$'" or "$`" (an RCON password like "Pa$$w0rd")
+ * was rewritten by replace() into "Pa$w0rd", the matched line, or the rest
+ * of the file.
+ */
 export function setIniKeyLine(content, key, value) {
   const pattern = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=.*$`, "m");
   return pattern.test(content)
-    ? content.replace(pattern, `${key}=${value}`)
+    ? content.replace(pattern, () => `${key}=${value}`)
     : `${content}\n${key}=${value}`;
 }
 

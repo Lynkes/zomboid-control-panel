@@ -18,14 +18,15 @@
   "pageHeader": {
     "title": "伺服器設定",
     "description": "編輯此伺服器當前生效的 INI、沙盒、出生點及模組設定。",
-    "eyebrow": "設定",
     "unsavedChanges": "有未儲存的變更",
-    "templates": "已儲存的設定",
-    "backups": "備份",
-    "refresh": "重新整理"
+    "templates": "設定快照",
+    "backups": "設定檔備份",
+    "refresh": "重新整理",
+    "more": "更多操作",
+    "templatesPage": "模板",
+    "openInFiles": "在伺服器檔案中開啟資料夾"
   },
   "activeServerStrip": {
-    "label": "當前伺服器",
     "noServerSelected": "未選擇伺服器",
     "iniLabel": "INI",
     "sandboxLabel": "沙盒",
@@ -53,7 +54,8 @@
     "removeConfirm": "從 Mods= 中移除 \"{{modId}}\"？此操作僅在此處暫存更改 — 在您儲存之前不會寫入磁碟。",
     "removeConfirmButton": "移除",
     "removedTitle": "Mods= 條目已移除",
-    "removedToast": "已從 Mods= 中移除 \"{{modId}}\"。尚未儲存 — 請在下方檢視並儲存。"
+    "removedToast": "已從 Mods= 中移除 \"{{modId}}\"。尚未儲存 — 請在下方檢視並儲存。",
+    "openActiveMods": "開啟已啟用的模組"
   },
   "tabs": {
     "serverSettings": "伺服器設定",
@@ -62,7 +64,8 @@
     "spawnRegions": "出生區域",
     "modSettings": "模組設定",
     "unsavedChangesAria": "未儲存的變更",
-    "fileMissingAria": "檔案缺失"
+    "fileMissingAria": "檔案缺失",
+    "listAria": "設定檔"
   },
   "stopServerAlert": {
     "title": "伺服器正在執行",
@@ -78,13 +81,9 @@
     "form": "表單",
     "raw": "原始",
     "downloadIniAria": "下載 INI 備份",
-    "downloadIniTooltip": "下載 INI 備份",
     "downloadSandboxAria": "下載沙盒備份",
-    "downloadSandboxTooltip": "下載沙盒備份",
     "downloadSpawnPointsAria": "下載出生點備份",
-    "downloadSpawnPointsTooltip": "下載出生點備份",
     "downloadSpawnRegionsAria": "下載出生區域備份",
-    "downloadSpawnRegionsTooltip": "下載出生區域備份",
     "wiki": "Wiki",
     "map": "地圖",
     "saveAndReload": "儲存並重新載入",
@@ -97,7 +96,6 @@
     "sandboxPlaceholder": "搜尋沙盒設定…",
     "aria": "搜尋伺服器設定",
     "sandboxAria": "搜尋沙盒設定",
-    "clearAria": "清除搜尋",
     "filterAria": "篩選設定",
     "filterAll": "全部",
     "filterModified": "已修改",
@@ -107,19 +105,10 @@
   "categoriesNav": {
     "iniAria": "伺服器設定分類",
     "sandboxAria": "沙盒分類",
-    "categoriesLabel": "分類",
-    "expandAllAria": "展開所有分類組",
-    "collapseAllAria": "摺疊所有分類組",
-    "expandAll": "全部展開",
-    "collapseAll": "全部摺疊",
-    "modifiedCountTitle_one": "{{count}} 項未儲存的變更",
-    "modifiedCountTitle_other": "{{count}} 項未儲存的變更",
     "matchCount_one": "{{count}} 個匹配項",
     "matchCount_other": "{{count}} 個匹配項",
     "uncategorizedIniLabel": "未分類／未知",
-    "uncategorizedIniTitle": "存在於 INI 檔案中但不在架構內的鍵（可能是較新的原版鍵、模組注入的鍵，或自訂鍵）",
-    "uncategorizedSandboxLabel": "附加設定",
-    "uncategorizedSandboxTitle": "編輯器尚未分組的沙盒設定"
+    "uncategorizedSandboxLabel": "附加設定"
   },
   "uncategorizedIni": {
     "empty": "沒有未分類的鍵。",
@@ -156,8 +145,6 @@
   },
   "sandboxTab": {
     "sectionLabel": "沙盒",
-    "sectionSublabel": "世界、殭屍、生存",
-    "build42Title": "已針對 Build 42 最佳化",
     "build42Body": "此編輯器中的沙盒數值與選項文字均與 Project Zomboid Build 42 預設值保持一致。",
     "liveRangesUnavailableTitle": "Showing built-in ranges",
     "liveRangesUnavailableBody": "Couldn't reach a running server to confirm the real minimum/maximum for these settings, so the ranges shown are this panel's own built-in table and may be out of date. Start the server and retry for the exact bounds.",
@@ -166,8 +153,7 @@
   },
   "spawnPointsTab": {
     "sectionLabel": "出生點",
-    "sectionSublabel": "由模組管理 · 玩家出生位置",
-    "infoTab": "資訊",
+    "sectionSublabel": "玩家出生位置，通常由模組管理",
     "modManagedTitle": "出生點由模組管理",
     "modManagedBody": "出生位置通常由「Spawn Select」等模組處理。切換到<1>原始</1>模式可直接檢視或編輯檔案。",
     "openRawFile": "開啟原始檔案"
@@ -196,12 +182,11 @@
     "sectionLabel": "模組沙盒選項",
     "sectionSublabelLoaded_one": "{{count}} 個模組 · 來自 PanelBridge 的即時資料",
     "sectionSublabelLoaded_other": "{{count}} 個模組 · 來自 PanelBridge 的即時資料",
-    "sectionSublabelIdle": "PanelBridge · 即時",
+    "sectionSublabelIdle": "透過 PanelBridge 即時取得",
     "modifiedBadge": "{{count}} 項已修改",
     "refresh": "重新整理",
     "load": "載入",
     "searchPlaceholder": "搜尋模組設定…（按 / 鍵）",
-    "clearSearchAria": "清除搜尋",
     "modifiedFilterNoneTitle": "沒有選項偏離預設值",
     "modifiedFilterTitle": "僅顯示與預設值不同的選項",
     "modifiedFilter": "已修改",
@@ -231,7 +216,7 @@
     "offCaps": "關",
     "toggleAria": "{{label}}：{{state}}",
     "resetToDefaultTitle": "重設為預設值：{{value}}",
-    "resetToDefaultLabel": "預設：{{value}}",
+    "resetToDefaultLabel": "重設為 {{value}}",
     "resetToDefaultTooltip": "重設為預設值：{{value}}",
     "noModifiedOptions": "沒有選項被修改過預設值。",
     "showAllOptions": "顯示所有選項",
@@ -242,20 +227,11 @@
     "enumBridgeOutdatedDesc": "它會把清單設定的最後一個選項儲存為前一個選項，因此在 PanelBridge 更新且伺服器重新啟動之前，面板不會傳送最後一個選項。「設定 › PanelBridge」會顯示此伺服器需要做什麼。無法列出選項的設定需輸入選項編號（1 表示第一個）。",
     "enumLastChoiceHeldBack": "在 PanelBridge 更新之前，無法在此選擇最後一個選項（{{max}}）。",
     "enumLastChoiceItem": "選項 {{value}}",
-    "enumTooManyChoices": "選項過多，無法列出。輸入選項編號（1 表示第一個）。"
-  },
-  "stickySaveBar": {
-    "unsavedChange_one": "{{count}} 項未儲存的變更",
-    "unsavedChange_other": "{{count}} 項未儲存的變更",
-    "iniScope": "伺服器 INI",
-    "sandboxScope": "沙盒 Lua",
-    "hint": "Ctrl+S 儲存 · 重新載入後套用",
-    "discard": "放棄",
-    "save": "儲存",
-    "saveAndReload": "儲存並重新載入"
+    "enumTooManyChoices": "選項過多，無法列出。輸入選項編號（1 表示第一個）。",
+    "manageMods": "管理模組"
   },
   "backupsDialog": {
-    "title": "設定備份",
+    "title": "設定檔備份",
     "description": "恢復設定檔的先前版本。儲存時會自動建立備份。",
     "filterLabel": "篩選：",
     "filterAll": "所有檔案",
@@ -276,9 +252,9 @@
     "sizeKb": "{{size}}KB"
   },
   "templatesDialog": {
-    "title": "已儲存的設定",
+    "title": "設定快照",
     "applyTip": "套用已儲存的設定會替換你當前的全部設定——而不是與現有設定合併。面板會在套用前備份當前生效的設定，因此可以通過“還原”撤銷，但必須先停止伺服器。",
-    "description": "儲存當前設定，或載入你之前儲存的設定。",
+    "description": "將目前設定儲存為快照，或套用之前儲存的快照。",
     "savedCount_one": "已儲存 {{count}} 個設定",
     "savedCount_other": "已儲存 {{count}} 個設定",
     "saveCurrentAsTemplate": "儲存當前設定",
@@ -319,13 +295,21 @@
   "applyTemplateConfirm": {
     "title": "套用已儲存的設定“{{name}}”？",
     "description": "用此已儲存的設定替換當前的伺服器設定？面板會先備份當前生效的設定，如有需要可通過“恢復”撤銷。",
-    "rconWarning": "已儲存的設定不會儲存 RCON 密碼，因此套用後會移除伺服器當前的 RCON 密碼——之後需要重新輸入。",
+    "secretsKept": "已儲存的設定不包含密碼和權杖，因此套用後會保留伺服器當前的 RCON 密碼、伺服器密碼和權杖。",
     "confirmLabel": "套用"
   },
   "restoreBackupConfirm": {
     "title": "恢復此備份？",
     "description": "將當前檔案替換為「{{filename}}」？即時設定中未儲存的變更將會遺失。",
     "confirmLabel": "恢復"
+  },
+  "switchEditorConfirm": {
+    "rawTitle": "放棄未儲存的原始編輯？",
+    "rawDescription": "原始編輯器中有未儲存的變更。繼續將放棄這些變更，並從磁碟重新載入檔案。",
+    "rawConfirm": "放棄變更",
+    "formTitle": "不帶表單變更開啟原始編輯器？",
+    "formDescription": "原始編輯器顯示磁碟上的檔案，不包含您在表單中未儲存的變更。從原始編輯器儲存會取代這些變更。",
+    "formConfirm": "開啟原始編輯器"
   },
   "fileBrowserDialog": {
     "title": "選擇圖片檔案",
@@ -357,7 +341,7 @@
   "toasts": {
     "error": "錯誤",
     "loadConfigFailed": "載入伺服器設定失敗。",
-    "serverChangedSinceLoad": "The active server changed since this page loaded. Reload before saving to avoid overwriting the wrong server.",
+    "serverChangedSinceLoad": "自本頁載入以來，作用中的伺服器已變更。請先重新載入再儲存，以免覆寫錯誤的伺服器。",
     "invalidIniTitle": "伺服器設定無效",
     "invalidSandboxTitle": "沙盒數值無效",
     "fixSettings": "修正：{{settings}}",
@@ -3136,23 +3120,23 @@
         "description": "How many days until rat population peaks."
       },
       "Farming": {
-        "label": "Agriculture Multiplier",
-        "description": "Rate at which Agriculture skill levels up.",
+        "label": "Farming Speed (Legacy)",
+        "description": "Old plant growth speed. Build 42 hides it in-game and grows crops by Farming Speed (FarmingSpeedNew) instead.",
         "options": {
           "1": {
-            "label": "Very Low"
+            "label": "Very Fast"
           },
           "2": {
-            "label": "Low"
+            "label": "Fast"
           },
           "3": {
             "label": "Normal"
           },
           "4": {
-            "label": "High"
+            "label": "Slow"
           },
           "5": {
-            "label": "Very High"
+            "label": "Very Slow"
           }
         }
       },
@@ -3212,7 +3196,7 @@
       },
       "FarmingSpeedNew": {
         "label": "Farming Speed",
-        "description": "Growth speed multiplier. Lower = faster."
+        "description": "Plant growth speed multiplier. Higher = faster (2 = twice as fast)."
       },
       "FarmingAmountNew": {
         "label": "Farming Amount",
@@ -3573,16 +3557,16 @@
         "description": "Distance around spawn points cleared of zombies.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Inside the building and around it"
           },
           "2": {
-            "label": "Small"
+            "label": "Inside the building"
           },
           "3": {
-            "label": "Medium"
+            "label": "Inside the room"
           },
           "4": {
-            "label": "Large"
+            "label": "Zombies can spawn anywhere"
           },
           "5": {
             "label": "Very Large"
@@ -3893,10 +3877,10 @@
         "description": "How often basements appear in buildings.",
         "options": {
           "1": {
-            "label": "None"
+            "label": "Never"
           },
           "2": {
-            "label": "Very Rare"
+            "label": "Extremely Rare"
           },
           "3": {
             "label": "Rare"

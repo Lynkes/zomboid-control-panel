@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Sliders, FileCog, Package } from 'lucide-react'
+import { ArrowRight, Sliders, FileCog, Package } from 'lucide-react'
 import { SimTemplateDiff, SimTemplateModRef } from '@/lib/api'
 import { getIniKeyLabel, getSandboxKeyLabel, formatDiffValue } from '@/lib/templateLabels'
 
@@ -33,11 +33,11 @@ function DiffRows({ rows, emptyText }: { rows: DiffRow[]; emptyText: string }) {
         >
           <div className="min-w-0 sm:flex-1">
             <p className="truncate font-medium text-foreground" title={row.label}>{row.label}</p>
-            {row.sub && <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70">{row.sub}</p>}
+            {row.sub && <p className="text-xs text-muted-foreground">{row.sub}</p>}
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 font-mono text-xs [overflow-wrap:anywhere] sm:max-w-[60%] sm:justify-end">
             <span className="min-w-0 text-muted-foreground line-through">{formatDiffValue(row.from)}</span>
-            <span className="text-muted-foreground">&rarr;</span>
+            <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground rtl:-scale-x-100" aria-hidden="true" />
             <span className="min-w-0 font-semibold text-primary">{formatDiffValue(row.to)}</span>
           </div>
         </li>
@@ -49,8 +49,8 @@ function DiffRows({ rows, emptyText }: { rows: DiffRow[]; emptyText: string }) {
 function Section({ icon: Icon, title, children }: { icon: typeof Sliders; title: string; children: ReactNode }) {
   return (
     <div className="space-y-2">
-      <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
+      <h4 className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+        <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
         {title}
       </h4>
       {children}
@@ -97,7 +97,7 @@ export function TemplateDiffList({ diff, mods }: TemplateDiffListProps) {
                 </li>
               ))}
             </ul>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('modsNotInstalledAutomatically')}
             </p>
           </>

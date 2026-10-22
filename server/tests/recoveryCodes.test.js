@@ -151,7 +151,7 @@ describe("recovery codes", () => {
     const { codes } = await authService.generateRecoveryCodes("u-owner", OWNER_PASSWORD, 1);
     await expect(
       authService.redeemRecoveryCode(codes[0], "123"),
-    ).rejects.toThrow(/at least 6 characters/);
+    ).rejects.toThrow(/at least 10 characters/);
   });
 });
 

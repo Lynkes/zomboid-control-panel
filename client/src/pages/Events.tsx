@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { Trans, useTranslation } from 'react-i18next'
+import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
   Zap,
@@ -49,14 +49,17 @@ import {
   Info,
   Search,
   Waves,
-  Plane
+  Plane,
+  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { SectionCard } from '@/components/ui/section-card'
+import { SubNav, SubNavLayout, type SubNavGroup } from '@/components/ui/sub-nav'
+import { Segmented } from '@/components/ui/segmented'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
@@ -65,99 +68,57 @@ import { rconApi, serverApi, playersApi, panelBridgeApi, ApiError, BRIDGE_SLOW_E
 import { getBridgeVerifiedState } from '@/lib/bridgeVerify'
 import { liveWorldSandboxOutcome } from '@/lib/worldSandbox'
 import { bridgeDiagnosticParams } from '@/lib/bridgeDiagnostics'
+import { canReadFullBridgeStatus, readBridgeLiveness } from '@/lib/bridgeLiveness'
 import { buildTeleportPlayerCommand, buildTeleportToCommand } from '@/lib/teleportCommands'
-import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/PageHeader'
+import { PageAlerts, type PageAlert } from '@/components/PageAlerts'
+import { BridgeStatusBadge } from '@/components/BridgeStatusBadge'
 import { DisabledReason } from '@/components/DisabledReason'
 import { HelpTip } from '@/components/HelpTip'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import { useDateFormat } from '@/lib/dateFormat'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
-import { percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval } from '@/lib/weatherUnits'
+import { percentOfRange, percentToBridgeRainIntensity, percentToRconFraction, percentToUnitInterval, sliderStepForRange } from '@/lib/weatherUnits'
 import { useConfirm } from '@/contexts/ConfirmContext'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
+import { useUnsavedChangesGuard } from '@/contexts/UnsavedChangesContext'
+import { useUrlParamState } from '@/hooks/useUrlParamState'
 
 interface Player {
   name: string
   online: boolean
 }
 
-type PanelTone = 'primary' | 'warning' | 'destructive' | 'info' | 'success'
-
-function toneBorder(tone: PanelTone): string {
-  switch (tone) {
-    case 'warning': return 'border-amber-400/55'
-    case 'destructive': return 'border-destructive/55'
-    case 'info': return 'border-info/55'
-    case 'success': return 'border-emerald-400/55'
-    default: return 'border-primary/55'
-  }
-}
-
-function toneText(tone: PanelTone): string {
-  switch (tone) {
-    case 'warning': return 'text-amber-400/85'
-    case 'destructive': return 'text-destructive/85'
-    case 'info': return 'text-info/85'
-    case 'success': return 'text-emerald-400/85'
-    default: return 'text-primary/75'
-  }
-}
-
-function TacticalPanel({
+// The active section's one card: the section's name once (no h2 above it
+// repeating it), its hint as the description, and how it reaches the game
+// (RCON or the bridge, plus its caveat) as a quiet note next to the title.
+function EventPanel({
+  meta,
+  note,
+  noteWarning = false,
+  actions,
   children,
-  tone = 'primary',
-  className,
 }: {
+  meta: EventSectionMeta
+  note?: string
+  noteWarning?: boolean
+  actions?: React.ReactNode
   children: React.ReactNode
-  tone?: PanelTone
-  className?: string
 }) {
   return (
-    <div className={cn(
-      'self-start overflow-hidden rounded-md border bg-card shadow-sm flex flex-col',
-      toneBorder(tone),
-      className
-    )}>
+    <SectionCard
+      title={meta.label}
+      description={meta.hint}
+      icon={meta.icon}
+      status={note ? (
+        <span className={cn('text-xs', noteWarning ? 'text-warning' : 'text-muted-foreground')}>{note}</span>
+      ) : undefined}
+      actions={actions}
+    >
       {children}
-    </div>
-  )
-}
-
-function SectionHeader({
-  label,
-  sublabel,
-  icon: Icon,
-  action,
-  tone = 'primary',
-  isBridgeOffline = false,
-}: {
-  label: string
-  sublabel?: string
-  icon?: React.ComponentType<{ className?: string }>
-  action?: React.ReactNode
-  tone?: PanelTone
-  isBridgeOffline?: boolean
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 border-b border-border/60 px-4 py-3 select-none sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-      <span className="flex min-w-0 items-center gap-2">
-        {Icon && <Icon className={cn('h-4 w-4 shrink-0', toneText(tone))} />}
-        <span className="truncate text-sm font-semibold text-foreground">{label}</span>
-        {sublabel && (
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="text-muted-foreground/35">/</span>
-            <span className={cn(
-              'truncate text-xs font-normal',
-              isBridgeOffline ? 'text-amber-400/70' : 'text-muted-foreground/65'
-            )}>{sublabel}</span>
-          </span>
-        )}
-      </span>
-      {action && <div className="flex items-center gap-1.5 sm:shrink-0">{action}</div>}
-    </div>
+    </SectionCard>
   )
 }
 
@@ -201,11 +162,11 @@ function StateToggle({
       <div className="flex items-center gap-2">
         <span className={cn(
           'flex items-center gap-1.5 text-xs font-medium',
-          state ? 'text-emerald-400' : 'text-muted-foreground'
+          state ? 'text-success' : 'text-muted-foreground'
         )}>
           <span className={cn(
             'w-1.5 h-1.5 rounded-full',
-            state === true ? 'bg-emerald-400 animate-pulse' : 'bg-muted-foreground/40'
+            state === true ? 'bg-success animate-pulse' : 'bg-muted-foreground/40'
           )} />
           {state === null ? pendingLabel : state ? onLabel : offLabel}
         </span>
@@ -696,7 +657,7 @@ function EventSequenceResult({ data, timestamp }: { data: EventSequenceResultDat
       </p>
       {failedSteps.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          <p className="label-micro">
             {t('resultDisplay.sequenceFailedStepsTitle')}
           </p>
           <ul className="space-y-1">
@@ -975,7 +936,7 @@ function BridgeResultDisplay({ result, loading, onInlineAction, players }: Bridg
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {Object.entries(d).filter(([k]) => k !== 'success' && k !== 'message').map(([k, v]) => (
             <div key={k} className="space-y-0.5">
-              <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{k.replace(/([A-Z])/g, ' $1').trim()}</p>
+              <p className="label-micro">{k.replace(/([A-Z])/g, ' $1').trim()}</p>
               <p className="text-sm font-medium">{typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : String(v ?? '—')}</p>
             </div>
           ))}
@@ -1053,12 +1014,41 @@ interface EventSectionMeta {
   label: string
   hint: string
   keywords: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: LucideIcon
   needsBridge: boolean
 }
 
+// The ?section= values; the route registry's palette deep links
+// (lib/navigation.ts) use the same ids.
+const EVENT_SECTION_IDS = [
+  'rain', 'severe', 'climate', 'visual', 'clock', 'timespeed', 'utilities',
+  'quickSounds', 'targetedSounds', 'horde', 'vehicles', 'teleport', 'broadcast', 'bridgeOps',
+] as const satisfies readonly EventSectionKey[]
+
 // Sections whose commands act on a chosen player rather than the whole world.
 const TARGETED_SECTIONS: EventSectionKey[] = ['quickSounds', 'targetedSounds', 'horde', 'teleport']
+
+// How long an un-applied Clock pick (hour/day/month) is protected from the
+// 10 s bridge poll after the last edit.
+const CLOCK_EDIT_HOLD_MS = 120_000
+
+const LG_QUERY = '(min-width: 1024px)'
+
+/** True at Tailwind's `lg` and up, where the section rail shows. jsdom (no matchMedia) counts as lg. */
+function useIsLg(): boolean {
+  const [isLg, setIsLg] = useState(() =>
+    typeof window === 'undefined' || typeof window.matchMedia !== 'function' ? true : window.matchMedia(LG_QUERY).matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia(LG_QUERY)
+    const update = () => setIsLg(mq.matches)
+    update()
+    mq.addEventListener?.('change', update)
+    return () => mq.removeEventListener?.('change', update)
+  }, [])
+  return isLg
+}
 
 // getClimateFloats() reports the real, server-authoritative min/max for each
 // ClimateFloat (PanelBridge.lua handlers.getClimateFloats -> cf:getMin()/cf:getMax()).
@@ -1105,12 +1095,23 @@ export default function Events() {
   // triggers stay ungated here -- they're server.world_events, the page's
   // own broadly-held baseline, not this specific mismatch.
   const canEndangerOrImpersonate = can('players.endanger_or_impersonate')
+  // Every Bridge Ops operation (and the safehouse/faction/vehicle lists that
+  // fill its pickers) goes through POST /panel-bridge/command, which needs
+  // bridge.command. The default Technician and Moderator roles lack it, so
+  // for them the section is hidden and its lists are not polled (they would
+  // 403 every 30 s and show a permanent "could not refresh lists" message).
+  const canBridgeCommand = can('bridge.command')
+  // Time speed, both teleports and vehicle spawn send a raw RCON command
+  // (POST /rcon/execute), which needs rcon.execute; the default Moderator
+  // lacks it and used to get an enabled button that ended in a 403 toast.
+  const canRconExecute = can('rcon.execute')
   const vehicles = useMemo(() => getVehiclePresets(t), [t])
   const bridgeOperationTemplates = useMemo(() => getBridgeOperationTemplates(t), [t])
   const bridgeOperationForms = useMemo(() => getBridgeOperationForms(t), [t])
   const bridgeOperationGroups = useMemo(() => getBridgeOperationGroups(t), [t])
   const EVENT_SECTION_GROUPS = useMemo(() => ([
     {
+      id: 'weather',
       group: t('groups.weather'),
       items: [
         { id: 'rain' as const, label: t('sections.rain.label'), hint: t('sections.rain.hint'), keywords: t('sections.rain.keywords'), icon: CloudRain, needsBridge: false },
@@ -1120,6 +1121,7 @@ export default function Events() {
       ],
     },
     {
+      id: 'world',
       group: t('groups.world'),
       items: [
         { id: 'clock' as const, label: t('sections.clock.label'), hint: t('sections.clock.hint'), keywords: t('sections.clock.keywords'), icon: Calendar, needsBridge: true },
@@ -1128,6 +1130,7 @@ export default function Events() {
       ],
     },
     {
+      id: 'sounds',
       group: t('groups.sounds'),
       items: [
         { id: 'quickSounds' as const, label: t('sections.quickSounds.label'), hint: t('sections.quickSounds.hint'), keywords: t('sections.quickSounds.keywords'), icon: Volume2, needsBridge: false },
@@ -1135,6 +1138,7 @@ export default function Events() {
       ],
     },
     {
+      id: 'players',
       group: t('groups.players'),
       items: [
         { id: 'horde' as const, label: t('sections.horde.label'), hint: t('sections.horde.hint'), keywords: t('sections.horde.keywords'), icon: Skull, needsBridge: true },
@@ -1144,6 +1148,7 @@ export default function Events() {
       ],
     },
     {
+      id: 'advanced',
       group: t('groups.advanced'),
       items: [
         { id: 'bridgeOps' as const, label: t('sections.bridgeOps.label'), hint: t('sections.bridgeOps.hint'), keywords: t('sections.bridgeOps.keywords'), icon: Crosshair, needsBridge: true },
@@ -1298,16 +1303,30 @@ export default function Events() {
   const confirm = useConfirm()
   const socket = useSocket()
 
-  const [activeSection, setActiveSection] = useState<EventSectionKey>('rain')
+  // The open section lives in ?section=, so a reload, a link or the command
+  // palette's deep links (lib/navigation.ts) land on it.
+  const [requestedSection, setActiveSection] = useUrlParamState<EventSectionKey>('section', EVENT_SECTION_IDS, 'rain')
+  // The role can change while the page is open (capabilities reload), and a
+  // link can name a section the role can't use: never show Bridge tools to a
+  // role without bridge.command.
+  const activeSection: EventSectionKey = requestedSection === 'bridgeOps' && !canBridgeCommand ? 'rain' : requestedSection
   const [sectionQuery, setSectionQuery] = useState('')
   const [activity, setActivity] = useState<ActivityEntry[]>([])
-  // Below `lg` the sidebar/content grid collapses to one column, so the full
-  // ~18-item nav (plus Recent Actions) renders ABOVE the section you just
-  // picked -- reaching it costs a scroll past everything else on the page,
-  // every time. Desktop's two-column layout never has this problem. Jumping
-  // the content into view on selection is scoped to exactly that narrow
-  // case (2026-08-31 quality pass, operator-approved aesthetic fix) rather
-  // than restructuring the nav itself, which touches far more of the page.
+  // Edits that only reach the game when the operator applies or sends them:
+  // a clock pick waiting for "Apply time & date", a typed announcement, a
+  // filled-in Bridge tools form. Leaving the page asks first while any of
+  // them is pending.
+  const [clockPending, setClockPending] = useState(false)
+  const [announcementDirty, setAnnouncementDirty] = useState(false)
+  const [bridgeFormDirty, setBridgeFormDirty] = useState(false)
+  useUnsavedChangesGuard(clockPending || announcementDirty || bridgeFormDirty)
+  // Recent actions sit under the rail from `lg` up and after the section
+  // below it, so on a phone the select leads straight into the controls.
+  const isLg = useIsLg()
+  // Below `lg` the rail becomes a select, so the section you just picked can
+  // sit below the fold. Jumping the content into view on selection is
+  // scoped to exactly that narrow case (2026-08-31 quality pass,
+  // operator-approved).
   const contentRef = useRef<HTMLDivElement>(null)
   const jumpToContentOnMobile = () => {
     // jsdom (every existing test on this page) has no matchMedia at all,
@@ -1362,6 +1381,17 @@ export default function Events() {
   const markTimeSpeedDirty = useCallback(() => {
     timeSpeedDirtyUntilRef.current = Date.now() + 2500
   }, [])
+  // The Clock card's hour/day/month are edited first and sent later with
+  // "Apply time and date", so a 2.5 s drag window is far too short: the 10 s
+  // poll would put the game's time back over a pending pick (Dusk, then Apply
+  // some seconds later). Hold the poll off until the edit is applied (which
+  // clears this), the server changes, or the operator stops touching the card
+  // for CLOCK_EDIT_HOLD_MS.
+  const clockDirtyUntilRef = useRef(0)
+  const markClockDirty = useCallback(() => {
+    clockDirtyUntilRef.current = Date.now() + CLOCK_EDIT_HOLD_MS
+    setClockPending(true)
+  }, [])
 
   // continuous-bug-hunt round 26 (PanelBridge command queue and response
   // matching): same race shape as fetchPlayers above (round 9), on the SAME
@@ -1376,19 +1406,24 @@ export default function Events() {
   // newer call has already started -- same mechanism, separate instance
   // (per useRequestGuard's own doc comment: one guard per fetch flow).
   const bridgeStatusGuard = useRequestGuard()
+  // A Moderator can't read GET /panel-bridge/status (bridge.setup or
+  // bridge.diagnostics only); readBridgeLiveness() then asks the status every
+  // role may read, so the bridge controls aren't all disabled for them.
+  const canReadBridgeStatus = canReadFullBridgeStatus(can)
   const checkBridgeStatus = useCallback(async () => {
     const requestId = bridgeStatusGuard.next()
     try {
-      const status = await panelBridgeApi.getStatus()
+      const live = await readBridgeLiveness(canReadBridgeStatus)
       if (!mountedRef.current || bridgeStatusGuard.isStale(requestId)) return
-      setBridgeConnected(status.modConnected)
+      const status = live.full
+      setBridgeConnected(live.modConnected)
       setBridgeStatusLoading(false)
       // status.connection.summary is {key, params, text} -- resolve through
       // i18next the same way Settings.tsx's resolveBridgeDiagText() does,
       // reaching into settings.json's bridge.diagnostics tree (same
       // cross-namespace {ns: 'settings'} pattern Backups.tsx already uses).
       setBridgeConnectionSummary(
-        status.connection?.summary
+        status?.connection?.summary
           ? t(`bridge.diagnostics.${status.connection.summary.key}`, {
               ns: 'settings',
               // Ages worded in the UI language's units, as Settings does.
@@ -1399,7 +1434,7 @@ export default function Events() {
       )
 
       // If connected, fetch secondary data in parallel
-      if (status.modConnected) {
+      if (live.modConnected) {
         // getWeather is deliberately NOT in this Promise.allSettled batch: it
         // only feeds the small live-conditions strip below, and awaiting it
         // alongside floatsRes/timeRes/utilitiesRes would let a slow or
@@ -1459,9 +1494,14 @@ export default function Events() {
         }
 
         if (timeRes.status === 'fulfilled' && timeRes.value.success && timeRes.value.data) {
-          setGameHour(Math.floor(timeRes.value.data.hour))
-          setGameDay(timeRes.value.data.day)
-          setGameMonth(timeRes.value.data.month)
+          // Don't clobber a pick that has not been applied yet.
+          if (Date.now() >= clockDirtyUntilRef.current) {
+            setGameHour(Math.floor(timeRes.value.data.hour))
+            setGameDay(timeRes.value.data.day)
+            setGameMonth(timeRes.value.data.month)
+            // The hold ran out and the game's time replaced the pick.
+            setClockPending(false)
+          }
           // getGameTime's multiplier field is the game speed RCON's
           // setTimeSpeed command writes (confirmed via the real jar:
           // SetTimeSpeedCommand calls GameTime.getInstance().setMultiplier(),
@@ -1499,7 +1539,7 @@ export default function Events() {
         setUtilitiesStatus(null)
       }
     }
-  }, [bridgeStatusGuard])
+  }, [bridgeStatusGuard, canReadBridgeStatus])
 
   // Same getWeather() read as checkBridgeStatus's own poll tick above, split
   // out so a toggle that just changed weather state can reconcile with the
@@ -1557,6 +1597,9 @@ export default function Events() {
   useEffect(() => {
     if (!socket) return
     const handleActiveServerChanged = () => {
+      // A pending clock pick was made against the old server's time.
+      clockDirtyUntilRef.current = 0
+      setClockPending(false)
       fetchPlayers()
       checkBridgeStatus()
       // bug-hunt-2026-09-18 (round 20): `selectedPlayer` names a specific
@@ -1582,7 +1625,7 @@ export default function Events() {
   }, [socket, fetchPlayers, checkBridgeStatus])
 
   useEffect(() => {
-    if (!bridgeConnected) {
+    if (!bridgeConnected || !canBridgeCommand) {
       setBridgeSafehouseOptions([])
       setBridgeFactionOptions([])
       setBridgeVehicleOptions([])
@@ -1712,7 +1755,7 @@ export default function Events() {
       active = false
       clearInterval(interval)
     }
-  }, [activeSection, bridgeConnected, bridgeOptionsRefreshTick, i18n.language])
+  }, [activeSection, bridgeConnected, canBridgeCommand, bridgeOptionsRefreshTick, i18n.language])
 
   const pushActivity = useCallback((label: string, ok: boolean) => {
     setActivity((prev) => [
@@ -1982,6 +2025,28 @@ export default function Events() {
     return hordeToastOverride('spawnHordeBehindPlayer', getEventSuccessCopy('Create horde (behind)', t).title, response)
   }
 
+  // Spawning a horde lands on a real player (or a random online one) in the
+  // middle of whatever they are doing: the same affects-someone-else but
+  // recoverable tier as clearing zombies near a player, so the same warning
+  // confirm, naming who and how many.
+  const spawnHordeWithConfirm = async (placement: 'near' | 'behind') => {
+    const target = targetAll ? null : selectedPlayer
+    const buttonLabel = placement === 'near'
+      ? t('horde.spawnNear', { target: target || t('horde.random') })
+      : t('horde.spawnBehind', { target: target || t('horde.random') })
+    const ok = await confirm({
+      title: t('horde.spawnConfirmTitle', { size: hordeCount }),
+      description: target
+        ? t('horde.spawnConfirmDescTargeted', { size: hordeCount, player: target })
+        : t('horde.spawnConfirmDescRandom', { size: hordeCount }),
+      confirmLabel: buttonLabel,
+      variant: 'warning',
+    })
+    if (!ok) return
+    if (placement === 'near') handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))
+    else handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))
+  }
+
   // Clear all zombies from loaded cells
   const removeZombies = () => panelBridgeApi.clearAllZombies()
 
@@ -2019,6 +2084,10 @@ export default function Events() {
 
   // Announcement
   const sendAnnouncement = () => serverApi.sendMessage(announcement)
+  const editAnnouncement = (text: string) => {
+    setAnnouncement(text)
+    setAnnouncementDirty(text.trim() !== '')
+  }
 
   const getBridgeFieldValue = (fieldKey: string): string => bridgeOperationFormValues[bridgeOperation]?.[fieldKey] ?? ''
 
@@ -2030,6 +2099,7 @@ export default function Events() {
         [fieldKey]: value,
       },
     }))
+    setBridgeFormDirty(true)
     if (bridgeFormError) setBridgeFormError(null)
   }
 
@@ -2142,6 +2212,7 @@ export default function Events() {
     const defaults = Object.fromEntries(form.fields.map((field) => [field.key, field.defaultValue ?? '']))
     setBridgeOperationFormValues((prev) => ({ ...prev, [bridgeOperation]: defaults }))
     setBridgeFormError(null)
+    setBridgeFormDirty(false)
   }
 
   const runInlineAction = async (action: string, args: Record<string, unknown>, label: string) => {
@@ -2322,21 +2393,110 @@ export default function Events() {
       pushActivity(t('toasts.bridgeOperationFailedTitle'), false)
     } finally {
       setBridgeLoading(null)
+      // The form was sent: what it holds is no longer an unsent edit.
+      setBridgeFormDirty(false)
     }
   }
 
   const normalizedQuery = sectionQuery.trim().toLowerCase()
-  const filteredGroups = EVENT_SECTION_GROUPS
+  // A section that needs the bridge is marked only once the bridge is known
+  // to be offline, not while the first status check is still running.
+  const bridgeKnownOffline = !bridgeStatusLoading && !bridgeConnected
+  const subNavGroups: SubNavGroup[] = EVENT_SECTION_GROUPS
     .map((group) => ({
-      group: group.group,
-      items: normalizedQuery
+      id: group.id,
+      label: group.group,
+      items: (normalizedQuery
         ? group.items.filter((item) =>
             `${item.label} ${item.hint} ${item.keywords} ${group.group}`.toLowerCase().includes(normalizedQuery)
           )
-        : group.items,
+        : group.items
+      )
+        .filter((item) => item.id !== 'bridgeOps' || canBridgeCommand)
+        .map((item) => {
+          const blocked = item.needsBridge && bridgeKnownOffline
+          return {
+            id: item.id,
+            label: item.label,
+            icon: item.icon,
+            tone: blocked ? 'warning' as const : 'default' as const,
+            badge: blocked ? (
+              <span className="text-micro font-medium text-warning" title={t('sidebar.bridgeBadgeTitle')}>
+                {t('sidebar.bridgeBadge')}
+              </span>
+            ) : undefined,
+          }
+        }),
     }))
     .filter((group) => group.items.length > 0)
   const activeMeta = EVENT_SECTION_INDEX[activeSection]
+
+  const pageAlerts: PageAlert[] = activeMeta.needsBridge && bridgeKnownOffline
+    ? [{
+        id: 'bridge-offline',
+        tone: 'warning',
+        title: t('bridgeOfflineAlert.title'),
+        description: t('bridgeOfflineAlert.description'),
+        action: { label: t('bridgeOfflineAlert.action'), to: '/settings?tab=bridge' },
+      }]
+    : []
+
+  const recentActions = (
+    <div>
+      <p className="label-micro px-2.5 pb-1.5">{t('sidebar.recentActions')}</p>
+      {activity.length > 0 ? (
+        <ul className="space-y-px">
+          {activity.map((entry) => (
+            <li key={entry.key} className="flex items-start gap-2 px-2.5 py-1.5">
+              {entry.ok
+                ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" />
+                : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden="true" />}
+              <span className="min-w-0 flex-1 truncate text-xs text-foreground">{entry.label}</span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{formatDateTime(entry.at, { style: 'medium', seconds: true })}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-2.5 text-xs text-muted-foreground">{t('sidebar.noRecentActions')}</p>
+      )}
+    </div>
+  )
+
+  // Who the player-targeted sections (sounds, horde, teleport) act on.
+  const targetPicker = TARGETED_SECTIONS.includes(activeSection) ? (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium text-muted-foreground">{t('statusBar.eventTarget')}</span>
+      <Segmented
+        value={targetAll ? 'all' : 'specific'}
+        onValueChange={(next) => setTargetAll(next === 'all')}
+        ariaLabel={t('statusBar.eventTarget')}
+        items={[
+          { value: 'all', label: t('statusBar.allOnline') },
+          { value: 'specific', label: t('statusBar.specific') },
+        ]}
+      />
+      {!targetAll && (
+        <Select value={selectedPlayer} onValueChange={setSelectedPlayer}>
+          <SelectTrigger id="event-target-player" aria-label={t('statusBar.selectPlayerAria')} className="h-9 w-[210px] text-xs">
+            <SelectValue placeholder={t('statusBar.selectPlayerPlaceholder')} />
+          </SelectTrigger>
+          <SelectContent>
+            {playersUnknown ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('common.playersUnavailable')}</div>
+            ) : players.length === 0 ? (
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('statusBar.noPlayersOnline')}</div>
+            ) : (
+              players.map((player) => (
+                <SelectItem key={player.name} value={player.name}>
+                  <span className="block max-w-[200px] truncate" dir="auto" title={player.name}>{player.name}</span>
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  ) : undefined
 
   const fogBounds = climateSliderBounds(climateRanges[5], 0, 100, 100)
   const windBounds = climateSliderBounds(climateRanges[6], 0, 100, 100)
@@ -2351,248 +2511,81 @@ export default function Events() {
   const dayLightBounds = climateSliderBounds(climateRanges[11], 0, 100, 100)
 
   return (
-    <div className="mx-auto max-w-[1180px] space-y-5 pb-8 page-transition">
+    <div className="space-y-6 pb-8 page-transition">
       <PageHeader
         title={t('pageHeader.title')}
         description={t('pageHeader.description')}
-        eyebrow={t('pageHeader.eyebrow')}
-        tone="world"
-        icon={<Zap className="w-5 h-5 text-primary" />}
+        status={
+          <BridgeStatusBadge
+            connected={bridgeConnected}
+            loading={bridgeStatusLoading}
+            summary={bridgeConnectionSummary}
+          />
+        }
+        meta={
+          <span className="inline-flex items-center gap-1.5">
+            <Users className="h-3.5 w-3.5" aria-hidden="true" />
+            <span className="font-medium tabular-nums text-foreground">{playersUnknown ? '—' : players.length}</span>
+            <span>{t('statusBar.onlineCount')}</span>
+          </span>
+        }
         actions={
-          <Button variant="command" onClick={fetchPlayers} className="gap-2 h-9 text-xs font-medium">
-            <RefreshCw className="w-3.5 h-3.5" />
-            {t('pageHeader.refreshPlayers')}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={fetchPlayers}
+            aria-label={t('pageHeader.refreshPlayers')}
+            title={t('pageHeader.refreshPlayers')}
+          >
+            <RefreshCw aria-hidden="true" />
           </Button>
         }
       />
 
-      {/* Scope and connection state stay visible before event controls. */}
-      <div className={cn(
-        'rounded-md border bg-card px-4 py-3',
-        bridgeStatusLoading ? 'border-border/60' : bridgeConnected ? 'border-border/70' : 'border-amber-400/55'
-      )}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {/* Bridge status */}
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground whitespace-nowrap">
-              <Zap className={cn('w-3.5 h-3.5', bridgeStatusLoading ? 'text-muted-foreground' : bridgeConnected ? 'text-primary' : 'text-amber-400')} />
-              <span>{t('statusBar.panelBridge')}</span>
-            </div>
-            <div className={cn(
-              'flex items-center gap-2 px-2.5 py-1 rounded-md border',
-              bridgeStatusLoading
-                ? 'border-border/40 bg-muted/30'
-                : bridgeConnected
-                  ? 'border-emerald-400/30 bg-emerald-400/10'
-                  : 'border-amber-400/30 bg-amber-400/10'
-            )}>
-              {bridgeStatusLoading ? (
-                <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-              ) : (
-                <span className={cn(
-                  'w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]',
-                  bridgeConnected ? 'bg-emerald-400 text-emerald-400 animate-pulse' : 'bg-amber-400 text-amber-400'
-                )} />
-              )}
-              <span className={cn(
-                'text-sm font-semibold',
-                bridgeStatusLoading ? 'text-muted-foreground' : bridgeConnected ? 'text-emerald-300' : 'text-amber-300'
-              )}>
-                {bridgeStatusLoading ? t('loading.label', { ns: 'bridgeStatusBadge' }) : bridgeConnected ? t('statusBar.online') : t('statusBar.offline')}
-              </span>
-            </div>
-            {!bridgeStatusLoading && !bridgeConnected && (
-              <Link to="/settings" className="hidden sm:inline-flex text-sm font-medium text-primary hover:text-primary/80 underline-offset-2 hover:underline">
-                {t('statusBar.configureLink')}
-              </Link>
-            )}
-          </div>
+      <PageAlerts alerts={pageAlerts} />
 
-          {/* Target picker — only for sections whose commands act on a chosen player. */}
-          <div className="flex flex-wrap items-center gap-3">
-            {TARGETED_SECTIONS.includes(activeSection) && (
-              <>
-                <span className="text-xs font-medium text-muted-foreground whitespace-nowrap">
-                  {t('statusBar.eventTarget')}
-            </span>
-            <div className="inline-flex rounded-md border border-border/70 bg-background/60 p-0.5 shadow-sm">
-              <button
-                type="button"
-                onClick={() => setTargetAll(true)}
-                className={cn(
-                  'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors',
-                  targetAll
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
-                )}
-                aria-pressed={targetAll}
-              >
-                {t('statusBar.allOnline')}
-              </button>
-              <button
-                type="button"
-                onClick={() => setTargetAll(false)}
-                className={cn(
-                  'px-3 py-1.5 text-sm font-medium rounded-sm transition-colors',
-                  !targetAll
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
-                )}
-                aria-pressed={!targetAll}
-              >
-                {t('statusBar.specific')}
-              </button>
+      <SubNavLayout
+        nav={
+          <div className="space-y-3">
+            <div className="relative hidden lg:block">
+              <Search className="pointer-events-none absolute start-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <Input
+                type="search"
+                value={sectionQuery}
+                onChange={(e) => setSectionQuery(e.target.value)}
+                placeholder={t('sidebar.searchPlaceholder')}
+                aria-label={t('sidebar.searchAria')}
+                className="h-9 min-w-0 ps-8 text-sm"
+              />
             </div>
-            {!targetAll && (
-              <Select value={selectedPlayer} onValueChange={setSelectedPlayer}>
-                <SelectTrigger id="event-target-player" aria-label={t('statusBar.selectPlayerAria')} className="h-9 w-[210px] font-mono text-xs">
-                  <SelectValue placeholder={t('statusBar.selectPlayerPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {playersUnknown ? (
-                    <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
-                  ) : players.length === 0 ? (
-                    <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('statusBar.noPlayersOnline')}</div>
-                  ) : (
-                    players.map((player) => (
-                      <SelectItem key={player.name} value={player.name}>
-                        <span className="block max-w-[200px] truncate" dir="auto" title={player.name}>{player.name}</span>
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+            {subNavGroups.length === 0 && (
+              <p className="px-2.5 py-1 text-xs text-muted-foreground">{t('sidebar.noMatches')}</p>
             )}
-              </>
-            )}
-            <div className={cn(
-              'flex items-center gap-1.5 px-2.5 py-1 rounded-md border whitespace-nowrap',
-              players.length > 0
-                ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
-                : 'border-border/60 bg-muted/30 text-muted-foreground'
-            )}>
-              <Users className="w-3.5 h-3.5" />
-              <span className="text-sm font-bold tabular-nums">{playersUnknown ? '—' : players.length}</span>
-              <span className="text-xs font-medium opacity-80">{t('statusBar.onlineCount')}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:self-start">
-          <div className="relative">
-            <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={sectionQuery}
-              onChange={(e) => setSectionQuery(e.target.value)}
-              placeholder={t('sidebar.searchPlaceholder')}
-              aria-label={t('sidebar.searchAria')}
-              className="h-9 min-w-0 ps-8 text-sm"
+            <SubNav
+              kind="nav"
+              groups={subNavGroups}
+              value={activeSection}
+              onValueChange={(id) => {
+                setActiveSection(id as EventSectionKey)
+                jumpToContentOnMobile()
+              }}
+              ariaLabel={t('sidebar.sectionsAria')}
+              footer={isLg ? recentActions : undefined}
             />
           </div>
-
-          <nav aria-label={t('sidebar.sectionsAria')} className="space-y-3 rounded-md border border-border/60 bg-card p-2">
-            {filteredGroups.map((group) => (
-              <div key={group.group}>
-                <p className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/60">
-                  {group.group}
-                </p>
-                <div className="space-y-0.5">
-                  {group.items.map((item) => {
-                    const Icon = item.icon
-                    const isActive = item.id === activeSection
-                    const blocked = item.needsBridge && !bridgeConnected
-                    return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveSection(item.id)
-                          jumpToContentOnMobile()
-                        }}
-                        aria-current={isActive ? 'true' : undefined}
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-start text-sm transition-colors',
-                          isActive
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                        {blocked && (
-                          <span
-                            className={cn('text-[10px] font-medium', isActive ? 'text-primary-foreground/80' : 'text-amber-400/80')}
-                            title={t('sidebar.bridgeBadgeTitle')}
-                          >
-                            {t('sidebar.bridgeBadge')}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-            {filteredGroups.length === 0 && (
-              <p className="px-2 py-3 text-xs text-muted-foreground">{t('sidebar.noMatches')}</p>
-            )}
-          </nav>
-
-          <div className="rounded-md border border-border/60 bg-card">
-            <p className="border-b border-border/60 px-3 py-2 text-xs font-semibold text-foreground">{t('sidebar.recentActions')}</p>
-            {activity.length > 0 ? (
-              <ul className="divide-y divide-border/40">
-                {activity.map((entry) => (
-                  <li key={entry.key} className="flex items-start gap-2 px-3 py-2">
-                    {entry.ok
-                      ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-400" />
-                      : <X className="mt-0.5 h-3 w-3 shrink-0 text-destructive" />}
-                    <span className="min-w-0 flex-1 truncate text-xs text-foreground/85">{entry.label}</span>
-                    <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">{formatDateTime(entry.at, { style: 'medium', seconds: true })}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="px-3 py-3 text-xs text-muted-foreground">{t('sidebar.noRecentActions')}</p>
-            )}
-          </div>
-        </aside>
-
-        <div ref={contentRef} className="min-w-0 space-y-4 scroll-mt-4">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">{activeMeta.label}</h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">{activeMeta.hint}</p>
-          </div>
-
-          {activeMeta.needsBridge && !bridgeConnected && (
-            <Alert className="border-warning/40 bg-warning/10">
-              <AlertTriangle className="h-4 w-4 text-warning" />
-              <AlertTitle className="text-warning">{t('bridgeOfflineAlert.title')}</AlertTitle>
-              <AlertDescription>
-                <Trans
-                  i18nKey="bridgeOfflineAlert.description"
-                  t={t}
-                  components={{
-                    1: <Link to="/settings?tab=bridge" className="text-primary underline-offset-2 hover:underline" />,
-                  }}
-                />
-              </AlertDescription>
-            </Alert>
-          )}
-
+        }
+      >
+        <div ref={contentRef} className="min-w-0 scroll-mt-4">
         {activeSection === 'rain' && (
-            <TacticalPanel>
-              <SectionHeader label={activeMeta.label} sublabel={t('rain.sublabel')} icon={CloudRain} />
-              <div className="p-4 space-y-6">
+            <EventPanel meta={activeMeta} note={t('rain.sublabel')}>
+              <div className="space-y-6">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                       <CloudRain className="w-3.5 h-3.5 text-info" />
                       {t('rain.rainLabel')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-info">{rainIntensity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-info">{rainIntensity}%</span>
                   </div>
                   <Slider aria-label={t('rain.rainIntensityAria')} value={[rainIntensity]} onValueChange={([val]) => setRainIntensity(val)} min={1} max={100} step={1} />
                   {bridgeConnected ? (
@@ -2646,10 +2639,10 @@ export default function Events() {
                 <div className="space-y-3 pt-4 border-t border-border/40">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
-                      <CloudLightning className="w-3.5 h-3.5 text-amber-400" />
+                      <CloudLightning className="w-3.5 h-3.5 text-warning" />
                       {t('rain.stormLabel')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-amber-400">{stormDuration}h</span>
+                    <span className="text-xs font-medium tabular-nums text-warning">{stormDuration}h</span>
                   </div>
                   <Slider aria-label={t('rain.stormDurationAria')} value={[stormDuration]} onValueChange={([val]) => setStormDuration(val)} min={1} max={24} step={1} />
                   <div className="flex flex-wrap gap-2">
@@ -2664,26 +2657,19 @@ export default function Events() {
                   </div>
                 </div>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'severe' && (
-            <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader
-                label={activeMeta.label}
-                sublabel={bridgeConnected ? t('severe.sublabelOnline') : t('severe.sublabelOffline')}
-                icon={Snowflake}
-                tone={bridgeConnected ? 'primary' : 'warning'}
-                isBridgeOffline={!bridgeConnected}
-              />
-              <div className="p-4 space-y-6">
+            <EventPanel meta={activeMeta} note={bridgeConnected ? t('severe.sublabelOnline') : t('severe.sublabelOffline')} noteWarning={bridgeKnownOffline}>
+              <div className="space-y-6">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                       <Snowflake className="w-3.5 h-3.5 text-info" />
                       {t('severe.blizzardLabel')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-info">{blizzardDuration}h</span>
+                    <span className="text-xs font-medium tabular-nums text-info">{blizzardDuration}h</span>
                   </div>
                   <Slider aria-label={t('severe.blizzardDurationAria')} value={[blizzardDuration]} onValueChange={([val]) => setBlizzardDuration(val)} min={1} max={24} step={1} disabled={!bridgeConnected} />
                   <Button variant="outline" onClick={() => handleBridgeAction('Blizzard', () => panelBridgeApi.triggerBlizzard(blizzardDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
@@ -2695,10 +2681,10 @@ export default function Events() {
                 <div className="space-y-3 pt-4 border-t border-border/40">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
-                      <Wind className="w-3.5 h-3.5 text-amber-400" />
+                      <Wind className="w-3.5 h-3.5 text-warning" />
                       {t('severe.tropicalLabel')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-amber-400">{tropicalDuration}h</span>
+                    <span className="text-xs font-medium tabular-nums text-warning">{tropicalDuration}h</span>
                   </div>
                   <Slider aria-label={t('severe.tropicalDurationAria')} value={[tropicalDuration]} onValueChange={([val]) => setTropicalDuration(val)} min={1} max={24} step={1} disabled={!bridgeConnected} />
                   <Button variant="outline" onClick={() => handleBridgeAction('Tropical Storm', () => panelBridgeApi.triggerTropicalStorm(tropicalDuration))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
@@ -2738,7 +2724,7 @@ export default function Events() {
                       <Waves className="w-3.5 h-3.5 text-primary" />
                       {t('severe.frontLabel')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{weatherFrontStrength}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{weatherFrontStrength}%</span>
                   </div>
                   <Slider aria-label={t('severe.frontStrengthAria')} value={[weatherFrontStrength]} onValueChange={([val]) => setWeatherFrontStrength(val)} min={0} max={100} step={5} disabled={!bridgeConnected} />
                   <Select value={weatherFrontType} onValueChange={setWeatherFrontType} disabled={!bridgeConnected}>
@@ -2777,30 +2763,27 @@ export default function Events() {
                   </div>
                 </div>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'climate' && (
-          <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-            <SectionHeader
-              label={activeMeta.label}
-              sublabel={bridgeConnected ? t('climate.sublabelOnline') : t('climate.sublabelOffline')}
-              icon={Gauge}
-              tone={bridgeConnected ? 'primary' : 'warning'}
-              isBridgeOffline={!bridgeConnected}
-              action={bridgeConnected ? (
-                <Button variant="ghost" size="sm" onClick={() => handleBridgeAction('Reset Climate', async () => { const r = await panelBridgeApi.resetClimateOverrides(); climateDirtyUntilRef.current = 0; return r })} disabled={bridgeLoading !== null} className="h-6 px-2 gap-1 text-xs font-medium">
-                  <RotateCcw className="w-3 h-3" />
-                  {t('climate.reset')}
-                </Button>
-              ) : undefined}
-            />
-            <div className="p-4 space-y-4">
+          <EventPanel
+            meta={activeMeta}
+            note={bridgeConnected ? t('climate.sublabelOnline') : t('climate.sublabelOffline')}
+            noteWarning={bridgeKnownOffline}
+            actions={bridgeConnected ? (
+              <Button variant="ghost" size="sm" onClick={() => handleBridgeAction('Reset Climate', async () => { const r = await panelBridgeApi.resetClimateOverrides(); climateDirtyUntilRef.current = 0; return r })} disabled={bridgeLoading !== null}>
+                <RotateCcw aria-hidden="true" />
+                {t('climate.reset')}
+              </Button>
+            ) : undefined}
+          >
+            <div className="space-y-4">
               {bridgeConnected && liveWeather && (
-                <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-border/40 text-[11px]">
+                <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-border/40 text-xs">
                   <span className="font-medium text-foreground/70">{t('climate.liveConditions')}</span>
                   {liveWeather.isThunderStorming && (
-                    <Badge variant="outline" className="gap-1 text-amber-400 border-amber-400/40">
+                    <Badge variant="outline" className="gap-1 text-warning border-warning/40">
                       <CloudLightning className="w-3 h-3" /> {t('climate.thunderstorm')}
                     </Badge>
                   )}
@@ -2819,7 +2802,7 @@ export default function Events() {
                       <CloudOff className="w-3 h-3" /> {t('climate.clear')}
                     </Badge>
                   )}
-                  <span className="inline-flex items-center gap-1 font-mono tabular-nums text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 tabular-nums text-muted-foreground">
                     <Wind className="w-3 h-3" />
                     {t('climate.windReading', { speed: Math.round(liveWeather.windSpeedKph), angle: Math.round(liveWeather.windAngleDeg) })}
                   </span>
@@ -2832,7 +2815,7 @@ export default function Events() {
                       <Eye className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.fog')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{fogIntensity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{fogIntensity}%</span>
                   </div>
                   <Slider aria-label={t('climate.fogAria')} value={[fogIntensity]} onValueChange={([val]) => { markClimateDirty(); setFogIntensity(val) }} min={fogBounds.min} max={fogBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2843,7 +2826,7 @@ export default function Events() {
                       <Wind className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.wind')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{windIntensity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{windIntensity}%</span>
                   </div>
                   <Slider aria-label={t('climate.windAria')} value={[windIntensity]} onValueChange={([val]) => { markClimateDirty(); setWindIntensity(val) }} min={windBounds.min} max={windBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2854,7 +2837,7 @@ export default function Events() {
                       <Thermometer className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.temperature')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{temperature}°C</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{temperature}°C</span>
                   </div>
                   <Slider aria-label={t('climate.temperatureAria')} value={[temperature]} onValueChange={([val]) => { markClimateDirty(); setTemperature(val) }} min={temperatureBounds.min} max={temperatureBounds.max} step={1} disabled={!bridgeConnected} />
                 </div>
@@ -2865,7 +2848,7 @@ export default function Events() {
                       <Cloud className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.clouds')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{cloudIntensity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{cloudIntensity}%</span>
                   </div>
                   <Slider aria-label={t('climate.cloudsAria')} value={[cloudIntensity]} onValueChange={([val]) => { markClimateDirty(); setCloudIntensity(val) }} min={cloudBounds.min} max={cloudBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2876,7 +2859,7 @@ export default function Events() {
                       <Droplets className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.humidity')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{humidity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{humidity}%</span>
                   </div>
                   <Slider aria-label={t('climate.humidityAria')} value={[humidity]} onValueChange={([val]) => { markClimateDirty(); setHumidity(val) }} min={humidityBounds.min} max={humidityBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2887,7 +2870,7 @@ export default function Events() {
                       <CloudRain className="w-3.5 h-3.5 text-primary/80" />
                       {t('climate.precipitation')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{precipitationIntensity}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{precipitationIntensity}%</span>
                   </div>
                   <Slider aria-label={t('climate.precipitationAria')} value={[precipitationIntensity]} onValueChange={([val]) => { markClimateDirty(); setPrecipitationIntensity(val) }} min={precipitationBounds.min} max={precipitationBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2937,24 +2920,22 @@ export default function Events() {
                 }}
               />
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
 
         {activeSection === 'visual' && (
-          <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-            <SectionHeader
-              label={activeMeta.label}
-              sublabel={bridgeConnected ? t('visual.sublabelOnline') : t('visual.sublabelOffline')}
-              icon={Telescope}
-              tone={bridgeConnected ? 'primary' : 'warning'}
-              action={bridgeConnected ? (
-                <Button variant="ghost" size="sm" onClick={() => handleBridgeAction('Reset Climate', async () => { const r = await panelBridgeApi.resetClimateOverrides(); climateDirtyUntilRef.current = 0; return r })} disabled={bridgeLoading !== null} className="h-6 px-2 gap-1 text-xs font-medium">
-                  <RotateCcw className="w-3 h-3" />
-                  {t('visual.reset')}
-                </Button>
-              ) : undefined}
-            />
-            <div className="p-4 space-y-4">
+          <EventPanel
+            meta={activeMeta}
+            note={bridgeConnected ? t('visual.sublabelOnline') : t('visual.sublabelOffline')}
+            noteWarning={bridgeKnownOffline}
+            actions={bridgeConnected ? (
+              <Button variant="ghost" size="sm" onClick={() => handleBridgeAction('Reset Climate', async () => { const r = await panelBridgeApi.resetClimateOverrides(); climateDirtyUntilRef.current = 0; return r })} disabled={bridgeLoading !== null}>
+                <RotateCcw aria-hidden="true" />
+                {t('visual.reset')}
+              </Button>
+            ) : undefined}
+          >
+            <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
@@ -2962,9 +2943,9 @@ export default function Events() {
                       <Telescope className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.viewDistance')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{viewDistance}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{percentOfRange(viewDistance, viewDistanceBounds)}%</span>
                   </div>
-                  <Slider aria-label={t('visual.viewDistanceAria')} value={[viewDistance]} onValueChange={([val]) => { markClimateDirty(); setViewDistance(val) }} min={viewDistanceBounds.min} max={viewDistanceBounds.max} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('visual.viewDistanceAria')} value={[viewDistance]} onValueChange={([val]) => { markClimateDirty(); setViewDistance(val) }} min={viewDistanceBounds.min} max={viewDistanceBounds.max} step={sliderStepForRange(viewDistanceBounds)} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2973,9 +2954,9 @@ export default function Events() {
                       <SunMedium className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.dayLight')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{dayLight}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{percentOfRange(dayLight, dayLightBounds)}%</span>
                   </div>
-                  <Slider aria-label={t('visual.dayLightAria')} value={[dayLight]} onValueChange={([val]) => { markClimateDirty(); setDayLight(val) }} min={dayLightBounds.min} max={dayLightBounds.max} step={5} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('visual.dayLightAria')} value={[dayLight]} onValueChange={([val]) => { markClimateDirty(); setDayLight(val) }} min={dayLightBounds.min} max={dayLightBounds.max} step={sliderStepForRange(dayLightBounds)} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="space-y-2">
@@ -2984,7 +2965,7 @@ export default function Events() {
                       <Moon className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.nightStrength')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{nightStrength}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{nightStrength}%</span>
                   </div>
                   <Slider aria-label={t('visual.nightStrengthAria')} value={[nightStrength]} onValueChange={([val]) => { markClimateDirty(); setNightStrength(val) }} min={nightStrengthBounds.min} max={nightStrengthBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -2995,7 +2976,7 @@ export default function Events() {
                       <Contrast className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.desaturation')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{desaturation}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{desaturation}%</span>
                   </div>
                   <Slider aria-label={t('visual.desaturationAria')} value={[desaturation]} onValueChange={([val]) => { markClimateDirty(); setDesaturation(val) }} min={desaturationBounds.min} max={desaturationBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -3006,7 +2987,7 @@ export default function Events() {
                       <Lightbulb className="w-3.5 h-3.5 text-primary/80" />
                       {t('visual.ambient')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{ambient}%</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{ambient}%</span>
                   </div>
                   <Slider aria-label={t('visual.ambientAria')} value={[ambient]} onValueChange={([val]) => { markClimateDirty(); setAmbient(val) }} min={ambientBounds.min} max={ambientBounds.max} step={5} disabled={!bridgeConnected} />
                 </div>
@@ -3033,44 +3014,44 @@ export default function Events() {
                 </Button>
               </div>
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
 
         {activeSection === 'clock' && (
-            <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label={activeMeta.label} sublabel={t('clock.sublabel')} icon={Calendar} tone={bridgeConnected ? 'primary' : 'warning'} />
-              <div className="p-4 space-y-4">
+            <EventPanel meta={activeMeta} note={t('clock.sublabel')}>
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
-                      {gameHour >= 6 && gameHour < 20 ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-info" />}
+                      {gameHour >= 6 && gameHour < 20 ? <Sun className="w-3.5 h-3.5 text-warning" /> : <Moon className="w-3.5 h-3.5 text-info" />}
                       {t('clock.hour')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{String(gameHour).padStart(2, '0')}:00</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{String(gameHour).padStart(2, '0')}:00</span>
                   </div>
-                  <Slider aria-label={t('clock.hourAria')} value={[gameHour]} onValueChange={([val]) => setGameHour(val)} min={0} max={23} step={1} disabled={!bridgeConnected} />
+                  <Slider aria-label={t('clock.hourAria')} value={[gameHour]} onValueChange={([val]) => { markClockDirty(); setGameHour(val) }} min={0} max={23} step={1} disabled={!bridgeConnected} />
                 </div>
 
                 <div className="flex flex-wrap gap-1.5">
-                  <Button variant={gameHour === 6 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(6)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunrise className="w-3 h-3" /> {t('clock.dawn')}</Button>
-                  <Button variant={gameHour === 12 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(12)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sun className="w-3 h-3" /> {t('clock.noon')}</Button>
-                  <Button variant={gameHour === 18 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(18)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunset className="w-3 h-3" /> {t('clock.dusk')}</Button>
-                  <Button variant={gameHour === 0 ? 'secondary' : 'outline'} size="sm" onClick={() => setGameHour(0)} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Moon className="w-3 h-3" /> {t('clock.midnight')}</Button>
+                  <Button variant={gameHour === 6 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(6) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunrise className="w-3 h-3" /> {t('clock.dawn')}</Button>
+                  <Button variant={gameHour === 12 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(12) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sun className="w-3 h-3" /> {t('clock.noon')}</Button>
+                  <Button variant={gameHour === 18 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(18) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Sunset className="w-3 h-3" /> {t('clock.dusk')}</Button>
+                  <Button variant={gameHour === 0 ? 'secondary' : 'outline'} size="sm" onClick={() => { markClockDirty(); setGameHour(0) }} disabled={!bridgeConnected} className="h-8 gap-1 text-xs font-medium"><Moon className="w-3 h-3" /> {t('clock.midnight')}</Button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 pt-2">
                   <div className="space-y-1">
                     <Label htmlFor="game-day" className="text-xs font-medium text-muted-foreground">{t('clock.day')}</Label>
                     <Input id="game-day" aria-label={t('clock.dayAria')} type="number" min={1} max={31} value={gameDay} disabled={!bridgeConnected} onChange={(e) => {
+                      markClockDirty()
                       const parsed = parseInt(e.target.value, 10)
                       if (Number.isNaN(parsed)) { setGameDay(1); return }
                       setGameDay(Math.min(31, Math.max(1, parsed)))
-                    }} className="h-9 font-mono text-[12px] tabular-nums" />
+                    }} className="h-9 tabular-nums" />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="game-month" className="text-xs font-medium text-muted-foreground">{t('clock.month')}</Label>
-                    <Select value={String(gameMonth)} onValueChange={(v) => setGameMonth(parseInt(v))} disabled={!bridgeConnected}>
-                      <SelectTrigger id="game-month" aria-label={t('clock.monthAria')} className="h-9 font-mono text-[12px]">
+                    <Select value={String(gameMonth)} onValueChange={(v) => { markClockDirty(); setGameMonth(parseInt(v)) }} disabled={!bridgeConnected}>
+                      <SelectTrigger id="game-month" aria-label={t('clock.monthAria')} className="h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -3091,25 +3072,24 @@ export default function Events() {
                   </div>
                 </div>
 
-                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }))} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
+                <Button variant="outline" onClick={() => handleBridgeAction('Set Time', () => panelBridgeApi.setGameTime({ hour: gameHour, day: gameDay, month: gameMonth }), (success) => { if (success) { clockDirtyUntilRef.current = 0; setClockPending(false) } })} disabled={bridgeLoading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
                   {bridgeLoading === 'Set Time' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
                   {t('clock.applyTimeDate')}
                 </Button>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'timespeed' && (
-            <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label={activeMeta.label} sublabel={t('timespeed.sublabel')} icon={Clock} tone={bridgeConnected ? 'primary' : 'warning'} />
-              <div className="p-4 flex flex-col gap-4">
-                <p className="text-xs text-muted-foreground/75 leading-relaxed">
+            <EventPanel meta={activeMeta} note={t('timespeed.sublabel')}>
+              <div className="flex flex-col gap-4">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {t('timespeed.description')}
                 </p>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85">{t('timespeed.multiplier')}</Label>
-                    <span className="font-mono text-[11px] tabular-nums text-primary">{timeSpeed}x</span>
+                    <span className="text-xs font-medium tabular-nums text-primary">{timeSpeed}x</span>
                   </div>
                   <Slider aria-label={t('timespeed.speedAria')} value={[timeSpeed]} onValueChange={([val]) => { markTimeSpeedDirty(); setTimeSpeed(val) }} min={1} max={100} step={1} />
                 </div>
@@ -3123,30 +3103,29 @@ export default function Events() {
                     all three are the same shape (apply this card's pending changes
                     to the live game) and had no reason in the code for one of the
                     three to be styled differently (2026-08-31 impeccable pass). */}
-                <Button onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected} className="h-9 gap-2 text-xs font-medium">
-                  {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
-                  {t('timespeed.applySpeed')}
-                </Button>
+                <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                  <Button onClick={() => handleAction('Set time speed', setGameTimeSpeed)} disabled={loading !== null || !bridgeConnected || !canRconExecute} className="h-9 gap-2 text-xs font-medium">
+                    {loading === 'Set time speed' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+                    {t('timespeed.applySpeed')}
+                  </Button>
+                </DisabledReason>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'utilities' && (
-          <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-            <SectionHeader
-              label={activeMeta.label}
-              sublabel={t('utilities.sublabel')}
-              icon={Zap}
-              tone={bridgeConnected ? 'primary' : 'warning'}
-              action={bridgeConnected ? (
-                <Button variant="ghost" size="sm" onClick={() => checkBridgeStatus()} className="h-6 px-2 gap-1 text-xs font-medium">
-                  <RefreshCw className="w-3 h-3" /> {t('utilities.refresh')}
-                </Button>
-              ) : undefined}
-            />
-            <div className="p-4 space-y-4">
-              <div className="flex items-start gap-2 rounded border border-amber-400/25 bg-amber-400/[0.05] px-2.5 py-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-400/85">
-                <AlertTriangle className="w-3 h-3 mt-px shrink-0" />
+          <EventPanel
+            meta={activeMeta}
+            note={t('utilities.sublabel')}
+            actions={bridgeConnected ? (
+              <Button variant="ghost" size="sm" onClick={() => checkBridgeStatus()}>
+                <RefreshCw aria-hidden="true" /> {t('utilities.refresh')}
+              </Button>
+            ) : undefined}
+          >
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
                 <span>{t('utilities.b42Warning')}</span>
               </div>
 
@@ -3154,22 +3133,22 @@ export default function Events() {
                 <div className="rounded-md border border-border/50 bg-muted/15 p-3 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="flex items-center gap-1.5 text-xs font-medium text-foreground/85">
-                      <Zap className="w-3.5 h-3.5 text-amber-400" /> {t('utilities.power')}
+                      <Zap className="w-3.5 h-3.5 text-warning" /> {t('utilities.power')}
                     </span>
                     <span className={cn(
                       'flex items-center gap-1.5 text-xs font-medium',
-                      utilitiesStatus === null ? 'text-muted-foreground' : utilitiesStatus.powerOn ? 'text-emerald-400' : 'text-destructive'
+                      utilitiesStatus === null ? 'text-muted-foreground' : utilitiesStatus.powerOn ? 'text-success' : 'text-destructive'
                     )}>
                       <span className={cn(
                         'w-1.5 h-1.5 rounded-full',
                         utilitiesStatus === null ? 'bg-muted-foreground/40'
-                          : utilitiesStatus.powerOn ? 'bg-emerald-400 animate-pulse' : 'bg-destructive'
+                          : utilitiesStatus.powerOn ? 'bg-success animate-pulse' : 'bg-destructive'
                       )} />
                       {utilitiesStatus === null ? t('utilities.statusPending') : utilitiesStatus.powerOn ? t('utilities.statusOnline') : t('utilities.statusOffline')}
                     </span>
                   </div>
                   {utilitiesStatus !== null && (
-                    <p className="font-mono text-[10px] text-muted-foreground/60">
+                    <p className="text-xs text-muted-foreground">
                       {t('utilities.timingReasoning', {
                         modifier: formatShutoffModifier(utilitiesStatus.elecShutModifier, t),
                         day: Math.floor(utilitiesStatus.currentWorldDay),
@@ -3194,18 +3173,18 @@ export default function Events() {
                     </span>
                     <span className={cn(
                       'flex items-center gap-1.5 text-xs font-medium',
-                      utilitiesStatus === null ? 'text-muted-foreground' : utilitiesStatus.waterOn ? 'text-emerald-400' : 'text-destructive'
+                      utilitiesStatus === null ? 'text-muted-foreground' : utilitiesStatus.waterOn ? 'text-success' : 'text-destructive'
                     )}>
                       <span className={cn(
                         'w-1.5 h-1.5 rounded-full',
                         utilitiesStatus === null ? 'bg-muted-foreground/40'
-                          : utilitiesStatus.waterOn ? 'bg-emerald-400 animate-pulse' : 'bg-destructive'
+                          : utilitiesStatus.waterOn ? 'bg-success animate-pulse' : 'bg-destructive'
                       )} />
                       {utilitiesStatus === null ? t('utilities.statusPending') : utilitiesStatus.waterOn ? t('utilities.statusOnline') : t('utilities.statusOffline')}
                     </span>
                   </div>
                   {utilitiesStatus !== null && (
-                    <p className="font-mono text-[10px] text-muted-foreground/60">
+                    <p className="text-xs text-muted-foreground">
                       {t('utilities.timingReasoning', {
                         modifier: formatShutoffModifier(utilitiesStatus.waterShutModifier, t),
                         day: Math.floor(utilitiesStatus.currentWorldDay),
@@ -3224,14 +3203,13 @@ export default function Events() {
                 </div>
               </div>
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
 
         {activeSection === 'quickSounds' && (
-            <TacticalPanel tone="warning">
-              <SectionHeader label={activeMeta.label} sublabel={t('quickSounds.sublabel')} icon={Volume2} tone="warning" />
-              <div className="p-4 space-y-3">
-                <p className="font-mono text-[11px] text-muted-foreground/75 leading-relaxed">
+            <EventPanel meta={activeMeta} note={t('quickSounds.sublabel')} actions={targetPicker}>
+              <div className="space-y-3">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {t('quickSounds.hint')}
                 </p>
                 <div className="flex flex-wrap gap-2">
@@ -3254,7 +3232,7 @@ export default function Events() {
                       disabled={loading !== null || players.length === 0 || !canEndangerOrImpersonate}
                       // eslint-disable-next-line local/no-dead-disabled-title -- already split (this file's own precedent, cited in the rule's docs): the disabled-reason (no players online) lives in the DisabledReason wrapper above; this title carries only the enabled-state hint. Marker added 2026-08-27.
                       title={players.length === 0 ? undefined : t('quickSounds.lightningTooltip')}
-                      className="h-9 gap-2 text-xs font-medium text-amber-400/90 hover:text-amber-400 hover:border-amber-400/40"
+                      className="h-9 gap-2 text-xs font-medium text-warning hover:text-warning hover:border-warning/40"
                     >
                       {loading === 'Lightning' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
                       {t('quickSounds.lightning')}
@@ -3286,26 +3264,24 @@ export default function Events() {
                   </Button>
                 </div>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'targetedSounds' && (
-            <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader
-                label={activeMeta.label}
-                sublabel={bridgeConnected ? t('targetedSounds.sublabelOnline') : t('targetedSounds.sublabelOffline')}
-                icon={Megaphone}
-                tone={bridgeConnected ? 'primary' : 'warning'}
-                isBridgeOffline={!bridgeConnected}
-              />
-              <div className="p-4 space-y-4">
+            <EventPanel
+              meta={activeMeta}
+              note={bridgeConnected ? t('targetedSounds.sublabelOnline') : t('targetedSounds.sublabelOffline')}
+              noteWarning={bridgeKnownOffline}
+              actions={targetPicker}
+            >
+              <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                         <Target className="w-3.5 h-3.5 text-primary/80" /> {t('targetedSounds.radius')}
                       </Label>
-                      <span className="font-mono text-[11px] tabular-nums text-primary">{soundRadius}m</span>
+                      <span className="text-xs font-medium tabular-nums text-primary">{soundRadius}m</span>
                     </div>
                     <Slider aria-label={t('targetedSounds.radiusAria')} value={[soundRadius]} onValueChange={([val]) => setSoundRadius(val)} min={10} max={300} step={10} disabled={!bridgeConnected} />
                   </div>
@@ -3314,7 +3290,7 @@ export default function Events() {
                       <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                         <Volume2 className="w-3.5 h-3.5 text-primary/80" /> {t('targetedSounds.volume')}
                       </Label>
-                      <span className="font-mono text-[11px] tabular-nums text-primary">{soundVolume}</span>
+                      <span className="text-xs font-medium tabular-nums text-primary">{soundVolume}</span>
                     </div>
                     <Slider aria-label={t('targetedSounds.volumeAria')} value={[soundVolume]} onValueChange={([val]) => setSoundVolume(val)} min={10} max={300} step={10} disabled={!bridgeConnected} />
                   </div>
@@ -3363,11 +3339,11 @@ export default function Events() {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="space-y-1">
                       <Label htmlFor="sound-world-x" className="text-xs font-medium text-muted-foreground">{t('targetedSounds.x')}</Label>
-                      <Input id="sound-world-x" aria-label={t('targetedSounds.worldXAria')} type="number" placeholder="10500" value={soundX} onChange={(e) => setSoundX(e.target.value)} disabled={!bridgeConnected} className="h-9 font-mono text-[12px] tabular-nums" />
+                      <Input id="sound-world-x" aria-label={t('targetedSounds.worldXAria')} type="number" placeholder="10500" value={soundX} onChange={(e) => setSoundX(e.target.value)} disabled={!bridgeConnected} className="h-9 font-mono tabular-nums" />
                     </div>
                     <div className="space-y-1">
                       <Label htmlFor="sound-world-y" className="text-xs font-medium text-muted-foreground">{t('targetedSounds.y')}</Label>
-                      <Input id="sound-world-y" aria-label={t('targetedSounds.worldYAria')} type="number" placeholder="9800" value={soundY} onChange={(e) => setSoundY(e.target.value)} disabled={!bridgeConnected} className="h-9 font-mono text-[12px] tabular-nums" />
+                      <Input id="sound-world-y" aria-label={t('targetedSounds.worldYAria')} type="number" placeholder="9800" value={soundY} onChange={(e) => setSoundY(e.target.value)} disabled={!bridgeConnected} className="h-9 font-mono tabular-nums" />
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -3392,30 +3368,34 @@ export default function Events() {
                   </div>
                 </div>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'horde' && (
-            <TacticalPanel tone={bridgeConnected ? 'destructive' : 'warning'} className={!bridgeConnected ? 'opacity-60' : ''}>
-              <SectionHeader label={activeMeta.label} sublabel={bridgeConnected ? t('horde.sublabelOnline') : t('horde.sublabelOffline')} icon={Skull} tone={bridgeConnected ? 'destructive' : 'warning'} isBridgeOffline={!bridgeConnected} />
-              <div className="p-4 space-y-3">
+            <EventPanel
+              meta={activeMeta}
+              note={bridgeConnected ? t('horde.sublabelOnline') : t('horde.sublabelOffline')}
+              noteWarning={bridgeKnownOffline}
+              actions={targetPicker}
+            >
+              <div className="space-y-3">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                       <Skull className="w-3.5 h-3.5 text-destructive" /> {t('horde.count')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-destructive">{hordeCount}</span>
+                    <span className="text-xs font-medium tabular-nums text-destructive">{hordeCount}</span>
                   </div>
                   <Slider aria-label={t('horde.sizeAria')} value={[hordeCount]} onValueChange={([val]) => setHordeCount(val)} min={10} max={500} step={10} />
                 </div>
                 <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde', () => createHorde(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => spawnHordeWithConfirm('near')} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnNear', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
                 </DisabledReason>
                 <DisabledReason reason={!canEndangerOrImpersonate ? t('common.noPermissionEndangerOrImpersonate') : playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
-                  <Button variant="outline" onClick={() => handleAction('Create horde (behind)', () => createHorde2(hordeCount, pickStrikeTarget()))} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
+                  <Button variant="outline" onClick={() => spawnHordeWithConfirm('behind')} disabled={loading !== null || !bridgeConnected || players.length === 0 || (!targetAll && !selectedPlayer) || !canEndangerOrImpersonate} className="h-9 gap-2 text-xs font-medium">
                     {loading === 'Create horde (behind)' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Skull className="w-3.5 h-3.5" />}
                     {t('horde.spawnBehind', { target: targetAll ? t('horde.random') : selectedPlayer || t('horde.targetFallback') })}
                   </Button>
@@ -3425,7 +3405,7 @@ export default function Events() {
                     <Label className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                       <Skull className="w-3.5 h-3.5 text-warning" /> {t('horde.clearRadius')}
                     </Label>
-                    <span className="font-mono text-[11px] tabular-nums text-warning">{clearZombiesRadius}</span>
+                    <span className="text-xs font-medium tabular-nums text-warning">{clearZombiesRadius}</span>
                   </div>
                   <Slider aria-label={t('horde.clearRadiusAria')} value={[clearZombiesRadius]} onValueChange={([val]) => setClearZombiesRadius(val)} min={10} max={500} step={10} disabled={!bridgeConnected} />
                   <DisabledReason reason={playersUnknown ? t('common.playersUnavailableTitle') : players.length === 0 ? t('horde.noPlayersOnlineTitle') : !bridgeConnected ? t('horde.bridgeOfflineTitle') : null}>
@@ -3470,17 +3450,16 @@ export default function Events() {
                   </Button>
                 </DisabledReason>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'vehicles' && (
-            <TacticalPanel tone="info">
-              <SectionHeader label={activeMeta.label} sublabel={t('vehicles.sublabel')} icon={Car} tone="info" />
-              <div className="p-4 space-y-3">
+            <EventPanel meta={activeMeta} note={t('vehicles.sublabel')}>
+              <div className="space-y-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="vehicle-type-select" className="text-xs font-medium text-muted-foreground">{t('vehicles.vehicle')}</Label>
                   <Select value={selectedVehicle} onValueChange={setSelectedVehicle}>
-                    <SelectTrigger id="vehicle-type-select" aria-label={t('vehicles.typeAria')} className="h-9 font-mono text-[12px]">
+                    <SelectTrigger id="vehicle-type-select" aria-label={t('vehicles.typeAria')} className="h-9">
                       <SelectValue placeholder={t('vehicles.selectPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -3497,12 +3476,12 @@ export default function Events() {
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {playersUnknown ? (
-                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                      <p className="text-xs text-muted-foreground">{t('common.playersUnavailable')}</p>
                     ) : players.length === 0 ? (
-                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('vehicles.noPlayersOnline')}</p>
+                      <p className="text-xs text-muted-foreground">{t('vehicles.noPlayersOnline')}</p>
                     ) : players.map((player) => (
-                      <DisabledReason key={player.name} reason={!selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
-                        <Button variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle} className="h-8 gap-1.5 text-xs font-medium">
+                      <DisabledReason key={player.name} reason={!canRconExecute ? t('common.noPermissionRconExecute') : !selectedVehicle ? t('vehicles.selectVehicleFirstTitle') : null}>
+                        <Button variant="outline" size="sm" onClick={() => handleAction('Spawn vehicle', () => spawnVehicle(selectedVehicle, player.name))} disabled={loading !== null || !selectedVehicle || !canRconExecute} className="h-8 gap-1.5 text-xs font-medium">
                           <Car className="w-3 h-3" /> {player.name}
                         </Button>
                       </DisabledReason>
@@ -3510,13 +3489,12 @@ export default function Events() {
                   </div>
                 </div>
               </div>
-            </TacticalPanel>
+            </EventPanel>
         )}
 
         {activeSection === 'teleport' && (
-          <TacticalPanel tone="info">
-            <SectionHeader label={activeMeta.label} sublabel={t('teleport.sublabel')} icon={MapPin} tone="info" />
-            <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <EventPanel meta={activeMeta} note={t('teleport.sublabel')} actions={targetPicker}>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <div className="space-y-3">
                 <div className="text-xs font-medium text-foreground/85 flex items-center gap-1.5">
                   <Users className="w-3 h-3 text-info" /> {t('teleport.playerToPlayer')}
@@ -3524,14 +3502,14 @@ export default function Events() {
                 <div className="space-y-1.5">
                   <Label htmlFor="teleport-player-select" className="text-xs font-medium text-muted-foreground">{t('teleport.playerToMove')}</Label>
                   <Select value={selectedPlayer} onValueChange={setSelectedPlayer}>
-                    <SelectTrigger id="teleport-player-select" aria-label={t('teleport.playerToMoveAria')} className="h-9 font-mono text-[12px]">
+                    <SelectTrigger id="teleport-player-select" aria-label={t('teleport.playerToMoveAria')} className="h-9">
                       <SelectValue placeholder={t('teleport.selectPlayerPlaceholder')} />
                     </SelectTrigger>
                     <SelectContent>
                       {playersUnknown ? (
-                        <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('common.playersUnavailable')}</div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('common.playersUnavailable')}</div>
                       ) : players.length === 0 ? (
-                        <div className="px-2 py-1.5 font-mono text-[11px] text-muted-foreground">{t('teleport.noPlayersOnline')}</div>
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('teleport.noPlayersOnline')}</div>
                       ) : players.map((player) => (
                         <SelectItem key={player.name} value={player.name}>{player.name}</SelectItem>
                       ))}
@@ -3542,14 +3520,16 @@ export default function Events() {
                   <Label id="teleport-target-player-label" className="text-xs font-medium text-muted-foreground">{t('teleport.moveTo')}</Label>
                   <div className="flex flex-wrap gap-1.5">
                     {players.filter(p => p.name !== selectedPlayer).map((player) => (
-                      <Button key={player.name} variant="outline" size="sm" onClick={() => handleAction('Teleport', () => teleportPlayerToPlayer(selectedPlayer, player.name))} disabled={loading !== null || !selectedPlayer} className="h-8 text-xs font-medium">
-                        {player.name}
-                      </Button>
+                      <DisabledReason key={player.name} reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                        <Button variant="outline" size="sm" onClick={() => handleAction('Teleport', () => teleportPlayerToPlayer(selectedPlayer, player.name))} disabled={loading !== null || !selectedPlayer || !canRconExecute} className="h-8 text-xs font-medium">
+                          {player.name}
+                        </Button>
+                      </DisabledReason>
                     ))}
                     {playersUnknown ? (
-                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('common.playersUnavailable')}</p>
+                      <p className="text-xs text-muted-foreground">{t('common.playersUnavailable')}</p>
                     ) : players.length <= 1 ? (
-                      <p className="font-mono text-[11px] text-muted-foreground/70 italic">{t('teleport.needTwoPlayers')}</p>
+                      <p className="text-xs text-muted-foreground">{t('teleport.needTwoPlayers')}</p>
                     ) : null}
                   </div>
                 </div>
@@ -3562,107 +3542,103 @@ export default function Events() {
                 <div className="grid grid-cols-3 gap-2">
                   <div className="space-y-1">
                     <Label htmlFor="teleport-x" className="text-xs font-medium text-muted-foreground">{t('teleport.x')}</Label>
-                    <Input id="teleport-x" aria-label={t('teleport.xAria')} type="number" placeholder="10000" value={teleportX} onChange={(e) => setTeleportX(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
+                    <Input id="teleport-x" aria-label={t('teleport.xAria')} type="number" placeholder="10000" value={teleportX} onChange={(e) => setTeleportX(e.target.value)} className="h-9 font-mono tabular-nums" />
                   </div>
                   <div className="space-y-1">
                     <Label htmlFor="teleport-y" className="text-xs font-medium text-muted-foreground">{t('teleport.y')}</Label>
-                    <Input id="teleport-y" aria-label={t('teleport.yAria')} type="number" placeholder="11000" value={teleportY} onChange={(e) => setTeleportY(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
+                    <Input id="teleport-y" aria-label={t('teleport.yAria')} type="number" placeholder="11000" value={teleportY} onChange={(e) => setTeleportY(e.target.value)} className="h-9 font-mono tabular-nums" />
                   </div>
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5">
                       <Label htmlFor="teleport-z" className="text-xs font-medium text-muted-foreground">{t('teleport.z')}</Label>
                       <HelpTip label={t('teleport.z')}>{t('teleport.zTip')}</HelpTip>
                     </div>
-                    <Input id="teleport-z" aria-label={t('teleport.zAria')} type="number" placeholder="0" value={teleportZ} onChange={(e) => setTeleportZ(e.target.value)} className="h-9 font-mono text-[12px] tabular-nums" />
+                    <Input id="teleport-z" aria-label={t('teleport.zAria')} type="number" placeholder="0" value={teleportZ} onChange={(e) => setTeleportZ(e.target.value)} className="h-9 font-mono tabular-nums" />
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))}
-                    disabled={loading !== null || !hasValidTeleportCoords}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); the parenthetical is an always-relevant server-side note, not tied to the disabled condition (invalid coords / action in flight). Triaged 2026-08-27.
-                    title={t('teleport.teleportSelfTitle')}
-                    className="h-9 gap-2 text-xs font-medium"
-                  >
-                    {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-                    {t('teleport.teleportSelf')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, selectedPlayer))}
-                    disabled={loading !== null || !hasValidTeleportCoords || !selectedPlayer}
-                    // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions. Triaged 2026-08-27.
-                    title={t('teleport.teleportPlayerTitle')}
-                    className="h-9 gap-2 text-xs font-medium"
-                  >
-                    {loading === 'Teleport player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
-                    {t('teleport.teleportTarget', { target: selectedPlayer || t('teleport.targetFallback') })}
-                  </Button>
+                  <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Teleport self', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number))}
+                      disabled={loading !== null || !hasValidTeleportCoords || !canRconExecute}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); the parenthetical is an always-relevant server-side note, not tied to the disabled condition (invalid coords / action in flight; the missing rcon.execute reason is the DisabledReason wrapper's). Triaged 2026-08-27.
+                      title={t('teleport.teleportSelfTitle')}
+                      className="h-9 gap-2 text-xs font-medium"
+                    >
+                      {loading === 'Teleport self' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+                      {t('teleport.teleportSelf')}
+                    </Button>
+                  </DisabledReason>
+                  <DisabledReason reason={!canRconExecute ? t('common.noPermissionRconExecute') : null}>
+                    <Button
+                      variant="outline"
+                      onClick={() => handleAction('Teleport player', () => teleportToCoords(teleportCoordX as number, teleportCoordY as number, teleportCoordZ as number, selectedPlayer))}
+                      disabled={loading !== null || !hasValidTeleportCoords || !selectedPlayer || !canRconExecute}
+                      // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (this file's own precedent, cited in the rule's docs as "Teleport Player/Self"); an unconditional action description, no branch of it explains any of the four disable conditions (the missing rcon.execute reason is the DisabledReason wrapper's). Triaged 2026-08-27.
+                      title={t('teleport.teleportPlayerTitle')}
+                      className="h-9 gap-2 text-xs font-medium"
+                    >
+                      {loading === 'Teleport player' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
+                      {t('teleport.teleportTarget', { target: selectedPlayer || t('teleport.targetFallback') })}
+                    </Button>
+                  </DisabledReason>
                 </div>
-                <p className="font-mono text-[11px] text-muted-foreground/65 leading-relaxed">
+                <p className="text-xs leading-relaxed text-muted-foreground">
                   {t('teleport.presetsHint')}
                 </p>
               </div>
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
 
         {activeSection === 'broadcast' && (
-          <TacticalPanel tone="warning">
-            <SectionHeader label={activeMeta.label} sublabel={t('broadcast.sublabel')} icon={Megaphone} tone="warning" />
-            <div className="p-4 space-y-3">
+          <EventPanel meta={activeMeta} note={t('broadcast.sublabel')}>
+            <div className="space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="announcement-message" className="text-xs font-medium text-muted-foreground">{t('broadcast.message')}</Label>
                   <span className={cn(
-                    'font-mono text-[10px] tabular-nums',
-                    announcement.length > 450 ? 'text-amber-400' : 'text-muted-foreground/65'
+                    'text-xs tabular-nums',
+                    announcement.length > 450 ? 'text-warning' : 'text-muted-foreground'
                   )}>
                     {t('broadcast.charCount', { count: announcement.length })}
                   </span>
                 </div>
-                <Input id="announcement-message" aria-label={t('broadcast.messageAria')} placeholder={t('broadcast.placeholder')} value={announcement} onChange={(e) => setAnnouncement(e.target.value)} maxLength={500} className="h-9" />
+                <Input id="announcement-message" aria-label={t('broadcast.messageAria')} placeholder={t('broadcast.placeholder')} value={announcement} onChange={(e) => editAnnouncement(e.target.value)} maxLength={500} className="h-9" />
               </div>
               <div className="flex flex-wrap gap-1.5">
-                <Button variant="ghost" size="sm" onClick={() => setAnnouncement(t('broadcast.messages.eventWarning'))} className="h-8 gap-1.5 text-xs font-medium">
-                  <AlertTriangle className="h-3 w-3 text-amber-400" /> {t('broadcast.presetEventWarning')}
+                <Button variant="ghost" size="sm" onClick={() => editAnnouncement(t('broadcast.messages.eventWarning'))} className="h-8 gap-1.5 text-xs font-medium">
+                  <AlertTriangle className="h-3 w-3 text-warning" /> {t('broadcast.presetEventWarning')}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setAnnouncement(t('broadcast.messages.lootNotice'))} className="h-8 gap-1.5 text-xs font-medium">
+                <Button variant="ghost" size="sm" onClick={() => editAnnouncement(t('broadcast.messages.lootNotice'))} className="h-8 gap-1.5 text-xs font-medium">
                   <Bell className="h-3 w-3 text-primary" /> {t('broadcast.presetLootNotice')}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setAnnouncement(t('broadcast.messages.hordeAlert'))} className="h-8 gap-1.5 text-xs font-medium">
+                <Button variant="ghost" size="sm" onClick={() => editAnnouncement(t('broadcast.messages.hordeAlert'))} className="h-8 gap-1.5 text-xs font-medium">
                   <Navigation className="h-3 w-3 text-destructive" /> {t('broadcast.presetHordeAlert')}
                 </Button>
               </div>
-              <Button variant="outline" onClick={() => handleAction('Send announcement', sendAnnouncement)} disabled={loading !== null || !announcement.trim()} className="h-9 gap-2 text-xs font-medium">
+              <Button variant="outline" onClick={() => handleAction('Send announcement', sendAnnouncement, (success) => { if (success) setAnnouncementDirty(false) })} disabled={loading !== null || !announcement.trim()} className="h-9 gap-2 text-xs font-medium">
                 {loading === 'Send announcement' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Megaphone className="w-3.5 h-3.5" />}
                 {t('broadcast.broadcastMessage')}
               </Button>
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
 
-        {activeSection === 'bridgeOps' && (
-          <TacticalPanel tone={bridgeConnected ? 'primary' : 'warning'} className={!bridgeConnected ? 'opacity-95' : ''}>
-            <SectionHeader
-              label={activeMeta.label}
-              sublabel={bridgeConnected ? t('bridgeOps.sublabelOnline', { count: Object.keys(bridgeOperationTemplates).length }) : t('bridgeOps.sublabelOffline')}
-              icon={Zap}
-              tone={bridgeConnected ? 'primary' : 'warning'}
-              isBridgeOffline={!bridgeConnected}
-              action={
-                <>
-                  {bridgeActiveGroup && (
-                    <span className="font-mono text-[10px] tracking-[0.14em] text-primary/75">{bridgeActiveGroup.label}</span>
-                  )}
-                  <span className="text-xs font-medium text-muted-foreground/70">
-                    {bridgeLastRunAt ? t('bridgeOps.lastRunPrefix', { time: formatDateTime(bridgeLastRunAt, { style: 'medium', seconds: true }) }) : t('bridgeOps.neverRun')}
-                  </span>
-                </>
-              }
-            />
-            <div className="p-4 space-y-4">
+        {activeSection === 'bridgeOps' && canBridgeCommand && (
+          <EventPanel
+            meta={activeMeta}
+            note={bridgeConnected ? t('bridgeOps.sublabelOnline', { count: Object.keys(bridgeOperationTemplates).length }) : t('bridgeOps.sublabelOffline')}
+            noteWarning={bridgeKnownOffline}
+            actions={
+              <span className="text-xs text-muted-foreground">
+                {bridgeActiveGroup && <span className="font-medium text-foreground">{bridgeActiveGroup.label} · </span>}
+                {bridgeLastRunAt ? t('bridgeOps.lastRunPrefix', { time: formatDateTime(bridgeLastRunAt, { style: 'medium', seconds: true }) }) : t('bridgeOps.neverRun')}
+              </span>
+            }
+          >
+            <div className="space-y-4">
                     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1.35fr)]">
                       <div className="space-y-4">
                         <div className="rounded-lg border border-border/70 bg-muted/25 p-4">
@@ -3720,7 +3696,7 @@ export default function Events() {
                                 )}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  <p className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-foreground/88')}>
+                                  <p className={cn('text-sm font-medium', active ? 'text-foreground' : 'text-foreground/90')}>
                                     {group.label}
                                   </p>
                                   <Badge variant={active ? 'default' : 'outline'}>{group.operations.length}</Badge>
@@ -3995,16 +3971,6 @@ export default function Events() {
                     </div>
                   </div>
 
-                  {!bridgeConnected && (
-                    <Alert className="border-warning/40 bg-warning/10">
-                      <AlertTriangle className="h-4 w-4 text-warning" />
-                      <AlertTitle className="text-warning">{t('bridgeOps.bridgeConnectionRequiredTitle')}</AlertTitle>
-                      <AlertDescription>
-                        {t('bridgeOps.bridgeConnectionRequiredDesc')}
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
                   <div className="flex flex-wrap items-center gap-2">
                     <Button
                       onClick={runBridgeOperation}
@@ -4048,10 +4014,11 @@ export default function Events() {
                     />
                   )}
             </div>
-          </TacticalPanel>
+          </EventPanel>
         )}
         </div>
-      </div>
+        {!isLg && <div className="border-t border-border/50 pt-3">{recentActions}</div>}
+      </SubNavLayout>
     </div>
   )
 }

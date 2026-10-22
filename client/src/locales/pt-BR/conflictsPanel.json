@@ -1,4 +1,42 @@
 {
+  "reasons": {
+    "assetOverride": "Os dois mods trazem este arquivo; só é usada a cópia do mod carregado por último.",
+    "mapFileOverride": "Os dois mods trazem este arquivo de mapa; só é usada a cópia do mod carregado por último.",
+    "dataFileOverride": "Os dois mods trazem este arquivo de dados; só é usada a cópia do mod carregado por último.",
+    "luaFileOverride": "Mesmo arquivo Lua: só a cópia do mod carregado por último é executada; a outra nunca roda.",
+    "scriptFileReplaced": "Mesmo arquivo de script: o jogo lê só a cópia do último mod, então os itens e receitas que só a outra cópia define se perdem.",
+    "scriptFileOverride": "Mesmo arquivo de script: o mod carregado por último redefine estas entradas.",
+    "scriptDefinitionOverride": "Os dois mods definem estas entradas; a definição carregada por último substitui a outra.",
+    "scriptDefinitionMerge": "Os dois mods alteram estes veículos ou skins; o jogo os sobrepõe e os valores do último mod prevalecem.",
+    "translationKeyOverride": "Os dois mods traduzem estes textos de forma diferente; prevalece o mod carregado por último.",
+    "translationUnreadable": "Não foi possível ler um arquivo de tradução, então seus textos não puderam ser comparados.",
+    "clothingOutfitOverride": "Os dois mods definem estes trajes; o mod carregado por último os substitui.",
+    "clothingItemOverride": "Os dois mods trazem esta peça de roupa; só é usada a cópia do mod carregado por último.",
+    "luaGlobalRedefined": "Os dois mods definem estes nomes Lua em arquivos diferentes; o que rodar por último pode substituir o outro.",
+    "luaVariantClash": "Dois mods do mesmo item do Workshop redefinem os mesmos nomes Lua; geralmente são variantes para usar uma de cada vez.",
+    "declaredIncompatible": "Um destes mods declara o outro incompatível.",
+    "intendedPatch": "Intencional: este mod declara que se baseia no outro e carrega depois dele.",
+    "patchLoadsBeforeTarget": "Este mod se baseia no outro, mas carrega antes dele, então suas mudanças são sobrescritas. Carregue-o depois.",
+    "order": {
+      "requireCycle": "{{modId}} está em um ciclo de require=; o jogo não consegue carregar estes mods.",
+      "requireNotFound": "{{modId}} não carrega: ele requer {{missing}}, que não está no servidor.",
+      "requireUnavailable": "{{modId}} não carrega: o mod que ele requer, {{missing}}, não consegue carregar.",
+      "requireEntryInvalid": "{{modId}} não carrega: o jogo não reconhece a entrada require= “{{entry}}” do mod.info dele.",
+      "requireAutoLoaded": "{{dependency}} carrega mesmo sem estar em Mods=, porque {{modId}} o requer.",
+      "requireReordered": "{{dependency}} carrega antes de {{modId}}, que o requer, seja qual for a ordem em Mods=.",
+      "loadAfterViolated": "{{modId}} pede para carregar depois de {{other}}, mas carrega antes.",
+      "loadBeforeViolated": "{{modId}} pede para carregar antes de {{other}}, mas carrega depois.",
+      "declaredIncompatible": "{{modId}} e {{other}} são declarados incompatíveis, mas os dois carregam.",
+      "modInfoListIssue": "{{modId}}: o jogo não reconhece a entrada “{{entry}}” do mod.info.",
+      "modNotFound": "{{modId}} não está entre os mods do Workshop baixados no servidor."
+    }
+  },
+  "severity": {
+    "high": "Alta",
+    "medium": "Média",
+    "low": "Baixa",
+    "info": "Intencional"
+  },
   "title": "Analisador de conflitos de mods",
   "subtitle": "Verifica se vários mods modificam os mesmos arquivos — quando isso acontece, só o último mod na ordem de carregamento tem efeito",
   "lastScan": "Última análise: {{time}}",
@@ -236,5 +274,8 @@
   "showMoreFiles_many": "Mostrar mais {{count}} arquivos",
   "possibleMatchesHint_many": "{{count}} resultados possíveis — escolha o certo e clique em Adicionar. A pesquisa da Steam é aproximada, então confira o título antes de adicionar.",
   "subsCount_many": "{{formatted}} inscritos",
-  "filesCount_many": "{{count}} arquivos"
+  "filesCount_many": "{{count}} arquivos",
+  "subTabsAria": "Listas de conflitos",
+  "focusChip": "Mods de {{name}}",
+  "focusClearAria": "Mostrar todos os conflitos de novo (parar de filtrar por {{name}})"
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Players from '../Players'
-import { playersApi, panelBridgeApi, configApi } from '@/lib/api'
+import { playersApi, panelBridgeApi, configApi, serversApi } from '@/lib/api'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/contexts/ConfirmContext'
 
@@ -17,11 +17,12 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 // the same players.gm_tools gate when wired up killplayer-ui-2026-08-30,
 // but via its own dedicated route (not the passthrough) -- see that
 // card's comment further down.
-// Several actions have more than one render-level trigger (Kick and Ban each
-// have an ActionTile AND a dossier quick-action button; Unban SteamID has
-// THREE: a summary banner, a Banned-tab row button, and an ActionTile) --
-// this test asserts every one of them, not just the first found, per the
-// Scheduler.tsx restart-now lesson.
+// Every trigger is asserted, not just the first found, per the Scheduler.tsx
+// restart-now lesson. Since the 2026-10-20 restructure each action has one
+// home: Kick and Ban next to the player's name, Access Level and the
+// whitelist on the Moderation tab, Teleport in the player's "..." menu, and
+// the actions that take any name (Unban, SteamID bans, Voice ban, a new
+// whitelist account) in the page header's "More" menu.
 
 let mockCan = (_capability: string) => true
 
@@ -82,6 +83,9 @@ vi.mock('@/lib/api', async () => {
       killPlayer: vi.fn(),
       getAllPlayerDetails: vi.fn(),
     },
+    // A role without bridge.setup/bridge.diagnostics reads the bridge from
+    // the composed server status (lib/bridgeLiveness.ts).
+    serversApi: { ...actual.serversApi, getComposedStatus: vi.fn() },
     configApi: {
       ...actual.configApi,
       getAppSettings: vi.fn(),
@@ -163,11 +167,21 @@ async function setUpFixtures() {
   getPerks.mockResolvedValue({ catalog: [{ id: 'Sprinting', label: 'Sprinting', category: 'Combat' }] })
   getAccessLevels.mockResolvedValue({ levels: ['admin', 'moderator', 'gm', 'observer', 'priority', 'user', 'none'], available: true })
   getSteamIdBans.mockResolvedValue({ bans: [{ steamId: '76561198000000002', banned_at: new Date().toISOString() }] })
-  getNotes.mockResolvedValue({ notes: [{ playerName: 'TestPlayer', note: 'existing note', tags: [], updated_at: new Date().toISOString() }] })
+  // The row as GET /players/notes sends it: the stored record, which names the
+  // player in snake_case `player_name` (server/database/init.js upsertPlayerNote).
+  getNotes.mockResolvedValue({ notes: [{ id: 'n1', player_name: 'TestPlayer', note: 'existing note', tags: [], created_at: new Date().toISOString(), updated_at: new Date().toISOString() }] })
   getStats.mockResolvedValue({ stats: [] })
   getExports.mockResolvedValue({ exports: [] })
   getActivityLogs.mockResolvedValue({ logs: [] })
   getStatus.mockResolvedValue({ modConnected: true, isRunning: true } as Awaited<ReturnType<typeof panelBridgeApi.getStatus>>)
+  vi.mocked(serversApi.getComposedStatus).mockResolvedValue({
+    provider: 'native',
+    selected: true,
+    host: { status: 'running', label: 'Host', detail: null },
+    server: { status: 'connected', label: 'RCON', detail: null },
+    bridge: { status: 'active', label: 'PanelBridge', detail: null },
+    summary: '',
+  })
   getAllPlayerDetails.mockResolvedValue({ success: false } as Awaited<ReturnType<typeof panelBridgeApi.getAllPlayerDetails>>)
   getAppSettings.mockResolvedValue({ settings: {} } as Awaited<ReturnType<typeof configApi.getAppSettings>>)
 }
@@ -183,11 +197,22 @@ async function selectTestPlayer() {
 // never dispatches pointerdown, so the menu never opens and a query against
 // its content sits at the suite's timeout instead of failing fast. Per
 // Dashboard.capabilityGating.test.tsx's openMoreActionsMenu precedent.
-async function openMoreActionsMenu() {
-  const trigger = await screen.findByRole('button', { name: 'More player actions' })
+async function openMenu(triggerName: string) {
+  const trigger = await screen.findByRole('button', { name: triggerName })
   fireEvent.pointerDown(trigger, { button: 0, pointerId: 1 })
   fireEvent.click(trigger)
   return screen.findByRole('menu')
+}
+// The selected player's "..." menu (Teleport, Show on map, Import/Export).
+const openMoreActionsMenu = () => openMenu('More player actions')
+// The page header's "More" menu: the actions that take any name.
+const openHeaderMenu = () => openMenu('More actions')
+
+const HEADER_ITEMS = [/^Add whitelist user…/, /^Unban player…/, /^Unban SteamID…/, /^Voice ban…/, /^Ban SteamID…/]
+
+function openList(name: RegExp) {
+  // Radix TabsTrigger switches on mousedown, not click.
+  fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0 })
 }
 
 describe('Players.tsx: capability gating', () => {
@@ -197,41 +222,36 @@ describe('Players.tsx: capability gating', () => {
     renderPlayers()
     await selectTestPlayer()
 
-    // Moderation tab -- players.moderate. Kick and Ban each have TWO
-    // triggers (ActionTile + dossier quick-action button). The ActionTile's
-    // accessible name is "Kick <description text>" (label + description are
-    // both rendered inside the trigger <button>), so match by prefix.
+    // Kick and Ban: one trigger each, next to the player's name.
     const kickButtons = screen.getAllByRole('button', { name: /^Kick\b/ })
-    expect(kickButtons).toHaveLength(2)
+    expect(kickButtons).toHaveLength(1)
     kickButtons.forEach(b => expect(b).toBeDisabled())
-
     const banButtons = screen.getAllByRole('button', { name: /^Ban\b/ })
-    expect(banButtons).toHaveLength(2)
+    expect(banButtons).toHaveLength(1)
     banButtons.forEach(b => expect(b).toBeDisabled())
 
+    // Moderation tab -- players.moderate.
     expect(screen.getByRole('button', { name: /^Access Level\b/ })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Voice Ban' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'SteamID Ban' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Add User' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Unban' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Unban SteamID' })).toBeDisabled()
-    // Unban SteamID's second trigger: the summary banner (only rendered
-    // because getSteamIdBans returned one ban).
-    expect(screen.getByRole('button', { name: /View \d+ banned SteamIDs/ })).toBeDisabled()
-
-    // Teleport is players.gm_tools, not players.moderate -- confirm it is
-    // NOT disabled by the moderate-less role in this pass (asserted properly
-    // in the gm_tools-only pass below; here we just confirm the two gates
-    // are independent by not touching it).
+    expect(screen.getByRole('button', { name: /^Add to Whitelist\b/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Remove from Whitelist\b/ })).toBeDisabled()
 
     ;[...kickButtons, ...banButtons,
       screen.getByRole('button', { name: /^Access Level\b/ }),
-      screen.getByRole('button', { name: 'Voice Ban' }),
-      screen.getByRole('button', { name: 'SteamID Ban' }),
-      screen.getByRole('button', { name: 'Add User' }),
-      screen.getByRole('button', { name: 'Unban' }),
-      screen.getByRole('button', { name: 'Unban SteamID' }),
+      screen.getByRole('button', { name: /^Add to Whitelist\b/ }),
+      screen.getByRole('button', { name: /^Remove from Whitelist\b/ }),
     ].forEach(b => fireEvent.click(b))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // The header's "More" menu -- players.moderate, every item disabled with
+    // the reason under its label.
+    const headerMenu = await openHeaderMenu()
+    for (const name of HEADER_ITEMS) {
+      const item = within(headerMenu).getByRole('menuitem', { name })
+      expect(item).toHaveAttribute('aria-disabled', 'true')
+      expect(item).toHaveTextContent(/players\.moderate/)
+      fireEvent.click(item)
+    }
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
     expect(kick).not.toHaveBeenCalled()
     expect(ban).not.toHaveBeenCalled()
@@ -241,20 +261,20 @@ describe('Players.tsx: capability gating', () => {
     expect(addUser).not.toHaveBeenCalled()
     expect(unban).not.toHaveBeenCalled()
     expect(unbanSteamId).not.toHaveBeenCalled()
+    expect(removeFromWhitelist).not.toHaveBeenCalled()
+    fireEvent.keyDown(headerMenu, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
-    // Banned tab -- third Unban SteamID trigger (per-row button). The
-    // Moderation tab's own "Unban" ActionTile stays mounted in the right
-    // panel throughout (it's a separate Tabs instance from the roster tabs
-    // on the left), so disambiguate by the row button's title.
-    fireEvent.click(screen.getByRole('button', { name: /Banned/ }))
+    // Banned list -- the per-row Unban SteamID button.
+    openList(/^Banned/)
     await waitFor(() => expect(screen.getByText('76561198000000002')).toBeInTheDocument(), { timeout: 3000 })
     const bannedRowUnban = screen.getAllByRole('button', { name: 'Unban' }).find(b => b.title?.includes('76561198000000002'))
     expect(bannedRowUnban).toBeDisabled()
     if (bannedRowUnban) fireEvent.click(bannedRowUnban)
     expect(unbanSteamId).not.toHaveBeenCalled()
 
-    // Whitelist tab -- Add/Remove allowed SteamID, Remove account.
-    fireEvent.click(screen.getByRole('button', { name: /Whitelist/ }))
+    // Whitelist list -- Add/Remove allowed SteamID, Remove account.
+    openList(/^Whitelist/)
     await waitFor(() => expect(screen.getByPlaceholderText('76561198XXXXXXXXX')).toBeInTheDocument(), { timeout: 3000 })
     fireEvent.change(screen.getByPlaceholderText('76561198XXXXXXXXX'), { target: { value: '76561198000000099' } })
     expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled()
@@ -276,26 +296,17 @@ describe('Players.tsx: capability gating', () => {
     expect(spawnVehicleButton).toBeDisabled()
     // Give XP is NOT asserted here (bug-hunt-2026-08-27 gating-test audit):
     // it's also gated on !selectedPerk, and no perk is selected in this
-    // fixture, so .toBeDisabled() would pass regardless of canGmTools --
-    // exactly the fixture-masking shape Angela found on Dashboard's Wipe
-    // button. Confirmed empirically (not assumed) that a real Select pick
-    // can't drive this in jsdom either: fireEvent.pointerDown+click on the
-    // combobox throws inside @radix-ui/react-select itself
+    // fixture, so .toBeDisabled() would pass regardless of canGmTools. A real
+    // Select pick can't drive it in jsdom either: fireEvent.pointerDown+click
+    // on the combobox throws inside @radix-ui/react-select itself
     // (target.hasPointerCapture is not a function, then
     // candidate?.scrollIntoView is not a function) -- genuine missing jsdom
-    // APIs, not a wrong-event mistake like Tabs/DropdownMenu turned out to
-    // be. A real, confirmed (not just suspected) jsdom limitation for Radix
-    // Select specifically, matching Kevin's original ChunkCleaner
-    // reasoning -- see zzHighRiskDiagnostic's throwaway run for the full
-    // stack. Give XP's canGmTools gate is untested here as a result; the
-    // other three gm_tools triggers on this tab (Teleport, Give Items,
-    // Spawn Vehicle) still are.
+    // APIs. Give XP's canGmTools gate is untested here as a result; the
+    // other gm_tools triggers (Teleport, Give Items, Spawn Vehicle) still are.
     if (giveItemButton) fireEvent.click(giveItemButton)
     if (spawnVehicleButton) fireEvent.click(spawnVehicleButton)
     expect(addItem).not.toHaveBeenCalled()
     expect(addVehicle).not.toHaveBeenCalled()
-    // addXp not asserted here -- Give XP is never clicked in this test
-    // (see the comment above), so it would be a vacuous assertion.
 
     // Powers tab -- players.gm_tools (see the dedicated split-capability
     // tests below for the bridge.command-is-irrelevant proof).
@@ -327,45 +338,31 @@ describe('Players.tsx: capability gating', () => {
     expect(saveNote).not.toHaveBeenCalled()
     expect(deleteNote).not.toHaveBeenCalled()
 
-    // Teleport -- players.gm_tools, confirmed disabled here too since this
-    // role holds neither gm_tools nor moderate.
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Moderation' }), { button: 0 })
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Teleport\b/ })).toBeInTheDocument(), { timeout: 3000 })
-    expect(screen.getByRole('button', { name: /^Teleport\b/ })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: /^Teleport\b/ }))
+    // Teleport -- players.gm_tools, in the player's "..." menu.
+    const playerMenu = await openMoreActionsMenu()
+    const teleportItem = within(playerMenu).getByRole('menuitem', { name: 'Teleport…' })
+    expect(teleportItem).toHaveAttribute('aria-disabled', 'true')
+    fireEvent.click(teleportItem)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(teleport).not.toHaveBeenCalled()
   })
 
-  // bug-hunt-2026-08-31: a71c947a added `!canModerate` to the wrapping
-  // <button disabled={...}> for Kick/Ban/Access Level (correctly blocking
-  // the click, confirmed by the toBeDisabled() assertions above) but never
-  // extended ActionTile's OWN `disabled` prop to match -- ActionTile is a
-  // plain <div>, not a real form control, so its "looks disabled" signal is
-  // entirely the manually-threaded `disabled` prop driving one Tailwind
-  // class (`opacity-50`); DisabledReason (components/DisabledReason.tsx)
-  // adds only a hover tooltip and cursor-not-allowed, no dimming of its own,
-  // and nothing in the CSS resets a bare <button> to any dimmed appearance.
-  // Net effect before this fix: an operator who holds no players.moderate
-  // capability but HAS a player selected saw these three tiles at full
-  // opacity -- indistinguishable from enabled -- while the click was
-  // silently swallowed. This test targets the visual class directly, since
-  // toBeDisabled() above only proves the click gate, not the appearance.
-  it('dims Kick/Ban/Access Level ActionTiles (not just blocks the click) when a player is selected but the role lacks players.moderate', async () => {
+  // bug-hunt-2026-08-31: ActionTile is a plain <div> inside the trigger
+  // <button>, so its "looks disabled" signal is entirely the threaded
+  // `disabled` prop driving opacity-50 -- DisabledReason adds only a hover
+  // tooltip, and nothing resets a bare <button> to a dimmed look. Before that
+  // fix a role without players.moderate saw these tiles at full opacity while
+  // the click was silently swallowed. This targets the visual class
+  // directly, since toBeDisabled() above only proves the click gate.
+  it('dims the Moderation tiles (not just blocks the click) when a player is selected but the role lacks players.moderate', async () => {
     mockCan = () => false
     await setUpFixtures()
     renderPlayers()
     await selectTestPlayer()
 
-    // index [0] of each pair is the dossier header's quick-action <Button>
-    // (a real shadcn Button, which dims itself natively via its own
-    // disabled: variant) -- index [1] is the ActionTile trigger this fix
-    // targets, the one with no native disabled styling of its own.
-    const kickTile = screen.getAllByRole('button', { name: /^Kick\b/ })[1].firstElementChild
-    const banTile = screen.getAllByRole('button', { name: /^Ban\b/ })[1].firstElementChild
-    const accessLevelTile = screen.getByRole('button', { name: /^Access Level\b/ }).firstElementChild
-    expect(kickTile?.className).toContain('opacity-50')
-    expect(banTile?.className).toContain('opacity-50')
-    expect(accessLevelTile?.className).toContain('opacity-50')
+    for (const name of [/^Access Level\b/, /^Add to Whitelist\b/, /^Remove from Whitelist\b/]) {
+      expect(screen.getByRole('button', { name }).firstElementChild?.className).toContain('opacity-50')
+    }
   })
 
   it('enables gated triggers once the role holds the matching capability', async () => {
@@ -377,12 +374,19 @@ describe('Players.tsx: capability gating', () => {
     screen.getAllByRole('button', { name: /^Kick\b/ }).forEach(b => expect(b).not.toBeDisabled())
     screen.getAllByRole('button', { name: /^Ban\b/ }).forEach(b => expect(b).not.toBeDisabled())
     expect(screen.getByRole('button', { name: /^Access Level\b/ })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: /^Teleport\b/ })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Voice Ban' })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'SteamID Ban' })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Add User' })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Unban' })).not.toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Unban SteamID' })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Add to Whitelist\b/ })).not.toBeDisabled()
+
+    const headerMenu = await openHeaderMenu()
+    for (const name of HEADER_ITEMS) {
+      expect(within(headerMenu).getByRole('menuitem', { name })).not.toHaveAttribute('aria-disabled', 'true')
+    }
+    fireEvent.keyDown(headerMenu, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+    const playerMenu = await openMoreActionsMenu()
+    expect(within(playerMenu).getByRole('menuitem', { name: 'Teleport…' })).not.toHaveAttribute('aria-disabled', 'true')
+    fireEvent.keyDown(playerMenu, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
     fireEvent.mouseDown(screen.getByRole('tab', { name: 'Powers' }), { button: 0 })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Heal' })).toBeInTheDocument(), { timeout: 3000 })
@@ -391,34 +395,23 @@ describe('Players.tsx: capability gating', () => {
     expect(screen.getByRole('button', { name: 'Kill' })).not.toBeDisabled()
   })
 
-  // bug-hunt-2026-09-08 (gate-not-destination sweep): the test above stopped
-  // at not.toBeDisabled() for every one of these triggers -- none were ever
-  // clicked, so a regression in any one handler's own body (as opposed to
-  // the shared canModerate/canGmTools disabled expressions) would have sat
-  // green. Each opens its own real dialog (some two-step, per Ban) and is
-  // driven through to its own distinct mock, not just clicked and assumed.
+  // bug-hunt-2026-09-08 (gate-not-destination sweep): each trigger is driven
+  // through its own real dialog (some two-step, per Ban) to its own mock, not
+  // just checked for not.toBeDisabled().
   //
   // NAMED EXCLUSION: Access Level is NOT covered here. Its dialog's picker
-  // is a real Radix Select, and Players.tsx's own denied-path test above
-  // (search "Give XP") already established -- empirically, not by
-  // assumption -- that fireEvent.pointerDown+click on a Radix Select throws
-  // in jsdom (target.hasPointerCapture is not a function, then
-  // scrollIntoView is not a function). Building a workaround for one
-  // control here would be scaffolding out of proportion to what it proves;
-  // Access Level's granted-path gate is left unproven by this file, same as
-  // Give XP already is.
-  // Kick and Ban both clear selectedPlayer on success (handleKick/handleBan's
-  // own cleanup callbacks), which collapses the dossier panel -- kept as
-  // their own tests rather than folded into the sequence below, since
-  // running either one first would deselect the player out from under every
-  // trigger that follows it.
+  // is a real Radix Select, and fireEvent.pointerDown+click on a Radix
+  // Select throws in jsdom (see Give XP above).
+  // Kick and Ban both clear the selection on success, which collapses the
+  // player card -- kept as their own tests rather than folded into the
+  // sequence below.
   it('Kick reaches playersApi.kick when clicked through, holding players.moderate', async () => {
     mockCan = () => true
     await setUpFixtures()
     renderPlayers()
     await selectTestPlayer()
 
-    fireEvent.click(screen.getAllByRole('button', { name: /^Kick\b/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: /^Kick\b/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Kick Player' }))
     await waitFor(() => expect(kick).toHaveBeenCalledWith('TestPlayer', ''))
   })
@@ -429,7 +422,7 @@ describe('Players.tsx: capability gating', () => {
     renderPlayers()
     await selectTestPlayer()
 
-    fireEvent.click(screen.getAllByRole('button', { name: /^Ban\b/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: /^Ban\b/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Continue to Ban' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Yes, Ban Player' }))
     await waitFor(() => expect(ban).toHaveBeenCalledWith('TestPlayer', false, ''))
@@ -441,51 +434,47 @@ describe('Players.tsx: capability gating', () => {
     renderPlayers()
     await selectTestPlayer()
 
-    // Voice Ban -- username pre-fills from selectedPlayer, nothing to type.
-    // voiceBanEnabled defaults true, so the submit button reads "Mute".
-    fireEvent.click(screen.getByRole('button', { name: 'Voice Ban' }))
+    // Voice ban -- username pre-fills from the selected player, nothing to
+    // type. voiceBanEnabled defaults true, so the submit button reads "Mute".
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Voice ban…/ }))
     fireEvent.click(await screen.findByRole('button', { name: 'Mute' }))
     await waitFor(() => expect(voiceBan).toHaveBeenCalledWith('TestPlayer', true))
 
-    // Unban -- username field is NOT pre-filled here (this ActionTile isn't
-    // scoped to the selected player), type it.
-    fireEvent.click(screen.getByRole('button', { name: 'Unban' }))
+    // Unban -- the username field is NOT pre-filled (it takes any name).
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Unban player…/ }))
     fireEvent.change(await screen.findByPlaceholderText('Enter username to unban...'), { target: { value: 'TestPlayer' } })
     fireEvent.click(screen.getByRole('button', { name: 'Unban Player' }))
     await waitFor(() => expect(unban).toHaveBeenCalledWith('TestPlayer'))
 
-    // Unban SteamID -- manual-entry fallback Input (not the Select list),
-    // same field this dialog offers "or enter manually" for.
-    fireEvent.click(screen.getByRole('button', { name: 'Unban SteamID' }))
+    // Unban SteamID -- manual-entry fallback Input (not the Select list).
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Unban SteamID…/ }))
     const unbanSteamIdInput = await screen.findByPlaceholderText('Enter Steam ID to unban...')
     fireEvent.change(unbanSteamIdInput, { target: { value: '76561198000000042' } })
     fireEvent.click(screen.getByRole('button', { name: 'Unban SteamID' }))
     await waitFor(() => expect(unbanSteamId).toHaveBeenCalledWith('76561198000000042'))
 
-    // SteamID Ban -- exactly 17 digits required to enable submit.
-    fireEvent.click(screen.getByRole('button', { name: 'SteamID Ban' }))
+    // Ban SteamID -- exactly 17 digits required to enable submit.
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Ban SteamID…/ }))
     fireEvent.change(await screen.findByPlaceholderText('76561198XXXXXXXXX'), { target: { value: '76561198000000099' } })
     fireEvent.click(screen.getByRole('button', { name: 'Ban SteamID' }))
     await waitFor(() => expect(banSteamId).toHaveBeenCalledWith('76561198000000099', ''))
 
-    // Add User -- username required, password optional.
-    fireEvent.click(screen.getByRole('button', { name: 'Add User' }))
+    // Add whitelist user -- username required, password optional.
+    fireEvent.click(within(await openHeaderMenu()).getByRole('menuitem', { name: /^Add whitelist user…/ }))
     fireEvent.change(await screen.findByPlaceholderText('Enter username...'), { target: { value: 'newmod' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add User' }))
     await waitFor(() => expect(addUser).toHaveBeenCalledWith('newmod', ''))
 
-    // Teleport -- a quick-location preset fills x/y/z in one click, no
-    // manual numeric typing needed; target field is pre-filled too.
-    fireEvent.click(screen.getByRole('button', { name: /^Teleport\b/ }))
+    // Teleport -- from the player's menu; a quick-location preset fills
+    // x/y/z in one click and the target field is pre-filled.
+    fireEvent.click(within(await openMoreActionsMenu()).getByRole('menuitem', { name: 'Teleport…' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Muldraugh' }))
     fireEvent.click(screen.getByRole('button', { name: 'Teleport' }))
     await waitFor(() => expect(teleport).toHaveBeenCalledWith('TestPlayer', { x: 10500, y: 9700, z: 0 }))
   })
 
   // Kill needs a real ConfirmProvider (typed-confirmation dialog), unlike
-  // every other trigger above -- kept as its own test rather than folding
-  // it into the one above, since it's the only one needing a different
-  // render setup.
+  // every other trigger above.
   it('Kill reaches panelBridgeApi.killPlayer once the target name is typed into the confirm dialog', async () => {
     mockCan = () => true
     await setUpFixtures()
@@ -502,27 +491,13 @@ describe('Players.tsx: capability gating', () => {
     await waitFor(() => expect(killPlayer).toHaveBeenCalledWith('TestPlayer'))
   })
 
-  // bug-hunt-2026-08-27, operator ruling (supersedes server commit c3083d5
-  // from earlier the same day): setGodMode/setInvisible/setNoclip/healPlayer
-  // are gated on players.gm_tools ALONE again, not "gm_tools AND
-  // bridge.command". c3083d5's combined requirement was itself a fix for a
-  // real problem (these four were reachable on bridge.command alone, no
-  // gm_tools check at all, since commit 8bd0edc) -- but the operator ruled
-  // requiring BOTH was never the intended fix: bridge.command was only ever
-  // an accidental side effect of these four routing through the generic
-  // passthrough, and requiring it denies Technician (who holds gm_tools but
-  // not bridge.command by default) the GM tools it's meant to have. This
-  // test pair now proves the opposite direction from before: gm_tools alone
-  // must be SUFFICIENT (not just necessary, which the deny-all test above
-  // already covers), and bridge.command alone must remain insufficient
-  // (gm_tools is still the real gate, not dropped entirely).
-  //
-  // killPlayer-ui-2026-08-30: Kill joined this same players.gm_tools gate
-  // when it was wired up (see server/routes/panelBridge.js's POST
-  // /players/:username/kill, requirePermission("players.gm_tools") --
-  // the same capability the four above are checked against, not a new
-  // one). Asserted alongside the original four in both tests below rather
-  // than in a separate pair, since it is the same gate, not a new one.
+  // bug-hunt-2026-08-27, operator ruling (supersedes server commit c3083d5):
+  // setGodMode/setInvisible/setNoclip/healPlayer are gated on
+  // players.gm_tools ALONE, not "gm_tools AND bridge.command" -- requiring
+  // both denied Technician (gm_tools without bridge.command by default) the
+  // GM tools it's meant to have. gm_tools alone must be SUFFICIENT, and
+  // bridge.command alone must remain insufficient. Kill (killplayer-ui-
+  // 2026-08-30) is the same players.gm_tools gate via its own route.
   it('bridge.command alone is not sufficient for the GM-tools four -- players.gm_tools is still required', async () => {
     mockCan = (capability) => capability === 'bridge.command'
     await setUpFixtures()
@@ -559,17 +534,12 @@ describe('Players.tsx: capability gating', () => {
 
     // Teleport still reachable too -- confirms gm_tools wasn't accidentally
     // narrowed anywhere else on the page by this change.
-    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Moderation' }), { button: 0 })
-    await waitFor(() => expect(screen.getByRole('button', { name: /^Teleport\b/ })).toBeInTheDocument(), { timeout: 3000 })
-    expect(screen.getByRole('button', { name: /^Teleport\b/ })).not.toBeDisabled()
+    const playerMenu = await openMoreActionsMenu()
+    expect(within(playerMenu).getByRole('menuitem', { name: 'Teleport…' })).not.toHaveAttribute('aria-disabled', 'true')
   })
 
-  // bug-hunt-2026-09-08 (gate-not-destination sweep): the test above stopped
-  // at not.toBeDisabled() for all three Enable buttons and Heal -- none were
-  // ever clicked, so a regression in handleGodMode/handleInvisible/
-  // handleNoclip/handleHealPlayer's own bodies (as opposed to the shared
-  // canGmTools disabled expression) would have sat green. All four are
-  // direct sendCommand calls with no intervening dialog.
+  // bug-hunt-2026-09-08 (gate-not-destination sweep): each of the four
+  // reaches sendCommand with its own verb, not just an enabled button.
   it('the GM-tools four each reach sendCommand with their own verb when clicked, holding only players.gm_tools', async () => {
     mockCan = (capability) => capability === 'players.gm_tools'
     await setUpFixtures()
@@ -593,34 +563,73 @@ describe('Players.tsx: capability gating', () => {
   })
 
   // bug-hunt-2026-08-27: Radix's DropdownMenuItem composes the caller's
-  // onClick with its own select handler and runs it UNCONDITIONALLY --
-  // the internal disabled check only guards Radix's own side effect, never
-  // the onClick prop. All six capability-gated items in the dossier "..."
-  // menu now carry an explicit `if (!canX) return` as the first line of
-  // their onClick body. This closes the residual gap from the earlier
-  // report: the menu opens correctly with fireEvent.pointerDown (Radix
-  // opens DropdownMenuTrigger on pointerdown, not click), so this exercises
-  // the guard THROUGH THE UI, not just as a direct function assertion.
-  it('the dossier "..." menu\'s six gated items never call their API when clicked, even though Radix runs onClick regardless of disabled', async () => {
+  // onClick with its own select handler and runs it UNCONDITIONALLY -- the
+  // internal disabled check only guards Radix's own side effect, never the
+  // onClick prop. The player menu's gated items carry an explicit
+  // `if (!canX) return`; this exercises that guard THROUGH THE UI.
+  it('the player "..." menu\'s gated items never act when clicked without the capability, even though Radix runs onClick regardless of disabled', async () => {
     mockCan = () => false
     await setUpFixtures()
     renderPlayers()
     await selectTestPlayer()
 
     await openMoreActionsMenu()
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Enable God Mode' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Enable Invisible' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Enable Noclip' }))
-    expect(sendCommand).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Add to Whitelist' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Teleport…' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from Whitelist' }))
-    expect(removeFromWhitelist).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Import/Export Character' }))
     expect(screen.queryByText('Export Character')).not.toBeInTheDocument()
+    expect(teleport).not.toHaveBeenCalled()
+  })
+})
+
+// UX restructure (2026-10-20): each action has one home. God / Invisible /
+// Noclip live on the Powers tab only; the player menu holds what isn't
+// moderation (Teleport, Show on map, Import/Export).
+describe('Players.tsx: one home per action', () => {
+  it('the player menu no longer offers God Mode, Invisible or Noclip; they stay on the Powers tab', async () => {
+    mockCan = () => true
+    await setUpFixtures()
+    renderPlayers()
+    await selectTestPlayer()
+
+    const menu = await openMoreActionsMenu()
+    const items = within(menu).getAllByRole('menuitem').map(item => item.textContent)
+    expect(items).toEqual(['Teleport…', 'Show on map', 'Import/Export Character'])
+    expect(within(menu).queryByRole('menuitem', { name: /God Mode|Invisible|Noclip/ })).toBeNull()
+    fireEvent.keyDown(menu, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Powers' }), { button: 0 })
+    expect(await screen.findByText('God Mode')).toBeInTheDocument()
+  })
+
+  it('"Show on map" links an online player to the World Map with ?player=', async () => {
+    mockCan = () => true
+    await setUpFixtures()
+    renderPlayers()
+    await selectTestPlayer()
+
+    const menu = await openMoreActionsMenu()
+    expect(within(menu).getByRole('menuitem', { name: 'Show on map' })).toHaveAttribute('href', '/world-map?player=TestPlayer')
+  })
+
+  it('the header "More" menu holds the actions that take any name, and nothing else on the page duplicates them', async () => {
+    mockCan = () => true
+    await setUpFixtures()
+    renderPlayers()
+    await selectTestPlayer()
+
+    for (const label of ['Voice Ban', 'SteamID Ban', 'Add User', 'Unban SteamID']) {
+      expect(screen.queryByRole('button', { name: label })).toBeNull()
+    }
+    const menu = await openHeaderMenu()
+    expect(within(menu).getAllByRole('menuitem').map(item => item.textContent)).toEqual([
+      'Add whitelist user…',
+      'Unban player…',
+      'Unban SteamID…',
+      'Voice ban…',
+      'Ban SteamID…',
+    ])
   })
 })

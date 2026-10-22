@@ -146,9 +146,14 @@ function readConsoleTailSync(zPath) {
 // for the readers of lines a start writes before the world loads. The head
 // ends at its last whole line: a folder path cut in the middle would read as
 // another folder. A file that fits in both windows is read once, whole.
-function readConsoleHeadAndTailSync(zPath, headBytes, tailBytes) {
+// Exported for services/serverProblems.js (the Diagnostics error finder),
+// which reads the same file within the same bounds; `fileName` lets it read
+// a Logs/ copy when server-console.txt is missing.
+export const CONSOLE_HEAD_BYTES = MAX_HEAD_BYTES;
+export const CONSOLE_TAIL_BYTES = MAX_TAIL_BYTES;
+export function readConsoleHeadAndTailSync(zPath, headBytes, tailBytes, fileName = "server-console.txt") {
   if (!zPath) return null;
-  const logPath = path.join(zPath, "server-console.txt");
+  const logPath = path.join(zPath, fileName);
   let fd;
   try {
     fd = fs.openSync(logPath, LOG_OPEN_FLAGS);

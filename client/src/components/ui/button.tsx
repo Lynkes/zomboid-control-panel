@@ -10,7 +10,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-sm hover:bg-primary/92 disabled:bg-primary/40 disabled:text-primary-foreground/70 disabled:shadow-none",
+          "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 disabled:bg-primary/40 disabled:text-primary-foreground/70 disabled:shadow-none",
         command:
           "bg-[hsl(var(--primary))] text-primary-foreground border border-primary/45 shadow-[0_0_0_1px_hsl(var(--primary)/0.25),0_8px_20px_-12px_hsl(var(--primary)/0.8)] hover:bg-[hsl(var(--primary)/0.9)] hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.35),0_12px_28px_-14px_hsl(var(--primary)/0.9)] disabled:bg-primary/35 disabled:text-primary-foreground/70 disabled:shadow-none",
         destructive:

@@ -6,6 +6,7 @@ import { ConfirmProvider } from '@/contexts/ConfirmContext'
 import Events from '../Events'
 import { playersApi, panelBridgeApi } from '@/lib/api'
 import enEvents from '../../locales/en/events.json'
+import enBridgeBadge from '../../locales/en/bridgeStatusBadge.json'
 
 // bug-hunt-2026-09-18 (round 10, activeServerChanged race sweep continued):
 // fetchPlayers runs on a 30s poll, on the page's own manual "Refresh
@@ -174,7 +175,7 @@ describe('Events.tsx: an older, slower player-list response must not overwrite a
 // gated on it) back to the OLD server's stale connectivity state. Fixed via
 // the same shared useRequestGuard hook (bridgeStatusGuard in Events.tsx).
 //
-// Exercises the top-of-page connection badge (statusBar.online/offline)
+// Exercises the page header's bridge status badge (Bridge connected/offline)
 // rather than the deeper weather/climate/utilities cascade checkBridgeStatus
 // also drives once connected -- that cascade is reached through the exact
 // same guarded getStatus() await, so gating that one call is sufficient to
@@ -203,10 +204,7 @@ describe('Events.tsx: an older, slower bridge-connectivity response must not ove
     // Call #1 (mount): resolves fast, server A is connected.
     getBridgeStatus.mockResolvedValueOnce({ modConnected: true } as never)
     renderEvents()
-    // The bridge badge's own "online" collides with the page's unrelated
-    // player-count status text (statusBar.onlineCount is the identical
-    // literal string) -- assert the count, not mere presence.
-    await waitFor(() => expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2))
+    await waitFor(() => expect(screen.getByText(enBridgeBadge.connected.label)).toBeInTheDocument())
     expect(getBridgeStatus).toHaveBeenCalledTimes(1)
 
     // Call #2 (a later poll tick): held open -- stands in for a slow/
@@ -225,7 +223,7 @@ describe('Events.tsx: an older, slower bridge-connectivity response must not ove
     getBridgeStatus.mockImplementationOnce(() => Promise.resolve({ modConnected: true } as never))
     await act(async () => { emitActiveServerChanged() })
     expect(getBridgeStatus).toHaveBeenCalledTimes(3)
-    await waitFor(() => expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2))
+    await waitFor(() => expect(screen.getByText(enBridgeBadge.connected.label)).toBeInTheDocument())
 
     // The stale call #2 finally lands, arriving strictly after call #3's
     // already-applied, newer response -- reporting server A as DISCONNECTED
@@ -237,7 +235,7 @@ describe('Events.tsx: an older, slower bridge-connectivity response must not ove
     // confirmed connected) is the active one. Give the (buggy) late apply a
     // tick to land before asserting the negative.
     await act(async () => { await Promise.resolve() })
-    expect(screen.getAllByText(enEvents.statusBar.online)).toHaveLength(2)
-    expect(screen.queryByText(enEvents.statusBar.offline)).not.toBeInTheDocument()
+    expect(screen.getByText(enBridgeBadge.connected.label)).toBeInTheDocument()
+    expect(screen.queryByText(enBridgeBadge.offline.label)).not.toBeInTheDocument()
   })
 })

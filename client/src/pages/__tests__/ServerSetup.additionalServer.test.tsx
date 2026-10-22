@@ -7,6 +7,7 @@ import ServerSetup from "../ServerSetup";
 import type { ServerSetupPlan } from "@/lib/api";
 import { resetRuntimeInfoForTests } from "@/hooks/useRuntimeInfo";
 import enServerSetup from "../../locales/en/serverSetup.json";
+import enServers from "../../locales/en/servers.json";
 
 // A second server on a host that already has one: the wizard has to start
 // on free ports and a free name, give the new server its own folders, and
@@ -184,7 +185,7 @@ const next = () => fireEvent.click(screen.getByRole("button", { name: enServerSe
 
 async function startFullInstall() {
   renderServerSetup();
-  fireEvent.click(screen.getByText(enServerSetup.modeSelect.fullCard.title, { selector: "h3" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.fresh.label) }));
   await screen.findByText(enServerSetup.full.step1.title);
   await waitFor(() => expect(screen.getByRole("button", { name: enServerSetup.common.nextStepButton })).toBeEnabled());
   next();
@@ -193,7 +194,7 @@ async function startFullInstall() {
 
 async function startQuickSetup(installPath: string) {
   renderServerSetup();
-  fireEvent.click(screen.getByText(enServerSetup.modeSelect.quickCard.title, { selector: "h3" }));
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(enServers.addServer.existing.label) }));
   await screen.findByText(enServerSetup.quick.step1.title);
   await screen.findByDisplayValue(installPath);
   next();

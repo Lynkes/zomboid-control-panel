@@ -5,9 +5,12 @@
   "settingsOverridden_other": "{{count}} ajustes anulados",
   "modsCount_one": "{{count}} mod",
   "modsCount_other": "{{count}} mods",
-  "preview": "Vista previa",
+  "preview": "Vista previa y aplicar",
+  "previewOnly": "Vista previa",
   "exportTitle": "Exportar plantilla",
   "deleteTitle": "Eliminar plantilla",
+  "hideTitle": "Ocultar plantilla",
+  "actionsAria": "Acciones para {{name}}",
   "settingsOverridden_many": "{{count}} ajustes anulados",
   "modsCount_many": "{{count}} mods"
 }

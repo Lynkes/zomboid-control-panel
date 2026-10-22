@@ -18,11 +18,13 @@
   },
   "table": {
     "account": "帳號",
+    "title": "面板帳號",
     "role": "角色",
     "created": "建立時間",
     "lastSignIn": "上次登入",
     "never": "從未",
     "actions": "操作",
+    "rowActions": "{{username}} 的操作",
     "removeTooltip": "移除 {{username}}",
     "linkSsoTooltip": "將 SSO 連結至 {{username}}",
     "unlinkSsoTooltip": "解除 {{username}} 的 SSO 連結",
@@ -60,7 +62,7 @@
     "passwordRequired": "輸入密碼。",
     "passwordsDontMatch": "兩次輸入的密碼不一致。",
     "roleRequired": "選擇角色。",
-    "passwordHint": "至少使用 6 個字元。"
+    "passwordHint": "至少使用 10 個字元。"
   },
   "toasts": {
     "userCreatedTitle": "帳號已建立",

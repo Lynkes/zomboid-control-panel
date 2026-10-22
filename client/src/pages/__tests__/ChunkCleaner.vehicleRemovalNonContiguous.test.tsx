@@ -143,6 +143,10 @@ describe('ChunkCleaner.tsx: live vehicle removal for a non-contiguous selection'
     fireEvent.click(await screen.findByRole('button', { name: /delete selected chunks/i }))
 
     await waitFor(() => expect(deleteChunks).toHaveBeenCalledTimes(1))
+    // The live removal runs once the delete has gone through.
+    await waitFor(() =>
+      expect(sendCommand.mock.calls.filter(([action]) => action === 'removeVehiclesInArea')).toHaveLength(2),
+    )
 
     const areaCalls = sendCommand.mock.calls.filter(([action]) => action === 'removeVehiclesInArea')
 

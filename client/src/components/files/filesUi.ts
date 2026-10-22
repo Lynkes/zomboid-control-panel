@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import i18n from '@/i18n'
 import { ApiError } from '@/lib/api'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
-import { FM_LIMITS, type FileEntry, type RootDescriptor, type RootId, type RootUnavailableReason } from '@/types/files'
+import { FM_LIMITS, type FileEntry, type Hint, type ProfileFiles, type RootDescriptor, type RootId, type RootUnavailableReason } from '@/types/files'
 import { joinPath } from '@/lib/filesApi'
 import { formatBytes } from '@/lib/formatBytes'
 import { formatDateTime } from '@/lib/dateFormat'
@@ -247,6 +247,43 @@ export function writeLastFolder(profileId: string, rootId: RootId, path: string)
 
 export function childPath(dir: string, entry: Pick<FileEntry, 'name'>): string {
   return joinPath(dir, entry.name)
+}
+
+// ---- The same file as a form ----
+
+export type ServerConfigFormTab = 'ini' | 'sandbox'
+
+/**
+ * The Server Configuration tab (`/server-config?tab=`) that edits this file
+ * with a form, or null: the server's own <name>.ini or
+ * <name>_SandboxVars.lua in its settings folder. Only on the active server,
+ * since Server Configuration edits the active one. The server's own
+ * "panelRewritesKeys" hint marks the profile .ini wherever its folder is.
+ * Compared without case: a Windows server's folder doesn't care.
+ */
+export function serverConfigTabFor(
+  profile: Pick<ProfileFiles, 'isActive' | 'serverName' | 'bookmarks'>,
+  rootId: RootId,
+  path: string,
+  hints: readonly Hint[] = [],
+): ServerConfigFormTab | null {
+  if (!profile.isActive || !profile.serverName) return null
+  const fold = (value: string) => value.toLowerCase()
+  const slash = path.lastIndexOf('/')
+  const dir = fold(slash === -1 ? '' : path.slice(0, slash))
+  const base = fold(slash === -1 ? path : path.slice(slash + 1))
+  const name = fold(profile.serverName)
+  if (base === `${name}.ini` && hints.includes('panelRewritesKeys')) return 'ini'
+  const settingsDirs = new Set<string>()
+  if (rootId === 'config') settingsDirs.add('')
+  if (rootId === 'data') settingsDirs.add('server')
+  for (const bookmark of profile.bookmarks) {
+    if (bookmark.kind === 'serverSettings' && bookmark.rootId === rootId) settingsDirs.add(fold(bookmark.path))
+  }
+  if (!settingsDirs.has(dir)) return null
+  if (base === `${name}.ini`) return 'ini'
+  if (base === `${name}_sandboxvars.lua`) return 'sandbox'
+  return null
 }
 
 // ---- Layout ----

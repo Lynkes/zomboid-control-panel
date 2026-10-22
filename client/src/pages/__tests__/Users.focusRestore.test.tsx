@@ -60,8 +60,10 @@ beforeEach(() => {
   createUser.mockReset()
 })
 
+// Each row's actions sit behind its "…" button (RowActions); Remove is the
+// destructive item of that menu. Focus returns to a row's "…" button.
 async function confirmDelete(username: string) {
-  const trigger = await screen.findByRole('button', { name: `Remove ${username}` })
+  const trigger = await screen.findByRole('button', { name: `Actions for ${username}` })
   // A real mouse click focuses the clicked element before firing the click
   // event -- fireEvent.click alone does NOT simulate that (a well-known
   // jsdom/testing-library gap; @testing-library/user-event isn't a
@@ -70,7 +72,9 @@ async function confirmDelete(username: string) {
   // never actually focused and there is nothing real for Radix to restore
   // TO on close -- not a reflection of real-browser behaviour.
   trigger.focus()
-  fireEvent.click(trigger)
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  const menu = await screen.findByRole('menu')
+  fireEvent.click(within(menu).getByRole('menuitem', { name: `Remove ${username}` }))
   const dialog = await screen.findByRole('alertdialog')
   fireEvent.click(within(dialog).getByRole('button', { name: 'Remove account' }))
 }
@@ -93,9 +97,9 @@ describe('Users -- focus after a confirmed delete', () => {
     await confirmDelete('alice')
 
     await waitFor(() => expect(removeUser).toHaveBeenCalledWith('u1'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove alice' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Actions for alice' })).not.toBeInTheDocument())
 
-    const bobButton = screen.getByRole('button', { name: 'Remove bob' })
+    const bobButton = screen.getByRole('button', { name: 'Actions for bob' })
     await waitFor(() => expect(document.activeElement).toBe(bobButton))
   })
 
@@ -116,9 +120,9 @@ describe('Users -- focus after a confirmed delete', () => {
     await confirmDelete('bob')
 
     await waitFor(() => expect(removeUser).toHaveBeenCalledWith('u2'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove bob' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Actions for bob' })).not.toBeInTheDocument())
 
-    const aliceButton = screen.getByRole('button', { name: 'Remove alice' })
+    const aliceButton = screen.getByRole('button', { name: 'Actions for alice' })
     await waitFor(() => expect(document.activeElement).toBe(aliceButton))
   })
 
@@ -138,7 +142,7 @@ describe('Users -- focus after a confirmed delete', () => {
     await confirmDelete('alice')
 
     await waitFor(() => expect(removeUser).toHaveBeenCalledWith('u1'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove alice' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Actions for alice' })).not.toBeInTheDocument())
 
     const addUserButton = screen.getByRole('button', { name: /Add User/i })
     await waitFor(() => expect(document.activeElement).toBe(addUserButton))
@@ -184,7 +188,7 @@ describe('Users -- focus after a confirmed delete', () => {
     await waitFor(() => expect(removeUser).toHaveBeenCalledWith('u1'))
     // The row is still there -- a failed delete must not have claimed a
     // focus target that later fires against a row that never actually left.
-    const aliceButtonStillThere = await screen.findByRole('button', { name: 'Remove alice' })
+    const aliceButtonStillThere = await screen.findByRole('button', { name: 'Actions for alice' })
     expect(aliceButtonStillThere).toBeInTheDocument()
 
     // Real-browser check (2026-08-31, scripts/ui-shot-tour.mjs's bootstrap
@@ -215,7 +219,7 @@ describe('Users -- focus after a confirmed delete', () => {
 
     await waitFor(() => expect(createUser).toHaveBeenCalled())
     await waitFor(() => expect(listUsers).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Remove charlie' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Actions for charlie' })).toBeInTheDocument())
 
     // If handleDelete's catch branch didn't reset pendingFocusTargetRef, it
     // would still hold 'u2' (bob, alice's neighbor) from the failed
@@ -230,6 +234,6 @@ describe('Users -- focus after a confirmed delete', () => {
     // NEW "Remove bob" button legitimately has focus (caught this the hard
     // way via break-verify: an earlier `not.toBe(bobButton)` version of
     // this assertion stayed green even with the regression reintroduced).
-    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('Remove bob')
+    expect(document.activeElement?.getAttribute('aria-label')).not.toBe('Actions for bob')
   })
 })

@@ -1,14 +1,18 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../contexts/AuthContext'
+import { ApiError } from '../lib/api'
 import { getUserErrorMessage } from '../lib/errorMessage'
+import { PASSWORD_MIN_LENGTH, exceedsPasswordMaxBytes, meetsPasswordMinLength } from '../lib/passwordPolicy'
+import { toast } from '../components/ui/use-toast'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Checkbox } from '../components/ui/checkbox'
 import { AuthScreenLayout } from '../components/AuthScreenLayout'
 import { HelpTip } from '../components/HelpTip'
-import { AlertTriangle, ArrowRight, CheckCircle, Eye, EyeOff, KeyRound, Loader2, RadioTower, Server, ShieldCheck, ShieldAlert, XCircle } from 'lucide-react'
+import { DisabledReason } from '../components/DisabledReason'
+import { AlertTriangle, ArrowRight, CheckCircle, Eye, EyeOff, KeyRound, Loader2, ShieldAlert, XCircle } from 'lucide-react'
 
 type StrengthKey = 'tooShort' | 'weak' | 'fair' | 'good' | 'strong'
 
@@ -21,11 +25,11 @@ type PasswordStrength = {
 function scorePassword(pw: string): PasswordStrength {
   if (!pw) return { score: 0, key: null, tone: 'empty' }
   let score = 0
-  if (pw.length >= 6) score++
-  if (pw.length >= 10) score++
+  if (pw.length >= PASSWORD_MIN_LENGTH) score++
+  if (pw.length >= 12) score++
   if (/[A-Z]/.test(pw) && /[a-z]/.test(pw)) score++
   if (/\d/.test(pw) && /[^A-Za-z0-9]/.test(pw)) score++
-  if (pw.length >= 14) score = Math.min(4, score + 1)
+  if (pw.length >= 16) score = Math.min(4, score + 1)
   const map: Record<number, PasswordStrength> = {
     0: { score: 1, key: 'tooShort', tone: 'weak' },
     1: { score: 1, key: 'weak', tone: 'weak' },
@@ -38,7 +42,7 @@ function scorePassword(pw: string): PasswordStrength {
 
 export default function Setup() {
   const { t } = useTranslation('setup')
-  const { setup } = useAuth()
+  const { setup, retryAuthCheck } = useAuth()
   const [username, setUsername] = useState('admin')
   const [setupToken, setSetupToken] = useState('')
   const [password, setPassword] = useState('')
@@ -55,11 +59,24 @@ export default function Setup() {
   const confirmHintId = 'setup-confirm-hint'
 
   const passwordsMatch = password === confirmPassword
-  const passwordLongEnough = password.length >= 6
+  const passwordLongEnough = meetsPasswordMinLength(password)
   const usernameValid = /^[a-zA-Z0-9_-]{3,32}$/.test(username)
   const panelPortNumber = Number(panelPort)
   const panelPortValid = Number.isInteger(panelPortNumber) && panelPortNumber >= 1024 && panelPortNumber <= 65535
   const strength = useMemo(() => scorePassword(password), [password])
+  // What the disabled submit is waiting for: the first check below that
+  // fails, in handleSubmit's order and wording.
+  const submitBlockedReason = !setupToken.trim()
+    ? t('errors.setupTokenRequired')
+    : !usernameValid
+      ? t('errors.invalidUsername')
+      : !passwordLongEnough
+        ? t('errors.passwordTooShort')
+        : !passwordsMatch
+          ? t('errors.passwordsDontMatch')
+          : !panelPortValid
+            ? t('errors.invalidPort')
+            : null
 
   const detectCaps = (e: React.KeyboardEvent<HTMLInputElement>) => {
     // getModifierState is supported across all evergreen browsers; guard for safety.
@@ -84,6 +101,10 @@ export default function Setup() {
       setError(t('errors.passwordTooShort'))
       return
     }
+    if (exceedsPasswordMaxBytes(password)) {
+      setError(t('PASSWORD_TOO_LONG_BYTES', { ns: 'errors' }))
+      return
+    }
     if (!passwordsMatch) {
       setError(t('errors.passwordsDontMatch'))
       return
@@ -97,6 +118,17 @@ export default function Setup() {
     try {
       await setup(username, password, rememberMe, panelPort, setupToken.trim())
     } catch (err) {
+      // An account exists already (finished in another tab or browser, or the
+      // panel was set up while this form was open). Nothing is left to do
+      // here, and this screen is only shown while the panel believes setup is
+      // pending, so re-check: the app then moves on to the sign-in screen.
+      // Saying "use login instead" next to a form with no way to log in was a
+      // dead end.
+      if (err instanceof ApiError && err.code === 'SETUP_ALREADY_COMPLETED') {
+        toast({ description: getUserErrorMessage(err, t('errors.setupFailed')) })
+        retryAuthCheck()
+        return
+      }
       const message = err instanceof Error ? err.message : ''
       setError(
         message === 'SETUP_TOKEN_REQUIRED'
@@ -111,10 +143,8 @@ export default function Setup() {
   return (
     <AuthScreenLayout
       badge={t('badge')}
-      title={t('title')}
-      description={t('description')}
-      cardTitle={t('cardTitle')}
-      cardDescription={t('cardDescription')}
+      title={t('cardTitle')}
+      description={`${t('description')} ${t('cardDescription')}`}
       footer={
         <span className="inline-flex items-start gap-1.5 text-start">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning/80" aria-hidden="true" />
@@ -122,36 +152,15 @@ export default function Setup() {
         </span>
       }
     >
-      {/* ─── Step indicator ─── */}
-      <ol
-        className="-mt-1 mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
-        aria-label={t('stepsAriaLabel')}
-      >
-        <li className="flex items-center gap-1.5">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-primary/40 bg-primary/15 text-[10px] font-semibold text-primary">1</span>
-          <span className="text-foreground/80">{t('steps.account')}</span>
-        </li>
-        <span aria-hidden="true" className="h-px w-6 bg-border/60" />
-        <li className="flex items-center gap-1.5 opacity-70">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-[10px] font-semibold text-muted-foreground">2</span>
-          <span>{t('steps.server')}</span>
-        </li>
-        <span aria-hidden="true" className="h-px w-6 bg-border/60" />
-        <li className="flex items-center gap-1.5 opacity-50">
-          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-border/60 bg-muted/20 text-[10px] font-semibold text-muted-foreground">3</span>
-          <span>{t('steps.online')}</span>
-        </li>
-      </ol>
-
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div
             id="setup-error"
             role="alert"
             aria-live="assertive"
-            className="flex items-start gap-2 rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2.5 text-sm text-destructive"
+            className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2.5 text-sm text-foreground"
           >
-            <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
             <span>{error}</span>
           </div>
         )}
@@ -235,7 +244,7 @@ export default function Setup() {
           <div className="flex items-center justify-between">
             <Label htmlFor="password">{t('password.label')}</Label>
             {capsLockOn && (
-              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-warning" role="status">
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-warning" role="status">
                 <KeyRound className="h-3 w-3" aria-hidden="true" />
                 {t('password.capsLockOn')}
               </span>
@@ -252,6 +261,7 @@ export default function Setup() {
               onBlur={() => setCapsLockOn(false)}
               placeholder="••••••••"
               autoComplete="new-password"
+              className="pe-10"
               disabled={loading}
               aria-describedby={[passwordHintId, errorId].filter(Boolean).join(' ')}
               aria-invalid={Boolean(error && !passwordLongEnough)}
@@ -260,7 +270,7 @@ export default function Setup() {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="absolute end-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               title={showPassword ? t('password.hidePassword') : t('password.showPassword')}
               aria-label={showPassword ? t('password.hidePassword') : t('password.showPassword')}
               aria-pressed={showPassword}
@@ -371,72 +381,47 @@ export default function Setup() {
           <HelpTip label={t('rememberMe')}>{t('rememberMeHelp')}</HelpTip>
         </div>
 
-        <Button
-          type="submit"
-          className="w-full onboarding-cta"
-          disabled={loading || !setupToken.trim() || !usernameValid || !passwordLongEnough || !passwordsMatch || !panelPortValid}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              {t('submitting')}
-            </>
-          ) : (
-            <>
-              {t('submit')}
-              <ArrowRight className="ms-1 h-4 w-4" aria-hidden="true" />
-            </>
-          )}
-        </Button>
+        <DisabledReason reason={loading ? null : submitBlockedReason} className="w-full">
+          <Button
+            type="submit"
+            className="w-full onboarding-cta"
+            disabled={loading || !setupToken.trim() || !usernameValid || !passwordLongEnough || !passwordsMatch || !panelPortValid}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {t('submitting')}
+              </>
+            ) : (
+              <>
+                {t('submit')}
+                <ArrowRight className="ms-1 h-4 w-4 rtl:-scale-x-100" aria-hidden="true" />
+              </>
+            )}
+          </Button>
+        </DisabledReason>
 
-        <div className="mission-brief rounded-xl border border-border/60 bg-muted/10 p-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <ArrowRight className="h-4 w-4 text-primary" aria-hidden="true" />
-              {t('afterThisStep.heading')}
-            </div>
-            <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              {t('afterThisStep.previewBadge')}
-            </span>
-          </div>
-          <div className="mission-step-grid mt-3 space-y-2">
-            <div className="mission-step-card flex items-start gap-3 rounded-lg border border-border/50 bg-background/35 px-3 py-2.5">
-              <div className="mission-step-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                <Server className="h-3.5 w-3.5" aria-hidden="true" />
-              </div>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-[13px] font-medium leading-tight text-foreground">{t('afterThisStep.step1Title')}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                  {t('afterThisStep.step1Desc')}
-                </p>
-              </div>
-            </div>
-
-            <div className="mission-step-card flex items-start gap-3 rounded-lg border border-border/50 bg-background/35 px-3 py-2.5">
-              <div className="mission-step-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-              </div>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-[13px] font-medium leading-tight text-foreground">{t('afterThisStep.step2Title')}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                  {t('afterThisStep.step2Desc')}
-                </p>
-              </div>
-            </div>
-
-            <div className="mission-step-card flex items-start gap-3 rounded-lg border border-border/50 bg-background/35 px-3 py-2.5">
-              <div className="mission-step-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10 text-primary">
-                <RadioTower className="h-3.5 w-3.5" aria-hidden="true" />
-              </div>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-[13px] font-medium leading-tight text-foreground">{t('afterThisStep.step3Title')}</p>
-                <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
-                  {t('afterThisStep.step3Desc')}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* What the operator does once the account exists: a plain list, not
+            a progress stepper (this screen is the only step it can show). */}
+        <section aria-labelledby="setup-next-heading" className="rounded-lg border border-border/60 bg-muted/40 p-4">
+          <h3 id="setup-next-heading" className="text-sm font-medium text-foreground">
+            {t('afterThisStep.nextHeading')}
+          </h3>
+          <ol className="mt-2 list-decimal space-y-2 ps-5 text-sm marker:text-muted-foreground">
+            <li>
+              <p className="font-medium text-foreground">{t('afterThisStep.step1Title')}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{t('afterThisStep.step1Desc')}</p>
+            </li>
+            <li>
+              <p className="font-medium text-foreground">{t('afterThisStep.step2Title')}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{t('afterThisStep.step2Desc')}</p>
+            </li>
+            <li>
+              <p className="font-medium text-foreground">{t('afterThisStep.step3Title')}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{t('afterThisStep.step3Desc')}</p>
+            </li>
+          </ol>
+        </section>
       </form>
     </AuthScreenLayout>
   )

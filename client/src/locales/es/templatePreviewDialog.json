@@ -8,6 +8,8 @@
   "remoteServerTitle": "Servidor remoto",
   "remoteServerDesc": "Aplicar plantillas a servidores remotos aún no es compatible.",
   "previewFailedTitle": "Error al previsualizar",
+  "previewNoAccessTitle": "Comparación no disponible",
+  "previewNoAccessDesc": "Comparar una plantilla con la configuración actual del servidor requiere el permiso «Administrar plantillas de servidor», del cual este rol no dispone.",
   "applyConfirmTitle": "¿Aplicar \"{{name}}\"?",
   "applyConfirmDescription": "Esto sobrescribe la configuración actual del servidor con los {{count}} cambios de esta plantilla. Los jugadores no notarán la diferencia hasta que el servidor se reinicie, y puedes deshacerlo aplicando otra plantilla.",
   "applyConfirmButton": "Aplicar plantilla"
