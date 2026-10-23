@@ -217,5 +217,6 @@
   },
   "pageHeader": {
     "breadcrumb": "Навігаційний ланцюжок"
-  }
+  },
+  "lifecycleBusy": { "title": "Зачекайте", "waitingForRcon": "{{server}} запускається: очікування відповіді RCON.", "withServer": "{{operation}} {{server}} триває.", "noServer": "{{operation}} триває.", "operations": {"start":"Запуск","stop":"Зупинка","forceStop":"Примусова зупинка","restart":"Перезапуск","update":"Оновлення","restore":"Відновлення резервної копії","wipe":"Очищення","delete":"Видалення файлів","template":"Застосування шаблону","profile":"Зміна сервера","autoStart":"Автозапуск","bridge":"Зміна доставки PanelBridge","docker":"Дія Docker","other":"Інша операція сервера"} }
 }

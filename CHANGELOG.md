@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Servers that start together:** Settings › Connection and the Dashboard warn when the servers chosen to start with the panel may use more heap together than the machine has, or share game or RCON ports, and a new wait between servers spaces their launches so the worlds don't all load at once.
 - **Scheduled backups of every server:** each server's row on the Dashboard shows its last backup and a Scheduled backup checkbox; the schedule backs up every server checked, one after another, each in its own folder. Until one is checked it backs up the active server alone, as before. Schedule History records each backup, and each restart, under its own server. With two servers or more, the Backups page lists them on the schedule card too.
 - **Play time on every server:** sessions and play time are recorded for the servers other than the active one too, from who is on every minute, for the Players page once that server is the active one.
+- **Waiting for RCON no longer blocks the other servers:** once a started server's process is up, the 1-3 minutes the panel waits for its RCON hold that server only, so the others can be started, stopped and restarted meanwhile. Switching the active server and a second restart still wait.
+- **Why a control is unavailable:** Start, Stop, Restart and Force stop on the Dashboard, on its list of servers and on My Servers say what is in progress (for example "Stop of LNK-OUTBREAK in progress.") instead of failing with "already in progress" when clicked, and a click that races it gets the same reason.
 
 ## [1.5.2] - 2026-10-21
 

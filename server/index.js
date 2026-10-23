@@ -132,8 +132,10 @@ import {
 } from "./utils/restartSupervisor.js";
 import {
   acquireLifecycleLock,
+  holdServerUntilRcon,
   setBeforeLaunchHook,
   setLaunchTargetRefresher,
+  setLifecycleChangeListener,
   setServerDisplayNameResolver,
   setServerLaunchedHook,
 } from "./services/lifecycleCoordinator.js";
@@ -1384,6 +1386,10 @@ setDockerClient(dockerClient);
 // statically importing database/init.js (see its own comment on why: dozens
 // of test files mock that module with only the exports they need).
 setServerDisplayNameResolver(peekServerDisplayName);
+// Every change to the lifecycle lock, or to a server's wait for its RCON,
+// reaches the client, which shows why a Start/Stop/Restart is unavailable
+// instead of letting it be clicked into a 409.
+setLifecycleChangeListener((state) => io.emit("lifecycle:state", state));
 // Starts and restarts from the dashboard, the scheduler (scheduled, mod-
 // update), Discord, boot auto-start and post-update funnel through
 // serverManager.startServer() or managedContainer.runManagedLifecycle(),
@@ -4955,10 +4961,13 @@ async function start() {
                 // Set flag to prevent auto-reconnect from interfering
                 rconService.setServerStarting(true);
 
+                // Once it is up, the wait for its RCON holds this server only.
+                let rconHold = null;
                 try {
                   const startResult = await startServerForAutoStart(activeServer);
                   if (startResult.success) {
                     log.info(describeAutoStartSuccess(startResult));
+                    rconHold = holdServerUntilRcon(lifecycleLock);
 
                     // Wait for server to fully start before connecting RCON
                     // Monitor the TCP port instead of hard waiting
@@ -5039,6 +5048,7 @@ async function start() {
                   // Clear the flag so auto-reconnect can resume normally
                   rconService.setServerStarting(false);
                   lifecycleLock.release();
+                  rconHold?.release();
                 }
               }
             }

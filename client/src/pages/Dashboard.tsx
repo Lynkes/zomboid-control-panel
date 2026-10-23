@@ -46,6 +46,8 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
 import { getResultErrorMessage, getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
+import { lifecycleBusyFromError, lifecycleBusyReason } from '@/lib/lifecycleBusy'
+import { useLifecycleState } from '@/hooks/useLifecycleState'
 import { formatTime } from '@/lib/dateFormat'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
@@ -410,6 +412,14 @@ export default function Dashboard() {
   // the Wipe control. can() fails open on unknown/null capabilities, same
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
+  // Why Start/Stop/Restart are unavailable while another lifecycle operation
+  // runs, or while this server waits for its RCON: said on the control
+  // instead of a click into a SERVER_LIFECYCLE_IN_PROGRESS error.
+  const lifecycleState = useLifecycleState()
+  const busyStart = lifecycleBusyReason(lifecycleState, activeServer?.id, 'start')
+  const busyStop = lifecycleBusyReason(lifecycleState, activeServer?.id, 'stop')
+  const busyForceStop = lifecycleBusyReason(lifecycleState, activeServer?.id, 'forceStop')
+  const busyRestart = lifecycleBusyReason(lifecycleState, activeServer?.id, 'restart')
   // POST /rcon/connect needs rcon.execute: without it Connect RCON is not offered.
   const canExecuteRcon = can('rcon.execute')
   const canWipeServer = can('server.wipe')
@@ -1163,6 +1173,13 @@ export default function Dashboard() {
       if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
       if (options?.handleError?.(error)) return
+      // Refused because something else holds the lifecycle lock: not a
+      // failure, so said plainly with what holds it.
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t('toasts.errorTitle'),
         description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
@@ -1709,11 +1726,11 @@ export default function Dashboard() {
     <DisabledReason reason={
       isRemote ? t('actions.notAvailableRemote')
       : !canControlServer ? t('actions.noPermissionControl')
-      : null
+      : busyStart
     }>
       <Button
         onClick={startServer}
-        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer}
+        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer || busyStart !== null}
         variant="command"
         size="sm"
       >
@@ -1722,7 +1739,7 @@ export default function Dashboard() {
       </Button>
     </DisabledReason>
   ) : (
-    <DisabledReason reason={isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
+    <DisabledReason reason={isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyRestart}>
       <Button
         onClick={() => setConfirmAction({
           actionId: 'Restart server',
@@ -1731,7 +1748,7 @@ export default function Dashboard() {
           action: () => serverApi.restart(5),
           variant: 'warning',
         })}
-        disabled={loading !== null || !online || isRemote || !canControlServer}
+        disabled={loading !== null || !online || isRemote || !canControlServer || busyRestart !== null}
         variant="command"
         size="sm"
       >
@@ -1759,7 +1776,7 @@ export default function Dashboard() {
           : <RefreshCw className={refreshState === 'busy' ? 'animate-spin' : undefined} aria-hidden="true" />}
       </Button>
       {online && (
-        <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+        <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : busyStop}>
           <Button
             onClick={() => setConfirmAction({
               actionId: 'Stop server',
@@ -1770,7 +1787,7 @@ export default function Dashboard() {
               // a click): warning, not destructive-red.
               variant: 'warning',
             })}
-            disabled={loading !== null || !online || !canControlServer}
+            disabled={loading !== null || !online || !canControlServer || busyStop !== null}
             variant="outline"
             size="sm"
           >
@@ -1801,8 +1818,8 @@ export default function Dashboard() {
             variant: 'destructive',
           })
         },
-        disabled: loading !== null || isRemote || !canControlServer,
-        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        disabled: loading !== null || isRemote || !canControlServer || busyForceStop !== null,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyForceStop ?? undefined,
         hint: t('actions.forceStopTooltip'),
       },
       {
@@ -1826,8 +1843,8 @@ export default function Dashboard() {
             variant: 'destructive',
           })
         },
-        disabled: loading !== null || isRemote || !canControlServer,
-        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        disabled: loading !== null || isRemote || !canControlServer || busyRestart !== null,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyRestart ?? undefined,
       },
     )
   }

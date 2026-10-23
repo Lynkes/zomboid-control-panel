@@ -30,6 +30,7 @@ import { isRemoteConfigConfigured } from "../services/remoteConfigFiles.js";
 import { requireAnyPermission, requirePermission } from "../services/permissions.js";
 import {
   acquireLifecycleLock,
+  getLifecycleState,
   lifecycleInProgressResponse,
 } from "../services/lifecycleCoordinator.js";
 import {
@@ -1014,6 +1015,15 @@ export async function readServerStatuses(serverManager, { memory = false } = {})
   }
   return { statuses, matched, detectionError };
 }
+
+// What holds the lifecycle lock, and which servers are waiting for their
+// RCON after a start (lifecycleCoordinator.js's holdServerUntilRcon), for
+// the client to say why a Start/Stop/Restart is unavailable. Pushed on every
+// change as lifecycle:state; this is the read on page load. Same audience as
+// GET /status: the operation and the server's name, nothing else.
+router.get("/lifecycle", (req, res) => {
+  res.json(getLifecycleState());
+});
 
 router.get("/status", async (req, res) => {
   try {
@@ -2409,9 +2419,12 @@ function resetStatusWatchdogBaseline(req) {
 
 // Set active server
 router.post("/:id/activate", requirePermission("servers.manage"), async (req, res) => {
+  // Panel-wide: a start of the active server may still be polling its RCON
+  // through the shared connection this switch repoints (holdServerUntilRcon).
   const lifecycleLock = acquireLifecycleLock(
     "server-profile-change",
     req.params.id || null,
+    { panelWide: true },
   );
   if (!lifecycleLock) {
     return res.status(409).json(lifecycleInProgressResponse());

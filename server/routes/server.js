@@ -53,6 +53,7 @@ import { runManagedLifecycle } from "../services/managedContainer.js";
 import {
   acquireLifecycleLock,
   getLifecycleLockHolder,
+  holdServerUntilRcon,
   supersedeLifecycleLock,
   lifecycleInProgressResponse,
   isLifecycleLockedForServer,
@@ -2187,10 +2188,14 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
   }
   let lifecycleLockTransferred = false;
   let lifecycleLockReleased = false;
+  // Once the process is up, the wait for RCON holds this server only
+  // (holdServerUntilRcon): the other servers can start and stop meanwhile.
+  let rconHold = null;
   const releaseLifecycleLock = () => {
     if (lifecycleLockReleased) return;
     lifecycleLockReleased = true;
     lifecycleLock.release();
+    rconHold?.release();
   };
   try {
     const activeServer = activeServerForLock;
@@ -2315,6 +2320,7 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
       }
       log.info("Container start confirmed by Docker; skipping local process poll");
       lifecycleLockTransferred = true;
+      rconHold = holdServerUntilRcon(lifecycleLock);
       void waitForRconAfterStart({
         rconService,
         discordBot: req.app.get("discordBot"),
@@ -2412,6 +2418,7 @@ router.post("/start", requirePermission("server.control"), async (req, res) => {
             io.emit("server:status", { running: true });
           }
           log.info("Server detected as running");
+          rconHold = holdServerUntilRcon(lifecycleLock);
           await waitForRconAfterStart({ rconService, discordBot: req.app.get("discordBot") });
           // Nudge for the running/unresponsive transition the instant
           // waitForRconAfterStart settles, rather than leaving it to the
@@ -2492,7 +2499,9 @@ export async function acquireLockForStop(operation, serverId, app) {
   const lock = acquireLifecycleLock(operation, serverId);
   if (lock) return lock;
 
-  const holder = getLifecycleLockHolder();
+  // What refuses THIS server: the process-wide lock, or its own hold while
+  // a restart of it waits for RCON (holdServerUntilRcon).
+  const holder = getLifecycleLockHolder(serverId);
   const wanted = serverId === null || serverId === undefined ? "" : String(serverId).trim();
   const sameServer = !holder?.serverId || !wanted || holder.serverId === wanted;
   if (holder?.operation !== "restart" || !sameServer) return null;

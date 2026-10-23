@@ -20,6 +20,8 @@ import {
 } from '@/lib/autoStartServers'
 import { BYTES_PER_GB, formatGb, heapOfServers, portConflicts } from '@/lib/serversTogether'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { lifecycleBusyFromError, lifecycleBusyReason } from '@/lib/lifecycleBusy'
+import { useLifecycleState } from '@/hooks/useLifecycleState'
 import { cn } from '@/lib/utils'
 
 // Every server at a glance on the Dashboard, so running several doesn't mean
@@ -82,6 +84,9 @@ export function ServersOverview({
   const { can } = useAuth()
   const canSwitch = can('servers.manage')
   const canControl = can('server.control')
+  // What holds the lifecycle lock, or which servers wait for their RCON:
+  // each row's controls say so instead of failing when clicked.
+  const lifecycleState = useLifecycleState()
   // Backups: what every backup role reads (GET /backup/summary), and the
   // schedule's list of servers, which backups.manage changes.
   const canSeeBackups = can('backups.manage') || can('backups.download') || can('backups.restore')
@@ -186,6 +191,11 @@ export function ServersOverview({
       // The Dashboard follows the active server through activeServerChanged.
       await serversApi.activate(server.id)
     } catch (error) {
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t('serversOverview.switchFailed', { name: server.name || server.serverName }),
         description: getUserErrorMessage(error, t('toasts.errorTitle')),
@@ -215,6 +225,11 @@ export function ServersOverview({
         toast({ title: t('serversOverview.restartRequestedTitle', { name }), description: t('serversOverview.restartRequestedDesc', { minutes: RESTART_WARNING_MINUTES }) })
       }
     } catch (error) {
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t(`serversOverview.${action}Failed`, { name }),
         description: getUserErrorMessage(error, t('toasts.errorTitle')),
@@ -276,8 +291,9 @@ export function ServersOverview({
     const id = String(server.id)
     const name = server.name || server.serverName
     const Icon = action === 'start' ? Play : action === 'stop' ? Square : RotateCcw
+    const busy = lifecycleBusyReason(lifecycleState, id, action)
     return (
-      <DisabledReason key={action} reason={!canControl ? t('actions.noPermissionControl') : null}>
+      <DisabledReason key={action} reason={!canControl ? t('actions.noPermissionControl') : busy}>
         <Button
           size="sm"
           variant="outline"
@@ -287,7 +303,7 @@ export function ServersOverview({
             action === 'stop' && 'border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300',
             action === 'restart' && 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300',
           )}
-          disabled={!canControl || pending !== null}
+          disabled={!canControl || pending !== null || busy !== null}
           onClick={() => (action === 'start' ? runAction(server, action) : setToConfirm({ server, action }))}
           aria-label={t(`serversOverview.${action}Aria`, { name })}
         >
@@ -446,12 +462,12 @@ export function ServersOverview({
                   <div className="ms-auto flex flex-wrap items-center gap-1.5">
                     {actions.map((action) => actionButton(server, action))}
                     {!isActive && (
-                      <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : null}>
+                      <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : lifecycleBusyReason(lifecycleState, id, 'switch')}>
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-7 gap-1.5 px-2 text-xs"
-                          disabled={!canSwitch || switching !== null}
+                          disabled={!canSwitch || switching !== null || lifecycleBusyReason(lifecycleState, id, 'switch') !== null}
                           onClick={() => handleSwitch(server)}
                           aria-label={t('serversOverview.showAria', { name })}
                         >

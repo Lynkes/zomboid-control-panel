@@ -207,5 +207,6 @@
   },
   "pageHeader": {
     "breadcrumb": "Pfadnavigation"
-  }
+  },
+  "lifecycleBusy": { "title": "Einen Moment", "waitingForRcon": "{{server}} startet: Warten auf die Antwort von RCON.", "withServer": "{{operation}} von {{server}} läuft.", "noServer": "{{operation}} läuft.", "operations": {"start":"Start","stop":"Stopp","forceStop":"Erzwungener Stopp","restart":"Neustart","update":"Update","restore":"Backup-Wiederherstellung","wipe":"Wipe","delete":"Löschen von Dateien","template":"Anwenden einer Vorlage","profile":"Serverwechsel","autoStart":"Autostart","bridge":"Wechsel der PanelBridge-Bereitstellung","docker":"Docker-Aktion","other":"Ein anderer Servervorgang"} }
 }
