@@ -1,0 +1,115 @@
+name: Security scan
+
+# Fork-only. CodeQL (codeql.yml) covers the code itself, and Dependabot files
+# alerts for the lockfiles -- days after an advisory is published, and not
+# for what is inside the all-in-one image. This adds:
+#   - npm audit of both lockfiles on every change to them and weekly: fails
+#     when a runtime dependency has an advisory of its own with a fix
+#     available (scripts/npm-audit-gate.mjs); everything else is listed in the
+#     run summary.
+#   - Trivy on the published all-in-one image (ghcr.io/<owner>/zomboid-panel:aio,
+#     what the NAS pulls) after each build of it and weekly: fixable HIGH and
+#     CRITICAL findings go to Security > Code scanning (category trivy-aio).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package-lock.json'
+      - 'client/package-lock.json'
+      - 'scripts/npm-audit-gate.mjs'
+      - '.github/workflows/security-scan.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package-lock.json'
+      - 'client/package-lock.json'
+      - 'scripts/npm-audit-gate.mjs'
+      - '.github/workflows/security-scan.yml'
+  workflow_run:
+    workflows: ['Build AIO Docker Image']
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: '41 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-scan-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  npm-audit:
+    name: npm audit
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      # From the lockfiles alone: nothing is installed, no install script runs.
+      # npm audit exits 1 on any finding, a fixless one included: the gate's
+      # exit status decides, so pipefail (on in Actions' default bash) is off.
+      - name: Runtime dependencies (fail on a fixable advisory)
+        run: |
+          set +o pipefail
+          status=0
+          npm audit --package-lock-only --omit=dev --json | node scripts/npm-audit-gate.mjs "server runtime" || status=1
+          (cd client && npm audit --package-lock-only --omit=dev --json) | node scripts/npm-audit-gate.mjs "client runtime" || status=1
+          exit $status
+
+      - name: Development dependencies (listed only)
+        if: always()
+        run: |
+          set +o pipefail
+          npm audit --package-lock-only --json | node scripts/npm-audit-gate.mjs "server, all" --warn-only
+          (cd client && npm audit --package-lock-only --json) | node scripts/npm-audit-gate.mjs "client, all" --warn-only
+
+  image-scan:
+    name: Trivy (all-in-one image)
+    if: >-
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+    steps:
+      - name: Image name
+        id: image
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: echo "ref=ghcr.io/${OWNER,,}/zomboid-panel:aio" >> "$GITHUB_OUTPUT"
+
+      - name: Scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-aio.sarif
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@ce5e7eeac396d720fe2d802714996c8ce561e311 # v3
+        with:
+          sarif_file: trivy-aio.sarif
+          category: trivy-aio
