@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Players: one request per list switch:** a click on the Banned or Whitelist tab read that list twice, because the tab switches on focus and again on mousedown. It reads it once now, and the whitelist race test runs on CI again.
+
 ## [1.5.2] - 2026-10-21
 
 ### Fixed
