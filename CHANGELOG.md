@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Release builds for a tag with no release yet:** the release workflow's check of an existing release read GitHub's 404 reply as the release's commit and failed, instead of going on to create the release.
+- **Players: one request per list switch:** a click on the Banned or Whitelist tab read that list twice, because the tab switches on focus and again on mousedown. It reads it once now, and the whitelist race test runs on CI again.
 
 ## [1.5.2] - 2026-10-21
 

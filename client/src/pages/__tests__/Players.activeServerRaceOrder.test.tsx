@@ -180,10 +180,27 @@ describe('Players.tsx: an older, slower roster response must not overwrite a new
 // the way it already wasn't for the online roster. Fixed via a second,
 // independent useRequestGuard() instance (whitelistGuard).
 describe('Players.tsx: an older, slower whitelist response must not overwrite a newer one', () => {
-  // 2026-10-21: passes locally (also as CI's own shard 1/4) but never shows
-  // the whitelist on GitHub's Linux runners since the Players redesign; the
-  // DOM dump there is truncated. Skipped on CI until that is understood.
-  it.skipIf(!!process.env.CI)('keeps the newer server whitelist when an earlier in-flight fetch resolves AFTER the activeServerChanged fetch', async () => {
+  // 2026-10-21 it was skipped on CI: on GitHub's Linux runners the whitelist
+  // never showed. The tab switch read the whitelist twice (Radix's trigger
+  // switches on focus and again on mousedown; see changeList()), so the
+  // second read took the default empty list and, being the newer one, won.
+  // Whether a run got there depended on nothing in this test.
+  it('reads the whitelist, or the bans, once when its tab is clicked', async () => {
+    setUpCommon()
+    renderPlayers()
+    await waitFor(() => expect(getWhitelist).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getSteamIdBans).toHaveBeenCalledTimes(1))
+
+    await act(async () => { fireEvent.mouseDown(screen.getByRole('tab', { name: /^Whitelist/ }), { button: 0 }) })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^Whitelist/ })).toHaveAttribute('aria-selected', 'true'))
+    expect(getWhitelist).toHaveBeenCalledTimes(2)
+
+    await act(async () => { fireEvent.mouseDown(screen.getByRole('tab', { name: /^Banned/ }), { button: 0 }) })
+    await waitFor(() => expect(screen.getByRole('tab', { name: /^Banned/ })).toHaveAttribute('aria-selected', 'true'))
+    expect(getSteamIdBans).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the newer server whitelist when an earlier in-flight fetch resolves AFTER the activeServerChanged fetch', async () => {
     setUpCommon()
 
     // Call #1 (mount): resolves normally and fast, with the OLD server's account.
