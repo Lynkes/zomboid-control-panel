@@ -184,7 +184,12 @@ jobs:
         run: |
           set -euo pipefail
           release_tag="${GITHUB_REF_NAME}"
-          release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" --jq '.target_commitish' 2>/dev/null || true)"
+          # On a 404 gh api still prints the error body (JSON) on stdout, so
+          # "|| true" alone would read that JSON as the release's target: the
+          # output only counts when the call succeeded.
+          if ! release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" --jq '.target_commitish' 2>/dev/null)"; then
+            release_target=""
+          fi
           if [ -n "$release_target" ]; then
             release_target_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${release_target}" --jq '.sha')"
             if [ "$release_target_sha" != "$GITHUB_SHA" ]; then
