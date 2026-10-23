@@ -84,10 +84,12 @@ export function ServersOverview({
     const seq = ++requestSeq.current
     // The server list first: with one server the list isn't shown, and
     // nothing else is asked for until a second one appears.
-    const list = await serversApi.getAll().catch(() => null)
+    // allSettled, not .catch(): a call that doesn't return a promise (a
+    // page's partial api mock in a test) must not throw out of the poll.
+    const [list] = await Promise.allSettled([serversApi.getAll()])
     // An older poll answering after a newer one must not put its rows back.
     if (seq !== requestSeq.current) return
-    const known = list?.servers
+    const known = list.status === 'fulfilled' ? list.value?.servers : undefined
     if (known) setServers(known)
     if (!known || known.length < 2) return
     const [status, rconStatus] = await Promise.allSettled([
