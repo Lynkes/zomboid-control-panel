@@ -209,5 +209,6 @@
   },
   "pageHeader": {
     "breadcrumb": "Fil d'Ariane"
-  }
+  },
+  "lifecycleBusy": { "title": "Un instant", "waitingForRcon": "{{server}} démarre : en attente de la réponse de RCON.", "withServer": "{{operation}} de {{server}} en cours.", "noServer": "{{operation}} en cours.", "operations": {"start":"Démarrage","stop":"Arrêt","forceStop":"Arrêt forcé","restart":"Redémarrage","update":"Mise à jour","restore":"Restauration de sauvegarde","wipe":"Réinitialisation","delete":"Suppression de fichiers","template":"Application de modèle","profile":"Changement de serveur","autoStart":"Démarrage automatique","bridge":"Changement de livraison de PanelBridge","docker":"Action Docker","other":"Une autre opération serveur"} }
 }

@@ -20,6 +20,8 @@ import {
 } from '@/lib/autoStartServers'
 import { BYTES_PER_GB, formatGb, heapOfServers, portConflicts } from '@/lib/serversTogether'
 import { getUserErrorMessage } from '@/lib/errorMessage'
+import { lifecycleBusyFromError, lifecycleBusyReason } from '@/lib/lifecycleBusy'
+import { useLifecycleState } from '@/hooks/useLifecycleState'
 import { cn } from '@/lib/utils'
 
 // Every server at a glance on the Dashboard, so running several doesn't mean
@@ -82,6 +84,9 @@ export function ServersOverview({
   const { can } = useAuth()
   const canSwitch = can('servers.manage')
   const canControl = can('server.control')
+  // What holds the lifecycle lock, or which servers wait for their RCON:
+  // each row's controls say so instead of failing when clicked.
+  const lifecycleState = useLifecycleState()
   // Backups: what every backup role reads (GET /backup/summary), and the
   // schedule's list of servers, which backups.manage changes.
   const canSeeBackups = can('backups.manage') || can('backups.download') || can('backups.restore')
@@ -186,6 +191,11 @@ export function ServersOverview({
       // The Dashboard follows the active server through activeServerChanged.
       await serversApi.activate(server.id)
     } catch (error) {
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t('serversOverview.switchFailed', { name: server.name || server.serverName }),
         description: getUserErrorMessage(error, t('toasts.errorTitle')),
@@ -215,6 +225,11 @@ export function ServersOverview({
         toast({ title: t('serversOverview.restartRequestedTitle', { name }), description: t('serversOverview.restartRequestedDesc', { minutes: RESTART_WARNING_MINUTES }) })
       }
     } catch (error) {
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t(`serversOverview.${action}Failed`, { name }),
         description: getUserErrorMessage(error, t('toasts.errorTitle')),
@@ -276,8 +291,9 @@ export function ServersOverview({
     const id = String(server.id)
     const name = server.name || server.serverName
     const Icon = action === 'start' ? Play : action === 'stop' ? Square : RotateCcw
+    const busy = lifecycleBusyReason(lifecycleState, id, action)
     return (
-      <DisabledReason key={action} reason={!canControl ? t('actions.noPermissionControl') : null}>
+      <DisabledReason key={action} reason={!canControl ? t('actions.noPermissionControl') : busy}>
         <Button
           size="sm"
           variant="outline"
@@ -287,7 +303,7 @@ export function ServersOverview({
             action === 'stop' && 'border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300',
             action === 'restart' && 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10 hover:text-amber-300',
           )}
-          disabled={!canControl || pending !== null}
+          disabled={!canControl || pending !== null || busy !== null}
           onClick={() => (action === 'start' ? runAction(server, action) : setToConfirm({ server, action }))}
           aria-label={t(`serversOverview.${action}Aria`, { name })}
         >
@@ -371,154 +387,152 @@ export function ServersOverview({
             : state === 'running' ? ['stop', 'restart'] : ['start']
           return (
             <li key={id} className="space-y-2 px-4 py-2.5">
+              {/* What the server is and does on top, with its actions at the
+                  end; its options below, so a phone-width row stays readable. */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <div className="flex min-w-0 flex-1 basis-48 items-center gap-2.5">
-                <span
-                  className={cn(
-                    'h-2 w-2 shrink-0 rounded-full',
-                    state === 'running' ? 'bg-success' : state === 'unknown' ? 'bg-warning' : 'bg-muted-foreground/40',
-                  )}
-                  aria-hidden="true"
-                />
-                <span className="truncate text-sm font-medium" title={name}>{name}</span>
-                {isActive && (
-                  <span className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                    {t('serversOverview.activeBadge')}
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span className={cn(state === 'running' && 'text-success/80', state === 'unknown' && 'text-warning/80')}>
-                  {t(`serversOverview.state.${state}`)}
-                </span>
-                {state === 'running' && !server.isRemote && <ServerUptime startedAt={status?.startedAt} />}
-                <span
-                  className="inline-flex items-center gap-1 tabular-nums"
-                  title={players !== null ? t('serversOverview.playersTitle', { players }) : t('serversOverview.playersUnknown')}
-                >
-                  <Users className="h-3 w-3" aria-hidden="true" />
-                  <span className="sr-only">
-                    {players !== null ? t('serversOverview.playersTitle', { players }) : t('serversOverview.playersUnknown')}
-                  </span>
-                  <span aria-hidden="true">{players ?? '–'}</span>
-                </span>
-                <span className="font-mono tabular-nums" title={t('serversOverview.gamePortTitle')}>:{server.serverPort}</span>
-                {state === 'running' && typeof status?.memoryBytes === 'number' && (
-                  <span className="inline-flex items-center gap-1 tabular-nums" title={t('serversOverview.memoryTitle', { max: server.maxMemory })}>
-                    <MemoryStick className="h-3 w-3" aria-hidden="true" />
-                    {t('serversOverview.memory', { gb: formatGb(status.memoryBytes) })}
-                  </span>
-                )}
-                {(update?.mods?.outdated?.length ?? 0) > 0 && (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
-                    title={update!.mods!.outdated.map((mod) => mod.name).join(', ')}
-                  >
-                    <Package className="h-3 w-3" aria-hidden="true" />
-                    {t('serversOverview.modsOutdated', { mods: update!.mods!.outdated.length })}
-                  </span>
-                )}
-                {update?.game?.updateAvailable && (
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
-                    title={t('serversOverview.gameUpdateTitle', { installed: update.game.installedBuild, latest: update.game.latestBuild })}
-                  >
-                    <Download className="h-3 w-3" aria-hidden="true" />
-                    {t('serversOverview.gameUpdate')}
-                  </span>
-                )}
-                {status?.disk && (status.disk.warning || status.disk.critical) && (
+                <div className="flex min-w-0 flex-1 basis-48 items-center gap-2.5">
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]',
-                      status.disk.critical ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-warning/30 bg-warning/10 text-warning',
+                      'h-2 w-2 shrink-0 rounded-full',
+                      state === 'running' ? 'bg-success' : state === 'unknown' ? 'bg-warning' : 'bg-muted-foreground/40',
                     )}
-                    title={t('serversOverview.diskTitle', { free: formatGb(status.disk.freeBytes) })}
-                  >
-                    <HardDrive className="h-3 w-3" aria-hidden="true" />
-                    {t('serversOverview.disk', { percent: Math.round(status.disk.usedPercent) })}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate text-sm font-medium" title={name}>{name}</span>
+                  {isActive && (
+                    <span className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      {t('serversOverview.activeBadge')}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  <span className={cn(state === 'running' && 'text-success/80', state === 'unknown' && 'text-warning/80')}>
+                    {t(`serversOverview.state.${state}`)}
                   </span>
-                )}
-              </div>
+                  {state === 'running' && !server.isRemote && <ServerUptime startedAt={status?.startedAt} />}
+                  <span
+                    className="inline-flex items-center gap-1 tabular-nums"
+                    title={players !== null ? t('serversOverview.playersTitle', { players }) : t('serversOverview.playersUnknown')}
+                  >
+                    <Users className="h-3 w-3" aria-hidden="true" />
+                    <span className="sr-only">
+                      {players !== null ? t('serversOverview.playersTitle', { players }) : t('serversOverview.playersUnknown')}
+                    </span>
+                    <span aria-hidden="true">{players ?? '–'}</span>
+                  </span>
+                  <span className="font-mono tabular-nums" title={t('serversOverview.gamePortTitle')}>:{server.serverPort}</span>
+                  {state === 'running' && typeof status?.memoryBytes === 'number' && (
+                    <span className="inline-flex items-center gap-1 tabular-nums" title={t('serversOverview.memoryTitle', { max: server.maxMemory })}>
+                      <MemoryStick className="h-3 w-3" aria-hidden="true" />
+                      {t('serversOverview.memory', { gb: formatGb(status.memoryBytes) })}
+                    </span>
+                  )}
+                  {(update?.mods?.outdated?.length ?? 0) > 0 && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
+                      title={update!.mods!.outdated.map((mod) => mod.name).join(', ')}
+                    >
+                      <Package className="h-3 w-3" aria-hidden="true" />
+                      {t('serversOverview.modsOutdated', { mods: update!.mods!.outdated.length })}
+                    </span>
+                  )}
+                  {update?.game?.updateAvailable && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] text-warning"
+                      title={t('serversOverview.gameUpdateTitle', { installed: update.game.installedBuild, latest: update.game.latestBuild })}
+                    >
+                      <Download className="h-3 w-3" aria-hidden="true" />
+                      {t('serversOverview.gameUpdate')}
+                    </span>
+                  )}
+                  {status?.disk && (status.disk.warning || status.disk.critical) && (
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]',
+                        status.disk.critical ? 'border-destructive/30 bg-destructive/10 text-destructive' : 'border-warning/30 bg-warning/10 text-warning',
+                      )}
+                      title={t('serversOverview.diskTitle', { free: formatGb(status.disk.freeBytes) })}
+                    >
+                      <HardDrive className="h-3 w-3" aria-hidden="true" />
+                      {t('serversOverview.disk', { percent: Math.round(status.disk.usedPercent) })}
+                    </span>
+                  )}
+                </div>
                 {(actions.length > 0 || !isActive) && (
                   <div className="ms-auto flex flex-wrap items-center gap-1.5">
-                {actions.length > 0 && (
-                  <div className="flex items-center gap-1.5">
                     {actions.map((action) => actionButton(server, action))}
-                  </div>
-                )}
-                {!isActive && (
-                  <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : null}>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 gap-1.5 px-2 text-xs"
-                      disabled={!canSwitch || switching !== null}
-                      onClick={() => handleSwitch(server)}
-                      aria-label={t('serversOverview.showAria', { name })}
-                    >
-                      {switching === id
-                        ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
-                        : <ArrowRightLeft className="h-3 w-3" aria-hidden="true" />}
-                      {t('serversOverview.show')}
-                    </Button>
-                  </DisabledReason>
-                )}
+                    {!isActive && (
+                      <DisabledReason reason={!canSwitch ? t('serversOverview.noPermissionSwitch') : lifecycleBusyReason(lifecycleState, id, 'switch')}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1.5 px-2 text-xs"
+                          disabled={!canSwitch || switching !== null || lifecycleBusyReason(lifecycleState, id, 'switch') !== null}
+                          onClick={() => handleSwitch(server)}
+                          aria-label={t('serversOverview.showAria', { name })}
+                        >
+                          {switching === id
+                            ? <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                            : <ArrowRightLeft className="h-3 w-3" aria-hidden="true" />}
+                          {t('serversOverview.show')}
+                        </Button>
+                      </DisabledReason>
+                    )}
                   </div>
                 )}
               </div>
               {!server.isRemote && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
+                      <Checkbox
+                        id={checkboxId}
+                        checked={autoStartOn && chosen.includes(id)}
+                        disabled={!canChangeAutoStart}
+                        onCheckedChange={(checked) => onAutoStartChange(server, checked === true)}
+                      />
+                    </DisabledReason>
+                    <Label htmlFor={checkboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                      {t('serversOverview.autoStartLabel')}
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-1.5" title={t('serversOverview.restartOnCrashHint')}>
+                    <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
+                      <Checkbox
+                        id={restartCheckboxId}
+                        checked={restartChosen.includes(id)}
+                        disabled={!canChangeAutoStart}
+                        onCheckedChange={(checked) => onRestartOnCrashChange(server, checked === true)}
+                      />
+                    </DisabledReason>
+                    <Label htmlFor={restartCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                      {t('serversOverview.restartOnCrashLabel')}
+                    </Label>
+                  </div>
+                  {backups && (
                     <div className="flex items-center gap-1.5">
-                      <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
+                      <DisabledReason
+                        reason={!canManageBackups ? t('serversOverview.noPermissionBackups')
+                          : !backups.schedule.enabled ? t('serversOverview.scheduledBackupsOff')
+                          : null}
+                      >
                         <Checkbox
-                          id={checkboxId}
-                          checked={autoStartOn && chosen.includes(id)}
-                          disabled={!canChangeAutoStart}
-                          onCheckedChange={(checked) => onAutoStartChange(server, checked === true)}
+                          id={backupCheckboxId}
+                          checked={backupIds.includes(id)}
+                          disabled={!canManageBackups || !backups.schedule.enabled}
+                          onCheckedChange={(checked) => handleScheduledBackupChange(server, checked === true)}
                         />
                       </DisabledReason>
-                      <Label htmlFor={checkboxId} className="cursor-pointer text-[11px] text-muted-foreground">
-                        {t('serversOverview.autoStartLabel')}
+                      <Label htmlFor={backupCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
+                        {t('serversOverview.scheduledBackupLabel')}
                       </Label>
+                      <span className={cn('text-[11px]', backedUpOnSchedule || lastBackupAt ? 'text-muted-foreground/70' : 'text-warning')}>
+                        {lastBackupAt
+                          ? t('serversOverview.lastBackup', { age: ageOf(t as never, lastBackupAt) })
+                          : t('serversOverview.noBackup')}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-1.5" title={t('serversOverview.restartOnCrashHint')}>
-                      <DisabledReason reason={!canChangeAutoStart ? t('actions.noPermissionAutoStart') : null}>
-                        <Checkbox
-                          id={restartCheckboxId}
-                          checked={restartChosen.includes(id)}
-                          disabled={!canChangeAutoStart}
-                          onCheckedChange={(checked) => onRestartOnCrashChange(server, checked === true)}
-                        />
-                      </DisabledReason>
-                      <Label htmlFor={restartCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
-                        {t('serversOverview.restartOnCrashLabel')}
-                      </Label>
-                    </div>
-                    {backups && (
-                      <div className="flex items-center gap-1.5">
-                        <DisabledReason
-                          reason={!canManageBackups ? t('serversOverview.noPermissionBackups')
-                            : !backups.schedule.enabled ? t('serversOverview.scheduledBackupsOff')
-                            : null}
-                        >
-                          <Checkbox
-                            id={backupCheckboxId}
-                            checked={backupIds.includes(id)}
-                            disabled={!canManageBackups || !backups.schedule.enabled}
-                            onCheckedChange={(checked) => handleScheduledBackupChange(server, checked === true)}
-                          />
-                        </DisabledReason>
-                        <Label htmlFor={backupCheckboxId} className="cursor-pointer text-[11px] text-muted-foreground">
-                          {t('serversOverview.scheduledBackupLabel')}
-                        </Label>
-                        <span className={cn('text-[11px]', backedUpOnSchedule || lastBackupAt ? 'text-muted-foreground/70' : 'text-warning')}>
-                          {lastBackupAt
-                            ? t('serversOverview.lastBackup', { age: ageOf(t as never, lastBackupAt) })
-                            : t('serversOverview.noBackup')}
-                        </span>
-                      </div>
-                    )}
+                  )}
                 </div>
               )}
             </li>

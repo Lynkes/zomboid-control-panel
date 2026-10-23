@@ -2839,8 +2839,27 @@ export type OtherServerUpdate = {
   };
 };
 
+// Who holds the lifecycle lock (one start/stop/restart/update... at a time
+// panel-wide), and which servers are only waiting for their RCON after a
+// start -- those block just themselves. GET /servers/lifecycle and the
+// lifecycle:state socket event; also `holder` on a SERVER_LIFECYCLE_IN_PROGRESS 409.
+export interface LifecycleHolder {
+  operation: string;
+  serverId: string | null;
+  serverName: string | null;
+  phase: "waiting-for-rcon" | null;
+  since: number | null;
+}
+
+export interface LifecycleState {
+  lock: LifecycleHolder | null;
+  servers: LifecycleHolder[];
+}
+
 // Servers API (multi-server management)
 export const serversApi = {
+  // No retries: the socket's lifecycle:state keeps it current anyway.
+  getLifecycle: () => apiGet("/servers/lifecycle", undefined, 0) as Promise<LifecycleState>,
   getAll: (options?: { retries?: number }) =>
     apiGet("/servers", undefined, options?.retries) as Promise<{
       servers: ServerInstance[];

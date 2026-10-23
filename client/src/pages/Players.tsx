@@ -1543,7 +1543,19 @@ export default function Players() {
 
   // Switching lists re-reads the ones that change behind the page's back
   // (the bans and the whitelist), as the old tab buttons did.
+  //
+  // A mouse click on a list tab reports the switch twice: Radix's trigger
+  // focuses itself on mousedown, its focus handler (automatic activation)
+  // still sees the tab unselected and switches, then mousedown switches
+  // again -- both before a re-render. Each switch fetched, so every click
+  // on Banned or Whitelist read that list twice and showed whichever
+  // answer the request guard kept. The same switch within one event counts
+  // once; a later click on the list already shown still re-reads it.
+  const listSwitchInEvent = useRef<RosterList | null>(null)
   const changeList = (next: RosterList) => {
+    if (listSwitchInEvent.current === next) return
+    listSwitchInEvent.current = next
+    queueMicrotask(() => { listSwitchInEvent.current = null })
     setRosterList(next)
     if (next === 'banned') void fetchBannedSteamIds()
     if (next === 'whitelist') void fetchWhitelist()

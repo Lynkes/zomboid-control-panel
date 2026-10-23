@@ -43,6 +43,7 @@ vi.mock('@/lib/api', async () => {
       stop: vi.fn(),
       restart: vi.fn(),
       getUpdates: vi.fn(),
+      getLifecycle: vi.fn(),
     },
     backupApi: {
       ...actual.backupApi,
@@ -60,6 +61,7 @@ const startServer = vi.mocked(serversApi.start)
 const stopServer = vi.mocked(serversApi.stop)
 const restartServer = vi.mocked(serversApi.restart)
 const getUpdates = vi.mocked(serversApi.getUpdates)
+const getLifecycle = vi.mocked(serversApi.getLifecycle)
 const getBackupSummary = vi.mocked(backupApi.getSummary)
 const updateBackupSettings = vi.mocked(backupApi.updateSettings)
 
@@ -79,6 +81,7 @@ const ARENA = server('s4', 'Arena', { serverPort: 16265 })
 const MYSTERY = server('s5', 'Mystery', { serverPort: 16267 })
 
 function prime(servers: ServerInstance[], extra: { hostMemoryBytes?: number; memory?: Record<string, number>; disk?: Record<string, object> } = {}) {
+  getLifecycle.mockResolvedValue({ lock: null, servers: [] })
   getUpdates.mockResolvedValue({ servers: [] } as never)
   getBackupSummary.mockResolvedValue({ servers: [], schedule: { enabled: true, serverIds: null } } as never)
   getAll.mockResolvedValue({ servers } as never)
@@ -141,6 +144,46 @@ afterEach(() => {
 })
 
 describe('ServersOverview', () => {
+  it('says why a row\'s controls wait while another server holds the lifecycle lock, and follows its changes', async () => {
+    const handlers: Record<string, (state?: unknown) => void> = {}
+    mockSocket = { on: (event, handler) => { handlers[event] = handler }, off: vi.fn() }
+    prime([ALIVE, OUTBREAK])
+    getLifecycle.mockResolvedValue({
+      lock: { operation: 'start', serverId: 's1', serverName: 'LNKAlive', phase: null, since: 1 },
+      servers: [],
+    })
+    renderOverview()
+
+    await screen.findByText('LNK-OUTBREAK')
+    const startOf = () => within(rowOf('LNK-OUTBREAK')).getByRole('button', { name: 'Start LNK-OUTBREAK' })
+    await waitFor(() => expect(startOf()).toBeDisabled())
+    fireEvent.focus(startOf().parentElement!)
+    expect((await screen.findAllByText('Start of LNKAlive in progress.')).length).toBeGreaterThan(0)
+    fireEvent.click(startOf())
+    expect(startServer).not.toHaveBeenCalled()
+
+    // LNKAlive is up and only waits for its RCON now: the other server is free.
+    act(() => handlers['lifecycle:state']({
+      lock: null,
+      servers: [{ operation: 'start', serverId: 's1', serverName: 'LNKAlive', phase: 'waiting-for-rcon', since: 1 }],
+    }))
+    await waitFor(() => expect(startOf()).not.toBeDisabled())
+  })
+
+  it('says what holds the lock when a click races it, instead of an error', async () => {
+    prime([ALIVE, OUTBREAK])
+    startServer.mockRejectedValue(new ApiError('busy', {
+      status: 409,
+      code: 'SERVER_LIFECYCLE_IN_PROGRESS',
+      data: { holder: { operation: 'restart', serverId: 's1', serverName: 'LNKAlive', phase: null, since: 1 } },
+    }))
+    renderOverview()
+
+    await screen.findByText('LNK-OUTBREAK')
+    fireEvent.click(within(rowOf('LNK-OUTBREAK')).getByRole('button', { name: 'Start LNK-OUTBREAK' }))
+    await waitFor(() => expect(mockToast).toHaveBeenCalledWith({ title: 'Wait a moment', description: 'Restart of LNKAlive in progress.' }))
+  })
+
   it('stays out of the way with a single server', async () => {
     prime([ALIVE])
     const { onShownChange } = renderOverview()

@@ -209,5 +209,6 @@
   },
   "pageHeader": {
     "breadcrumb": "Chemen navigasyon"
-  }
+  },
+  "lifecycleBusy": { "title": "Tann yon ti moman", "waitingForRcon": "{{server}} ap demare: n ap tann RCON li reponn.", "withServer": "{{operation}} {{server}} ap fèt.", "noServer": "{{operation}} ap fèt.", "operations": {"start":"Demaraj","stop":"Kanpe","forceStop":"Kanpe fòse","restart":"Redemaraj","update":"Mizajou","restore":"Restorasyon backup","wipe":"Efasman","delete":"Efase fichye","template":"Aplikasyon modèl","profile":"Chanjman sèvè","autoStart":"Demaraj otomatik","bridge":"Chanjman livrezon PanelBridge","docker":"Aksyon Docker","other":"Yon lòt operasyon sèvè"} }
 }

@@ -9,6 +9,7 @@ import { ServerManager } from "./serverManager.js";
 import { runManagedLifecycle } from "./managedContainer.js";
 import {
   acquireLifecycleLock,
+  holdServerUntilRcon,
   lifecycleInProgressResponse,
 } from "./lifecycleCoordinator.js";
 import { createBackupIfChanged } from "../utils/configBackup.js";
@@ -1984,6 +1985,9 @@ export class Scheduler {
     // active" when it starts, so switching servers mid-countdown would stop
     // one server and bring a different one up in its place.
 
+    // Set once the server is back up and only its RCON is awaited: from then
+    // on the restart holds its own server, not the whole panel.
+    let rconHold = null;
     try {
       // No fallback to checkServerRunning() when getServerProcessDetails
       // isn't available -- that call collapses a failed scan into a plain
@@ -2641,6 +2645,9 @@ export class Scheduler {
       // Wait for RCON to be ready (PZ server takes 60-180s to fully initialize)
       // Keep serverStarting=true the whole time to block auto-reconnect
       log.info("Auto-restart: Waiting for RCON to be ready...");
+      // The other servers can start and stop meanwhile; this one, and a
+      // second restart (one at a time, see restartInProgress), wait.
+      rconHold = holdServerUntilRcon(lifecycleLock);
       const rconDelays = [60000, 45000, 45000, 45000, 45000]; // 60s + 4x45s = 240s total (4 minutes)
       let rconConnected = false;
 
@@ -2824,6 +2831,7 @@ export class Scheduler {
       this.restartInProgress = false;
       this.activeRestart = null;
       lifecycleLock.release();
+      rconHold?.release();
     }
   }
 
