@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-23
+
 ### Fixed
 
 - **Release builds for a tag with no release yet:** the release workflow's check of an existing release read GitHub's 404 reply as the release's commit and failed, instead of going on to create the release.
