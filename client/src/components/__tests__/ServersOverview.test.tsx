@@ -2,15 +2,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ServersOverview } from '@/components/dashboard/ServersOverview'
-import { ApiError, serversApi, type ServerInstance } from '@/lib/api'
+import { ApiError, backupApi, serversApi, type ServerInstance } from '@/lib/api'
 
 // Every server on the Dashboard at once: state, players, auto-start and
 // restart-if-it-goes-down for each, and Start, Stop and Restart for the
 // servers other than the active one, without switching to them.
 
 let mockCanManage = true
-let mockCanRcon = true
 let mockCanControl = true
+let mockCanRcon = true
 type Handler = () => void
 let mockSocket: { on: (event: string, handler: Handler) => void; off: (event: string, handler: Handler) => void } | null = null
 const mockToast = vi.fn()
@@ -42,6 +42,12 @@ vi.mock('@/lib/api', async () => {
       start: vi.fn(),
       stop: vi.fn(),
       restart: vi.fn(),
+      getUpdates: vi.fn(),
+    },
+    backupApi: {
+      ...actual.backupApi,
+      getSummary: vi.fn(),
+      updateSettings: vi.fn(),
     },
   }
 })
@@ -53,6 +59,9 @@ const activate = vi.mocked(serversApi.activate)
 const startServer = vi.mocked(serversApi.start)
 const stopServer = vi.mocked(serversApi.stop)
 const restartServer = vi.mocked(serversApi.restart)
+const getUpdates = vi.mocked(serversApi.getUpdates)
+const getBackupSummary = vi.mocked(backupApi.getSummary)
+const updateBackupSettings = vi.mocked(backupApi.updateSettings)
 
 function server(id: string, name: string, extra: Partial<ServerInstance> = {}): ServerInstance {
   return {
@@ -69,7 +78,9 @@ const HOSTED = server('s3', 'Hosted', { isRemote: true, serverPort: 16300 })
 const ARENA = server('s4', 'Arena', { serverPort: 16265 })
 const MYSTERY = server('s5', 'Mystery', { serverPort: 16267 })
 
-function prime(servers: ServerInstance[]) {
+function prime(servers: ServerInstance[], extra: { hostMemoryBytes?: number; memory?: Record<string, number>; disk?: Record<string, object> } = {}) {
+  getUpdates.mockResolvedValue({ servers: [] } as never)
+  getBackupSummary.mockResolvedValue({ servers: [], schedule: { enabled: true, serverIds: null } } as never)
   getAll.mockResolvedValue({ servers } as never)
   getStatus.mockResolvedValue({
     servers: [
@@ -78,9 +89,14 @@ function prime(servers: ServerInstance[]) {
       { id: 's3', name: 'Hosted', running: false, pid: null, isActive: false, startedAt: null },
       { id: 's4', name: 'Arena', running: true, pid: '4', isActive: false, startedAt: null },
       { id: 's5', name: 'Mystery', running: false, pid: null, isActive: false, startedAt: null, stateUnknown: true },
-    ],
+    ].map((row) => ({
+      ...row,
+      ...(extra.memory?.[row.id] ? { memoryBytes: extra.memory[row.id] } : {}),
+      ...(extra.disk?.[row.id] ? { disk: extra.disk[row.id] } : {}),
+    })),
     detectedProcesses: 2,
     detectionError: null,
+    ...(extra.hostMemoryBytes ? { hostMemoryBytes: extra.hostMemoryBytes } : {}),
   } as never)
   getRconStatuses.mockResolvedValue({
     servers: [
@@ -119,8 +135,8 @@ afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   mockCanManage = true
-  mockCanRcon = true
   mockCanControl = true
+  mockCanRcon = true
   mockSocket = null
 })
 
@@ -132,21 +148,6 @@ describe('ServersOverview', () => {
     await waitFor(() => expect(getAll).toHaveBeenCalled())
     expect(screen.queryByText('Servers')).not.toBeInTheDocument()
     expect(onShownChange).not.toHaveBeenCalledWith(true)
-    // Nothing more is asked for until a second server appears.
-    expect(getStatus).not.toHaveBeenCalled()
-    expect(getRconStatuses).not.toHaveBeenCalled()
-  })
-
-  it('asks for player counts only for the roles the RCON probe lets in', async () => {
-    mockCanManage = false
-    mockCanRcon = false
-    prime([ALIVE, OUTBREAK])
-    renderOverview()
-
-    await screen.findByText('LNK-OUTBREAK')
-    await waitFor(() => expect(getStatus).toHaveBeenCalled())
-    expect(getRconStatuses).not.toHaveBeenCalled()
-    expect(within(rowOf('LNKAlive')).getByText("Players: unknown (RCON isn't answering)")).toBeInTheDocument()
   })
 
   it('lists every server with its state, players, port and auto-start', async () => {
@@ -301,17 +302,94 @@ describe('ServersOverview', () => {
     expect(startServer).not.toHaveBeenCalled()
   })
 
-  it('refreshes when the server watch reports a server starting or stopping', async () => {
+  it('refreshes the states when the server watch reports a server starting or stopping, and the rest on an update check', async () => {
     const handlers: Record<string, Handler> = {}
     mockSocket = { on: (event, handler) => { handlers[event] = handler }, off: vi.fn() }
     prime([ALIVE, OUTBREAK])
     renderOverview()
 
     await screen.findByText('LNK-OUTBREAK')
-    const pollsBefore = getAll.mock.calls.length
+    const statusBefore = getStatus.mock.calls.length
+    const listBefore = getAll.mock.calls.length
     act(() => handlers['servers:status']())
+    await waitFor(() => expect(getStatus.mock.calls.length).toBeGreaterThan(statusBefore))
+    // The server list changes rarely: a state change doesn't reload it.
+    expect(getAll.mock.calls.length).toBe(listBefore)
 
-    await waitFor(() => expect(getAll.mock.calls.length).toBeGreaterThan(pollsBefore))
+    const updatesBefore = getUpdates.mock.calls.length
+    act(() => handlers['servers:updates']())
+    await waitFor(() => expect(getUpdates.mock.calls.length).toBeGreaterThan(updatesBefore))
+  })
+
+  it('asks for player counts only for the roles the RCON probe lets in', async () => {
+    mockCanManage = false
+    mockCanRcon = false
+    prime([ALIVE, OUTBREAK])
+    renderOverview()
+
+    await screen.findByText('LNK-OUTBREAK')
+    await waitFor(() => expect(getStatus).toHaveBeenCalled())
+    expect(getRconStatuses).not.toHaveBeenCalled()
+    expect(within(rowOf('LNKAlive')).getByText("Players: unknown (RCON isn't answering)")).toBeInTheDocument()
+  })
+
+  it('shows each running server\'s memory, and the servers\' total against the machine', async () => {
+    prime([ALIVE, ARENA], { hostMemoryBytes: 16 * 1024 ** 3, memory: { s1: 3.4 * 1024 ** 3, s4: 2 * 1024 ** 3 } })
+    renderOverview()
+
+    await screen.findByText('Arena')
+    expect(within(rowOf('LNKAlive')).getByText('3.4 GB')).toBeInTheDocument()
+    expect(within(rowOf('Arena')).getByText('2.0 GB')).toBeInTheDocument()
+    expect(screen.getByText('RAM 5.4 / 16.0 GB')).toBeInTheDocument()
+  })
+
+  it('warns when the servers that start together are allowed more heap than the machine has, or share ports', async () => {
+    const big = server('b1', 'Big', { maxMemory: 12, serverPort: 16261 })
+    const bigger = server('b2', 'Bigger', { maxMemory: 12, serverPort: 16262 })
+    prime([big, bigger], { hostMemoryBytes: 16 * 1024 ** 3 })
+    renderOverview({ activeServerId: 'b1', autoStartSettings: { autoStartServer: true, autoStartServerIds: ['b1', 'b2'] } })
+
+    const note = await screen.findByRole('note')
+    expect(within(note).getByText(/can use up to 24 GB of heap together, more than the 16.0 GB/)).toBeInTheDocument()
+    expect(within(note).getByText(/Big \(port 16261\) and Bigger \(port 16262\)/)).toBeInTheDocument()
+  })
+
+  it('marks mods behind Steam, a game update and a filling disk', async () => {
+    prime([ALIVE, OUTBREAK], { disk: { s2: { usedPercent: 96.2, freeBytes: 1024 ** 3, warning: true, critical: true } } })
+    getUpdates.mockResolvedValue({
+      servers: [{
+        serverId: 's2',
+        mods: { outdated: [{ workshopId: '1', name: 'Brita', latestAt: '' }, { workshopId: '2', name: 'Arsenal', latestAt: '' }] },
+        game: { installedBuild: '10', latestBuild: '12', updateAvailable: true },
+      }],
+    } as never)
+    renderOverview()
+
+    const row = (await screen.findByText('Mods behind: 2')).closest('li') as HTMLElement
+    expect(within(row).getByText('Mods behind: 2')).toHaveAttribute('title', 'Brita, Arsenal')
+    expect(within(row).getByText('Game update')).toBeInTheDocument()
+    expect(within(row).getByText('Disk 96%')).toBeInTheDocument()
+  })
+
+  it('shows each server\'s last backup and chooses which ones the schedule backs up', async () => {
+    prime([ALIVE, OUTBREAK])
+    getBackupSummary.mockResolvedValue({
+      servers: [{ serverId: 's1', lastBackupAt: new Date(Date.now() - 2 * 3600_000).toISOString(), count: 3 }],
+      schedule: { enabled: true, serverIds: null },
+    } as never)
+    updateBackupSettings.mockResolvedValue({ success: true } as never)
+    renderOverview()
+
+    await screen.findByText('LNK-OUTBREAK')
+    await waitFor(() => expect(within(rowOf('LNKAlive')).getByText('Backup: 2h ago')).toBeInTheDocument())
+    expect(within(rowOf('LNK-OUTBREAK')).getByText('No backup yet')).toBeInTheDocument()
+    // No list chosen yet: the schedule backs up the active server alone.
+    expect(within(rowOf('LNKAlive')).getByRole('checkbox', { name: 'Scheduled backup' })).toBeChecked()
+    const other = within(rowOf('LNK-OUTBREAK')).getByRole('checkbox', { name: 'Scheduled backup' })
+    expect(other).not.toBeChecked()
+
+    fireEvent.click(other)
+    await waitFor(() => expect(updateBackupSettings).toHaveBeenCalledWith({ serverIds: ['s1', 's2'] }))
   })
 
   it('switches the Dashboard to another server, and offers it only with servers.manage', async () => {

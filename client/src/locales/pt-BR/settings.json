@@ -374,7 +374,14 @@
     "autoStartServersDesc": "Os servidores marcados iniciam um após o outro quando o painel inicia. Um servidor que já está em execução fica como está.",
     "autoStartActiveBadge": "Ativo",
     "autoStartNoServers": "Ainda não há servidor neste computador. Adicione um em Meus servidores.",
-    "autoStartNoneChosen": "Nenhum servidor está marcado, então nenhum vai iniciar."
+    "autoStartNoneChosen": "Nenhum servidor está marcado, então nenhum vai iniciar.",
+    "autoStartHeap": "Juntos, os servidores escolhidos podem usar até {{heap}} GB de heap; esta máquina tem {{host}} GB.",
+    "autoStartHeapOver": "Juntos, os servidores escolhidos podem usar até {{heap}} GB de heap, mais que os {{host}} GB desta máquina: diminua a memória máxima deles ou escolha menos servidores.",
+    "autoStartGamePortConflict": "{{first}} (porta {{firstPort}}) e {{second}} (porta {{secondPort}}) usam as mesmas portas de jogo: só um deles consegue rodar.",
+    "autoStartRconPortConflict": "{{first}} e {{second}} usam a mesma porta RCON {{port}}: só um deles consegue rodar.",
+    "autoStartDelayLabel": "Esperar entre servidores",
+    "autoStartDelayUnit": "segundos",
+    "autoStartDelayDesc": "Inicia os servidores escolhidos com esse intervalo, para os mundos não carregarem todos ao mesmo tempo. 0 inicia um logo após o outro."
   },
   "bridge": {
     "checksLabels": {
@@ -966,6 +973,7 @@
       "title": "Início automático atualizado",
       "description": "{{name}} não vai mais iniciar junto com o painel"
     },
+    "autoStartDelaySaved": { "title": "Espera entre servidores salva", "description": "{{seconds}} s entre o início de um servidor e o do próximo" },
     "autoStartSaveFailed": {
       "title": "Falha ao salvar a configuração de início automático",
       "fallback": "Não foi possível salvar a configuração de início automático. Tente novamente."

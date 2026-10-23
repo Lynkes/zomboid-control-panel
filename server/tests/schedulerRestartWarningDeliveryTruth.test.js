@@ -88,6 +88,8 @@ describe("performRestart(): a failed warning broadcast is not silently swallowed
         /Server restarted successfully.*1 restart warning broadcast\(s\) failed to send; players may not have been warned/,
       ),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 
@@ -113,6 +115,8 @@ describe("performRestart(): a failed warning broadcast is not silently swallowed
       true,
       expect.not.stringMatching(/warning broadcast/),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 });

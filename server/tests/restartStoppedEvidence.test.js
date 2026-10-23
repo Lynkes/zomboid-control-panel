@@ -155,6 +155,8 @@ describe("performRestart() when process detection never answers", () => {
       true,
       "Server was offline - started successfully",
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 });

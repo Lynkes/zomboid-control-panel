@@ -374,7 +374,14 @@
     "autoStartServersDesc": "Die markierten Server starten nacheinander, wenn das Panel startet. Ein Server, der bereits läuft, bleibt unberührt.",
     "autoStartActiveBadge": "Aktiv",
     "autoStartNoServers": "Noch kein Server auf diesem Computer. Füge einen unter Meine Server hinzu.",
-    "autoStartNoneChosen": "Kein Server ist markiert, daher startet keiner."
+    "autoStartNoneChosen": "Kein Server ist markiert, daher startet keiner.",
+    "autoStartHeap": "Zusammen dürfen die gewählten Server bis zu {{heap}} GB Heap belegen; dieser Rechner hat {{host}} GB.",
+    "autoStartHeapOver": "Zusammen dürfen die gewählten Server bis zu {{heap}} GB Heap belegen, mehr als die {{host}} GB dieses Rechners: Senke ihren maximalen Speicher oder wähle weniger Server.",
+    "autoStartGamePortConflict": "{{first}} (Port {{firstPort}}) und {{second}} (Port {{secondPort}}) nutzen dieselben Spielports: Nur einer von beiden kann laufen.",
+    "autoStartRconPortConflict": "{{first}} und {{second}} nutzen denselben RCON-Port {{port}}: Nur einer von beiden kann laufen.",
+    "autoStartDelayLabel": "Wartezeit zwischen Servern",
+    "autoStartDelayUnit": "Sekunden",
+    "autoStartDelayDesc": "Startet die gewählten Server in diesem Abstand, damit ihre Welten nicht alle gleichzeitig laden. 0 startet sie direkt nacheinander."
   },
   "bridge": {
     "checksLabels": {
@@ -949,6 +956,7 @@
     "autoStartDisabled": { "title": "Autostart deaktiviert", "description": "Server startet nicht automatisch" },
     "autoStartServerChosen": { "title": "Autostart aktualisiert", "description": "{{name}} startet, wenn das Panel startet" },
     "autoStartServerRemoved": { "title": "Autostart aktualisiert", "description": "{{name}} startet nicht mehr mit dem Panel" },
+    "autoStartDelaySaved": { "title": "Wartezeit zwischen Servern gespeichert", "description": "{{seconds}} s zwischen dem Start eines Servers und dem nächsten" },
     "autoStartSaveFailed": { "title": "Autostart-Einstellung konnte nicht gespeichert werden", "fallback": "Das Panel konnte die Autostart-Einstellung nicht speichern. Versuche es erneut." },
     "corsReloaded": {
       "title": "CORS-Regeln neu geladen",

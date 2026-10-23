@@ -374,7 +374,14 @@
     "autoStartServersDesc": "Los servidores marcados se inician uno tras otro cuando se inicia el panel. Un servidor que ya se está ejecutando no se toca.",
     "autoStartActiveBadge": "Activo",
     "autoStartNoServers": "Aún no hay ningún servidor en este equipo. Añade uno en Mis servidores.",
-    "autoStartNoneChosen": "No hay ningún servidor marcado, así que no se iniciará ninguno."
+    "autoStartNoneChosen": "No hay ningún servidor marcado, así que no se iniciará ninguno.",
+    "autoStartHeap": "Juntos, los servidores elegidos pueden usar hasta {{heap}} GB de heap; esta máquina tiene {{host}} GB.",
+    "autoStartHeapOver": "Juntos, los servidores elegidos pueden usar hasta {{heap}} GB de heap, más que los {{host}} GB de esta máquina: baja su memoria máxima o elige menos servidores.",
+    "autoStartGamePortConflict": "{{first}} (puerto {{firstPort}}) y {{second}} (puerto {{secondPort}}) usan los mismos puertos de juego: solo uno de ellos puede ejecutarse.",
+    "autoStartRconPortConflict": "{{first}} y {{second}} usan el mismo puerto RCON {{port}}: solo uno de ellos puede ejecutarse.",
+    "autoStartDelayLabel": "Esperar entre servidores",
+    "autoStartDelayUnit": "segundos",
+    "autoStartDelayDesc": "Inicia los servidores elegidos con este intervalo, para que sus mundos no carguen todos a la vez. 0 los inicia uno tras otro."
   },
   "bridge": {
     "checksLabels": {
@@ -951,6 +958,7 @@
     "autoStartDisabled": { "title": "Inicio automático desactivado", "description": "El servidor no se iniciará automáticamente" },
     "autoStartServerChosen": { "title": "Inicio automático actualizado", "description": "{{name}} se iniciará cuando se inicie el panel" },
     "autoStartServerRemoved": { "title": "Inicio automático actualizado", "description": "{{name}} ya no se iniciará con el panel" },
+    "autoStartDelaySaved": { "title": "Espera entre servidores guardada", "description": "{{seconds}} s entre el inicio de un servidor y el del siguiente" },
     "autoStartSaveFailed": { "title": "No se pudo guardar el ajuste de inicio automático", "fallback": "El panel no pudo guardar el ajuste de inicio automático. Inténtalo de nuevo." },
     "corsReloaded": {
       "title": "Reglas de CORS recargadas",

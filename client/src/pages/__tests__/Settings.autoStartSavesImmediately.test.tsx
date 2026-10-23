@@ -38,7 +38,7 @@ vi.mock('@/lib/api', async () => {
     },
     serverApi: { ...actual.serverApi, getNetworkInterfaces: vi.fn() },
     panelUpdateApi: { ...actual.panelUpdateApi, getStatus: vi.fn(), preflight: vi.fn() },
-    serversApi: { ...actual.serversApi, getAll: vi.fn() },
+    serversApi: { ...actual.serversApi, getAll: vi.fn(), getStatus: vi.fn() },
   }
 })
 
@@ -49,6 +49,7 @@ const getNetworkInterfaces = vi.mocked(serverApi.getNetworkInterfaces)
 const getUpdateStatus = vi.mocked(panelUpdateApi.getStatus)
 const preflight = vi.mocked(panelUpdateApi.preflight)
 const getAllServers = vi.mocked(serversApi.getAll)
+const getServerStatuses = vi.mocked(serversApi.getStatus)
 
 function primeCommonMocks() {
   getAppSettings.mockResolvedValue({
@@ -72,6 +73,7 @@ function primeCommonMocks() {
     info: { isPackaged: true, platform: 'win32', updateMode: 'direct', restartAssessment: { gameServers: 'preserved', requiresConfirmation: false }, temporaryDirectory: 'C:/tmp', applyLogPath: 'C:/tmp/log.txt' },
   } as never)
   getAllServers.mockResolvedValue({ servers: [] } as never)
+  getServerStatuses.mockResolvedValue({ servers: [], detectedProcesses: 0, detectionError: null } as never)
   getCorsDiagnostics.mockResolvedValue({ diagnostics: null } as never)
   getNetworkInterfaces.mockResolvedValue({ interfaces: [] } as never)
 }
@@ -190,6 +192,48 @@ describe('Settings.tsx: Connection tab lists the servers the switch starts', () 
   })
 })
 
+// What the chosen servers share while they run together, and the wait
+// between one launch and the next.
+describe('Settings.tsx: Connection tab weighs the chosen servers together', () => {
+  function server(id: string, name: string, extra: Record<string, unknown> = {}) {
+    return { id, name, serverName: name, isActive: false, isRemote: false, maxMemory: 12, serverPort: 16261, rconPort: 27015, ...extra }
+  }
+
+  function primeTogether(settings: Record<string, unknown>) {
+    primeCommonMocks()
+    getAppSettings.mockResolvedValue({
+      settings: { panelPort: 8080, httpsEnabled: false, httpsPort: 8443, corsAllowedOrigins: '', ...settings },
+    } as never)
+    getAllServers.mockResolvedValue({
+      servers: [
+        server('s1', 'Ashenwood', { isActive: true }),
+        server('s2', 'Riverside', { serverPort: 16262, rconPort: 27016 }),
+      ],
+    } as never)
+    getServerStatuses.mockResolvedValue({ servers: [], detectedProcesses: 0, detectionError: null, hostMemoryBytes: 16 * 1024 ** 3 } as never)
+  }
+
+  it('warns when their heap together is more than the machine has, and when their game ports overlap', async () => {
+    primeTogether({ autoStartServer: true, autoStartServerIds: ['s1', 's2'] })
+    renderSettings()
+
+    expect(await screen.findByText(/can use up to 24 GB of heap, more than the 16.0 GB/)).toBeInTheDocument()
+    expect(screen.getByText(/Ashenwood \(port 16261\) and Riverside \(port 16262\) use the same game ports/)).toBeInTheDocument()
+  })
+
+  it('saves the wait between servers on its own when the field is left', async () => {
+    primeTogether({ autoStartServer: true, autoStartServerIds: ['s1', 's2'], autoStartDelaySeconds: 0 })
+    updateAppSettings.mockResolvedValueOnce({} as never)
+    renderSettings()
+
+    const field = await screen.findByLabelText('Wait between servers')
+    fireEvent.change(field, { target: { value: '45' } })
+    fireEvent.blur(field)
+
+    await waitFor(() => expect(updateAppSettings).toHaveBeenCalledWith({ autoStartDelaySeconds: 45 }))
+  })
+})
+
 // With a single local server the switch alone says what starts, as it did
 // before servers could be chosen.
 describe('Settings.tsx: Connection tab with a single local server', () => {
@@ -212,6 +256,7 @@ describe('Settings.tsx: Connection tab with a single local server', () => {
 
     await screen.findByRole('switch', { name: /start game servers when the panel starts/i })
     expect(screen.queryByRole('checkbox', { name: /Solo/ })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Wait between servers')).not.toBeInTheDocument()
   })
 
   it('still shows the list when a saved one leaves that server out, which the switch alone would hide', async () => {
