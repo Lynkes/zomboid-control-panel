@@ -88,9 +88,15 @@ function createService() {
 // (extraction-time stream error vs. post-extraction CRC mismatch) is
 // deliberately NOT controlled here -- see forceCrcOnlyCorruption() below
 // for the version that pins the mechanism.
-function corruptOneByte(filePath) {
+async function corruptOneByte(filePath, entryName) {
+  const unzipper = await import("unzipper");
+  const archive = await unzipper.Open.file(filePath);
+  const entry = archive.files.find((f) => f.path.endsWith(entryName));
   const buf = fs.readFileSync(filePath);
-  const at = Math.floor(buf.length * 0.6);
+  const localOffset = entry.offsetToLocalFileHeader;
+  const dataStart =
+    localOffset + 30 + buf.readUInt16LE(localOffset + 26) + buf.readUInt16LE(localOffset + 28);
+  const at = dataStart + Math.floor(entry.compressedSize / 2);
   buf[at] = buf[at] ^ 0xff;
   fs.writeFileSync(filePath, buf);
 }
@@ -224,7 +230,7 @@ describe("restoreBackup() verifies extracted file integrity before swapping in t
     expect(createResult.success).toBe(true);
     const zipPath = path.join(backupsPath, createResult.backup.name);
 
-    corruptOneByte(zipPath);
+    await corruptOneByte(zipPath, "map_meta.bin");
 
     const beforeRestore = fs.readFileSync(path.join(savesPath, "map_meta.bin"));
 

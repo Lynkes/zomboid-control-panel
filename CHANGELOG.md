@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Release builds for a tag with no release yet:** the release workflow's check of an existing release read GitHub's 404 reply as the release's commit and failed, instead of going on to create the release.
 - **Players: one request per list switch:** a click on the Banned or Whitelist tab read that list twice, because the tab switches on focus and again on mousedown. It reads it once now, and the whitelist race test runs on CI again.
+- **Scheduled backups of a world with hundreds of thousands of files no longer run the panel out of memory (#259):** the backup zip kept an object in memory for every file until it was finished, so a 3.6 GB world of ~870,000 files reached Node's 4 GB limit, crashed the panel and, in the all-in-one image, the game server with it. The zip's file index is now written to disk as the backup runs, so memory stays flat however many files the world has.
+
 ### Added
 
 - **Automatic minimum memory:** a server's minimum memory can be 0, which starts it without `-Xms`; the JVM starts small and gives back memory it isn't using, where it never goes below a set minimum. A 0 saved before was read as 4 GB.
-### Added
-
 - **Choose which servers start with the panel:** Settings › Connection lists each local server under the auto-start switch, and the Dashboard's checkbox adds or removes the active one. It used to start only whichever server was active; a setting saved before keeps doing that until you choose. With a single local server the switch stands alone, as before.
 - **Every server on the Dashboard:** with two servers or more, installed or linked, a Servers list shows each one's state, uptime, players and game port, with its auto-start checkbox and a button to show it on the Dashboard, without switching first. It scrolls when there are many, the active server first. The sidebar's server switcher marks which local servers are running.
 - **Start, stop and restart any server from the Dashboard's list:** the servers other than the active one get Start, or Stop and Restart, in their row, with the Dashboard's own rules: the world is saved before a stop, a stop that never finishes is forced after a minute, and a restart warns players 5 minutes ahead. The active server keeps its own controls. My Servers' Start and Stop reach another local server the same way, without making it the active one.
