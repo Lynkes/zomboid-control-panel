@@ -1016,8 +1016,13 @@ router.get("/status", async (req, res) => {
 // stored password to that server's RCON host, so only the roles that work
 // with RCON or the server list may start it: servers.manage or rcon.execute.
 // The Servers page shows the RCON badge to those roles only.
+// `?players=1` also counts who is on each one that answers (the Dashboard's
+// overview of every server, which the panel's single RCON connection to the
+// active server can't give): `players` is a number, or null when unknown.
+// Other roles see the overview's player counts as unknown.
 router.get("/rcon-status", requireAnyPermission("servers.manage", "rcon.execute"), async (req, res) => {
   try {
+    const countPlayers = req.query?.players === "1";
     const servers = await getServers();
     const statuses = await mapWithConcurrency(servers, 3, async (server) => {
       const rconHost =
@@ -1037,10 +1042,12 @@ router.get("/rcon-status", requireAnyPermission("servers.manage", "rcon.execute"
         port: rconPort,
         password: server.rconPassword || "",
         timeoutMs: 3000,
+        countPlayers,
       });
       return {
         id: server.id,
         status: result.success ? "connected" : result.error || "unavailable",
+        ...(countPlayers ? { players: result.success ? (result.players ?? null) : null } : {}),
       };
     });
     res.json({ servers: statuses });
