@@ -34,6 +34,8 @@ import { Label } from '@/components/ui/label'
 import { useToast } from '@/components/ui/use-toast'
 import { reportClientError, reportClientWarning } from '@/lib/client-errors'
 import { getResultErrorMessage, getUserErrorMessage } from '@/lib/errorMessage'
+import { lifecycleBusyFromError, lifecycleBusyReason } from '@/lib/lifecycleBusy'
+import { useLifecycleState } from '@/hooks/useLifecycleState'
 import { useDateFormat } from '@/lib/dateFormat'
 import { useSteamBranches } from '@/hooks/useSteamBranches'
 import { resolveRegisteredTranslation } from '@/lib/paramTranslation'
@@ -360,6 +362,9 @@ export default function Servers() {
   // execution today (activate succeeds and the server record changes state,
   // then start/stop 403s), not a clean refusal. Gate on both present.
   const canInlineStartStop = canServersManage && canServerControl
+  // Why a card's Start or Stop is unavailable while another lifecycle
+  // operation runs, or while that server waits for its RCON.
+  const lifecycleState = useLifecycleState()
   // null = we don't yet know (still loading, or the last fetch failed) --
   // distinct from [] (fetch succeeded and confirmed there really are zero
   // servers). See fetchServers() below: on failure `servers` is deliberately
@@ -1307,13 +1312,17 @@ export default function Servers() {
     if (!canInlineStartStop) return
     setServerActionPending(`start-${server.id}`)
     try {
-      if (!server.isActive) {
-        await serversApi.activate(server.id)
-      }
-      // /server/start always responds non-2xx on failure, so
+      // Another local server starts where it stands (POST
+      // /servers/:id/start): switching the active server to start it moved
+      // the rest of the panel away from the server the operator was on.
+      // /server/start and /servers/:id/start respond non-2xx on failure, so
       // handleResponse() throws into the catch below -- this never sees
       // result.success === false.
-      await serverApi.start()
+      if (!server.isActive && !server.isRemote) {
+        await serversApi.start(server.id)
+      } else {
+        await serverApi.start()
+      }
       const confirmed = await waitForActionState(server.id, true)
       // Refreshed before the toast, as on the Dashboard: the refetch runs a
       // fresh process scan (~1.5s on Windows), and toasting first said
@@ -1326,11 +1335,15 @@ export default function Servers() {
         variant: confirmed ? 'success' as const : 'default',
       })
     } catch (error) {
-      toast({
-        title: t('toasts.startFailedTitle'),
-        description: getUserErrorMessage(error, t('toasts.unknownError')),
-        variant: 'destructive',
-      })
+      // Refused by the lifecycle lock: not a failure, said with what holds it.
+      const busy = lifecycleBusyFromError(error)
+      toast(busy
+        ? { title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy }
+        : {
+            title: t('toasts.startFailedTitle'),
+            description: getUserErrorMessage(error, t('toasts.unknownError')),
+            variant: 'destructive',
+          })
       // bug-hunt-2026-09-08 (start/stop reconcile audit): a client-side
       // error here (network drop, a real 4xx/5xx) does NOT mean the
       // server's actual running state matches what's still on screen --
@@ -1365,13 +1378,19 @@ export default function Servers() {
     if (!ok) return
     setServerActionPending(`stop-${server.id}`)
     try {
-      if (!server.isActive) {
-        await serversApi.activate(server.id)
+      // Same shape as handleInlineStart above: another local server stops
+      // where it stands, and both routes' failures throw via
+      // handleResponse(), so this never sees result.success === false. A
+      // remote server is stopped over RCON, which the panel holds for the
+      // active server only.
+      if (!server.isActive && !server.isRemote) {
+        await serversApi.stop(server.id)
+      } else {
+        if (!server.isActive) {
+          await serversApi.activate(server.id)
+        }
+        await serverApi.stop()
       }
-      // Same shape as handleInlineStart above: /server/stop's failures all
-      // throw via handleResponse(), so this never sees
-      // result.success === false.
-      await serverApi.stop()
       const confirmed = await waitForActionState(server.id, false)
       // Refreshed before the toast -- see handleInlineStart above.
       await refreshAfterInlineAction(server)
@@ -1381,11 +1400,14 @@ export default function Servers() {
         variant: confirmed ? 'success' as const : 'default',
       })
     } catch (error) {
-      toast({
-        title: t('toasts.stopFailedTitle'),
-        description: getUserErrorMessage(error, t('toasts.unknownError')),
-        variant: 'destructive',
-      })
+      const busy = lifecycleBusyFromError(error)
+      toast(busy
+        ? { title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy }
+        : {
+            title: t('toasts.stopFailedTitle'),
+            description: getUserErrorMessage(error, t('toasts.unknownError')),
+            variant: 'destructive',
+          })
       // bug-hunt-2026-09-08 (start/stop reconcile audit): same reasoning as
       // handleInlineStart's catch above -- refetch immediately rather than
       // leave stale (possibly wrong) state on screen right when the
@@ -2483,12 +2505,12 @@ export default function Servers() {
                     )
                   }
                   return isRunning ? (
-                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : lifecycleBusyReason(lifecycleState, server.id, 'stop')}>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleInlineStop(server)}
-                        disabled={stopPending || serverActionPending !== null || !canInlineStartStop}
+                        disabled={stopPending || serverActionPending !== null || !canInlineStartStop || lifecycleBusyReason(lifecycleState, server.id, 'stop') !== null}
                         // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
                         title={t('card.stopThisServer')}
                       >
@@ -2500,14 +2522,14 @@ export default function Servers() {
                       </Button>
                     </DisabledReason>
                   ) : (
-                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : null}>
+                    <DisabledReason reason={!canInlineStartStop ? t('card.noPermissionStartStop') : lifecycleBusyReason(lifecycleState, server.id, 'start')}>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => handleInlineStart(server)}
-                        disabled={startPending || serverActionPending !== null || !canInlineStartStop}
-                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint (which of two enabled-state labels applies); the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
-                        title={server.isActive ? t('card.startThisServer') : t('card.switchAndStart')}
+                        disabled={startPending || serverActionPending !== null || !canInlineStartStop || lifecycleBusyReason(lifecycleState, server.id, 'start') !== null}
+                        // eslint-disable-next-line local/no-dead-disabled-title -- pure hint; the disabled-reason is already covered by the wrapping <DisabledReason> above. Triaged 2026-08-27.
+                        title={t('card.startThisServer')}
                       >
                         {startPending ? (
                           <><Loader2 className="animate-spin" aria-hidden="true" /> {t('card.starting')}</>

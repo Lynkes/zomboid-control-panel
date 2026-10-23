@@ -57,6 +57,7 @@ import OidcSettings from "@/pages/OidcSettings";
 import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/NumberInput";
 import { Label } from "@/components/ui/label";
 import { HelpTip } from "@/components/HelpTip";
 import { AutoUpdateResultBanner } from "@/components/AutoUpdateResultBanner";
@@ -109,6 +110,8 @@ import { classifyPanelUpdateFailure } from "@/lib/panelUpdateFailure";
 import { readRunningPanelPort, resolveRestartOrigin } from "@/lib/panelRestartTarget";
 import { extractSaveWarnings } from "@/lib/saveWarnings";
 import { resolveRegisteredTranslation } from "@/lib/paramTranslation";
+import { autoStartServerIds, withAutoStartServer } from "@/lib/autoStartServers";
+import { BYTES_PER_GB, heapOfServers, portConflicts } from "@/lib/serversTogether";
 import {
   getAllowOutOfRangeSandboxValues,
   setAllowOutOfRangeSandboxValues,
@@ -663,6 +666,21 @@ export default function Settings() {
 
   // Server list for install dropdown
   const [servers, setServers] = useState<ServerInstance[]>([]);
+  // The stored autoStartServerIds, as loaded (no list at all for a setting
+  // saved before servers could be chosen -- see lib/autoStartServers.ts).
+  // Kept out of `settings`: each checkbox saves it on its own, and the
+  // General tab's Save, which resends `settings` whole, must not put back a
+  // list changed elsewhere since this page loaded (the Dashboard's checkbox).
+  const [storedAutoStartServerIds, setStoredAutoStartServerIds] =
+    useState<unknown>(undefined);
+  // The wait between two auto-started servers' launches, saved on its own
+  // like the list above (and kept out of `settings` for the same reason).
+  // `autoStartDelayDraft` is what the field shows while it is being typed.
+  const [storedAutoStartDelay, setStoredAutoStartDelay] = useState(0);
+  const [autoStartDelayDraft, setAutoStartDelayDraft] = useState(0);
+  // What this host can give the servers (GET /servers/status), to weigh the
+  // chosen servers' heap against.
+  const [hostMemoryBytes, setHostMemoryBytes] = useState<number | null>(null);
   const [serversLoadError, setServersLoadError] = useState(false);
   const [selectedInstallServerId, setSelectedInstallServerId] =
     useState<string>("");
@@ -783,9 +801,25 @@ export default function Settings() {
       const data = await configApi.getAppSettings();
       setSettingsLoadError(null);
       if (data.settings) {
+        // restartOnCrashServerIds is the Dashboard's alone, and stays out of
+        // `settings` for the same reason (Save would put back a stale list).
+        const {
+          autoStartServerIds: loadedAutoStartServerIds,
+          restartOnCrashServerIds: _restartOnCrashServerIds,
+          autoStartDelaySeconds: loadedAutoStartDelay,
+          ...incoming
+        } = data.settings as Partial<AppSettings> & {
+          autoStartServerIds?: unknown;
+          restartOnCrashServerIds?: unknown;
+          autoStartDelaySeconds?: unknown;
+        };
+        setStoredAutoStartServerIds(loadedAutoStartServerIds);
+        const delay = Number(loadedAutoStartDelay);
+        const savedDelay = Number.isInteger(delay) && delay >= 0 && delay <= 600 ? delay : 0;
+        setStoredAutoStartDelay(savedDelay);
+        setAutoStartDelayDraft(savedDelay);
         // Use functional update to get current state and merge with loaded settings
         setSettings((prevSettings) => {
-          const incoming = data.settings as Partial<AppSettings>;
           const loadedSettings: AppSettings = {
             ...prevSettings,
             ...incoming,
@@ -2294,6 +2328,111 @@ export default function Settings() {
       setOriginalSettings((prev) =>
         prev ? { ...prev, autoStartServer: previous } : prev,
       );
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Which servers the switch above starts, one checkbox each, saved the
+  // same way: at once, on its own. Remote servers aren't listed -- their
+  // host starts them.
+  const activeServerIdForAutoStart =
+    servers.find((server) => server.isActive)?.id ?? servers[0]?.id ?? null;
+  const chosenAutoStartServerIds = autoStartServerIds(
+    {
+      autoStartServer: settings.autoStartServer,
+      autoStartServerIds: storedAutoStartServerIds,
+    },
+    activeServerIdForAutoStart,
+  );
+  const autoStartCandidates = servers.filter((server) => !server.isRemote);
+  const chosenAutoStartServers = autoStartCandidates.filter((server) =>
+    chosenAutoStartServerIds.includes(String(server.id)),
+  );
+  const chosenAutoStartHeapGb = heapOfServers(chosenAutoStartServers);
+  const hostMemoryGb = hostMemoryBytes ? hostMemoryBytes / BYTES_PER_GB : null;
+  const chosenAutoStartConflicts = portConflicts(chosenAutoStartServers);
+  const severalAutoStartCandidates = autoStartCandidates.length > 1;
+  // With one local server the switch says it all, as before servers could be
+  // chosen -- unless a saved list leaves that server out, which the switch
+  // alone would hide.
+  const showAutoStartList =
+    autoStartCandidates.length !== 1 ||
+    (Array.isArray(storedAutoStartServerIds) &&
+      !chosenAutoStartServerIds.includes(String(autoStartCandidates[0].id)));
+  useEffect(() => {
+    if (!severalAutoStartCandidates) return;
+    let cancelled = false;
+    serversApi
+      .getStatus()
+      .then((data) => {
+        if (!cancelled && typeof data?.hostMemoryBytes === "number") {
+          setHostMemoryBytes(data.hostMemoryBytes);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [severalAutoStartCandidates]);
+  const handleAutoStartDelayCommit = async (value: number) => {
+    const seconds = Math.min(600, Math.max(0, Math.round(Number(value) || 0)));
+    setAutoStartDelayDraft(seconds);
+    if (!canSavePanelSettings || seconds === storedAutoStartDelay) return;
+    const previous = storedAutoStartDelay;
+    setStoredAutoStartDelay(seconds);
+    try {
+      await configApi.updateAppSettings({ autoStartDelaySeconds: seconds });
+      toast({
+        title: t("toasts.autoStartDelaySaved.title"),
+        description: t("toasts.autoStartDelaySaved.description", { seconds }),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setStoredAutoStartDelay(previous);
+      setAutoStartDelayDraft(previous);
+      toast({
+        title: t("toasts.autoStartSaveFailed.title"),
+        description: getUserErrorMessage(
+          error,
+          t("toasts.autoStartSaveFailed.fallback"),
+        ),
+        variant: "destructive",
+      });
+    }
+  };
+  const handleAutoStartServerToggle = async (
+    server: ServerInstance,
+    chosen: boolean,
+  ) => {
+    if (!canSavePanelSettings) return;
+    const previous = storedAutoStartServerIds;
+    const next = withAutoStartServer(chosenAutoStartServerIds, server.id, chosen);
+    setStoredAutoStartServerIds(next);
+    try {
+      await configApi.updateAppSettings({ autoStartServerIds: next });
+      toast({
+        title: t(
+          chosen
+            ? "toasts.autoStartServerChosen.title"
+            : "toasts.autoStartServerRemoved.title",
+        ),
+        description: t(
+          chosen
+            ? "toasts.autoStartServerChosen.description"
+            : "toasts.autoStartServerRemoved.description",
+          { name: server.name || server.serverName },
+        ),
+        variant: "success" as const,
+      });
+    } catch (error) {
+      setStoredAutoStartServerIds(previous);
       toast({
         title: t("toasts.autoStartSaveFailed.title"),
         description: getUserErrorMessage(
@@ -4236,6 +4375,137 @@ export default function Settings() {
                     />
                   </DisabledReason>
                 </div>
+                {showAutoStartList && (
+                <div
+                  className={cn(
+                    "mt-4 space-y-2",
+                    !settings.autoStartServer && "opacity-60",
+                  )}
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">
+                      {t("connection.autoStartServersLabel")}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {t("connection.autoStartServersDesc")}
+                    </p>
+                  </div>
+                  {autoStartCandidates.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t("connection.autoStartNoServers")}
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border/60 rounded-lg border border-border/60">
+                      {autoStartCandidates.map((server) => {
+                        const checkboxId = `auto-start-server-${server.id}`;
+                        return (
+                          <li key={server.id} className="flex items-center gap-3 px-3 py-2">
+                            <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                              <Checkbox
+                                id={checkboxId}
+                                checked={chosenAutoStartServerIds.includes(String(server.id))}
+                                disabled={!canSavePanelSettings || !settings.autoStartServer}
+                                onCheckedChange={(checked) =>
+                                  handleAutoStartServerToggle(server, checked === true)
+                                }
+                              />
+                            </DisabledReason>
+                            <Label
+                              htmlFor={checkboxId}
+                              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm"
+                            >
+                              <span className="truncate">{server.name || server.serverName}</span>
+                              {server.isActive && (
+                                <span className="inline-flex shrink-0 items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                  {t("connection.autoStartActiveBadge")}
+                                </span>
+                              )}
+                            </Label>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {settings.autoStartServer &&
+                    autoStartCandidates.length > 0 &&
+                    !autoStartCandidates.some((server) =>
+                      chosenAutoStartServerIds.includes(String(server.id)),
+                    ) && (
+                      <p className="text-xs text-warning">
+                        {t("connection.autoStartNoneChosen")}
+                      </p>
+                    )}
+                  {/* What the chosen servers share while they run together:
+                      the machine's memory and its ports. */}
+                  {settings.autoStartServer &&
+                    chosenAutoStartServers.length > 1 &&
+                    hostMemoryGb !== null && (
+                      <p
+                        className={cn(
+                          "text-xs",
+                          chosenAutoStartHeapGb > hostMemoryGb
+                            ? "text-warning"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {t(
+                          chosenAutoStartHeapGb > hostMemoryGb
+                            ? "connection.autoStartHeapOver"
+                            : "connection.autoStartHeap",
+                          { heap: chosenAutoStartHeapGb, host: hostMemoryGb.toFixed(1) },
+                        )}
+                      </p>
+                    )}
+                  {settings.autoStartServer &&
+                    chosenAutoStartConflicts.map((conflict) => (
+                      <p
+                        key={`${conflict.kind}-${conflict.first.id}-${conflict.second.id}`}
+                        className="text-xs text-warning"
+                      >
+                        {conflict.kind === "game"
+                          ? t("connection.autoStartGamePortConflict", {
+                              first: conflict.first.name || conflict.first.serverName,
+                              second: conflict.second.name || conflict.second.serverName,
+                              firstPort: conflict.first.serverPort,
+                              secondPort: conflict.second.serverPort,
+                            })
+                          : t("connection.autoStartRconPortConflict", {
+                              first: conflict.first.name || conflict.first.serverName,
+                              second: conflict.second.name || conflict.second.serverName,
+                              port: conflict.first.rconPort,
+                            })}
+                      </p>
+                    ))}
+                  {severalAutoStartCandidates && (
+                    <div className="space-y-1 pt-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Label htmlFor="auto-start-delay" className="text-sm font-medium">
+                          {t("connection.autoStartDelayLabel")}
+                        </Label>
+                        <DisabledReason reason={!canSavePanelSettings ? t("permissions.noPanelSettings") : null}>
+                          <NumberInput
+                            id="auto-start-delay"
+                            className="h-8 w-24"
+                            value={autoStartDelayDraft}
+                            min={0}
+                            max={600}
+                            clamp={(value) => Math.min(600, Math.max(0, value))}
+                            onChange={setAutoStartDelayDraft}
+                            onBlur={() => handleAutoStartDelayCommit(autoStartDelayDraft)}
+                            disabled={!canSavePanelSettings || !settings.autoStartServer}
+                          />
+                        </DisabledReason>
+                        <span className="text-xs text-muted-foreground">
+                          {t("connection.autoStartDelayUnit")}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {t("connection.autoStartDelayDesc")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                )}
             </SectionCard>
           </TabsContent>
 

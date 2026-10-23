@@ -165,6 +165,8 @@ describe("Scheduler: the auto-restart cron tick's own refusal is recorded, not s
       false,
       expect.any(String),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 });

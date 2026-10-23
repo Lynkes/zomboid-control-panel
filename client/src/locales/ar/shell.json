@@ -225,5 +225,6 @@
   },
   "pageHeader": {
     "breadcrumb": "مسار التنقل"
-  }
+  },
+  "lifecycleBusy": { "title": "انتظر لحظة", "waitingForRcon": "{{server}} قيد التشغيل: بانتظار استجابة RCON.", "withServer": "{{operation}} لـ {{server}} قيد التنفيذ.", "noServer": "{{operation}} قيد التنفيذ.", "operations": {"start":"التشغيل","stop":"الإيقاف","forceStop":"الإيقاف القسري","restart":"إعادة التشغيل","update":"التحديث","restore":"استعادة النسخة الاحتياطية","wipe":"المسح","delete":"حذف الملفات","template":"تطبيق القالب","profile":"تغيير الخادم","autoStart":"التشغيل التلقائي","bridge":"تبديل طريقة تسليم PanelBridge","docker":"إجراء Docker","other":"عملية خادم أخرى"} }
 }

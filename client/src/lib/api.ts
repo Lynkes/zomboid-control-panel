@@ -2815,10 +2815,51 @@ type ServerStatusRow = {
   // When this row's process started (ISO string, in this browser's clock
   // -- see getStatus() below); null when stopped or unknown.
   startedAt?: string | null;
+  // A running server's resident memory, in bytes, when it could be read.
+  memoryBytes?: number;
+  // Its data folder's disk, from the disk monitor's last check.
+  disk?: { usedPercent: number; freeBytes: number; warning: boolean; critical: boolean };
 };
+
+// A server other than the active one, as GET /servers/updates last found it.
+export type OtherServerUpdate = {
+  serverId: string;
+  mods?: {
+    outdated: Array<{ workshopId: string; name: string; latestAt: string }>;
+    error?: string;
+    checkedAt?: string;
+  };
+  game?: {
+    installedBuild?: string;
+    latestBuild?: string;
+    branch?: string;
+    updateAvailable?: boolean;
+    error?: string;
+    checkedAt?: string;
+  };
+};
+
+// Who holds the lifecycle lock (one start/stop/restart/update... at a time
+// panel-wide), and which servers are only waiting for their RCON after a
+// start -- those block just themselves. GET /servers/lifecycle and the
+// lifecycle:state socket event; also `holder` on a SERVER_LIFECYCLE_IN_PROGRESS 409.
+export interface LifecycleHolder {
+  operation: string;
+  serverId: string | null;
+  serverName: string | null;
+  phase: "waiting-for-rcon" | null;
+  since: number | null;
+}
+
+export interface LifecycleState {
+  lock: LifecycleHolder | null;
+  servers: LifecycleHolder[];
+}
 
 // Servers API (multi-server management)
 export const serversApi = {
+  // No retries: the socket's lifecycle:state keeps it current anyway.
+  getLifecycle: () => apiGet("/servers/lifecycle", undefined, 0) as Promise<LifecycleState>,
   getAll: (options?: { retries?: number }) =>
     apiGet("/servers", undefined, options?.retries) as Promise<{
       servers: ServerInstance[];
@@ -2855,6 +2896,8 @@ export const serversApi = {
       detectedProcesses: number;
       detectionError: string | null;
       serverTime?: number;
+      // What this host (or its container) can give the servers, in bytes.
+      hostMemoryBytes?: number;
     }>).then((data) =>
       Array.isArray(data?.servers)
         ? {
@@ -2865,9 +2908,18 @@ export const serversApi = {
           }
         : data,
     ),
-  getRconStatuses: () =>
-    apiGet("/servers/rcon-status") as Promise<{
-      servers: Array<{ id: string; status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable" }>;
+  // Mods behind Steam and game builds of the servers other than the active
+  // one, as of the server's last check.
+  getUpdates: () =>
+    apiGet("/servers/updates") as Promise<{ servers: OtherServerUpdate[] }>,
+  // `players: true` also counts who is on each server that answers.
+  getRconStatuses: (options?: { players?: boolean }) =>
+    apiGet(options?.players ? "/servers/rcon-status?players=1" : "/servers/rcon-status") as Promise<{
+      servers: Array<{
+        id: string;
+        status: "connected" | "unreachable" | "auth_failed" | "unconfigured" | "unavailable";
+        players?: number | null;
+      }>;
     }>,
   get: (id: string | number) =>
     apiGet(`/servers/${id}`) as Promise<{ server: ServerInstance }>,
@@ -2927,6 +2979,26 @@ export const serversApi = {
     apiPost(`/servers/${id}/activate`) as Promise<{
       server: ServerInstance;
       message: string;
+    }>,
+  // A server other than the active one, from the Dashboard's list of servers
+  // (the active one's are serverApi.start/stop/restart).
+  start: (id: string | number) =>
+    apiPost(`/servers/${id}/start`) as Promise<{
+      success: boolean;
+      alreadyRunning?: boolean;
+      message?: string;
+    }>,
+  stop: (id: string | number) =>
+    apiPost(`/servers/${id}/stop`) as Promise<{
+      success: boolean;
+      alreadyStopped?: boolean;
+      confirmed?: boolean;
+      message?: string;
+    }>,
+  restart: (id: string | number, warningMinutes?: number) =>
+    apiPost(`/servers/${id}/restart`, { warningMinutes }) as Promise<{
+      success: boolean;
+      message?: string;
     }>,
   steamUpdate: (
     steamcmdPath: string,
@@ -4379,6 +4451,8 @@ export interface BackupSettings {
   schedule: string;
   maxBackups: number;
   includeDb: boolean;
+  // The servers the schedule backs up; null: the active server alone.
+  serverIds?: string[] | null;
 }
 
 // A restore as backupService.restoreBackup() records it (GH#166). `id` is
@@ -4521,6 +4595,11 @@ export interface BackupContentsInfo {
 export const backupApi = {
   // Get backup status and settings
   getStatus: (): Promise<BackupStatus> => apiGet("/backup/status"),
+  // Each server's newest backup and count, and whom the schedule covers.
+  getSummary: (): Promise<{
+    servers: Array<{ serverId: string; lastBackupAt: string | null; count: number }>;
+    schedule: { enabled: boolean; serverIds: string[] | null };
+  }> => apiGet("/backup/summary"),
 
   // Get info about what backups contain
   getInfo: (): Promise<BackupContentsInfo> => apiGet("/backup/info"),

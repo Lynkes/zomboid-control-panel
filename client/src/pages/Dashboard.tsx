@@ -32,6 +32,8 @@ import { scheduledAttemptMessage, scheduledBackupHealth } from '@/lib/scheduledB
 import { useRuntimeInfo } from '@/hooks/useRuntimeInfo'
 import { useRequestGuard } from '@/hooks/useRequestGuard'
 import { isStatusEventForServer, resolveClientProvider, deriveDashboardStatus, waitForServerState } from '@/lib/serverStatus'
+import { autoStartEnabled, autoStartServerIds, restartOnCrashServerIds, withAutoStartServer, type AutoStartSettings } from '@/lib/autoStartServers'
+import { ServersOverview } from '@/components/dashboard/ServersOverview'
 import { ServerUptime } from '@/components/ServerUptime'
 import { useSocket } from '@/contexts/SocketContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -44,6 +46,8 @@ import { DisabledReason } from '@/components/DisabledReason'
 import { AutoUpdateResultBanner } from '@/components/AutoUpdateResultBanner'
 import { cn, copyText } from '@/lib/utils'
 import { getResultErrorMessage, getUserErrorMessage, getRecoveryUrl } from '@/lib/errorMessage'
+import { lifecycleBusyFromError, lifecycleBusyReason } from '@/lib/lifecycleBusy'
+import { useLifecycleState } from '@/hooks/useLifecycleState'
 import { formatTime } from '@/lib/dateFormat'
 import { VerdictBand, WorkList } from '@/components/dashboard/DashboardVerdict'
 import type { Verdict, WorkItem } from '@/components/dashboard/DashboardVerdict'
@@ -296,7 +300,10 @@ export default function Dashboard() {
   const [fetchError, setFetchError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [, setTick] = useState(0)
-  const [autoStartServer, setAutoStartServer] = useState<boolean>(false)
+  const [autoStartSettings, setAutoStartSettings] = useState<AutoStartSettings>({})
+  // With two servers or more, the servers overview holds every auto-start
+  // checkbox, the active server's included, so Maintenance drops its own.
+  const [serversOverviewShown, setServersOverviewShown] = useState(false)
   const [panelInfo, setPanelInfo] = useState<{ localIp: string; port: number; url: string } | null>(null)
   const [activeServer, setActiveServer] = useState<ServerInstance | null>(null)
   // Critical problems in the active server's mod list (GET /mods/health),
@@ -405,6 +412,14 @@ export default function Dashboard() {
   // the Wipe control. can() fails open on unknown/null capabilities, same
   // convention as every other capability check in the app.
   const canControlServer = can('server.control')
+  // Why Start/Stop/Restart are unavailable while another lifecycle operation
+  // runs, or while this server waits for its RCON: said on the control
+  // instead of a click into a SERVER_LIFECYCLE_IN_PROGRESS error.
+  const lifecycleState = useLifecycleState()
+  const busyStart = lifecycleBusyReason(lifecycleState, activeServer?.id, 'start')
+  const busyStop = lifecycleBusyReason(lifecycleState, activeServer?.id, 'stop')
+  const busyForceStop = lifecycleBusyReason(lifecycleState, activeServer?.id, 'forceStop')
+  const busyRestart = lifecycleBusyReason(lifecycleState, activeServer?.id, 'restart')
   // POST /rcon/connect needs rcon.execute: without it Connect RCON is not offered.
   const canExecuteRcon = can('rcon.execute')
   const canWipeServer = can('server.wipe')
@@ -623,8 +638,12 @@ export default function Dashboard() {
   const fetchAutoStartSetting = useCallback(async () => {
     try {
       const r = await configApi.getAppSettings()
-      if (r?.settings?.autoStartServer !== undefined) {
-        setAutoStartServer(r.settings.autoStartServer === true || r.settings.autoStartServer === 'true')
+      if (r?.settings) {
+        setAutoStartSettings({
+          autoStartServer: r.settings.autoStartServer,
+          autoStartServerIds: r.settings.autoStartServerIds,
+          restartOnCrashServerIds: r.settings.restartOnCrashServerIds,
+        })
       }
     } catch {
       // Ignore settings fetch failures and keep the current fallback value.
@@ -671,18 +690,64 @@ export default function Dashboard() {
     }))
   }, [])
 
-  const handleAutoStartChange = async (checked: boolean) => {
+  // The checkbox is the active server's place in the list of servers the
+  // panel starts (Settings › Connection lists them all); it used to be the
+  // switch itself, which only ever started whichever server was active.
+  // Checking it also turns the switch on. Unchecking takes this server out
+  // and leaves the switch, and any other chosen server, alone.
+  const activeServerId = activeServer ? String(activeServer.id) : null
+  const autoStartThisServer = autoStartEnabled(autoStartSettings) && (activeServerId === null
+    ? !Array.isArray(autoStartSettings.autoStartServerIds)
+    : autoStartServerIds(autoStartSettings, activeServerId).includes(activeServerId))
+  // `server`: a row of the servers overview below; none means the active one.
+  const handleAutoStartChange = async (checked: boolean, server?: ServerInstance) => {
     if (!canChangePanelSettings) return
-    setAutoStartServer(checked)
+    const previous = autoStartSettings
+    const serverId = server ? String(server.id) : activeServerId
+    // No server record (a settings-only install): the switch alone, as before.
+    const update: AutoStartSettings = serverId === null
+      ? { autoStartServer: checked }
+      : {
+          ...(checked ? { autoStartServer: true } : {}),
+          autoStartServerIds: withAutoStartServer(autoStartServerIds(previous, activeServerId), serverId, checked),
+        }
+    setAutoStartSettings({ ...previous, ...update })
     try {
-      await configApi.updateAppSettings({ autoStartServer: checked })
+      await configApi.updateAppSettings(update)
+      const name = server ? server.name || server.serverName : null
       toast({
         title: checked ? t('toasts.autoStartEnabledTitle') : t('toasts.autoStartDisabledTitle'),
-        description: checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
+        description: name
+          ? t(checked ? 'serversOverview.autoStartOnDesc' : 'serversOverview.autoStartOffDesc', { name })
+          : checked ? t('toasts.autoStartEnabledDesc') : t('toasts.autoStartDisabledDesc'),
       })
     } catch (error) {
-      setAutoStartServer(!checked)
+      setAutoStartSettings(previous)
       toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('toasts.autoStartSaveFailed')), variant: 'destructive' })
+    }
+  }
+
+  // Whether the panel starts a server again when it goes down without being
+  // asked (server/services/serverWatch.js). `server`: a row of the servers
+  // overview; none means the active one.
+  const restartOnCrashThisServer = activeServerId !== null && restartOnCrashServerIds(autoStartSettings).includes(activeServerId)
+  const handleRestartOnCrashChange = async (checked: boolean, server?: ServerInstance) => {
+    if (!canChangePanelSettings) return
+    const target = server ?? activeServer
+    if (!target) return
+    const previous = autoStartSettings
+    const next = withAutoStartServer(restartOnCrashServerIds(previous), target.id, checked)
+    setAutoStartSettings({ ...previous, restartOnCrashServerIds: next })
+    try {
+      await configApi.updateAppSettings({ restartOnCrashServerIds: next })
+      const name = target.name || target.serverName
+      toast({
+        title: t(checked ? 'serversOverview.restartOnCrashOnTitle' : 'serversOverview.restartOnCrashOffTitle'),
+        description: t(checked ? 'serversOverview.restartOnCrashOnDesc' : 'serversOverview.restartOnCrashOffDesc', { name }),
+      })
+    } catch (error) {
+      setAutoStartSettings(previous)
+      toast({ title: t('toasts.errorTitle'), description: getUserErrorMessage(error, t('serversOverview.restartOnCrashSaveFailed')), variant: 'destructive' })
     }
   }
 
@@ -735,7 +800,8 @@ export default function Dashboard() {
   // server is known or changes, then every 5 minutes while visible. A failure
   // only hides the row; a reply for a server no longer active is dropped.
   const canManageMods = can('mods.manage')
-  const activeServerId = activeServer?.id ?? null
+  // activeServerId: the active server's id as a string, declared with the
+  // auto-start checkbox above.
   const modHealthGuard = useRequestGuard()
   useEffect(() => {
     if (activeServerId === null || !canManageMods) {
@@ -1107,6 +1173,13 @@ export default function Dashboard() {
       if (!isLifecycleAction && mountedRef.current) fetchStatus()
     } catch (error) {
       if (options?.handleError?.(error)) return
+      // Refused because something else holds the lifecycle lock: not a
+      // failure, so said plainly with what holds it.
+      const busy = lifecycleBusyFromError(error)
+      if (busy) {
+        toast({ title: t('lifecycleBusy.title', { ns: 'shell' }), description: busy })
+        return
+      }
       toast({
         title: t('toasts.errorTitle'),
         description: getUserErrorMessage(error, t('toasts.actionFailedFallback')),
@@ -1653,11 +1726,11 @@ export default function Dashboard() {
     <DisabledReason reason={
       isRemote ? t('actions.notAvailableRemote')
       : !canControlServer ? t('actions.noPermissionControl')
-      : null
+      : busyStart
     }>
       <Button
         onClick={startServer}
-        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer}
+        disabled={(hostUnknown && !scanUnknown) || loading !== null || isRemote || !canControlServer || busyStart !== null}
         variant="command"
         size="sm"
       >
@@ -1666,7 +1739,7 @@ export default function Dashboard() {
       </Button>
     </DisabledReason>
   ) : (
-    <DisabledReason reason={isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : null}>
+    <DisabledReason reason={isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyRestart}>
       <Button
         onClick={() => setConfirmAction({
           actionId: 'Restart server',
@@ -1675,7 +1748,7 @@ export default function Dashboard() {
           action: () => serverApi.restart(5),
           variant: 'warning',
         })}
-        disabled={loading !== null || !online || isRemote || !canControlServer}
+        disabled={loading !== null || !online || isRemote || !canControlServer || busyRestart !== null}
         variant="command"
         size="sm"
       >
@@ -1703,7 +1776,7 @@ export default function Dashboard() {
           : <RefreshCw className={refreshState === 'busy' ? 'animate-spin' : undefined} aria-hidden="true" />}
       </Button>
       {online && (
-        <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : null}>
+        <DisabledReason reason={!canControlServer ? t('actions.noPermissionControl') : busyStop}>
           <Button
             onClick={() => setConfirmAction({
               actionId: 'Stop server',
@@ -1714,7 +1787,7 @@ export default function Dashboard() {
               // a click): warning, not destructive-red.
               variant: 'warning',
             })}
-            disabled={loading !== null || !online || !canControlServer}
+            disabled={loading !== null || !online || !canControlServer || busyStop !== null}
             variant="outline"
             size="sm"
           >
@@ -1745,8 +1818,8 @@ export default function Dashboard() {
             variant: 'destructive',
           })
         },
-        disabled: loading !== null || isRemote || !canControlServer,
-        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        disabled: loading !== null || isRemote || !canControlServer || busyForceStop !== null,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyForceStop ?? undefined,
         hint: t('actions.forceStopTooltip'),
       },
       {
@@ -1770,8 +1843,8 @@ export default function Dashboard() {
             variant: 'destructive',
           })
         },
-        disabled: loading !== null || isRemote || !canControlServer,
-        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : undefined,
+        disabled: loading !== null || isRemote || !canControlServer || busyRestart !== null,
+        reason: isRemote ? t('actions.notAvailableRemote') : !canControlServer ? t('actions.noPermissionControl') : busyRestart ?? undefined,
       },
     )
   }
@@ -1981,6 +2054,15 @@ export default function Dashboard() {
           )}
         </SectionCard>
       )}
+      {/* ─── EVERY SERVER (two or more) ───────────────────────────────────── */}
+      <ServersOverview
+        activeServerId={activeServerId}
+        autoStartSettings={autoStartSettings}
+        canChangeAutoStart={canChangePanelSettings}
+        onAutoStartChange={(server, chosen) => handleAutoStartChange(chosen, server)}
+        onRestartOnCrashChange={(server, chosen) => handleRestartOnCrashChange(chosen, server)}
+        onShownChange={setServersOverviewShown}
+      />
 
       {/* ─── EVIDENCE AND WORK ──────────────────────────────────────────── */}
       <div className="grid content-start gap-6 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
@@ -2118,6 +2200,8 @@ export default function Dashboard() {
                   {t('maintenance.createBackup')}
                 </Button>
               </DisabledReason>
+              {/* With the servers overview on screen, each row has its own. */}
+              {!serversOverviewShown && (
               <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
                 <div className="min-w-0">
                   <Label htmlFor="autoStartServer" className="text-sm font-medium">
@@ -2128,12 +2212,31 @@ export default function Dashboard() {
                 <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
                   <Switch
                     id="autoStartServer"
-                    checked={autoStartServer}
+                    checked={autoStartThisServer}
                     disabled={!canChangePanelSettings}
                     onCheckedChange={(checked) => handleAutoStartChange(checked === true)}
                   />
                 </DisabledReason>
               </div>
+              )}
+              {!serversOverviewShown && activeServer && !activeServer.isRemote && (
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/25 p-3">
+                <div className="min-w-0">
+                  <Label htmlFor="restartOnCrash" className="text-sm font-medium">
+                    {t('serversOverview.restartOnCrashLabel')}
+                  </Label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">{t('serversOverview.restartOnCrashHint')}</p>
+                </div>
+                <DisabledReason reason={!canChangePanelSettings ? t('actions.noPermissionAutoStart') : null}>
+                  <Switch
+                    id="restartOnCrash"
+                    checked={restartOnCrashThisServer}
+                    disabled={!canChangePanelSettings}
+                    onCheckedChange={(checked) => handleRestartOnCrashChange(checked === true)}
+                  />
+                </DisabledReason>
+              </div>
+              )}
             </SectionCard>
           )}
 

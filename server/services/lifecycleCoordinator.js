@@ -7,6 +7,78 @@ export const LIFECYCLE_IN_PROGRESS_CODE = "SERVER_LIFECYCLE_IN_PROGRESS";
 let activeLock = null;
 let nextLockId = 0;
 let resolveServerDisplayName = null;
+// When the last lock naming each server was released ("" for a lock that
+// named none) -- see lifecycleActivityCovers().
+const lastReleasedAt = new Map();
+// A server's own hold, by server id, once its process is up and the panel
+// only waits for its RCON to answer (holdServerUntilRcon below). It refuses
+// operations for that server and operations for no server in particular,
+// but not the other servers' -- the wait takes 1-3 minutes and used to hold
+// the one process-wide lock for all of it.
+const serverHolds = new Map();
+// What refused the last acquireLifecycleLock(), for the 409 that follows it
+// when the refusal came from a server's hold rather than activeLock.
+let lastRefusal = null;
+// Told the lock state after every change (wired to a socket emit at boot), so
+// the client can show why a control is unavailable before it is clicked.
+let changeListener = null;
+
+export function setLifecycleChangeListener(listener) {
+  changeListener = typeof listener === "function" ? listener : null;
+}
+
+function notifyLifecycleChange() {
+  if (!changeListener) return;
+  try {
+    changeListener(getLifecycleState());
+  } catch (error) {
+    log.debug(`Lifecycle change listener failed: ${error?.message || error}`);
+  }
+}
+
+function normalizeServerId(serverId) {
+  return serverId !== null && serverId !== undefined ? String(serverId).trim() : "";
+}
+
+function displayNameOf(serverId) {
+  if (!serverId || !resolveServerDisplayName) return null;
+  try {
+    return resolveServerDisplayName(serverId) || null;
+  } catch {
+    return null;
+  }
+}
+
+function describeHolder(holder) {
+  if (!holder) return null;
+  return {
+    operation: holder.operation,
+    serverId: holder.serverId,
+    serverName: displayNameOf(holder.serverId),
+    phase: holder.phase ?? null,
+    since: holder.since ?? null,
+  };
+}
+
+// What would refuse an operation for `serverId` right now: the process-wide
+// lock, else that server's own hold -- or, for an operation with no server
+// in particular, any server's hold.
+function blockerFor(serverId) {
+  if (activeLock) return activeLock;
+  const id = normalizeServerId(serverId);
+  if (id) return serverHolds.get(id) ?? null;
+  for (const hold of serverHolds.values()) return hold;
+  return null;
+}
+
+// The lock and every server's hold, for GET /servers/lifecycle and the
+// lifecycle:state socket event.
+export function getLifecycleState() {
+  return {
+    lock: describeHolder(activeLock),
+    servers: [...serverHolds.values()].map(describeHolder),
+  };
+}
 
 // Injected, not statically imported from database/init.js, on purpose:
 // dozens of test files mock that module with only the exports THEY need
@@ -188,8 +260,17 @@ export function notifyServerLaunched(server, launchSeq) {
 // the lock or how it's released -- but a caller can no longer paper over
 // "I don't have the id" by passing a display name instead, which is the
 // property the eventual same-server SteamCMD guard needs.
-export function acquireLifecycleLock(operation = "lifecycle", serverId = null) {
-  if (activeLock) return null;
+//
+// `panelWide`: the operation names a server but changes something every
+// server's wait for RCON relies on -- switching the active server, whose
+// shared RCON connection a start of the active server is still polling --
+// so it waits for every server's hold, as an operation for no server does.
+export function acquireLifecycleLock(operation = "lifecycle", serverId = null, { panelWide = false } = {}) {
+  const blocker = blockerFor(panelWide ? null : serverId);
+  if (blocker) {
+    lastRefusal = blocker;
+    return null;
+  }
   return installLifecycleLock(operation, serverId);
 }
 
@@ -210,26 +291,82 @@ function installLifecycleLock(operation, serverId) {
     id: ++nextLockId,
     operation: String(operation || "lifecycle"),
     serverId: normalizedServerId || null,
+    phase: null,
+    since: Date.now(),
   };
   activeLock = token;
+  lastRefusal = null;
   let released = false;
+  notifyLifecycleChange();
 
   return {
     operation: token.operation,
+    serverId: token.serverId,
+    // Still the lock in force: not released, and not taken over by Stop
+    // (supersedeLifecycleLock).
+    isHeld() {
+      return !released && activeLock === token;
+    },
     release() {
       if (released) return;
       released = true;
       if (activeLock === token) activeLock = null;
+      lastReleasedAt.set(token.serverId ?? "", Date.now());
+      notifyLifecycleChange();
     },
   };
 }
 
-// Who holds the lock right now: { operation, serverId } or null. Read-only; a
-// caller that wants to wait for the holder or take over from it uses this to
-// decide whether that is allowed (see supersedeLifecycleLock).
-export function getLifecycleLockHolder() {
-  if (!activeLock) return null;
-  return { operation: activeLock.operation, serverId: activeLock.serverId };
+// Hands a start's lock over to a hold on its own server once the process is
+// up and all that is left is waiting for RCON (1-3 minutes; the callers give
+// up after 5). The process-wide lock is released at once, so the other
+// servers can start and stop meanwhile; this server, and the operations for
+// no server in particular, stay refused until the returned hold is released.
+// A lock that names no server can't be narrowed: it is kept, and null comes
+// back (the caller then releases that lock as before). Nor can a lock that
+// is no longer in force (a Stop took it over): there is nothing left to hand
+// on, and holding the server now would block that Stop's own server.
+export function holdServerUntilRcon(lock) {
+  const id = normalizeServerId(lock?.serverId);
+  if (!lock || !id) return null;
+  if (typeof lock.isHeld === "function" && !lock.isHeld()) return null;
+  const hold = {
+    id: ++nextLockId,
+    operation: lock.operation,
+    serverId: id,
+    phase: "waiting-for-rcon",
+    since: Date.now(),
+  };
+  serverHolds.set(id, hold);
+  lock.release();
+  let released = false;
+  return {
+    operation: hold.operation,
+    serverId: id,
+    release() {
+      if (released) return;
+      released = true;
+      if (serverHolds.get(id) !== hold) return;
+      serverHolds.delete(id);
+      lastReleasedAt.set(id, Date.now());
+      notifyLifecycleChange();
+    },
+  };
+}
+
+// What would refuse an operation for `serverId` right now -- the
+// process-wide lock as { operation, serverId }, or that server's hold with
+// its `phase` too -- or null. Read-only; a caller that wants to wait for the holder or
+// take over from it uses this to decide whether that is allowed (see
+// supersedeLifecycleLock).
+export function getLifecycleLockHolder(serverId = null) {
+  const holder = blockerFor(serverId);
+  if (!holder) return null;
+  return {
+    operation: holder.operation,
+    serverId: holder.serverId,
+    ...(holder.phase ? { phase: holder.phase } : {}),
+  };
 }
 
 // Takes the lock away from its current holder and hands it to the caller.
@@ -239,9 +376,39 @@ export function getLifecycleLockHolder() {
 // RCON), and an operator must be able to turn the server off at any point.
 // The previous holder's release() becomes a no-op (it only clears the lock it
 // still owns), so it can run to its end without freeing the new owner's lock.
+// A restart already waiting for RCON holds its server instead (see
+// holdServerUntilRcon): that hold is taken over the same way. The
+// process-wide lock is never taken from ANOTHER server's operation: that
+// refuses, as an acquire would.
 export function supersedeLifecycleLock(operation = "lifecycle", serverId = null) {
+  const id = normalizeServerId(serverId);
+  if (activeLock?.serverId && id && activeLock.serverId !== id) {
+    lastRefusal = activeLock;
+    return null;
+  }
   activeLock = null;
+  if (id) serverHolds.delete(id);
   return installLifecycleLock(operation, serverId);
+}
+
+// Whether a panel lifecycle operation could account for this server going
+// down: one is under way for it, or for no server in particular (boot
+// auto-start, an automatic update, /delete-files), or one ended within
+// `withinMs`. A Docker or service stop confirms before its lock is released,
+// but the watch that notices the process gone can tick a little later. The
+// server watch (services/serverWatch.js) reads it so a stop the panel made --
+// Stop, Restart, a wipe, a restore, an update -- is never taken for a crash.
+export function lifecycleActivityCovers(serverId, withinMs, now = Date.now()) {
+  const id =
+    serverId !== null && serverId !== undefined ? String(serverId).trim() : "";
+  if (activeLock && (!activeLock.serverId || activeLock.serverId === id)) {
+    return true;
+  }
+  if (id && serverHolds.has(id)) return true;
+  return [id, ""].some((key) => {
+    const at = lastReleasedAt.get(key);
+    return at !== undefined && now - at <= withinMs;
+  });
 }
 
 // Reads the CURRENT holder off `activeLock` directly rather than taking a
@@ -265,27 +432,37 @@ export function supersedeLifecycleLock(operation = "lifecycle", serverId = null)
 // resolver itself throws -- never prints a bare UUID or a placeholder. The
 // lock itself still only ever stores the id (acquireLifecycleLock is
 // untouched) -- only the message resolves a name from it.
+//
+// A refusal by a server's hold (holdServerUntilRcon) names that hold: the
+// process-wide lock is free then, and lastRefusal says what refused. Either
+// way `holder` carries the structured version ({ operation, serverId,
+// serverName, phase, since }) so the client can word the reason itself.
 export function lifecycleInProgressResponse() {
-  const holder = activeLock;
-  let displayName = null;
-  if (holder?.serverId && resolveServerDisplayName) {
-    try {
-      displayName = resolveServerDisplayName(holder.serverId) || null;
-    } catch {
-      displayName = null;
-    }
-  }
+  // A caller that refuses for a reason of its own after a successful acquire
+  // (one restart at a time, see restartOtherServer) gets whichever server
+  // is still waiting for its RCON, rather than the generic wording.
+  const holder =
+    activeLock ??
+    (lastRefusal?.phase && serverHolds.get(lastRefusal.serverId) === lastRefusal
+      ? lastRefusal
+      : (serverHolds.values().next().value ?? null));
+  const displayName = displayNameOf(holder?.serverId);
+  const waitingForRcon = holder?.phase === "waiting-for-rcon";
   const error =
     holder?.operation && displayName
-      ? `A '${holder.operation}' operation for '${displayName}' is already in progress`
+      ? waitingForRcon
+        ? `'${displayName}' is starting: the panel is waiting for its RCON to answer`
+        : `A '${holder.operation}' operation for '${displayName}' is already in progress`
       : holder?.operation
         ? `A '${holder.operation}' operation is already in progress`
         : "Another server lifecycle operation is already in progress";
-  return { error, code: LIFECYCLE_IN_PROGRESS_CODE };
+  return { error, code: LIFECYCLE_IN_PROGRESS_CODE, holder: describeHolder(holder) };
 }
 
+// Whether any lifecycle operation is under way -- a server waiting for its
+// RCON included.
 export function isLifecycleLocked() {
-  return activeLock !== null;
+  return activeLock !== null || serverHolds.size > 0;
 }
 
 // steamcmd-ops-never-check-the-lifecycle-lock, 2026-09-09: SteamCMD ops
@@ -310,8 +487,11 @@ export function isLifecycleLocked() {
 // checked something. This is a known, already-documented gap (2 of the 20
 // call sites), not a new one introduced here.
 export function isLifecycleLockedForServer(serverId) {
-  if (!activeLock?.serverId) return false;
   if (serverId === null || serverId === undefined) return false;
   const normalized = String(serverId).trim();
-  return normalized.length > 0 && activeLock.serverId === normalized;
+  if (!normalized) return false;
+  // A server waiting for its RCON is that server's operation too.
+  if (serverHolds.has(normalized)) return true;
+  if (!activeLock?.serverId) return false;
+  return activeLock.serverId === normalized;
 }

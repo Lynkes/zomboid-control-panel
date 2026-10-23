@@ -68,6 +68,8 @@ describe("a scheduled restart task whose start throws", () => {
       false,
       expect.stringContaining("start-server_Fresh.sh"),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 

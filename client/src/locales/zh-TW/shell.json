@@ -207,5 +207,6 @@
   },
   "pageHeader": {
     "breadcrumb": "導覽路徑"
-  }
+  },
+  "lifecycleBusy": { "title": "請稍候", "waitingForRcon": "{{server}} 正在啟動：等待其 RCON 回應。", "withServer": "{{server}} 的{{operation}}正在進行。", "noServer": "{{operation}}正在進行。", "operations": {"start":"啟動","stop":"停止","forceStop":"強制停止","restart":"重新啟動","update":"更新","restore":"備份還原","wipe":"清檔","delete":"檔案刪除","template":"範本套用","profile":"切換伺服器","autoStart":"自動啟動","bridge":"PanelBridge 交付方式切換","docker":"Docker 操作","other":"其他伺服器操作"} }
 }

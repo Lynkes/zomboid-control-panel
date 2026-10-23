@@ -54,6 +54,7 @@ import {
 import { useToast } from '@/components/ui/use-toast'
 import { useSocket } from '@/contexts/SocketContext'
 import { backupApi, serversApi, BackupStatus, ServerBackupArchive, BackupHistoryRecord, BackupSnapshot, type RestoreOutcome } from '@/lib/api'
+import { ScheduledBackupServers } from '@/components/backups/ScheduledBackupServers'
 import { cn } from '@/lib/utils'
 import { getUserErrorMessage } from '@/lib/errorMessage'
 import {
@@ -1779,6 +1780,9 @@ export default function Backups() {
               />
             </DisabledReason>
           </div>
+          {/* With two local servers or more: which of them the schedule
+              backs up. Saved at once, on its own. */}
+          <ScheduledBackupServers canManage={canManageBackups} />
           {/* The timezone line is already on screen, in the next-run
               block above, whenever the card has a verdict to show it. */}
           <BackupRestartOverlapNotice

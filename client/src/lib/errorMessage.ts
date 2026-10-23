@@ -1,6 +1,7 @@
 import { ApiError } from './api'
 import i18n from '@/i18n'
 import { extractTranslationParams, resolveRegisteredTranslation, type TranslationParams } from './paramTranslation'
+import { lifecycleBusyFromError } from './lifecycleBusy'
 
 // server/utils/errorCodes.js: 8 pre-i18n error codes ship a frozen
 // lower_snake_case wire value that client code already compares with ===
@@ -176,6 +177,11 @@ export function getResultErrorMessage(
 }
 
 export function getUserErrorMessage(error: unknown, fallback: string): string {
+  // The lifecycle lock's refusal carries who holds it: worded here in the
+  // user's language rather than the server's English sentence.
+  const busy = lifecycleBusyFromError(error)
+  if (busy) return busy
+
   const code = extractErrorCode(error)
   const params = extractErrorParams(error)
   const translated = code ? getRegisteredTranslation(code, params) : null

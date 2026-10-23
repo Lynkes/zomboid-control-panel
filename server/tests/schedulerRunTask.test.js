@@ -1034,6 +1034,8 @@ describe("performRestart() Schedule History labeling", () => {
       false,
       expect.stringContaining("RCON not available"),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 
@@ -1049,6 +1051,8 @@ describe("performRestart() Schedule History labeling", () => {
       false,
       expect.stringContaining("RCON not available"),
       expect.any(Number),
+      // The restart's own server (performRestart()'s pinnedServerId).
+      expect.any(Object),
     );
   });
 });
