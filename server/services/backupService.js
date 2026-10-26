@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { createWriteStream } from "fs";
-import archiver from "archiver";
+import { StreamingBackupArchive } from "./backupArchive.js";
 import { createReadStream } from "fs";
 import { crc32 } from "zlib";
 import { randomUUID } from "crypto";
@@ -1150,9 +1150,7 @@ export class BackupService {
 
     // Create zip archive
     const output = createWriteStream(tempBackupPath);
-    const archive = archiver("zip", {
-      zlib: { level: 6 }, // Moderate compression
-    });
+    const archive = new StreamingBackupArchive(tempBackupPath, output, { level: 6 });
 
     let filesProcessed = 0;
     // Every archive addition (saves-folder walk, the snapshot, db.json) goes
@@ -1258,6 +1256,7 @@ export class BackupService {
       };
 
       const finish = async () => {
+        await archive.settled();
         emitProgress("finalizing", 95, "Finalizing backup...");
 
         // Only now, with the archive fully written and closed, does it become
@@ -1421,8 +1420,6 @@ export class BackupService {
           fail(err, `Archive error: ${err.message}`);
         }
       });
-
-      archive.pipe(output);
 
       const appendBackupContents = async () => {
         try {
